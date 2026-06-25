@@ -2488,7 +2488,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
         for (auto& [methodKey, methodFunc] : hirClass->methods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
             installMethod(proto, methodKey, methodClosure);
         }
 
@@ -2544,7 +2544,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         // this, but class expressions and indirect access need it.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
             installMethod(ctorVal, methodName, methodClosure);
         }
 
@@ -11699,6 +11699,37 @@ void ASTToHIR::installClassMember(std::shared_ptr<HIRValue> recv,
         {recv, keyStr, closure}, HIRType::makeVoid());
 }
 
+std::string ASTToHIR::completeMethodSymbol(HIRClass* hirClass, const std::string& methodKey,
+                                           HIRFunction* fallback) {
+    // The Monomorphizer lowers a get/set accessor body into "<Class>_set_<name>" /
+    // "<Class>_get_<name>" (the symbol the instance vtable uses), while
+    // hirClass->methods often holds a separate EMPTY module-level placeholder
+    // "<Class>___setter_<name>" (body == `ret void`). The deferred install runs
+    // before the vtable is re-registered with the complete function, so resolve the
+    // monomorphized symbol by name directly and install that — otherwise a
+    // setter/getter invoked via `C.prototype[key]` runs the no-op placeholder.
+    if (hirClass) {
+        std::string cand;
+        if (methodKey.rfind("__setter_", 0) == 0)
+            cand = hirClass->name + "_set_" + methodKey.substr(9);
+        else if (methodKey.rfind("__getter_", 0) == 0)
+            cand = hirClass->name + "_get_" + methodKey.substr(9);
+        // The monomorphized C_set_/C_get_ body is emitted AFTER this deferred
+        // install runs, so it isn't in module_ yet — reference it by name and let
+        // the linker resolve it (it is present in the final module, used by the
+        // instance vtable). Redirect ONLY when the methods-map entry is an empty
+        // module-level STUB (body is just `ret`, the real body was monomorphized
+        // under cand). A literal-named accessor (`get 0x10`) keeps its complete
+        // body right here and must NOT be redirected.
+        if (!cand.empty() && fallback && fallback->name != cand) {
+            size_t instrCount = 0;
+            for (auto& b : fallback->blocks) instrCount += b->instructions.size();
+            if (instrCount <= 1) return cand;  // stub placeholder → use the real body
+        }
+    }
+    return fallback ? fallback->mangledName : std::string();
+}
+
 std::string ASTToHIR::computeClassMethodFuncName(const std::string& className,
                                                  ast::MethodDefinition* methodDef,
                                                  bool isComputedAccessor,
@@ -12346,7 +12377,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
                 if (!methodFunc) continue;
-                auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+                auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
                 installClassMember(proto, methodKey, methodClosure);  // non-enumerable
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
@@ -12356,7 +12387,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         // Install static methods on the constructor for dynamic access.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
             installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
         }
         return;
@@ -12924,7 +12955,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             if (!methodFunc) continue;  // skip abstract methods
 
             // Load the method as a closure (LoadFunction wraps in TsClosure)
-            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
 
             // Store on prototype: proto.methodName = closure (non-enumerable,
             // matching a class DECLARATION — createSetPropStatic made class-
@@ -12950,7 +12981,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // class-expression variables.
     for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
         if (!methodFunc) continue;
-        auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+        auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
         installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
     }
 }
