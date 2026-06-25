@@ -296,3 +296,24 @@ bool ts_value_is_callable(TsValue* val);
 // linkage (std::string / fs::path), so NOT inside an extern "C" block.
 std::string finalize_module_path(const fs::path& base);
 std::string resolve_node_module(const std::string& spec, const std::string& referrerPath);
+
+//---- Cross-TU prototypes for the TsObject_ObjectStatics.cpp split -----------
+// C++-linkage (defined before the big extern "C" block, or external globals):
+TsMap* getNativeProps(void* obj);
+TsMap* getOrCreateNativeProps(void* obj);
+extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
+inline bool nanbox_is_string_ptr(uint64_t nb) {
+    if (!nanbox_is_ptr(nb)) return false;
+    void* ptr = nanbox_to_ptr(nb);
+    return ts_is_any_string(ptr);
+}
+// C-linkage (inside the big extern "C" block in their defining TU):
+extern "C" {
+bool parse_canonical_array_index(const char* s, int64_t* out);
+TsValue* ts_func_props_view(TsMap* props, bool entries);
+TsString* ts_symbol_storage_key(TsSymbol* sym);
+bool array_index_attrs_get(TsArray* a, size_t idx, uint8_t* outAttrs);
+void array_index_attrs_clear(TsArray* a, size_t idx);
+void ts_array_prototype_bump_version();
+bool ts_array_is_prototype_map(void* maybeMap);
+}
