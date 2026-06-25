@@ -2421,7 +2421,21 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
     for (auto& ca : hirClass->computedAccessors) {
         if (!ca.func || !ca.keyExpr) continue;
         auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
-        auto closure = builder_.createLoadFunction(ca.func->name);
+        // Like named accessors, a computed get/set/method is lowered into a stub
+        // "<Class>___computed_acc_N" (`ret void`) here, with the real body emitted
+        // by the Monomorphizer as "<Class>_set_[computed]" / "_get_[computed]" /
+        // "_[computed]" (the symbol the instance vtable uses). Install that complete
+        // body so `C.prototype[key] = v` runs real code, not the no-op stub.
+        std::string fnName = ca.func->name;
+        if (hirClass) {
+            size_t instrCount = 0;
+            for (auto& b : ca.func->blocks) instrCount += b->instructions.size();
+            if (instrCount <= 1) {
+                std::string pfx = ca.isMethod ? "" : (ca.isSetter ? "set_" : "get_");
+                fnName = hirClass->name + "_" + pfx + "[computed]";
+            }
+        }
+        auto closure = builder_.createLoadFunction(fnName);
         auto recv = ca.isStatic ? ctorVal : proto;
         if (!recv) continue;
         const char* installFn = ca.isMethod
