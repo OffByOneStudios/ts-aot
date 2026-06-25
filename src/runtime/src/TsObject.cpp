@@ -640,6 +640,31 @@ static bool dispatch_map_chain_set(TsMap* start, const char* key,
     return false;
 }
 
+// Canonical GETTER-ONLY prototype-chain dispatch: walk the TsMap chain from
+// `start` and, on the first `__getter_<key>` slot, invoke it with `thisArg` and
+// return true (writing *out). Returns false if no getter exists in the chain.
+// Unlike resolve_map_chain_get this does NOT consult data slots — used where the
+// data lookup is handled separately afterwards (e.g. ts_object_get_dynamic's
+// TsMap branch, which interposes __proto__ / String-wrapper / Map.prototype
+// special cases between the getter scan and the data scan).
+static bool dispatch_map_chain_getter(TsMap* start, const char* key,
+                                      TsValue* thisArg, TsValue** out) {
+    if (!start || !key) return false;
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
+    TsMap* pm = start;
+    int guard = 0;
+    while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
+        TsValue gv = pm->Get(gk);
+        if (gv.type != ValueType::UNDEFINED) {
+            *out = invoke_accessor_getter(nanbox_from_tagged(gv), thisArg);
+            return true;
+        }
+        pm = pm->GetPrototype();
+    }
+    return false;
+}
+
 void ts_set_call_this(void* thisArg) {
     ts_call_this_value = thisArg;
 }
@@ -10559,21 +10584,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // First check for a getter (__getter_<propertyName>) - walk prototype chain
         if (keyStr) {
             const char* propName = keyStr->ToUtf8();
-            if (propName) {
-                std::string getterKey = std::string("__getter_") + propName;
-                TsValue gk;
-                gk.type = ValueType::STRING_PTR;
-                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-
-                TsMap* currentMap = map;
-                while (currentMap != nullptr) {
-                    TsValue getterVal = currentMap->Get(gk);
-                    if (getterVal.type != ValueType::UNDEFINED) {
-                        TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                        return invoke_accessor_getter(getterFunc, obj);
-                    }
-                    currentMap = currentMap->GetPrototype();
-                }
+            // Getter-only chain scan; data lookup happens further below (after the
+            // __proto__ / String-wrapper / Map.prototype special cases).
+            TsValue* gr = nullptr;
+            if (propName && dispatch_map_chain_getter(map, propName, obj, &gr)) {
+                return gr;
             }
         }
 
