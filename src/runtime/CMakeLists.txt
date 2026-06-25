@@ -64,6 +64,7 @@ add_library(tsruntime STATIC
     src/TsObject_Builtins.cpp
     src/TsObject_Module.cpp
     src/TsObject_ObjectStatics.cpp
+    src/TsObject_Call.cpp
     src/TsBoundFunction.cpp
     src/TsBigInt.cpp
     src/TsSymbol.cpp

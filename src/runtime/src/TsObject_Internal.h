@@ -317,3 +317,20 @@ void array_index_attrs_clear(TsArray* a, size_t idx);
 void ts_array_prototype_bump_version();
 bool ts_array_is_prototype_map(void* maybeMap);
 }
+
+//---- Cross-TU prototypes for the TsObject_Call.cpp split --------------------
+extern "C" {
+TsFunction* ts_extract_function(TsValue* boxedFunc);
+TsProxy* ts_extract_proxy(TsValue* boxedFunc);
+void* ts_value_get_element(void* param, int64_t index);
+TsValue* ts_new_from_constructor_impl(TsValue* constructorFn, int argc, TsValue** argv);
+}
+
+extern "C" {
+TsClosure* ts_extract_closure(TsValue* boxedFunc);
+TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
+}
+
+extern "C" {
+TsClosure* ts_funcptr_as_closure(void* funcPtr);
+}
