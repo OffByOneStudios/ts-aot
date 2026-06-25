@@ -7336,6 +7336,24 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle direct function call
     auto* ident = dynamic_cast<ast::Identifier*>(node->callee.get());
     if (ident) {
+        // requires-new: a class constructor invoked WITHOUT `new` throws a
+        // TypeError (a class's [[Call]] is non-callable per ECMA-262 — only
+        // [[Construct]] is allowed). `new C()` is a NewExpression (handled in
+        // visitNewExpression, not here) and `super()` is a SuperExpression, so
+        // neither reaches this bare-class-identifier call path.
+        for (auto& cls : module_->classes) {
+            if (cls && cls->name == ident->name) {
+                for (auto& a : node->arguments) lowerExpression(a.get());  // args evaluated for side effects
+                auto nameStr = builder_.createConstString("TypeError");
+                auto msg = builder_.createConstString(
+                    "Class constructor " + ident->name + " cannot be invoked without 'new'");
+                auto err = builder_.createCall("ts_error_create_typed_js",
+                    {nameStr, msg}, HIRType::makeAny());
+                builder_.createThrow(err);
+                lastValue_ = builder_.createConstUndefined();
+                return;
+            }
+        }
         // GC verification-harness builtins (GC-001). Handled FIRST so the
         // analyzer's FunctionType registration can't divert them to a weak
         // undefined-returning stub. Drive/inspect the collector from compiled
