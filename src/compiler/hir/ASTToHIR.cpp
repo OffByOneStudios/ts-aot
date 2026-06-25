@@ -3060,13 +3060,6 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
     }
 
-    // If this is user_main (or the synthetic equivalent for top-level
-    // scripts), emit deferred static property initializations and class
-    // prototype installs at the very start of the function body.
-    if (node->name == "user_main" || node->name == "__synthetic_user_main") {
-        emitDeferredStaticInits();
-    }
-
     // JavaScript function hoisting: pre-declare nested function names as variables
     // This allows functions to be called before they appear in source order.
     // We create allocas for function names, which will be filled when the function
@@ -3133,6 +3126,16 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
             defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
         }
+    }
+
+    // If this is user_main (or the synthetic equivalent for top-level scripts),
+    // emit deferred static property initializations and class prototype installs.
+    // This must run AFTER the var/let/const hoisting above (which creates the
+    // function-local slots) but before the body: a class's computed accessor key
+    // (e.g. `get [_ = 'str'+'ing']()`) is evaluated here and may assign to a
+    // hoisted variable — if its slot doesn't exist yet the write crashes.
+    if (node->name == "user_main" || node->name == "__synthetic_user_main") {
+        emitDeferredStaticInits();
     }
 
     // Lower function body in two passes for proper JavaScript function hoisting:
