@@ -300,6 +300,39 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
         }
     }
 
+    // Computed / dynamically-installed setters live on the CLASS PROTOTYPE map
+    // (`set [k](v)`), NOT in the instance vtable, so the vtable scan above misses
+    // them and `inst[key] = v` silently stored a data property instead of running
+    // the setter. Walk to the prototype the same way the get path does
+    // (desc->constructorSlot -> ctor -> "prototype") and dispatch `__setter_<key>`
+    // before falling through to the overflow store. Pass the RAW flat-object
+    // pointer (TsValue*)obj as `this` (already a valid NaN-boxed pointer) and the
+    // already-NaN-boxed `value` as the sole arg (matches the working getter/MAPS
+    // walk convention).
+    if (desc->constructorSlot) {
+        TsValue* ctorVal = *(TsValue**)desc->constructorSlot;
+        if (ctorVal) {
+            extern TsValue* ts_object_get_property(void* o, const char* k);
+            extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+            TsValue* protoVal = ts_object_get_property((void*)ctorVal, "prototype");
+            if (protoVal) {
+                uint64_t protoNb = nanbox_from_tsvalue_ptr(protoVal);
+                if (nanbox_is_ptr(protoNb)) {
+                    void* protoObj = nanbox_to_ptr(protoNb);
+                    if (protoObj) {
+                        std::string setterKey = std::string("__setter_") + key;
+                        TsValue* setterVal = ts_object_get_property(protoObj, setterKey.c_str());
+                        if (setterVal && nanbox_from_tsvalue_ptr(setterVal) != NANBOX_UNDEFINED) {
+                            TsValue* argv[] = { (TsValue*)value };
+                            ts_function_call_with_this(setterVal, (TsValue*)obj, 1, argv);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Property not in shape - use overflow map
     void** overflowPtr = (void**)((char*)obj + 16 + desc->numSlots * 8);
     TsMap* overflow = (TsMap*)*overflowPtr;
