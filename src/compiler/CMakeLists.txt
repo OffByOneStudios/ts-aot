@@ -82,6 +82,7 @@ add_library(tscompiler_lib STATIC
     codegen/TsAotGC.cpp
     hir/HIR.cpp
     hir/ASTToHIR.cpp
+    hir/ASTToHIR_Classes.cpp
     hir/HIRPrinter.cpp
     hir/HIRToLLVM.cpp
     hir/BuiltinRegistry.cpp
