@@ -616,6 +616,30 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
     return false;
 }
 
+// Canonical TsMap prototype-chain SETTER dispatch (the `__setter_<key>` walk that
+// was copy-pasted across the set paths). Walks from `start`; on the first
+// `__setter_<key>` slot found, invokes it as setter(thisArg, value) and returns
+// true. Returns false if no setter is present in the chain (caller does the
+// ordinary data-property store). `thisArg`/`value` are NaN-boxed TsValue*.
+static bool dispatch_map_chain_set(TsMap* start, const char* key,
+                                   TsValue* thisArg, TsValue* value) {
+    if (!start || !key) return false;
+    TsValue sk; sk.type = ValueType::STRING_PTR;
+    sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
+    TsMap* pm = start;
+    int guard = 0;
+    while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
+        TsValue sv = pm->Get(sk);
+        if (sv.type != ValueType::UNDEFINED) {
+            TsValue* args[] = { value };
+            ts_function_call_with_this(nanbox_from_tagged(sv), thisArg, 1, args);
+            return true;
+        }
+        pm = pm->GetPrototype();
+    }
+    return false;
+}
+
 void ts_set_call_this(void* thisArg) {
     ts_call_this_value = thisArg;
 }
@@ -11308,25 +11332,10 @@ TsValue* ts_value_make_int(int64_t i) {
 
             // Check for a setter (__setter_<propertyName>), walking prototype chain
             const char* keyCStr = keyStr->ToUtf8();
-            if (keyCStr) {
-                std::string setterKey = std::string("__setter_") + keyCStr;
-                TsValue sk;
-                sk.type = ValueType::STRING_PTR;
-                sk.ptr_val = TsString::GetInterned(setterKey.c_str());
-                TsMap* currentMap = map;
-                while (currentMap) {
-                    TsValue setterVal = currentMap->Get(sk);
-                    if (setterVal.type != ValueType::UNDEFINED) {
-                        // Found a setter - invoke with 'this' as the ORIGINAL object
-                        TsValue* boxedObj = nanbox_from_tagged(obj);
-                        TsValue* setterFunc = nanbox_from_tagged(setterVal);
-                        TsValue* boxedVal = nanbox_from_tagged(value);
-                        TsValue* args[] = { boxedVal };
-                        ts_function_call_with_this(setterFunc, boxedObj, 1, args);
-                        return value;
-                    }
-                    currentMap = currentMap->GetPrototype();
-                }
+            if (keyCStr && dispatch_map_chain_set(map, keyCStr,
+                                                  nanbox_from_tagged(obj),
+                                                  nanbox_from_tagged(value))) {
+                return value;
             }
 
             // Intercept __proto__ assignment
