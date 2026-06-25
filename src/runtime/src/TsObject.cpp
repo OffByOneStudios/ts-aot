@@ -580,6 +580,42 @@ static TsValue* invoke_accessor_getter(TsValue* getterFunc, TsValue* thisObj) {
 // it can replace their loose strtoul classification with the strict rule.
 static bool parse_canonical_array_index(const char* s, int64_t* out);
 
+// Canonical TsMap prototype-chain property RESOLUTION (the getter+data walk that
+// was copy-pasted across ts_object_get_property / ts_object_get_dynamic / ...).
+// Walks from `start` up the [[Prototype]] chain: at each level a
+// `__getter_<key>` accessor slot is invoked with `thisArg` (via the shared
+// invoke_accessor_getter); otherwise a plain data `<key>` slot is returned.
+// On the first hit writes *out and returns true; returns false if `key` is
+// absent in the whole chain (caller falls through to builtins/undefined).
+// The getter-then-data order WITHIN each level is load-bearing (a shadowing
+// data prop on a nearer prototype must win over an inherited getter), so the
+// two lookups stay interleaved exactly as the originals had them.
+static TsValue* invoke_accessor_getter(TsValue* getterFunc, TsValue* thisObj);
+static bool resolve_map_chain_get(TsMap* start, const char* key,
+                                  TsValue* thisArg, TsValue** out) {
+    if (!start || !key) return false;
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
+    TsValue dk; dk.type = ValueType::STRING_PTR;
+    dk.ptr_val = TsString::GetInterned(key);
+    TsMap* pm = start;
+    int guard = 0;
+    while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
+        TsValue gv = pm->Get(gk);
+        if (gv.type != ValueType::UNDEFINED) {
+            *out = invoke_accessor_getter(nanbox_from_tagged(gv), thisArg);
+            return true;
+        }
+        TsValue dv = pm->Get(dk);
+        if (dv.type != ValueType::UNDEFINED) {
+            *out = nanbox_from_tagged(dv);
+            return true;
+        }
+        pm = pm->GetPrototype();
+    }
+    return false;
+}
+
 void ts_set_call_this(void* thisArg) {
     ts_call_this_value = thisArg;
 }
@@ -4707,32 +4743,11 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             // Walk the prototype chain looking for the property
-            TsMap* currentMap = map;
-            while (currentMap != nullptr) {
-                // First check for a getter (__getter_<propertyName>)
-                std::string getterKey = std::string("__getter_") + keyStr;
-                TsValue gk;
-                gk.type = ValueType::STRING_PTR;
-                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-                TsValue getterVal = currentMap->Get(gk);
-                if (getterVal.type != ValueType::UNDEFINED) {
-                    // Found a getter - invoke it with 'this' as the ORIGINAL object
-                    TsValue* boxedObj = (TsValue*)obj;  // NaN-boxed pointer IS obj
-                    TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                    return invoke_accessor_getter(getterFunc, boxedObj);
-                }
-
-                // No getter - look up the property directly
-                TsValue k;
-                k.type = ValueType::STRING_PTR;
-                k.ptr_val = TsString::GetInterned(keyStr);
-                TsValue val = currentMap->Get(k);
-                if (val.type != ValueType::UNDEFINED) {
-                    return nanbox_from_tagged(val);
-                }
-
-                // Move to the next prototype in the chain
-                currentMap = currentMap->GetPrototype();
+            // Canonical prototype-chain getter+data resolution (start at the
+            // object's own map; see resolve_map_chain_get).
+            TsValue* resolved = nullptr;
+            if (resolve_map_chain_get(map, keyStr, (TsValue*)obj, &resolved)) {
+                return resolved;
             }
 
             // If not found in the prototype chain, check Object.prototype methods
