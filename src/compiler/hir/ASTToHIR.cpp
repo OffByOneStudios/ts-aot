@@ -7329,6 +7329,19 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
         // Fallback: Dynamic method call
         auto obj = lowerExpression(propAccess->expression.get());
+        // Private method CALL (`obj.#m()`) on an untyped receiver: brand-check the
+        // method access (ts_object_get_private throws if the receiver lacks #m),
+        // then invoke it with `this = obj`. A typed receiver is a provable instance
+        // and keeps the normal dispatch.
+        if (!propAccess->name.empty() && propAccess->name[0] == '#'
+            && obj->type && obj->type->kind == HIRTypeKind::Any) {
+            auto keyStr = builder_.createConstString(propAccess->name);
+            auto boxedObj = boxValueIfNeeded(obj);
+            auto func = builder_.createCall("ts_object_get_private",
+                {boxedObj, keyStr}, HIRType::makeAny());
+            lastValue_ = builder_.createCallWithThis(func, boxedObj, args, HIRType::makeAny());
+            return;
+        }
         lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
         return;
     }
