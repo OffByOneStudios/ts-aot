@@ -10007,8 +10007,20 @@ TsValue* ts_value_make_int(int64_t i) {
                 // with `{}` keys read undefined / has()=false). Re-box `key`
                 // to the canonical string too, since the TsMap lookup below
                 // hashes by `key` (mirrors the Symbol re-box).
-                extern void* ts_string_from_value(TsValue* val);
-                keyStr = (TsString*)ts_string_from_value(key);
+                // EXCEPTION — a function/closure key: the install side
+                // (ts_property_key_string -> ts_value_get_string) ToStrings it
+                // to "function name() { [native code] }", but ts_string_from_value
+                // falls through to "[object Object]", so a computed method key
+                // `class C { [() => {}](){} }` was installed under one string and
+                // read under another (-> undefined). Use the install's derivation
+                // for function keys so install and read agree.
+                uint32_t km16 = *(uint32_t*)((char*)keyPtr + 16);
+                if (km16 == 0x434C5352 /*TsClosure CLSR*/ || km16 == 0x46554E43 /*TsFunction FUNC*/) {
+                    keyStr = (TsString*)ts_value_get_string(key);
+                } else {
+                    extern void* ts_string_from_value(TsValue* val);
+                    keyStr = (TsString*)ts_string_from_value(key);
+                }
                 if (keyStr) key = ts_value_make_string(keyStr);
             }
         }
