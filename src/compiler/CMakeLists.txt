@@ -88,6 +88,8 @@ add_library(tscompiler_lib STATIC
     hir/ASTToHIR_Expressions_Binary.cpp
     hir/ASTToHIR_Expressions_Calls.cpp
     hir/ASTToHIR_Expressions_Other.cpp
+    hir/ASTToHIR_Helpers.cpp
+    hir/ASTToHIR_Misc.cpp
     hir/HIRPrinter.cpp
     hir/HIRToLLVM.cpp
     hir/BuiltinRegistry.cpp
