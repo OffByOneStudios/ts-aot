@@ -61,6 +61,7 @@ add_library(tsruntime STATIC
     src/TsWeakRef.cpp
     src/TsObject.cpp
     src/TsObject_Value.cpp
+    src/TsObject_Builtins.cpp
     src/TsBoundFunction.cpp
     src/TsBigInt.cpp
     src/TsSymbol.cpp
