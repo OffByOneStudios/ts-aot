@@ -92,6 +92,13 @@ add_library(tscompiler_lib STATIC
     hir/ASTToHIR_Misc.cpp
     hir/HIRPrinter.cpp
     hir/HIRToLLVM.cpp
+    hir/HIRToLLVM_Functions.cpp
+    hir/HIRToLLVM_Instructions.cpp
+    hir/HIRToLLVM_Memory.cpp
+    hir/HIRToLLVM_Calls.cpp
+    hir/HIRToLLVM_CallsMethod.cpp
+    hir/HIRToLLVM_Closures.cpp
+    hir/HIRToLLVM_ControlFlow.cpp
     hir/BuiltinRegistry.cpp
     hir/LoweringRegistry.cpp
     hir/handlers/HandlerRegistry.cpp
