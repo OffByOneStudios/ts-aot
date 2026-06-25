@@ -377,7 +377,7 @@ private:
     // whose real (monomorphized) body lives under the vtable entry's mangledName;
     // prefer that. Returns the module function symbol to install on the prototype.
     std::string completeMethodSymbol(HIRClass* hirClass, const std::string& methodKey,
-                                     HIRFunction* fallback);
+                                     HIRFunction* fallback, bool isStatic = false);
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override;
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override;
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override;

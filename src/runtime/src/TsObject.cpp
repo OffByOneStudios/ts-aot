@@ -11174,6 +11174,25 @@ TsValue* ts_value_make_int(int64_t i) {
                 closure->properties = TsMap::Create();
                 ts_gc_write_barrier(&closure->properties, closure->properties);
             }
+            // Static set accessor: `C.prop = v` on a class constructor must
+            // dispatch to a `__setter_<prop>` stored on the constructor closure
+            // (mirrors the MAPS setter walk below), not install a data property.
+            if (keyStr) {
+                const char* kc = keyStr->ToUtf8();
+                if (kc) {
+                    TsValue sk; sk.type = ValueType::STRING_PTR;
+                    sk.ptr_val = TsString::GetInterned((std::string("__setter_") + kc).c_str());
+                    TsValue setterVal = closure->properties->Get(sk);
+                    if (setterVal.type != ValueType::UNDEFINED) {
+                        TsValue* setterFunc = nanbox_from_tagged(setterVal);
+                        TsValue* boxedObj = nanbox_from_tagged(obj);
+                        TsValue* boxedVal = nanbox_from_tagged(value);
+                        TsValue* args[] = { boxedVal };
+                        ts_function_call_with_this(setterFunc, boxedObj, 1, args);
+                        return value;
+                    }
+                }
+            }
             // OrdinarySet: honor writable:false on the properties map.
             if (closure->properties->Has(key)) {
                 uint8_t a = closure->properties->GetPropertyAttrs(key);

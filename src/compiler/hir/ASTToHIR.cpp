@@ -2432,7 +2432,8 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
             for (auto& b : ca.func->blocks) instrCount += b->instructions.size();
             if (instrCount <= 1) {
                 std::string pfx = ca.isMethod ? "" : (ca.isSetter ? "set_" : "get_");
-                fnName = hirClass->name + "_" + pfx + "[computed]";
+                std::string smark = ca.isStatic ? "static_" : "";
+                fnName = hirClass->name + "_" + smark + pfx + "[computed]";
             }
         }
         auto closure = builder_.createLoadFunction(fnName);
@@ -2558,7 +2559,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         // this, but class expressions and indirect access need it.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
+            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
             installMethod(ctorVal, methodName, methodClosure);
         }
 
@@ -11714,7 +11715,7 @@ void ASTToHIR::installClassMember(std::shared_ptr<HIRValue> recv,
 }
 
 std::string ASTToHIR::completeMethodSymbol(HIRClass* hirClass, const std::string& methodKey,
-                                           HIRFunction* fallback) {
+                                           HIRFunction* fallback, bool isStatic) {
     // The Monomorphizer lowers a get/set accessor body into "<Class>_set_<name>" /
     // "<Class>_get_<name>" (the symbol the instance vtable uses), while
     // hirClass->methods often holds a separate EMPTY module-level placeholder
@@ -11723,11 +11724,12 @@ std::string ASTToHIR::completeMethodSymbol(HIRClass* hirClass, const std::string
     // monomorphized symbol by name directly and install that — otherwise a
     // setter/getter invoked via `C.prototype[key]` runs the no-op placeholder.
     if (hirClass) {
+        std::string smark = isStatic ? "static_" : "";
         std::string cand;
         if (methodKey.rfind("__setter_", 0) == 0)
-            cand = hirClass->name + "_set_" + methodKey.substr(9);
+            cand = hirClass->name + "_" + smark + "set_" + methodKey.substr(9);
         else if (methodKey.rfind("__getter_", 0) == 0)
-            cand = hirClass->name + "_get_" + methodKey.substr(9);
+            cand = hirClass->name + "_" + smark + "get_" + methodKey.substr(9);
         // The monomorphized C_set_/C_get_ body is emitted AFTER this deferred
         // install runs, so it isn't in module_ yet — reference it by name and let
         // the linker resolve it (it is present in the final module, used by the
@@ -12401,7 +12403,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         // Install static methods on the constructor for dynamic access.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
+            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
             installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
         }
         return;
@@ -12995,7 +12997,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // class-expression variables.
     for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
         if (!methodFunc) continue;
-        auto methodClosure = builder_.createLoadFunction(methodFunc->mangledName);
+        auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
         installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
     }
 }
