@@ -6373,14 +6373,17 @@ TsValue* ts_value_make_int(int64_t i) {
             // slot swallow the first real argument. ts_call_with_this_0..4 honor is_method,
             // so route fixed-arity method closures through them. A rest param still needs
             // the packing ts_function_call provides, so only take this path with no rest.
-            if (closure->is_method && closure->rest_param_index < 0 && argc >= 0 && argc <= 4) {
-                switch (argc) {
-                    case 0:  result = ts_call_with_this_0(boxedFunc, thisArg); break;
-                    case 1:  result = ts_call_with_this_1(boxedFunc, thisArg, argv[0]); break;
-                    case 2:  result = ts_call_with_this_2(boxedFunc, thisArg, argv[0], argv[1]); break;
-                    case 3:  result = ts_call_with_this_3(boxedFunc, thisArg, argv[0], argv[1], argv[2]); break;
-                    default: result = ts_call_with_this_4(boxedFunc, thisArg, argv[0], argv[1], argv[2], argv[3]); break;
-                }
+            if (closure->is_method && closure->rest_param_index < 0) {
+                // Honor is_method (Convention B: this-first) for ALL arities, not
+                // just argc<=4. call_dispatch_with_this routes through
+                // call_closure_padded10_method / call_closure_method_exact (up to
+                // 16 params). The old argc<=4 cap fell through to Convention-A
+                // ts_function_call for 5+ args, so the `this` slot swallowed arg0
+                // and every real argument shifted left by one — breaking method
+                // calls via .apply / Reflect.apply / spread / the >9-arg dynamic
+                // dispatch. (Rest-param methods still need the arg packing that
+                // ts_function_call provides; they keep that path for now.)
+                result = call_dispatch_with_this(boxedFunc, thisArg, argc, argv);
             } else {
                 result = ts_function_call(boxedFunc, argc, argv);
             }
