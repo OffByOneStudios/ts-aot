@@ -80,6 +80,24 @@ static std::unique_ptr<ast::Statement> makeConsoleLogStatement(const std::string
     return logStmt;
 }
 
+// Build a synthetic `__ts_install_computed_accessors("ClassName")` statement.
+// Injected into __module_init at a top-level class declaration's SOURCE position so
+// a computed member key that references a module variable (`const S = Symbol();
+// class D { [S](){} }`) is installed AFTER that variable is initialized — the hoisted
+// pre-module_init class flush evaluates the key while the variable is still null.
+static std::unique_ptr<ast::Statement> makeComputedInstallTrigger(const std::string& className) {
+    auto call = std::make_unique<ast::CallExpression>();
+    auto callee = std::make_unique<ast::Identifier>();
+    callee->name = "__ts_install_computed_accessors";
+    call->callee = std::move(callee);
+    auto arg = std::make_unique<ast::StringLiteral>();
+    arg->value = className;
+    call->arguments.push_back(std::move(arg));
+    auto stmt = std::make_unique<ast::ExpressionStatement>();
+    stmt->expression = std::move(call);
+    return stmt;
+}
+
 // Forward declarations for require() rewriting
 static void rewriteRequireInExpr(ast::Expression* expr,
     ModuleResolver& resolver, const std::string& fromPath);
@@ -667,6 +685,29 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
 
             if (keepInNewBody) {
+                // A top-level class with a plain-identifier computed member key
+                // (`[S]`) needs its computed install run AT this source position in
+                // __module_init — after the variable the key reads is initialized —
+                // not at the hoisted class flush that precedes __module_init. Inject
+                // a trigger here; re-reading an Identifier key is side-effect-free,
+                // and the early flush no-ops on the still-null key. (Self-assigning /
+                // well-known keys already work via the flush, so they're excluded.)
+                if (kind == "ClassDeclaration") {
+                    if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                        bool identComputed = false;
+                        for (auto& m : cd->members) {
+                            ast::Node* nn = nullptr;
+                            if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) nn = md->nameNode.get();
+                            if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(nn)) {
+                                if (cpn->expression && dynamic_cast<ast::Identifier*>(cpn->expression.get())) {
+                                    identComputed = true; break;
+                                }
+                            }
+                        }
+                        if (identComputed && !cd->name.empty())
+                            moduleInit->body.push_back(makeComputedInstallTrigger(cd->name));
+                    }
+                }
                 newBody.push_back(std::move(stmt));
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init

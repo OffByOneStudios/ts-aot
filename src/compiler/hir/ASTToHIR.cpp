@@ -7361,6 +7361,24 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle direct function call
     auto* ident = dynamic_cast<ast::Identifier*>(node->callee.get());
     if (ident) {
+        // Synthetic computed-accessor install trigger (injected by the Monomorphizer
+        // into __module_init at a top-level class's source position). Runs the
+        // computed install now that the variables its keys read are initialized.
+        if (ident->name == "__ts_install_computed_accessors") {
+            if (!node->arguments.empty()) {
+                if (auto* lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
+                    HIRClass* hc = nullptr;
+                    for (auto& c : module_->classes) if (c && c->name == lit->value) { hc = c.get(); break; }
+                    if (hc && !hc->computedAccessors.empty()) {
+                        auto ctorVal = builder_.createLoadFunction(hc->name + "_constructor");
+                        auto proto = builder_.createGetPropStatic(ctorVal, "prototype", HIRType::makeAny());
+                        emitComputedAccessorInstalls(hc, proto, ctorVal);
+                    }
+                }
+            }
+            lastValue_ = builder_.createConstUndefined();
+            return;
+        }
         // requires-new: a class constructor invoked WITHOUT `new` throws a
         // TypeError (a class's [[Call]] is non-callable per ECMA-262 — only
         // [[Construct]] is allowed). `new C()` is a NewExpression (handled in
