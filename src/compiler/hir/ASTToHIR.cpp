@@ -2421,16 +2421,19 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
     for (auto& ca : hirClass->computedAccessors) {
         if (!ca.func || !ca.keyExpr) continue;
         auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
-        // Like named accessors, a computed get/set/method is lowered into a stub
-        // "<Class>___computed_acc_N" (`ret void`) here, with the real body emitted
-        // by the Monomorphizer as "<Class>_set_[computed]" / "_get_[computed]" /
-        // "_[computed]" (the symbol the instance vtable uses). Install that complete
-        // body so `C.prototype[key] = v` runs real code, not the no-op stub.
+        // Redirect to the Monomorphizer-emitted "<Class>_set_[computed]" /
+        // "_get_[computed]" / "_[computed]" copy when ca.func is unusable: either an
+        // EMPTY accessor placeholder (instrCount<=1) OR a body lowered at MODULE level
+        // (class DECLARATION: currentFunc==null), where module-scope variables aren't
+        // bound so a free var like `g` in `[k]() { return g; }` resolved to a constant
+        // `undefined` (inttoptr i64 10) instead of `load @__modvar_g`. For a class
+        // EXPRESSION the body is lowered in a real function context (correct) and the
+        // monomorphized "[computed]" copy may not exist — keep ca.func there.
         std::string fnName = ca.func->name;
         if (hirClass) {
             size_t instrCount = 0;
             for (auto& b : ca.func->blocks) instrCount += b->instructions.size();
-            if (instrCount <= 1) {
+            if (instrCount <= 1 || ca.moduleLevelBody) {
                 std::string pfx = ca.isMethod ? "" : (ca.isSetter ? "set_" : "get_");
                 std::string smark = ca.isStatic ? "static_" : "";
                 fnName = hirClass->name + "_" + smark + pfx + "[computed]";
@@ -12268,7 +12271,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 bool isMethod = !methodDef->isGetter && !methodDef->isSetter;
                 hirClass->computedAccessors.push_back(
                     {cpn ? cpn->expression.get() : nullptr, funcPtr,
-                     methodDef->isSetter, methodDef->isStatic, isMethod});
+                     methodDef->isSetter, methodDef->isStatic, isMethod,
+                     /*moduleLevelBody=*/currentFunction_ == nullptr});
             } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
@@ -12880,7 +12884,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 bool isMethod = !methodDef->isGetter && !methodDef->isSetter;
                 hirClass->computedAccessors.push_back(
                     {cpn ? cpn->expression.get() : nullptr, funcPtr,
-                     methodDef->isSetter, methodDef->isStatic, isMethod});
+                     methodDef->isSetter, methodDef->isStatic, isMethod,
+                     /*moduleLevelBody=*/false});  // class EXPRESSION: ca.func lowered with module vars bound -> correct
             } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {

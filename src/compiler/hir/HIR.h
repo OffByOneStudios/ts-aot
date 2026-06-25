@@ -529,6 +529,8 @@ struct HIRClass {
         bool isSetter = false;
         bool isStatic = false;
         bool isMethod = false;  // computed-name regular method (not get/set) -> install with no __getter_/__setter_ prefix
+        bool moduleLevelBody = false;  // func body lowered at module level (currentFunc==null): free module-var refs
+                                       // resolved to constant undefined, so install the monomorphized "[computed]" copy instead
     };
     std::vector<ComputedAccessor> computedAccessors;
 
