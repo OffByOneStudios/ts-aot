@@ -76,6 +76,7 @@ extern "C" void* g_ts_proxy_vtable;
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+namespace fs = std::filesystem;  // matches the alias used in TsObject.cpp
 #include <fstream>
 #include <iterator>
 #include <vector>
@@ -289,3 +290,9 @@ TsValue* ts_date_setUTCMonth_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_setUTCSeconds_native(void* ctx, int argc, TsValue** argv);
 bool ts_value_is_callable(TsValue* val);
 }
+
+//---- Cross-TU C++-linkage prototypes (module path helpers) ------------------
+// Defined in TsObject.cpp; called from TsObject_Module.cpp (ts_require). C++
+// linkage (std::string / fs::path), so NOT inside an extern "C" block.
+std::string finalize_module_path(const fs::path& base);
+std::string resolve_node_module(const std::string& spec, const std::string& referrerPath);
