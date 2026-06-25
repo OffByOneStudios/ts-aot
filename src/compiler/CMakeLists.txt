@@ -84,6 +84,7 @@ add_library(tscompiler_lib STATIC
     hir/ASTToHIR.cpp
     hir/ASTToHIR_Classes.cpp
     hir/ASTToHIR_Functions.cpp
+    hir/ASTToHIR_Statements.cpp
     hir/HIRPrinter.cpp
     hir/HIRToLLVM.cpp
     hir/BuiltinRegistry.cpp
