@@ -9320,6 +9320,20 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Private member READ (`obj.#x`): per ECMA-262, accessing a private name on
+    // an object that does not have it is a TypeError (brand check), NOT undefined.
+    // `obj.#x` and the string key `obj["#x"]` both lower to a "#x" get, so the
+    // brand check can't live in the runtime get — emit a distinct private-get.
+    // Only when the receiver is statically untyped (Any): a typed `this.#x` is
+    // provably an instance of the declaring class, so it keeps the typed
+    // createGetPropStatic path (which also unboxes to the field's type).
+    if (!node->name.empty() && node->name[0] == '#'
+        && obj->type && obj->type->kind == HIRTypeKind::Any) {
+        auto keyStr = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_object_get_private", {obj, keyStr}, HIRType::makeAny());
+        return;
+    }
+
     lastValue_ = builder_.createGetPropStatic(obj, node->name, propType);
 }
 

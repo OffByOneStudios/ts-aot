@@ -9791,6 +9791,45 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
+    // Private member READ with brand check (ECMA-262): reading `obj.#x` from an
+    // object that does not have the private name `#x` is a TypeError, not
+    // undefined. The member is stored under the hidden "\x01#x" key; if that slot
+    // is absent the receiver isn't an instance of the declaring class — throw.
+    // (The compiler emits this only for genuine `.#name` private access, so the
+    // string key `obj["#x"]` keeps its non-throwing dynamic-get behavior.)
+    extern "C" bool ts_object_has_property(void* objArg, void* keyArg);
+    TsValue* ts_object_get_private(void* obj, void* keyName) {
+        void* rawObj = ts_value_get_object((TsValue*)obj);
+        if (!rawObj) rawObj = obj;
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)keyName);
+        const char* key = ks ? ks->ToUtf8() : nullptr;
+        if (!key || key[0] != '#') {
+            return ts_object_get_property(rawObj, key ? key : "");
+        }
+        // Read normally first: the regular get path does the hidden-field retry
+        // ("\x01#x" field / "\x01#m" method) and invokes a private getter
+        // ("__getter_#x"). A defined result means the private name is present, so
+        // return it (covers fields-with-values, methods, and getters that return a
+        // value — and a non-instance finds no getter, so it reads undefined here).
+        TsValue* result = rawObj ? ts_object_get_property(rawObj, key) : ts_value_make_undefined();
+        if (result && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(result)))
+            return result;
+        // Result is undefined — distinguish a present-but-undefined field/getter
+        // from a brand violation via an explicit presence check on the slots.
+        bool present = false;
+        if (rawObj) {
+            TsValue* fk = ts_value_make_string(TsString::Create((std::string("\x01") + key).c_str()));
+            TsValue* gk = ts_value_make_string(TsString::Create((std::string("__getter_") + key).c_str()));
+            present = ts_object_has_property(rawObj, fk) || ts_object_has_property(rawObj, gk);
+        }
+        if (present) return result;  // declared but holds/returns undefined — no throw
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Cannot read private member %s from an object whose class did not declare it", key);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return ts_value_make_undefined();
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
