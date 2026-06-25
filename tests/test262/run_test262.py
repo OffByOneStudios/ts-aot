@@ -64,8 +64,10 @@ BUILD_DIR = SCRIPT_DIR / "build"
 
 # Features we know we DON'T support — skip tests requiring these
 UNSUPPORTED_FEATURES: Set[str] = {
-    # Proposals / stage-3 features we haven't implemented
-    "Temporal", "ShadowRealm", "Intl.DurationFormat",
+    # Proposals / stage-3 features we haven't implemented.
+    # NOTE: Temporal is now implemented (~96% conformance) and is counted in the
+    # default full sweep — it is no longer skipped.
+    "ShadowRealm", "Intl.DurationFormat",
     "Intl.Locale-info", "Intl.NumberFormat-v3",
     "decorators",  # TC39 stage-3 decorators differ from TS legacy decorators
     "regexp-duplicate-named-groups",
@@ -277,13 +279,6 @@ def should_skip(meta: TestMetadata) -> Optional[str]:
     # Skip tests requiring unsupported features
     for feat in meta.features:
         if feat in UNSUPPORTED_FEATURES:
-            # Temporal is being implemented incrementally; TS262_RUN_TEMPORAL=1
-            # un-skips it for a library-scoped gate (pair with
-            # --filter built-ins/Temporal/<Type>). The default full sweep still
-            # skips Temporal so the reported conformance number is unaffected
-            # until we choose to un-skip it for real.
-            if feat == "Temporal" and os.environ.get("TS262_RUN_TEMPORAL"):
-                continue
             return f"unsupported feature: {feat}"
 
     # Skip tests with unsupported flags
