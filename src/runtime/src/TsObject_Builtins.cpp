@@ -693,6 +693,35 @@ extern "C" {
                 }
             }
         }
+        // String wrapper object (`new String("abc")`): a TsMap with a hidden
+        // __StringData slot. The static ts_object_get_property path used below
+        // does NOT expose its `length`/character indices (only the dynamic path
+        // does), so materialize it here like a string primitive. Additive: only
+        // fires for String wrappers, leaving the plain array-like path untouched.
+        {
+            void* rawCtx = ts_value_get_object((TsValue*)ctxToRead);
+            if (!rawCtx) rawCtx = ctxToRead;
+            uintptr_t p = (uintptr_t)rawCtx;
+            if (p > 0x1000 && p < 0x0000800000000000ULL &&
+                *(uint32_t*)((char*)rawCtx + 16) == 0x4D415053 /* TsMap MAGIC */) {
+                TsMap* wm = (TsMap*)rawCtx;
+                TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                sdKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sd = wm->Get(sdKey);
+                if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                    TsString* str = (TsString*)sd.ptr_val;
+                    int64_t len = (int64_t)str->Length();
+                    const int64_t MAX_ITER = 1 << 20;
+                    if (len > MAX_ITER) len = MAX_ITER;
+                    TsArray* tmp = TsArray::Create((size_t)len);
+                    tmp->originalReceiver = ctxToRead;
+                    for (int64_t i = 0; i < len; i++) {
+                        ts_array_push(tmp, ts_value_make_string((TsString*)str->CharAt(i)));
+                    }
+                    return tmp;
+                }
+            }
+        }
         // Read .length
         TsValue* lenVal = ts_object_get_property(ctxToRead, "length");
         if (!lenVal) return nullptr;
