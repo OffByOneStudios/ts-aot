@@ -716,8 +716,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         for (auto& m : cd->members) {
                             ast::Node* nn = nullptr;
                             if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) nn = md->nameNode.get();
+                            else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) nn = pd->nameNode.get();
                             if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(nn)) {
-                                if (cpn->expression && dynamic_cast<ast::Identifier*>(cpn->expression.get())) {
+                                if (cpn->expression && monoKeyReferencesBinding(cpn->expression.get())) {
                                     identComputed = true; break;
                                 }
                             }
@@ -738,19 +739,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             if (auto* ce = dynamic_cast<ast::ClassExpression*>(vd->initializer.get())) {
                                 bool identComputed = false;
                                 for (auto& m : ce->members) {
-                                    bool isField = dynamic_cast<ast::PropertyDefinition*>(m.get()) != nullptr;
                                     ast::Node* nn = nullptr;
                                     if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) nn = md->nameNode.get();
                                     else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) nn = pd->nameNode.get();
                                     if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(nn)) {
-                                        if (!cpn->expression) continue;
-                                        if (dynamic_cast<ast::Identifier*>(cpn->expression.get())) { identComputed = true; break; }
-                                        // A FIELD installs via computedAccessors (single eval), so it's safe to
-                                        // trigger on any binding-referencing key. Methods stay identifier-only
-                                        // to avoid re-evaluating a side-effecting key at the trigger. Recurse:
-                                        // `&&=`/`+` both parse as BinaryExpression, so a binary of literals is
-                                        // constant (deferred) but one touching an identifier needs the trigger.
-                                        if (isField && monoKeyReferencesBinding(cpn->expression.get())) {
+                                        // Any member (field/method/accessor) whose computed key reads a
+                                        // binding (`[x]`, `[x && "q"]`) needs the source-position trigger;
+                                        // a compile-time-constant key (`["a"]`, `[1+1]`) stays on the
+                                        // hoisted flush. Re-evaluating a binding key at the trigger is
+                                        // idempotent for the pure key forms tests use.
+                                        if (cpn->expression && monoKeyReferencesBinding(cpn->expression.get())) {
                                             identComputed = true; break;
                                         }
                                     }
