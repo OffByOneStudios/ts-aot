@@ -358,6 +358,14 @@ void ts_closure_set_method(TsClosure* closure) {
     }
 }
 
+// Mark a closure as a NON-constructor (no own `.prototype`): regular methods,
+// getters, setters. Generators (incl. generator methods) must NOT be marked.
+void ts_closure_set_no_prototype(TsClosure* closure) {
+    if (closure) {
+        closure->is_constructor = false;
+    }
+}
+
 // Invoke a closure with one double argument, returns double
 // Used for map/filter callbacks with number arrays
 // HIR generates functions that expect boxed TsValue* params, so we box the double

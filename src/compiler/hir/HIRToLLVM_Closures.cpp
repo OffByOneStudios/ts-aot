@@ -93,6 +93,32 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                 "ts_closure_set_method", setMethodFt);
             builder_->CreateCall(setMethodFt, setMethodFn.getCallee(),
                 { gcPtrToRaw(closure) });
+            // A non-generator method/getter/setter is not a constructor → no own
+            // `.prototype`. Generators (incl. generator methods) keep theirs.
+            bool methodIsGenerator = false;
+            if (hirModule_)
+                for (const auto& hirFn : hirModule_->functions)
+                    if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                        methodIsGenerator = hirFn->isGenerator; break;
+                    }
+            if (!methodIsGenerator) {
+                auto npFn = module_->getOrInsertFunction("ts_closure_set_no_prototype", setMethodFt);
+                builder_->CreateCall(setMethodFt, npFn.getCallee(), { gcPtrToRaw(closure) });
+            }
+        }
+        // Static methods/accessors are not is_method (no `this` slot) but are
+        // also not constructors → no own `.prototype`. Detect by the `_static_`
+        // symbol segment; exclude generators.
+        else if (funcName.find("_static_") != std::string::npos) {
+            bool sgen = false;
+            if (hirModule_)
+                for (const auto& hirFn : hirModule_->functions)
+                    if (hirFn->name == funcName || hirFn->mangledName == funcName) { sgen = hirFn->isGenerator; break; }
+            if (!sgen) {
+                auto npFt = llvm::FunctionType::get(builder_->getVoidTy(), { getGCPtrTy() }, false);
+                auto npFn = module_->getOrInsertFunction("ts_closure_set_no_prototype", npFt);
+                builder_->CreateCall(npFt, npFn.getCallee(), { gcPtrToRaw(closure) });
+            }
         }
     }
 
@@ -1136,6 +1162,30 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             false);
         auto setMethodFn = module_->getOrInsertFunction("ts_closure_set_method", setMethodFt);
         builder_->CreateCall(setMethodFt, setMethodFn.getCallee(), { gcPtrToRaw(closure) });
+        // Non-generator methods/getters/setters are not constructors → no `.prototype`.
+        bool methodIsGenerator = false;
+        if (hirModule_)
+            for (const auto& hirFn : hirModule_->functions)
+                if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                    methodIsGenerator = hirFn->isGenerator; break;
+                }
+        if (!methodIsGenerator) {
+            auto npFn = module_->getOrInsertFunction("ts_closure_set_no_prototype", setMethodFt);
+            builder_->CreateCall(setMethodFt, npFn.getCallee(), { gcPtrToRaw(closure) });
+        }
+    }
+    // Static methods/accessors (no `this` slot, so not isMethodClosure) are also
+    // not constructors → no own `.prototype`. Detect by `_static_`; exclude generators.
+    else if (funcName.find("_static_") != std::string::npos) {
+        bool sgen = false;
+        if (hirModule_)
+            for (const auto& hirFn : hirModule_->functions)
+                if (hirFn->name == funcName || hirFn->mangledName == funcName) { sgen = hirFn->isGenerator; break; }
+        if (!sgen) {
+            auto npFt = llvm::FunctionType::get(builder_->getVoidTy(), { getGCPtrTy() }, false);
+            auto npFn = module_->getOrInsertFunction("ts_closure_set_no_prototype", npFt);
+            builder_->CreateCall(npFt, npFn.getCallee(), { gcPtrToRaw(closure) });
+        }
     }
 
     // Fix self-referencing closures: if a capture variable has the same name

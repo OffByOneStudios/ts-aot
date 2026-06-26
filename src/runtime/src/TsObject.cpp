@@ -2586,6 +2586,11 @@ void* ts_create_arguments_from_params(
                 if (existing.type != ValueType::UNDEFINED) {
                     return nanbox_from_tagged(existing);
                 }
+                // Non-constructors (methods/getters/setters) have no own
+                // `.prototype` (ECMA-262: no [[Construct]] → no synthesis).
+                if (!closure->is_constructor) {
+                    return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
+                }
                 TsMap* proto = TsMap::Create();
                 // Set closure.prototype.constructor = closure (per ES spec)
                 TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
@@ -4045,6 +4050,13 @@ void* ts_create_arguments_from_params(
                     if (existing.type != ValueType::UNDEFINED) {
                         return nanbox_from_tagged(existing);
                     }
+                    // Non-constructors (methods/getters/setters) have no own
+                    // `.prototype` — and must NOT synthesize+store one here (this
+                    // member-get path was the source that polluted the `in`
+                    // check, making `'prototype' in method` read true).
+                    if (!closure->is_constructor) {
+                        return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
+                    }
                     TsMap* proto = TsMap::Create();
                     // Set closure.prototype.constructor = closure
                     TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
@@ -5219,7 +5231,10 @@ void* ts_create_arguments_from_params(
                 const char* k = keyStr->ToUtf8();
                 if (k && (strcmp(k, "name") == 0 || strcmp(k, "length") == 0 ||
                           strcmp(k, "bind") == 0 || strcmp(k, "call") == 0 ||
-                          strcmp(k, "apply") == 0 || strcmp(k, "prototype") == 0)) return true;
+                          strcmp(k, "apply") == 0)) return true;
+                // `prototype` is an own property only on constructors. Methods,
+                // getters, setters (is_constructor=false) have none; generators do.
+                if (k && strcmp(k, "prototype") == 0 && cl->is_constructor) return true;
             }
             return false;
         }

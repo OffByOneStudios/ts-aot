@@ -30,6 +30,10 @@ public:
     TsCell** cells;          // Array of capture cells
     TsString* name = nullptr; // Function name for .name and .toString()
     bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
+    // True if this function has [[Construct]] and therefore an own `.prototype`
+    // (plain functions and generators, incl. generator methods). FALSE for
+    // regular methods, getters, setters — not constructors → no `.prototype`.
+    bool is_constructor = true;
     TsMap* properties = nullptr;  // For storing properties like .prototype
     int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
     // PHYSICAL user param count (the compiled trampoline's positional params,
@@ -106,6 +110,7 @@ extern "C" {
 
     // Mark a closure as a method trampoline (expects 'this' as second arg)
     void ts_closure_set_method(TsClosure* closure);
+    void ts_closure_set_no_prototype(TsClosure* closure);
 
     // Set the name on a TsClosure
     void ts_closure_set_name(TsClosure* closure, void* name);
