@@ -687,7 +687,13 @@ extern "C" {
                         const int64_t MAX_ITER = 1 << 20;
                         if (len > MAX_ITER) len = MAX_ITER;
                         TsArray* tmp = TsArray::Create((size_t)len);
-                        tmp->originalReceiver = ctxToRead;
+                        // callback O must be ToObject(string) — a String wrapper —
+                        // so `obj instanceof String` holds (step-1 tests).
+                        extern void* ts_get_global_String();
+                        TsValue* wrapArgs[] = { (TsValue*)ctxToRead };
+                        void* wrapper = ts_new_from_constructor_impl(
+                            (TsValue*)ts_get_global_String(), 1, wrapArgs);
+                        tmp->originalReceiver = wrapper ? wrapper : ctxToRead;
                         for (int64_t i = 0; i < len; i++) {
                             TsString* ch = (TsString*)ts_string_charAt(str, i);
                             TsValue* elem = ts_value_make_string(ch);
