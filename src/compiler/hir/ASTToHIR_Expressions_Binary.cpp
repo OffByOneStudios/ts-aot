@@ -1091,9 +1091,43 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             auto setterIt = targetClass->methods.find(setterKey);
             // Skip nullptr placeholders (see getter path comment) — same UAF
             // family for private-setter-before-super class-body lowering.
+            HIRFunction* setterFunc = nullptr;
             if (setterIt != targetClass->methods.end() && setterIt->second) {
+                setterFunc = setterIt->second;
+            } else {
+                // Static accessors live in staticMethods (not methods), so a write
+                // to a STATIC setter — `this.#x = v` inside a static method, or
+                // `C.#x = v` — wasn't dispatched and silently stored a data
+                // property, bypassing `static set #x`. Look there too.
+                auto sit = targetClass->staticMethods.find(setterKey);
+                if (sit != targetClass->staticMethods.end() && sit->second) {
+                    setterFunc = sit->second;
+                    // The staticMethods entry is the EMPTY module-level stub
+                    // (`<Class>___setter_<name>`, body == `ret`); the real
+                    // monomorphized body is emitted under a different symbol.
+                    // Call that by name (the linker resolves it) so the static
+                    // setter actually runs. Mirrors HIRToLLVM_Closures private
+                    // accessor mangling (`<Cls>_static_set___private_<Cls>_<m>`).
+                    size_t ic = 0; for (auto& b : setterFunc->blocks) ic += b->instructions.size();
+                    if (ic <= 1) {
+                        std::string member = propAccess->name;
+                        std::string real;
+                        if (!member.empty() && member[0] == '#')
+                            real = targetClass->name + "_static_set___private_" +
+                                   targetClass->name + "_" + member.substr(1);
+                        else
+                            real = targetClass->name + "_static_set_" + member;
+                        // The static setter body takes ONLY the value (its `this`
+                        // is the class, resolved at compile time) — unlike instance
+                        // setters which take (this, value).
+                        builder_.createCall(real, {rhs}, HIRType::makeVoid());
+                        lastValue_ = rhs;
+                        return;
+                    }
+                }
+            }
+            if (setterFunc) {
                 // Found a setter - call it instead of direct property assignment
-                HIRFunction* setterFunc = setterIt->second;
                 builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
                 lastValue_ = rhs;
                 return;
