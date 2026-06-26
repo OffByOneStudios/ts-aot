@@ -531,6 +531,11 @@ struct HIRClass {
         bool isMethod = false;  // computed-name regular method (not get/set) -> install with no __getter_/__setter_ prefix
         bool moduleLevelBody = false;  // func body lowered at module level (currentFunc==null): free module-var refs
                                        // resolved to constant undefined, so install the monomorphized "[computed]" copy instead
+        // Static field with a computed (identifier) name: `static [x] = init`.
+        // func is null; install the evaluated init under the evaluated key on the
+        // constructor at the source position (where the key's variable is bound).
+        bool isField = false;
+        void* initExpr = nullptr;  // ast::Expression* (field initializer)
     };
     std::vector<ComputedAccessor> computedAccessors;
 

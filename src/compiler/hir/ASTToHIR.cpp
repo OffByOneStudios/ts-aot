@@ -1502,6 +1502,16 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
                                             std::shared_ptr<HIRValue> ctorVal) {
     if (!hirClass) return;
     for (auto& ca : hirClass->computedAccessors) {
+        // Static computed FIELD (`static [x] = init`): install the evaluated init
+        // under the evaluated key on the constructor, here at the source position
+        // (where the key's variable is bound).
+        if (ca.isField) {
+            if (!ca.keyExpr || !ca.initExpr || !ctorVal) continue;
+            auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
+            auto initVal = lowerExpression(static_cast<ast::Expression*>(ca.initExpr));
+            builder_.createSetPropDynamic(ctorVal, keyVal, initVal);
+            continue;
+        }
         if (!ca.func || !ca.keyExpr) continue;
         auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
         // Redirect to the Monomorphizer-emitted "<Class>_set_[computed]" /

@@ -829,8 +829,24 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 auto globalPtr = builder_.createGlobal(globalName, propType);
                 staticPropertyGlobals_[globalName] = {globalPtr, propType};
 
+                // A computed field name that reads a variable (`static [x] = v`)
+                // can't be evaluated at the hoisted deferred flush (the variable
+                // isn't bound yet). Route it through computedAccessors so it
+                // installs at the source position via the install trigger, like a
+                // computed accessor. Don't ALSO defer it (would double-eval init).
+                ast::ComputedPropertyName* fieldCpn = nullptr;
+                if (propDef->name == "[computed]")
+                    fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get());
+                bool identKey = fieldCpn && fieldCpn->expression &&
+                                dynamic_cast<ast::Identifier*>(fieldCpn->expression.get());
+                if (identKey && propDef->initializer) {
+                    // {keyExpr, func, isSetter, isStatic, isMethod, moduleLevelBody, isField, initExpr}
+                    hirClass->computedAccessors.push_back(
+                        {fieldCpn->expression.get(), nullptr, false, /*isStatic=*/true,
+                         false, false, /*isField=*/true, propDef->initializer.get()});
+                }
                 // Defer initialization to user_main
-                if (propDef->initializer) {
+                else if (propDef->initializer) {
                     // Mirror onto the constructor closure (own property) so the
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
