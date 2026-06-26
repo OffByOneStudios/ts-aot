@@ -741,6 +741,66 @@ void* ts_create_arguments_from_params(
         void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         return (TsValue*)ts_decode_uri(arg);
     }
+    // ECMA-262 Annex B.2.1: escape(string). Unescaped set is
+    // A-Za-z0-9 and @ * _ + - . / ; code units < 256 -> %XX, else -> %uXXXX
+    // (uppercase hex). Output is pure ASCII.
+    static TsValue* builtin_escape_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_string_from_value(TsValue* val);
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        TsString* s = (TsString*)ts_string_from_value(arg);
+        if (!s) return ts_value_make_string(TsString::Create(""));
+        static const char* HEX = "0123456789ABCDEF";
+        int64_t len = ts_string_length(s);
+        std::string out;
+        for (int64_t i = 0; i < len; i++) {
+            int64_t c = ts_string_charCodeAt(s, i);
+            bool keep = (c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||
+                        c=='@'||c=='*'||c=='_'||c=='+'||c=='-'||c=='.'||c=='/';
+            if (keep) out.push_back((char)c);
+            else if (c < 256) { out.push_back('%'); out.push_back(HEX[(c>>4)&0xF]); out.push_back(HEX[c&0xF]); }
+            else { out.push_back('%'); out.push_back('u');
+                   out.push_back(HEX[(c>>12)&0xF]); out.push_back(HEX[(c>>8)&0xF]);
+                   out.push_back(HEX[(c>>4)&0xF]); out.push_back(HEX[c&0xF]); }
+        }
+        return ts_value_make_string(TsString::Create(out.c_str(), out.size()));
+    }
+    // ECMA-262 Annex B.2.2: unescape(string). Reverse of escape:
+    // %uXXXX -> one code unit, %XX -> one code unit, else literal.
+    static TsValue* builtin_unescape_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_string_from_value(TsValue* val);
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        TsString* s = (TsString*)ts_string_from_value(arg);
+        if (!s) return ts_value_make_string(TsString::Create(""));
+        auto hexv = [](int64_t c) -> int {
+            if (c>='0'&&c<='9') return (int)(c-'0');
+            if (c>='A'&&c<='F') return (int)(c-'A'+10);
+            if (c>='a'&&c<='f') return (int)(c-'a'+10);
+            return -1;
+        };
+        int64_t len = ts_string_length(s);
+        std::vector<char16_t> out;
+        int64_t i = 0;
+        while (i < len) {
+            int64_t c = ts_string_charCodeAt(s, i);
+            if (c == '%') {
+                if (i + 5 < len && ts_string_charCodeAt(s, i+1) == 'u') {
+                    int h0=hexv(ts_string_charCodeAt(s, i+2)), h1=hexv(ts_string_charCodeAt(s, i+3)),
+                        h2=hexv(ts_string_charCodeAt(s, i+4)), h3=hexv(ts_string_charCodeAt(s, i+5));
+                    if (h0>=0&&h1>=0&&h2>=0&&h3>=0) {
+                        out.push_back((char16_t)((h0<<12)|(h1<<8)|(h2<<4)|h3)); i += 6; continue;
+                    }
+                }
+                if (i + 2 < len) {
+                    int h0=hexv(ts_string_charCodeAt(s, i+1)), h1=hexv(ts_string_charCodeAt(s, i+2));
+                    if (h0>=0&&h1>=0) { out.push_back((char16_t)((h0<<4)|h1)); i += 3; continue; }
+                }
+            }
+            out.push_back((char16_t)c); i++;
+        }
+        icu::UnicodeString ustr(out.data(), (int32_t)out.size());
+        std::string utf8; ustr.toUTF8String(utf8);
+        return ts_value_make_string(TsString::Create(utf8.c_str(), utf8.size()));
+    }
     // ECMA-262 §19.2.5: parseInt(string, radix).
     //   - Trim leading whitespace.
     //   - Accept optional sign.
@@ -7302,6 +7362,9 @@ void* ts_create_arguments_from_params(
         globalMap->SetWithAttrs(makeKey("encodeURIComponent"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_encodeURIComponent_native, nullptr, "encodeURIComponent", 1)), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("decodeURI"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_decodeURI_native, nullptr, "decodeURI", 1)), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("decodeURIComponent"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_decodeURIComponent_native, nullptr, "decodeURIComponent", 1)), BUILTIN_ATTRS);
+        // ECMA-262 Annex B.2.1/B.2.2: legacy escape() / unescape().
+        globalMap->SetWithAttrs(makeKey("escape"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_escape_native, nullptr, "escape", 1)), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("unescape"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_unescape_native, nullptr, "unescape", 1)), BUILTIN_ATTRS);
         // Test262 host hook: produces a TsFunction with [[IsHTMLDDA]] slot
         // for the harness $262.IsHTMLDDA construction. See HOST_262_SETUP
         // in tests/test262/run_test262.py.
