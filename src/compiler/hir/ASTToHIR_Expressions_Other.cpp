@@ -97,6 +97,36 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
     setSourceLine(node);
+    // `super[key]` READ with a literal key: dispatch base-class getter/method.
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
+        currentClass_ && currentClass_->baseClass) {
+        std::string key;
+        if (auto* sl = dynamic_cast<ast::StringLiteral*>(node->argumentExpression.get()))
+            key = sl->value;
+        else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get()))
+            key = std::to_string((int64_t)nl->value);
+        if (!key.empty()) {
+            bool inStatic = currentFunction_ &&
+                currentFunction_->name.find("_static_") != std::string::npos;
+            auto thisVal = lookupVariable("this");
+            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+            for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+                auto& tbl = inStatic ? sc->staticMethods : sc->methods;
+                auto git = tbl.find("__getter_" + key);
+                if (git != tbl.end() && git->second) {
+                    std::string real = completeMethodSymbol(sc, "__getter_" + key, git->second, inStatic);
+                    lastValue_ = inStatic ? builder_.createCall(real, {}, HIRType::makeAny())
+                                          : builder_.createCall(real, {thisVal}, HIRType::makeAny());
+                    return;
+                }
+                auto mit = tbl.find(key);
+                if (mit != tbl.end() && mit->second) {
+                    lastValue_ = builder_.createLoadFunction(mit->second->name);
+                    return;
+                }
+            }
+        }
+    }
     // Check for enum reverse mapping: EnumName[numericValue]
     auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
     if (classNameIdent) {
@@ -163,9 +193,27 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // path; this covers `super.getter` and `super.method` without invocation.)
     if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
         currentClass_ && currentClass_->baseClass) {
+        bool inStatic = currentFunction_ &&
+            currentFunction_->name.find("_static_") != std::string::npos;
         auto thisVal = lookupVariable("this");
         if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
         for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+            if (inStatic) {
+                // Static `super.g` / `super.m`: base-class STATIC accessor/method
+                // (no `this`).
+                auto sg = sc->staticMethods.find("__getter_" + node->name);
+                if (sg != sc->staticMethods.end() && sg->second) {
+                    std::string real = completeMethodSymbol(sc, "__getter_" + node->name, sg->second, true);
+                    lastValue_ = builder_.createCall(real, {}, HIRType::makeAny());
+                    return;
+                }
+                auto sm = sc->staticMethods.find(node->name);
+                if (sm != sc->staticMethods.end() && sm->second) {
+                    lastValue_ = builder_.createLoadFunction(sm->second->name);
+                    return;
+                }
+                continue;
+            }
             auto git = sc->methods.find("__getter_" + node->name);
             if (git != sc->methods.end() && git->second) {
                 std::string real = completeMethodSymbol(sc, "__getter_" + node->name, git->second, false);

@@ -89,6 +89,40 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    // `super[key](...)` with a literal key: resolve to the base-class method and
+    // dispatch (instance: with `this`; static: args only). Mirrors super.method().
+    if (auto* eaCallee = dynamic_cast<ast::ElementAccessExpression*>(node->callee.get())) {
+        if (dynamic_cast<ast::SuperExpression*>(eaCallee->expression.get()) &&
+            currentClass_ && currentClass_->baseClass) {
+            std::string key;
+            if (auto* sl = dynamic_cast<ast::StringLiteral*>(eaCallee->argumentExpression.get()))
+                key = sl->value;
+            else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(eaCallee->argumentExpression.get()))
+                key = std::to_string((int64_t)nl->value);
+            if (!key.empty()) {
+                bool inStatic = currentFunction_ &&
+                    currentFunction_->name.find("_static_") != std::string::npos;
+                std::vector<std::shared_ptr<HIRValue>> callArgs;
+                for (auto& a : node->arguments) callArgs.push_back(lowerExpression(a.get()));
+                auto thisVal = lookupVariable("this");
+                if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+                    auto& tbl = inStatic ? sc->staticMethods : sc->methods;
+                    auto it = tbl.find(key);
+                    if (it != tbl.end() && it->second) {
+                        std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                        if (!inStatic) methodArgs.push_back(thisVal);
+                        for (auto& a : callArgs) methodArgs.push_back(a);
+                        builder_.createCall("ts_set_last_call_argc",
+                            {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                        lastValue_ = builder_.createCall(it->second->name, methodArgs, it->second->returnType);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     // Handle method call
     auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (propAccess) {
@@ -222,6 +256,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // prototype.
         auto* superRecv = dynamic_cast<ast::SuperExpression*>(propAccess->expression.get());
         if (superRecv && currentClass_ && currentClass_->baseClass) {
+            // Static context: `super.m()` inside a static method dispatches to the
+            // base class's STATIC method (which takes only args, no `this`), not
+            // an instance method. Without this, the instance search below missed
+            // and fell through to dynamic `this`-dispatch, crashing.
+            bool inStatic = currentFunction_ &&
+                currentFunction_->name.find("_static_") != std::string::npos;
+            if (inStatic) {
+                for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+                    auto sit = sc->staticMethods.find(propAccess->name);
+                    if (sit != sc->staticMethods.end() && sit->second) {
+                        builder_.createCall("ts_set_last_call_argc",
+                            {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                        lastValue_ = builder_.createCall(sit->second->name, args, sit->second->returnType);
+                        return;
+                    }
+                }
+            }
             HIRClass* searchClass = currentClass_->baseClass;
             while (searchClass) {
                 auto it = searchClass->methods.find(propAccess->name);
