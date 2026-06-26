@@ -195,6 +195,9 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
         ensureFnAny("parseInt", 2);
         ensureFnAny("isNaN", 1);
         ensureFnAny("isFinite", 1);
+        // Self-hosted-builtin install hook, called by the prelude to register a
+        // TS-written builtin (target, name, length, fn) — see TsBuiltinInstall.cpp.
+        ensureFnAny("__defineBuiltin", 4);
         ensureFnAny("encodeURIComponent", 1);
         ensureFnAny("decodeURIComponent", 1);
         ensureFnAny("encodeURI", 1);

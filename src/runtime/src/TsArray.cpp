@@ -26,6 +26,9 @@
 extern "C" {
     TsMap* g_array_prototype_map = nullptr;
     uint64_t g_array_prototype_version = 0;
+    // Self-hosted Array.prototype.filter impl (TsBuiltinInstall.cpp), if the
+    // prelude installed one — ts_array_filter delegates a direct call to it.
+    extern void* g_selfhosted_filter;
     // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
     // array iterator lives in a built-in fast path (not in the prototype map),
     // so its removal isn't otherwise observable; ts_iterator_get consults this
@@ -107,6 +110,12 @@ bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     return g_array_prototype_map->Has(dk);
 }
 
+// extern "C" shim so other TUs (e.g. the `in` operator in TsObject.cpp) can
+// consult prototype-aware HasProperty without C++-mangling/linkage friction.
+extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i) {
+    return ts_array_has_property_at((TsArray*)arr, i);
+}
+
 // Spec Get(O, ToString(k)): if Array.prototype has an accessor for this
 // index, invoke it (inherited getter takes precedence over own when own
 // slot is absent). Otherwise fall back to own indexed slot.
@@ -119,6 +128,13 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     // Inherited via Array.prototype.
     TsValue* v = array_proto_get_at((void*)arr, i);
     return v ? v : ts_value_make_undefined();
+}
+
+// extern "C" shim: prototype-aware indexed Get for other TUs (the generic
+// `obj[k]` path in TsObject.cpp, reached when the receiver is statically typed
+// as object/any so it does not use the typed-array fast get).
+extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i) {
+    return ts_array_get_property_at((TsArray*)arr, i);
 }
 
 TsArray* TsArray::Create(size_t initialCapacity) {
@@ -1311,14 +1327,15 @@ extern "C" {
         // Get() is accessor-aware (invokes a per-index getter defined via
         // Object.defineProperty); for a plain array it is the slot read.
         int64_t slot = array->Get((size_t)index);
-        // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain.
-        // For a plain Array.prototype that lookup returns undefined. We
-        // normalize NANBOX_HOLE → undefined here so `a[1] === undefined`
-        // is true for sparse arrays, while iteration that genuinely needs
-        // to distinguish holes (e.g. forEach) uses TsArray::IsHole()
-        // directly rather than reading through this path.
+        // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain: an
+        // inherited index (e.g. `Array.prototype[1]=x`) supplies the value the
+        // missing own slot would have. array_proto_get_at consults
+        // Array.prototype (data property or getter); a plain Array.prototype
+        // yields nullptr → undefined, preserving `a[1] === undefined` for sparse
+        // arrays. Iteration that must distinguish holes uses TsArray::IsHole().
         if ((uint64_t)slot == NANBOX_HOLE) {
-            return (void*)ts_value_make_undefined();
+            TsValue* inh = array_proto_get_at((void*)array, index);
+            return inh ? (void*)inh : (void*)ts_value_make_undefined();
         }
         return (void*)slot;
     }
@@ -2230,6 +2247,16 @@ extern "C" {
     }
 
     void* ts_array_filter(void* arr, void* callback, void* thisArg) {
+        // Dispatch keystone: if the prelude installed a self-hosted filter,
+        // a direct `arr.filter(...)` delegates to it (cheap pointer check, no
+        // prototype-version dependency). try_as_typed_array first so TypedArray
+        // keeps its own native path.
+        if (g_selfhosted_filter && !try_as_typed_array(arr)) {
+            extern TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2);
+            TsValue* res = ts_call_with_this_2((TsValue*)g_selfhosted_filter, ts_value_make_object(arr),
+                                               (TsValue*)callback, (TsValue*)thisArg);
+            return res ? ts_value_get_object(res) : nullptr;
+        }
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_filter_native(arr, 2, argvBuf);
