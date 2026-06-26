@@ -360,6 +360,22 @@ void* ts_get_global_Object() {
         };
         addMethod(proto, "toString", (void*)ts_object_toString_native, 0);
         addMethod(proto, "valueOf",  (void*)+protoValueOf,  0);
+        // ECMA-262 20.1.3.5 Object.prototype.toLocaleString(): return
+        // Invoke(O, "toString") — so an overridden toString is honoured. Was
+        // missing entirely (read undefined).
+        auto protoToLocaleString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsValue* self = (TsValue*)(ctx ? ctx : ts_get_call_this());
+            if (!self) self = ts_value_make_undefined();
+            TsValue* key = ts_value_make_string(TsString::Create("toString"));
+            TsValue* tsFn = ts_object_get_dynamic(self, key);
+            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+            if (tsFn && !ts_value_is_undefined(tsFn)) return ts_call_with_this_0(tsFn, self);
+            // A plain object's INHERITED Object.prototype.toString may not surface
+            // via get_dynamic; fall back to the default object toString.
+            extern TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
+            return ts_object_toString_native(self, 0, nullptr);
+        };
+        addMethod(proto, "toLocaleString", (void*)+protoToLocaleString, 0);
     }
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
