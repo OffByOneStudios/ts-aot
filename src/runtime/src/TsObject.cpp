@@ -1830,6 +1830,10 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "exec") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_exec_native, re, "exec", 1);
             }
+            if (strcmp(keyStr, "compile") == 0) {
+                extern TsValue* ts_regexp_compile_native(void* ctx, int argc, TsValue** argv);
+                return makeNamedNativeFunction((void*)ts_regexp_compile_native, re, "compile", 2);
+            }
             if (strcmp(keyStr, "toString") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_tostring_native, re, "toString", 0);
             }

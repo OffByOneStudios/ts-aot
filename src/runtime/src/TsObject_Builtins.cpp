@@ -2150,6 +2150,31 @@ extern "C" {
         if (!result) return (TsValue*)ts_value_make_null();
         return (TsValue*)ts_value_make_object(result);
     }
+    // RegExp.prototype.compile (Annex B B.2.3.1): recompile `this` in place from
+    // a new pattern/flags, then return `this`.
+    extern "C" TsValue* ts_regexp_compile_native(void* ctx, int argc, TsValue** argv) {
+        TsRegExp* re = (TsRegExp*)ctx;
+        if (!re) return (TsValue*)ts_value_make_undefined();
+        extern void* ts_string_from_value(TsValue* val);
+        std::string pat, fl;
+        bool flagsGiven = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+            void* praw = ts_value_get_object(argv[0]);
+            if (!praw) praw = (void*)argv[0];
+            // A RegExp source argument: reuse its source (and flags if none given).
+            if (praw && (uintptr_t)praw > 0x1000 && *(uint32_t*)praw == 0x52454758 /* REGX */) {
+                TsRegExp* src = (TsRegExp*)praw;
+                if (TsString* s = src->GetSource()) pat = s->ToUtf8();
+            } else {
+                if (TsString* ps = (TsString*)ts_string_from_value((TsValue*)argv[0])) pat = ps->ToUtf8();
+            }
+        }
+        if (flagsGiven) {
+            if (TsString* fs = (TsString*)ts_string_from_value((TsValue*)argv[1])) fl = fs->ToUtf8();
+        }
+        re->Recompile(pat.c_str(), fl.c_str());
+        return (TsValue*)ts_value_make_object(re);
+    }
 
     // ECMA-262 22.2.7.1 RegExpExec(R, S): the observable exec abstract operation
     // shared by the RegExp.prototype[@@search/@@match/@@replace/@@split/@@matchAll]

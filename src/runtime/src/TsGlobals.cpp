@@ -1773,6 +1773,7 @@ void* ts_get_global_Date() {
 extern "C" {
     TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_regexp_compile_native(void* ctx, int argc, TsValue** argv);
 }
 
 // Brand-check for the RegExp.prototype accessor getters (ECMA-262 22.2.6.x).
@@ -1823,6 +1824,7 @@ void* ts_get_global_RegExp() {
                 extern TsValue* ts_regexp_symbol_matchAll_native(void*, int, TsValue**);
                 addMethod(reproto, "exec",     (void*)ts_regexp_exec_native, 1);
                 addMethod(reproto, "test",     (void*)ts_regexp_test_native, 1);
+                addMethod(reproto, "compile",  (void*)ts_regexp_compile_native, 2);
                 addMethod(reproto, "[Symbol.search]", (void*)ts_regexp_symbol_search_native, 1);
                 addMethod(reproto, "[Symbol.match]", (void*)ts_regexp_symbol_match_native, 1);
                 addMethod(reproto, "[Symbol.replace]", (void*)ts_regexp_symbol_replace_native, 2);

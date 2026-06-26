@@ -54,7 +54,10 @@ public:
     static constexpr uint32_t MAGIC = 0x52454758; // "REGX"
     template <class> friend struct TsTagOf;  // offsetof access to private magic
     static TsRegExp* Create(const char* pattern, const char* flags = "");
-    
+
+    // RegExp.prototype.compile (Annex B): recompile this regex in place.
+    void Recompile(const char* pattern, const char* flags);
+
     bool Test(TsString* str);
     void* Exec(TsString* str); // Returns TsArray of matches or null
 

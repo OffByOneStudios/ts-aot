@@ -356,7 +356,18 @@ static std::string transformJsPatternForIcu(const std::string& pat) {
 }
 
 TsRegExp::TsRegExp(const char* pattern, const char* flags) {
+    Recompile(pattern, flags);
+}
+
+void TsRegExp::Recompile(const char* pattern, const char* flags) {
     UErrorCode status = U_ZERO_ERROR;
+    if (!pattern) pattern = "";
+
+    // RegExp.prototype.compile reuses this on an existing object: drop the old
+    // matcher and reset all flag-derived state before rebuilding.
+    delete matcher; matcher = nullptr;
+    ignoreCase = false; multiline = false; global = false; sticky = false; hasIndices = false;
+    lastIndex = 0;
 
     // Store original pattern for GetSource() and parseNamedGroups()
     patternStr = icu::UnicodeString::fromUTF8(pattern);
