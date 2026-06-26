@@ -12,12 +12,14 @@ extern "C" {
     // This is critical for Array.map/filter/etc where JS allows callbacks with fewer params
     TsValue* ts_call_with_arity(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) {
-            return ts_value_make_undefined();
-        }
 
-        // Use the function's declared arity if known, otherwise default to 3
-        int arity = func->arity;
+        // A null func here means the callee is a TsClosure (or other
+        // non-TsFunction callable), NOT an uncallable value — callability is
+        // validated by the caller. Returning undefined in that case silently
+        // dropped the call (e.g. Array iteration methods on the slow path with
+        // a closure callback selected nothing). Default to passing all 3 args;
+        // tsCall handles closures.
+        int arity = func ? func->arity : -1;
         if (arity < 0) {
             // Arity unknown - default to all 3 args (original behavior)
             arity = 3;
