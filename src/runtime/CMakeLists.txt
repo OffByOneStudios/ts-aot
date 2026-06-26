@@ -51,6 +51,7 @@ add_library(tsruntime STATIC
     src/TsString.cpp
     src/TsConsString.cpp
     src/TsArray.cpp
+    src/TsArray_Methods.cpp
     src/TsEventEmitter.cpp
     src/node/ReadStream.cpp
     src/node/WriteStream.cpp
