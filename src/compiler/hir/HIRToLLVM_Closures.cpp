@@ -108,8 +108,12 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
         }
         // Static methods/accessors are not is_method (no `this` slot) but are
         // also not constructors → no own `.prototype`. Detect by the `_static_`
-        // symbol segment; exclude generators.
-        else if (funcName.find("_static_") != std::string::npos) {
+        // segment, or an accessor stub (`___getter_`/`___setter_`) which, in this
+        // non-is_method branch, can only be a STATIC accessor (instance accessors
+        // are is_method, handled above). Exclude generators.
+        else if (funcName.find("_static_") != std::string::npos ||
+                 funcName.find("___getter_") != std::string::npos ||
+                 funcName.find("___setter_") != std::string::npos) {
             bool sgen = false;
             if (hirModule_)
                 for (const auto& hirFn : hirModule_->functions)
@@ -1175,8 +1179,11 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         }
     }
     // Static methods/accessors (no `this` slot, so not isMethodClosure) are also
-    // not constructors → no own `.prototype`. Detect by `_static_`; exclude generators.
-    else if (funcName.find("_static_") != std::string::npos) {
+    // not constructors → no own `.prototype`. Detect by `_static_` or an accessor
+    // stub (static accessors only, here); exclude generators.
+    else if (funcName.find("_static_") != std::string::npos ||
+             funcName.find("___getter_") != std::string::npos ||
+             funcName.find("___setter_") != std::string::npos) {
         bool sgen = false;
         if (hirModule_)
             for (const auto& hirFn : hirModule_->functions)
