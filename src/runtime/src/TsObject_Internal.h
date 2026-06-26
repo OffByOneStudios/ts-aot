@@ -174,6 +174,7 @@ TsValue* ts_date_parse_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_setTime_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_setYear_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_toDateString_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_date_toTimeString_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_toISOString_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_toJSON_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_date_toString_native(void* ctx, int argc, TsValue** argv);

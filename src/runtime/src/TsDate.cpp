@@ -319,6 +319,17 @@ TsString* TsDate::ToString() {
     return TsString::Create(utf8.c_str());
 }
 
+TsString* TsDate::ToTimeString() {
+    // ECMA-262 21.4.4.42: local-time "HH:mm:ss GMT<+HHMM> (<tz name>)".
+    UErrorCode status = U_ZERO_ERROR;
+    icu::SimpleDateFormat fmt(icu::UnicodeString("HH:mm:ss 'GMT'ZZZ' ('zzzz')'"), icu::Locale("en_US"), status);
+    icu::UnicodeString result;
+    fmt.format((UDate)ms, result);
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
 TsString* TsDate::ToUTCString() {
     UErrorCode status = U_ZERO_ERROR;
     icu::SimpleDateFormat fmt(icu::UnicodeString("EEE, dd MMM yyyy HH:mm:ss 'GMT'"), icu::Locale("en_US"), status);

@@ -1745,6 +1745,12 @@ extern "C" {
         if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
         return ts_value_make_string(d->ToDateString());
     }
+    TsValue* ts_date_toTimeString_native(void* ctx, int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, "toTimeString");
+        if (!d) return ts_value_make_undefined();
+        if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+        return ts_value_make_string(d->ToTimeString());
+    }
     TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
         TsDate* d = requireDateOrThrow(ctx, "valueOf");
         if (!d) return ts_value_make_undefined();
@@ -2031,6 +2037,7 @@ extern "C" {
         dateRegisterMethod(proto, "toJSON", (void*)ts_date_toJSON_native, 1);
         dateRegisterMethod(proto, "toString", (void*)ts_date_toString_native, 0);
         dateRegisterMethod(proto, "toDateString", (void*)ts_date_toDateString_native, 0);
+        dateRegisterMethod(proto, "toTimeString", (void*)ts_date_toTimeString_native, 0);
         dateRegisterMethod(proto, "valueOf", (void*)ts_date_valueOf_native, 0);
         // annexB
         dateRegisterMethod(proto, "toUTCString", (void*)ts_date_toUTCString_native, 0);
