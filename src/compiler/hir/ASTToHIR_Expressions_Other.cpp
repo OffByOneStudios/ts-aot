@@ -158,6 +158,27 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 
 void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
     setSourceLine(node);
+    // `super.prop` READ (not a call): dispatch a base-class getter with `this`,
+    // or load a base-class method. (super.method() calls are handled in the call
+    // path; this covers `super.getter` and `super.method` without invocation.)
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
+        currentClass_ && currentClass_->baseClass) {
+        auto thisVal = lookupVariable("this");
+        if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+        for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+            auto git = sc->methods.find("__getter_" + node->name);
+            if (git != sc->methods.end() && git->second) {
+                std::string real = completeMethodSymbol(sc, "__getter_" + node->name, git->second, false);
+                lastValue_ = builder_.createCall(real, {thisVal}, HIRType::makeAny());
+                return;
+            }
+            auto mit = sc->methods.find(node->name);
+            if (mit != sc->methods.end() && mit->second) {
+                lastValue_ = builder_.createLoadFunction(mit->second->name);
+                return;
+            }
+        }
+    }
     // Check for static property access: ClassName.propertyName
     auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
     if (classNameIdent) {
