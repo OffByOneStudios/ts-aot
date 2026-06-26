@@ -1,3 +1,4 @@
+#include <charconv>
 #include "Parser.h"
 #include <stdexcept>
 #include <fmt/format.h>
@@ -513,9 +514,26 @@ std::string Parser::canonicalNumericPropertyName(std::string_view lexeme) {
         snprintf(buf, sizeof(buf), "%lld", (long long)value);
         return std::string(buf);
     }
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%.17g", value);
-    return std::string(buf);
+    {
+        // Non-integer: ECMA-262 Number::toString uses the SHORTEST decimal that
+        // round-trips, not full %.17g precision (so `0.1`→"0.1", not
+        // "0.10000000000000001"). std::to_chars gives the shortest form; then
+        // normalize the exponent to JS style ("1e-07" → "1e-7").
+        char buf[40];
+        auto res = std::to_chars(buf, buf + sizeof(buf), value);
+        std::string s(buf, res.ptr);
+        auto epos = s.find('e');
+        if (epos != std::string::npos) {
+            std::string mant = s.substr(0, epos);
+            std::string exp = s.substr(epos + 1);
+            char sign = '+';
+            size_t i = 0;
+            if (!exp.empty() && (exp[0] == '+' || exp[0] == '-')) { sign = exp[0]; i = 1; }
+            while (i + 1 < exp.size() && exp[i] == '0') i++;
+            s = mant + "e" + sign + exp.substr(i);
+        }
+        return s;
+    }
 }
 
 // ============================================================================
