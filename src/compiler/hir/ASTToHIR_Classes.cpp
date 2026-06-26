@@ -2,6 +2,32 @@
 
 namespace ts::hir {
 
+// Does a computed-key expression read a binding (variable/global) or build a
+// value at runtime, vs. fold to a compile-time constant? A constant key
+// (`[1+1]`, `["a"]`) is installable at the hoisted static-init flush; a key that
+// references a binding (`[x]`, `[x &&= 1]`, `[Math.f()]`, `[()=>{}]`) must be
+// evaluated at the class source position, after that binding is initialized.
+// NOTE: `&&=`/`+` both parse as BinaryExpression, so recurse rather than match
+// on kind — a binary of literals is constant; a binary touching an identifier is not.
+static bool computedKeyReferencesBinding(ast::Expression* e) {
+    if (!e) return false;
+    std::string k = e->getKind();
+    if (k == "Identifier") return true;
+    if (k == "NumericLiteral" || k == "StringLiteral" || k == "BooleanLiteral" ||
+        k == "BigIntLiteral" || k == "NullLiteral" || k == "RegularExpressionLiteral")
+        return false;
+    // yield/await are only valid in the enclosing generator/async context; they
+    // can't be hoisted to a module-init install trigger, so leave them on the
+    // existing path (don't route).
+    if (k == "YieldExpression" || k == "AwaitExpression") return false;
+    if (auto* b = dynamic_cast<ast::BinaryExpression*>(e))
+        return computedKeyReferencesBinding(b->left.get()) ||
+               computedKeyReferencesBinding(b->right.get());
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(e))
+        return computedKeyReferencesBinding(p->expression.get());
+    return true;  // arrow/function/call/assignment/member/etc. — evaluate at source position
+}
+
 
 void ASTToHIR::installClassMember(std::shared_ptr<HIRValue> recv,
                                   const std::string& key,
@@ -837,9 +863,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 ast::ComputedPropertyName* fieldCpn = nullptr;
                 if (propDef->name == "[computed]")
                     fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get());
-                bool identKey = fieldCpn && fieldCpn->expression &&
-                                dynamic_cast<ast::Identifier*>(fieldCpn->expression.get());
-                if (identKey && propDef->initializer) {
+                // A compile-time-constant key (`[1+1]`, `["a"]`) is evaluable at the
+                // hoisted flush, so keep it on the deferred path (proven). A key that
+                // reads a variable or builds a value (`[x]`, `[x &&= 1]`, `[() => {}]`,
+                // `[f()]`) must run at the source position — route it through the
+                // install trigger like a computed accessor (single eval, no deferral).
+                bool runtimeKey = fieldCpn && fieldCpn->expression &&
+                                  computedKeyReferencesBinding(fieldCpn->expression.get());
+                if (runtimeKey && propDef->initializer) {
                     // {keyExpr, func, isSetter, isStatic, isMethod, moduleLevelBody, isField, initExpr}
                     hirClass->computedAccessors.push_back(
                         {fieldCpn->expression.get(), nullptr, false, /*isStatic=*/true,

@@ -85,6 +85,24 @@ static std::unique_ptr<ast::Statement> makeConsoleLogStatement(const std::string
 // a computed member key that references a module variable (`const S = Symbol();
 // class D { [S](){} }`) is installed AFTER that variable is initialized — the hoisted
 // pre-module_init class flush evaluates the key while the variable is still null.
+// Mirror of ASTToHIR's computedKeyReferencesBinding: does a computed-key
+// expression read a binding / build a value (needs source-position eval) vs.
+// fold to a compile-time constant (installable at the hoisted flush)?
+static bool monoKeyReferencesBinding(ast::Expression* e) {
+    if (!e) return false;
+    std::string k = e->getKind();
+    if (k == "Identifier") return true;
+    if (k == "NumericLiteral" || k == "StringLiteral" || k == "BooleanLiteral" ||
+        k == "BigIntLiteral" || k == "NullLiteral" || k == "RegularExpressionLiteral")
+        return false;
+    if (k == "YieldExpression" || k == "AwaitExpression") return false;
+    if (auto* b = dynamic_cast<ast::BinaryExpression*>(e))
+        return monoKeyReferencesBinding(b->left.get()) || monoKeyReferencesBinding(b->right.get());
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(e))
+        return monoKeyReferencesBinding(p->expression.get());
+    return true;
+}
+
 static std::unique_ptr<ast::Statement> makeComputedInstallTrigger(const std::string& className) {
     auto call = std::make_unique<ast::CallExpression>();
     auto callee = std::make_unique<ast::Identifier>();
@@ -720,11 +738,21 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             if (auto* ce = dynamic_cast<ast::ClassExpression*>(vd->initializer.get())) {
                                 bool identComputed = false;
                                 for (auto& m : ce->members) {
+                                    bool isField = dynamic_cast<ast::PropertyDefinition*>(m.get()) != nullptr;
                                     ast::Node* nn = nullptr;
                                     if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) nn = md->nameNode.get();
                                     else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) nn = pd->nameNode.get();
                                     if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(nn)) {
-                                        if (cpn->expression && dynamic_cast<ast::Identifier*>(cpn->expression.get())) { identComputed = true; break; }
+                                        if (!cpn->expression) continue;
+                                        if (dynamic_cast<ast::Identifier*>(cpn->expression.get())) { identComputed = true; break; }
+                                        // A FIELD installs via computedAccessors (single eval), so it's safe to
+                                        // trigger on any binding-referencing key. Methods stay identifier-only
+                                        // to avoid re-evaluating a side-effecting key at the trigger. Recurse:
+                                        // `&&=`/`+` both parse as BinaryExpression, so a binary of literals is
+                                        // constant (deferred) but one touching an identifier needs the trigger.
+                                        if (isField && monoKeyReferencesBinding(cpn->expression.get())) {
+                                            identComputed = true; break;
+                                        }
                                     }
                                 }
                                 if (identComputed)
