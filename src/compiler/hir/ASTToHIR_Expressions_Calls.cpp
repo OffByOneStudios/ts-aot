@@ -939,7 +939,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             if (!node->arguments.empty()) {
                 if (auto* lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
                     HIRClass* hc = nullptr;
-                    for (auto& c : module_->classes) if (c && c->name == lit->value) { hc = c.get(); break; }
+                    // The trigger names the class by its source identifier; a class
+                    // EXPRESSION (`let C = class …`) registers under a synthetic
+                    // `__anon_class_N` name, mapped from the binding by
+                    // variableToClassName_. Resolve through it before matching.
+                    std::string resolved = lit->value;
+                    auto vIt = variableToClassName_.find(lit->value);
+                    if (vIt != variableToClassName_.end()) resolved = vIt->second;
+                    for (auto& c : module_->classes) if (c && c->name == resolved) { hc = c.get(); break; }
                     if (hc && !hc->computedAccessors.empty()) {
                         auto ctorVal = builder_.createLoadFunction(hc->name + "_constructor");
                         auto proto = builder_.createGetPropStatic(ctorVal, "prototype", HIRType::makeAny());

@@ -708,6 +708,31 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             moduleInit->body.push_back(makeComputedInstallTrigger(cd->name));
                     }
                 }
+                // `let C = class { [ident]... }` — a class EXPRESSION (kept in newBody
+                // above) whose computed member key reads a variable needs its computed
+                // install run at this source position in __module_init, after the key's
+                // variable is initialized. The class registers under the binding name.
+                else if (kind == "VariableDeclaration") {
+                    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        std::string vname;
+                        if (vd->name) if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get())) vname = id->name;
+                        if (vd->initializer && !vname.empty()) {
+                            if (auto* ce = dynamic_cast<ast::ClassExpression*>(vd->initializer.get())) {
+                                bool identComputed = false;
+                                for (auto& m : ce->members) {
+                                    ast::Node* nn = nullptr;
+                                    if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) nn = md->nameNode.get();
+                                    else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) nn = pd->nameNode.get();
+                                    if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(nn)) {
+                                        if (cpn->expression && dynamic_cast<ast::Identifier*>(cpn->expression.get())) { identComputed = true; break; }
+                                    }
+                                }
+                                if (identComputed)
+                                    moduleInit->body.push_back(makeComputedInstallTrigger(vname));
+                            }
+                        }
+                    }
+                }
                 newBody.push_back(std::move(stmt));
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
