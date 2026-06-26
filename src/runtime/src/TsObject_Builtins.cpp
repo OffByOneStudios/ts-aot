@@ -655,7 +655,12 @@ extern "C" {
                 if (len > MAX_ITER) len = MAX_ITER;
 
                 TsArray* tmp = TsArray::Create((size_t)len);
-                tmp->originalReceiver = ctxToRead;
+                // The callback's 3rd arg (O) must be ToObject(receiver) — a real
+                // Number/Boolean WRAPPER — not the raw primitive, so that e.g.
+                // `obj instanceof Number` holds (ES5 15.4.4.x step-1 tests).
+                TsValue* wrapArgs[] = { (TsValue*)ctxToRead };
+                void* wrapper = ts_new_from_constructor_impl((TsValue*)protoGlobal, 1, wrapArgs);
+                tmp->originalReceiver = wrapper ? wrapper : ctxToRead;
                 for (int64_t i = 0; i < len; i++) {
                     char key[32];
                     snprintf(key, sizeof(key), "%lld", (long long)i);
