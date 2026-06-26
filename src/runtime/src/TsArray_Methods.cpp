@@ -214,18 +214,19 @@ void* TsArray::FlatMap(void* callback, void* thisArg) {
 }
 
 void TsArray::ForEach(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             // Fast path: numeric arrays with typed closures (double calling convention)
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 ts_closure_invoke_1d_void(closure, elem);
             }
         } else {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
                 if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
@@ -246,7 +247,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
 
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
@@ -266,20 +267,21 @@ void TsArray::ForEach(void* callback, void* thisArg) {
 }
 
 void* TsArray::Map(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create(length);
         if (IsDoubleArray() || IsSmiArray()) {
             // Fast path: numeric arrays with typed closures (double calling convention)
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 double mapped = ts_closure_invoke_1d(closure, elem);
                 result->PushDouble(mapped);
             }
         } else {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 if (IsHole(i) || array_generic_absent_index(this, i)) {
                     // Preserve hole in output (CreateSized would be cleaner,
                     // but this path uses Push). Push a placeholder; close this
@@ -309,7 +311,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
     TsArray* result = TsArray::CreateSized(length);
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
@@ -332,13 +334,14 @@ void* TsArray::Map(void* callback, void* thisArg) {
 }
 
 void* TsArray::Filter(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create();
         if (IsDoubleArray() || IsSmiArray()) {
             // Fast path: numeric arrays with typed closures
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 if (ts_closure_invoke_1d_bool(closure, elem)) {
                     result->PushDouble(elem);
@@ -346,7 +349,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
             }
         } else {
             // Generic path: string/mixed arrays with untyped closures
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
                 if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
@@ -377,7 +380,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
 
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
@@ -541,16 +544,17 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
 }
 
 bool TsArray::Some(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 if (ts_closure_invoke_1d_bool(closure, elem)) return true;
             }
         } else {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
                 if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
@@ -571,7 +575,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
 
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
@@ -592,16 +596,17 @@ bool TsArray::Some(void* callback, void* thisArg) {
 }
 
 bool TsArray::Every(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 if (!ts_closure_invoke_1d_bool(closure, elem)) return false;
             }
         } else {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes (vacuously true)
                 if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
@@ -622,7 +627,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
 
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
@@ -643,18 +648,19 @@ bool TsArray::Every(void* callback, void* thisArg) {
 }
 
 TsValue* TsArray::Find(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 if (ts_closure_invoke_1d_bool(closure, elem)) {
                     return ts_value_make_double(elem);
                 }
             }
         } else {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -673,7 +679,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
 
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v;
         if (slow) {
             // find doesn't skip holes — reads undefined for absent (per spec)
@@ -696,16 +702,17 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
 }
 
 int64_t TsArray::FindIndex(void* callback, void* thisArg) {
+    const size_t len0 = length;  // ES: capture length once (ignore mid-iteration growth)
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback) && g_array_prototype_version == 0 && !thisArg) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 double elem = GetElementDouble(i);
                 if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)i;
             }
         } else {
-            for (size_t i = 0; i < length; ++i) {
+            for (size_t i = 0; i < len0; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -723,7 +730,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     if (!cbVal) return -1;
     TsValue* thisArgV = (TsValue*)thisArg;
 
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0; i < len0; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
