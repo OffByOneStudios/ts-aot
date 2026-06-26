@@ -225,6 +225,10 @@ private:
         // only through the literal-class-name fast path.
         std::string ctorName;   // class constructor closure name (e.g. C_constructor)
         std::string fieldName;  // static field name (e.g. sf)
+        // For a COMPUTED static field name (`static [expr] = v`), the key
+        // expression to evaluate at init time and install the value under on the
+        // constructor (fieldName is the "[computed]" placeholder, unusable).
+        ast::Node* computedNameNode = nullptr;
     };
     std::vector<StaticPropInit> deferredStaticInits_;
 

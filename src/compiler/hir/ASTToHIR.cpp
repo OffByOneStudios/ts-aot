@@ -1548,7 +1548,19 @@ void ASTToHIR::emitDeferredStaticInits() {
         // remains authoritative for the literal-name direct-read fast path.
         if (!init.ctorName.empty() && !init.fieldName.empty()) {
             auto ctorVal = builder_.createLoadFunction(init.ctorName);
-            builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
+            // A COMPUTED static field name (`static [expr] = v`): evaluate the
+            // key and install dynamically — the "[computed]" placeholder is not
+            // a usable property name.
+            if (init.computedNameNode) {
+                if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(init.computedNameNode)) {
+                    auto key = lowerExpression(cpn->expression.get());
+                    builder_.createSetPropDynamic(ctorVal, key, initVal);
+                } else {
+                    builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
+                }
+            } else {
+                builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
+            }
         }
     }
     deferredStaticInits_.clear();  // Only emit once

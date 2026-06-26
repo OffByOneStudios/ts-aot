@@ -191,7 +191,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
-                                                    node->name + "_constructor", propDef->name});
+                                                    node->name + "_constructor", propDef->name,
+                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr});
                 }
             }
         }
@@ -834,7 +835,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
-                                                    className + "_constructor", propDef->name});
+                                                    className + "_constructor", propDef->name,
+                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr});
                 }
             }
         }
