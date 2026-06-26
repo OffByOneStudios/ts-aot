@@ -1936,6 +1936,7 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_date_toString_native, date, "toString", 0);
             if (strcmp(keyStr, "toDateString") == 0) return makeNamedNativeFunction((void*)ts_date_toDateString_native, date, "toDateString", 0);
             if (strcmp(keyStr, "toTimeString") == 0) return makeNamedNativeFunction((void*)ts_date_toTimeString_native, date, "toTimeString", 0);
+            if (strcmp(keyStr, "[Symbol.toPrimitive]") == 0) return makeNamedNativeFunction((void*)ts_date_symbolToPrimitive_native, date, "[Symbol.toPrimitive]", 1);
             if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_date_valueOf_native, date, "valueOf", 0);
             // annexB Date.prototype methods
             if (strcmp(keyStr, "toUTCString") == 0) return makeNamedNativeFunction((void*)ts_date_toUTCString_native, date, "toUTCString", 0);

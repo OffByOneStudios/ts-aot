@@ -1751,6 +1751,24 @@ extern "C" {
         if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
         return ts_value_make_string(d->ToTimeString());
     }
+    // ECMA-262 21.4.4.45 Date.prototype[@@toPrimitive](hint): "string"/"default"
+    // -> OrdinaryToPrimitive(string) (toString); "number" -> valueOf; any other
+    // hint is a TypeError. Calls the Date string/number natives directly so it
+    // does not recurse through ts_to_primitive (which consults @@toPrimitive).
+    TsValue* ts_date_symbolToPrimitive_native(void* ctx, int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, "[Symbol.toPrimitive]");
+        if (!d) return ts_value_make_undefined();
+        std::string hint;  // empty when missing/undefined -> invalid -> TypeError
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+            void* hs = ts_value_get_string(argv[0]);
+            if (hs) hint = ((TsString*)hs)->ToUtf8();
+        }
+        if (hint == "string" || hint == "default") return ts_date_toString_native(ctx, 0, nullptr);
+        if (hint == "number") return ts_date_valueOf_native(ctx, 0, nullptr);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "invalid hint passed to Date.prototype[Symbol.toPrimitive]"));
+        return ts_value_make_undefined();
+    }
     TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
         TsDate* d = requireDateOrThrow(ctx, "valueOf");
         if (!d) return ts_value_make_undefined();
@@ -2038,6 +2056,7 @@ extern "C" {
         dateRegisterMethod(proto, "toString", (void*)ts_date_toString_native, 0);
         dateRegisterMethod(proto, "toDateString", (void*)ts_date_toDateString_native, 0);
         dateRegisterMethod(proto, "toTimeString", (void*)ts_date_toTimeString_native, 0);
+        dateRegisterMethod(proto, "[Symbol.toPrimitive]", (void*)ts_date_symbolToPrimitive_native, 1);
         dateRegisterMethod(proto, "valueOf", (void*)ts_date_valueOf_native, 0);
         // annexB
         dateRegisterMethod(proto, "toUTCString", (void*)ts_date_toUTCString_native, 0);
