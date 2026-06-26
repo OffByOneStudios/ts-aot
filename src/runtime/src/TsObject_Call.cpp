@@ -872,6 +872,19 @@ extern "C" {
         return thisArg;
     }
 
+    // Select the result of `new`: if a constructor returned an OBJECT use it,
+    // else (undefined/null/primitive) use the freshly-allocated `this`.
+    TsValue* ts_construct_select(TsValue* ctorResult, TsValue* thisObj) {
+        if (ctorResult && !ts_value_is_undefined(ctorResult) && !ts_value_is_null(ctorResult)) {
+            uint64_t rNb = nanbox_from_tsvalue_ptr(ctorResult);
+            if (nanbox_is_ptr(rNb)) {
+                void* rPtr = nanbox_to_ptr(rNb);
+                if (rPtr && (uintptr_t)rPtr > 0x10000) return ctorResult;
+            }
+        }
+        return thisObj;
+    }
+
     TsValue* ts_new_from_constructor_0(TsValue* constructorFn) {
         return ts_new_from_constructor_impl(constructorFn, 0, nullptr);
     }

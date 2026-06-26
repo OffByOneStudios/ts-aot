@@ -2302,8 +2302,20 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 "ts_object_setPrototypeOf", {newObj, protoVal}, HIRType::makeVoid());
         }
 
-        // Call the constructor
-        builder_.createCall(ctor->name, ctorArgs, HIRType::makeVoid());
+        // Call the constructor. For a DERIVED JS class, the constructor already
+        // returns its constructed value (the IR returns `ptr`), so capture it and
+        // honor ECMA-262 §10.2.2: `return <object>` makes that object the result
+        // of `new`. Non-derived classes keep the void call (their ctor returns
+        // void; widening that convention regressed other tests).
+        bool ctorIsJs = ctor->sourceFile.size() >= 3 &&
+                        ctor->sourceFile.substr(ctor->sourceFile.size() - 3) == ".js";
+        if (hirClass->baseClass && ctorIsJs) {
+            auto ctorResult = builder_.createCall(ctor->name, ctorArgs, HIRType::makeAny());
+            if (ctorResult)
+                newObj = builder_.createCall("ts_construct_select", {ctorResult, newObj}, HIRType::makeAny());
+        } else {
+            builder_.createCall(ctor->name, ctorArgs, HIRType::makeVoid());
+        }
     } else if (hirClass && !hirClass->constructor && specializations_) {
         // The HIRClass was created (e.g., by pre-pass for imported classes) but the
         // constructor function hasn't been generated yet. Look through specializations
