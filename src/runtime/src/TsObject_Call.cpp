@@ -286,6 +286,20 @@ extern "C" {
             if (fp && ts_gc_base(fp)) return u;  // func_ptr in GC heap => corrupt
             if (closure->rest_param_index >= 0)
                 return ts_rest_pack_and_call(closure, argc, argv);
+            if (closure->is_method) {
+                // Bare call (no receiver) to a method closure: ECMA-262 invokes it
+                // with `this` = undefined. A method's physical params are
+                // (closure, this, a1..aN), so we MUST inject an undefined `this`
+                // slot here — otherwise arg0 is swallowed by the `this` parameter
+                // and every argument shifts by one. This broke detached
+                // `C.prototype.m(a, b)` calls and the entire class/dstr
+                // generator-method family (142 dstr tests call methods detached).
+                int np = closure->num_params > 0 ? closure->num_params : closure->arity;
+                if (np >= 11 && np <= 16)
+                    return call_closure_method_exact(closure, u, argc, argv);
+                return call_closure_padded10_method(closure, u,
+                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
+            }
             if ((closure->num_params > 0 ? closure->num_params : closure->arity) >= 11 && (closure->num_params > 0 ? closure->num_params : closure->arity) <= 16)
                 return call_closure_exact(closure, argc, argv);
             return call_closure_padded10(closure, A(0), A(1), A(2), A(3), A(4),
