@@ -7062,6 +7062,25 @@ void* ts_create_arguments_from_params(
         ADD_MATH(fround, 1);
         ADD_MATH(imul, 2);
         #undef ADD_MATH
+        // ECMA-262 21.3.1: the Math constants, all
+        // { [[Writable]]:false, [[Enumerable]]:false, [[Configurable]]:false }
+        // (attrs == 0). Previously missing entirely — Math.PI etc. read undefined
+        // and `"PI" in Math` was false.
+        {
+            auto setMathConst = [&](const char* name, double val) {
+                TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(name);
+                TsValue v; v.type = ValueType::NUMBER_DBL; v.d_val = val;
+                mathMap->SetWithAttrs(k, v, 0);
+            };
+            setMathConst("E",       2.718281828459045);
+            setMathConst("LN10",    2.302585092994046);
+            setMathConst("LN2",     0.6931471805599453);
+            setMathConst("LOG10E",  0.4342944819032518);
+            setMathConst("LOG2E",   1.4426950408889634);
+            setMathConst("PI",      3.141592653589793);
+            setMathConst("SQRT1_2", 0.7071067811865476);
+            setMathConst("SQRT2",   1.4142135623730951);
+        }
         setToStringTag(mathMap, "Math");
         Math = ts_value_make_object(mathMap);
 
