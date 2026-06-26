@@ -875,14 +875,27 @@ extern "C" {
     // Select the result of `new`: if a constructor returned an OBJECT use it,
     // else (undefined/null/primitive) use the freshly-allocated `this`.
     TsValue* ts_construct_select(TsValue* ctorResult, TsValue* thisObj) {
-        if (ctorResult && !ts_value_is_undefined(ctorResult) && !ts_value_is_null(ctorResult)) {
-            uint64_t rNb = nanbox_from_tsvalue_ptr(ctorResult);
-            if (nanbox_is_ptr(rNb)) {
-                void* rPtr = nanbox_to_ptr(rNb);
-                if (rPtr && (uintptr_t)rPtr > 0x10000) return ctorResult;
-            }
+        // ECMA-262 [[Construct]] for a DERIVED class (this helper is emitted only
+        // when hirClass->baseClass is set): an Object return replaces `this`;
+        // `undefined` keeps `this`; ANY other value — null, boolean, number,
+        // string, symbol, bigint — is a TypeError. (The old check accepted strings
+        // because they're heap pointers, and silently kept `this` for primitives.)
+        if (!ctorResult || ts_value_is_undefined(ctorResult)) return thisObj;
+        TsValue tv = nanbox_to_tagged(ctorResult);
+        switch (tv.type) {
+            case ValueType::OBJECT_PTR:
+                if (tv.ptr_val) return ctorResult;  // real object (null maps here with ptr_val==null)
+                break;
+            case ValueType::ARRAY_PTR:
+            case ValueType::PROMISE_PTR:
+            case ValueType::FUNCTION_PTR:
+                return ctorResult;
+            default:
+                break;  // STRING/SYMBOL/BIGINT/NUMBER/BOOLEAN — fall through to throw
         }
-        return thisObj;
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Derived constructors may only return object or undefined"));
+        return thisObj;  // unreachable
     }
 
     TsValue* ts_new_from_constructor_0(TsValue* constructorFn) {
