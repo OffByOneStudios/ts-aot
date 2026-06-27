@@ -24,9 +24,17 @@ extern "C" {
 // version counter, so installing the prelude does not force every array method
 // onto its slow path.
 void* g_selfhosted_filter = nullptr;
+void* g_selfhosted_map = nullptr;
 }
 
 extern "C" void ts_gc_register_root(void** location);
+
+// name -> impl-pointer slot. Adding a self-hosted method = one row here, a global
+// above, the spec impl in the prelude, and a one-line bailout in its native.
+static const struct { const char* name; void** slot; } g_selfhosted_table[] = {
+    { "filter", &g_selfhosted_filter },
+    { "map",    &g_selfhosted_map },
+};
 
 extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
                                          int32_t length, TsValue* fn) {
@@ -40,13 +48,17 @@ extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
     // the transient box made the collector mark a non-heap pointer → corruption.
     void* fnRaw = ts_value_get_object(fn);
 
-    // Record the self-hosted impl so the native delegates direct calls to it, and
-    // register the slot as a GC root (an unrooted C global holding a GC pointer is
-    // collected/moved out from under us — see runtime-safety rules).
-    if (strcmp(name, "filter") == 0) {
-        g_selfhosted_filter = fnRaw;
-        static bool rooted = false;
-        if (!rooted) { ts_gc_register_root(&g_selfhosted_filter); rooted = true; }
+    // Record the self-hosted impl so the native delegates direct calls to it.
+    // Root every slot once (an unrooted C global holding a GC pointer is
+    // collected/moved out from under us — see runtime-safety rules; rooting a
+    // null slot is a no-op the GC skips).
+    static bool rooted = false;
+    if (!rooted) {
+        for (auto& e : g_selfhosted_table) ts_gc_register_root(e.slot);
+        rooted = true;
+    }
+    for (auto& e : g_selfhosted_table) {
+        if (strcmp(name, e.name) == 0) { *e.slot = fnRaw; break; }
     }
 
     // Give the closure spec builtin metadata: arity (.length), .name, and no

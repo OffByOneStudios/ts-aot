@@ -31,9 +31,10 @@ extern "C" {
     // array (a hole has nothing to inherit); when 1, holey arrays must bail to
     // the spec path so inherited indices fill their holes.
     uint8_t g_array_proto_has_indexed = 0;
-    // Self-hosted Array.prototype.filter impl (TsBuiltinInstall.cpp), if the
-    // prelude installed one — ts_array_filter delegates a direct call to it.
+    // Self-hosted Array.prototype impls (TsBuiltinInstall.cpp), if the prelude
+    // installed them — the natives delegate a direct call to the spec impl.
     extern void* g_selfhosted_filter;
+    extern void* g_selfhosted_map;
     // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
     // array iterator lives in a built-in fast path (not in the prototype map),
     // so its removal isn't otherwise observable; ts_iterator_get consults this
@@ -2250,6 +2251,15 @@ extern "C" {
             TsValue* res = ts_array_map_native(arr, 2, argvBuf);
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
+        }
+        // Inverted dispatch (see ts_array_filter): a holey real array while the
+        // NoElementsProtector is invalidated may inherit indices → spec impl.
+        if (g_selfhosted_map && g_array_proto_has_indexed &&
+            arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
+            extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+            TsValue* res = ts_call_with_this_3(ts_value_make_object(g_selfhosted_map), ts_value_make_undefined(),
+                                               ts_value_make_object(arr), (TsValue*)callback, (TsValue*)thisArg);
+            return res ? ts_value_get_object(res) : nullptr;
         }
         if (!array_require_callable(callback, "map")) return nullptr;
         void* result = ((TsArray*)arr)->Map(callback, thisArg);

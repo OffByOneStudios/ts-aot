@@ -809,6 +809,15 @@ extern "C" {
 
     // P0: Extremely common methods
     TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
+        // Array-like receiver → self-hosted spec impl (see ts_array_filter_native).
+        extern void* g_selfhosted_map;
+        if (g_selfhosted_map && !resolve_array_ctx(ctx)) {
+            extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+            TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+            return ts_call_with_this_3(ts_value_make_object(g_selfhosted_map), ts_value_make_undefined(),
+                                       (TsValue*)ctx, cb, ta);
+        }
         TsArray* arr = require_array_or_throw(ctx, "map");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;

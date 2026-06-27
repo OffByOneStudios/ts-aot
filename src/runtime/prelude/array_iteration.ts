@@ -1,17 +1,31 @@
 // Self-hosted Array iteration builtins.
 //
 // Spec-correct implementations installed via globalThis.__defineBuiltin. The C++
-// natives stay the fast path (packed arrays, clean Array.prototype); these run
-// only as the spec bailout (array-like receivers, holey arrays with inherited
-// indices). See src/runtime/src/TsBuiltinInstall.cpp and the per-native dispatch
-// in TsArray.cpp / TsObject_Builtins.cpp.
+// natives stay the FAST path (packed arrays, clean Array.prototype); these run
+// only as the spec bailout (array-like receivers, or holey arrays whose holes
+// could inherit indices from a modified Array.prototype). See
+// src/runtime/src/TsBuiltinInstall.cpp and the per-native dispatch in
+// TsArray.cpp / TsObject_Builtins.cpp.
 //
-// Each file under src/runtime/prelude/ is concatenated (sorted) into one prelude
-// module that the Driver prepends ahead of user code. Wrap in an IIFE so locals
-// don't collide across prelude files.
+// Each method takes the receiver as an explicit first parameter `O_recv` (not
+// `this`): the prelude compiles as plain module-level function expressions where
+// `this` isn't bound, and the native dispatch invokes SH(receiver, cb, thisArg).
+//
+// INTRINSIC SURFACE (perf): the hot per-element operations below — `k in O`,
+// `O[k]`, `cb.call(...)`, and the result writes — are the operations that decide
+// how fast self-hosted builtins run. Today they lower to the runtime's dynamic
+// property ops (which already fast-path real arrays). To make hosted code
+// competitive with the C++ natives when it becomes the primary path, these
+// should become compiler-lowered intrinsics (`%LoadElement`/`%HasElement`/
+// `%Call`/`%CreateDataProperty`, à la JSC @-intrinsics / V8 Torque). The shared
+// abstract-op helpers here (toLength/toObject/isCallable) are the same surface at
+// the coercion level. Keeping every method on this shared surface means that perf
+// work lands once, in the intrinsics, not across N hand-written methods.
 
 (function () {
-  // ECMA-262 ToLength: ToInteger then clamp to [0, 2^53 - 1].
+  // --- Shared abstract operations (the coercion-level intrinsic surface) ---
+
+  // ECMA-262 7.1.20 ToLength: ToInteger then clamp to [0, 2^53 - 1].
   function toLength(v: any): number {
     var n = Number(v);
     if (n !== n) return 0; // NaN
@@ -20,20 +34,26 @@
     return n > 9007199254740991 ? 9007199254740991 : n;
   }
 
-  // 23.1.3.7 Array.prototype.filter. The receiver is passed as the explicit
-  // first parameter `receiver` (not `this`): this prelude compiles as a plain
-  // module function expression, where `this` isn't bound, and the native
-  // dispatch (TsArray.cpp / TsObject_Builtins.cpp) invokes it as
-  // SH(receiver, callbackfn, thisArg).
-  var filter = function (receiver: any, callbackfn: any, thisArg: any): any {
-    if (receiver === null || receiver === undefined) {
-      throw new TypeError("Array.prototype.filter called on null or undefined");
+  // ECMA-262 7.1.18 ToObject after 7.2.1 RequireObjectCoercible. Returns the
+  // wrapper object, throwing TypeError for null/undefined.
+  function toObject(o: any, method: string): any {
+    if (o === null || o === undefined) {
+      throw new TypeError("Array.prototype." + method + " called on null or undefined");
     }
-    var O: any = Object(receiver);
-    var len: number = toLength(O.length);
-    if (typeof callbackfn !== "function") {
+    return Object(o);
+  }
+
+  function requireCallable(f: any): void {
+    if (typeof f !== "function") {
       throw new TypeError("callbackfn is not a function");
     }
+  }
+
+  // --- 23.1.3.7 Array.prototype.filter (compacts; holes skipped) ---
+  var filter = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "filter");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
     var A: any[] = [];
     var to = 0;
     for (var k = 0; k < len; k++) {
@@ -48,5 +68,22 @@
     return A;
   };
 
-  (globalThis as any).__defineBuiltin(Array.prototype, "filter", 1, filter);
+  // --- 23.1.3.19 Array.prototype.map (length-preserving; holes preserved) ---
+  var map = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "map");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    // length len, all holes; present indices are filled below, absent stay holes.
+    var A: any[] = new Array(len);
+    for (var k = 0; k < len; k++) {
+      if (k in O) {
+        A[k] = callbackfn.call(thisArg, O[k], k, O);
+      }
+    }
+    return A;
+  };
+
+  var def = (globalThis as any).__defineBuiltin;
+  def(Array.prototype, "filter", 1, filter);
+  def(Array.prototype, "map", 1, map);
 })();
