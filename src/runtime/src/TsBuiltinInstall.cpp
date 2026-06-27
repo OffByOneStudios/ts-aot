@@ -46,6 +46,11 @@ extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
         if (nsRaw) ts_closure_set_name(cl, nsRaw);
     }
 
-    // Install non-enumerable (writable, configurable) on the target prototype.
-    if (target) ts_object_set_method(target, nameStr, fn);
+    // NOTE: we deliberately do NOT install onto the target prototype. The
+    // Array.prototype.<m> getter keeps returning the native wrapper, which does
+    // the inverted dispatch (packed real array → C++ fast loop; holey/array-like
+    // → the self-hosted impl recorded above). Installing the closure on the slot
+    // would route every dynamic `arr.<m>()` straight to the JS impl, defeating the
+    // fast path. (Stage C may revisit this for method identity/metadata tests.)
+    (void)target;
 }

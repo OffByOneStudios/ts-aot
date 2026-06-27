@@ -818,6 +818,24 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv) {
+        // Inverted dispatch (V8 Cast<FastJSArray> otherwise <generic>): an
+        // array-like receiver (Array.prototype.filter.call(obj, ...)) is not a
+        // real array, so the C++ native can't handle it — delegate to the
+        // self-hosted spec impl (ToObject/ToLength/HasProperty). Real arrays fall
+        // through to ts_array_filter, which itself routes holey→self-hosted and
+        // packed→native fast loop.
+        extern void* g_selfhosted_filter;
+        if (g_selfhosted_filter) {
+            void* recv = ts_value_get_object((TsValue*)ctx);
+            if (!recv) recv = ctx;  // ctx may be a raw array ptr (untyped path)
+            bool isArray = recv && *(uint32_t*)recv == 0x41525259 /* "ARRY" */;
+            if (!isArray) {
+                extern TsValue* ts_call_with_this_2(TsValue*, TsValue*, TsValue*, TsValue*);
+                TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+                TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+                return ts_call_with_this_2((TsValue*)g_selfhosted_filter, (TsValue*)ctx, cb, ta);
+            }
+        }
         TsArray* arr = require_array_or_throw(ctx, "filter");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;

@@ -111,6 +111,8 @@ extern "C" void* ts_get_global_Number();
 // reports present.
 extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i);
 extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i);
+extern "C" bool ts_array_is_prototype_map(void* maybeMap);
+extern "C" uint8_t g_array_proto_has_indexed;  // NoElementsProtector (TsArray.cpp)
 
 // Self-hosted builtin install (TsBuiltinInstall.cpp). The native wrapper lives
 // here so its registration is in the same TU (cross-file native-pointer
@@ -4808,6 +4810,23 @@ void* ts_create_arguments_from_params(
         // Direct field access — obj is a TsValue struct, not a NaN-boxed pointer
         void* rawObj = obj.ptr_val;
         if (!rawObj) return value;
+
+        // NoElementsProtector: an indexed write to Array.prototype lets holey
+        // arrays inherit a value at that index, so the C++ array builtins must
+        // thereafter bail holey arrays to the spec path. Record once.
+        if (!g_array_proto_has_indexed && ts_array_is_prototype_map(rawObj)) {
+            bool idx = false;
+            if (key.type == ValueType::NUMBER_INT) {
+                idx = (key.i_val >= 0);
+            } else if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+                const char* k = ((TsString*)key.ptr_val)->ToUtf8();
+                if (k && k[0] >= '0' && k[0] <= '9') {
+                    char* e = nullptr; long v = strtol(k, &e, 10);
+                    idx = (e != k && *e == '\0' && v >= 0);
+                }
+            }
+            if (idx) g_array_proto_has_indexed = 1;
+        }
 
         // If key is a number, try array access — but ONLY when it's a
         // canonical integer index. A fractional double like 1.1 is NOT an

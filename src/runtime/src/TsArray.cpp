@@ -26,6 +26,11 @@
 extern "C" {
     TsMap* g_array_prototype_map = nullptr;
     uint64_t g_array_prototype_version = 0;
+    // NoElementsProtector analogue: set once an indexed property is written to
+    // Array.prototype. While 0, the C++ array builtins are spec-correct for any
+    // array (a hole has nothing to inherit); when 1, holey arrays must bail to
+    // the spec path so inherited indices fill their holes.
+    uint8_t g_array_proto_has_indexed = 0;
     // Self-hosted Array.prototype.filter impl (TsBuiltinInstall.cpp), if the
     // prelude installed one — ts_array_filter delegates a direct call to it.
     extern void* g_selfhosted_filter;
@@ -162,6 +167,7 @@ TsArray* TsArray::CreateSized(size_t size) {
         for (size_t i = 0; i < arr->capacity; ++i) slots[i] = (int64_t)NANBOX_HOLE;
         arr->length = size;                     // sparse: length >> capacity
         arr->elementKind_ = ElementKind::HoleyAny;
+        arr->has_holes_ = true;                 // every index is a hole
         return arr;
     }
     void* mem = ts_alloc(sizeof(TsArray));
@@ -173,6 +179,7 @@ TsArray* TsArray::CreateSized(size_t size) {
     const int64_t hole = (int64_t)NANBOX_HOLE;
     for (size_t i = 0; i < size; ++i) slots[i] = hole;
     arr->elementKind_ = ElementKind::HoleyAny;
+    if (size > 0) arr->has_holes_ = true;       // new Array(n)/[,,] => n holes
     return arr;
 }
 
@@ -277,6 +284,7 @@ void TsArray::SetHole(size_t index) {
     if (elementKind_ != ElementKind::HoleyAny) {
         elementKind_ = ElementKind::HoleyAny;
     }
+    has_holes_ = true;
     ((int64_t*)elements)[index] = (int64_t)NANBOX_HOLE;
 }
 
@@ -585,6 +593,7 @@ void TsArray::Set(size_t index, int64_t value) {
     // kMaxDenseElements) instead of panicking or OOM-growing the dense buffer.
     size_t oldLen = length;
     length = index + 1;
+    if (index > oldLen) has_holes_ = true;  // a gap [oldLen, index) is real holes
     if (elementKind_ != ElementKind::HoleyAny) elementKind_ = ElementKind::HoleyAny;
     // Hole-fill the part of the gap that lies in the current dense buffer;
     // slots beyond capacity are implicit holes (readSlot) or hole-filled by
@@ -654,6 +663,7 @@ bool TsArray::SetLength(size_t newLength) {
         capacity = newCapacity;
     }
     if (elementSize == 8) {
+        if (newLength > length) has_holes_ = true;  // padded region [length,newLength) is holes
         for (size_t i = length; i < newLength; i++) {
             ((int64_t*)elements)[i] = (int64_t)NANBOX_HOLE;
         }
@@ -2247,21 +2257,24 @@ extern "C" {
     }
 
     void* ts_array_filter(void* arr, void* callback, void* thisArg) {
-        // Dispatch keystone: if the prelude installed a self-hosted filter,
-        // a direct `arr.filter(...)` delegates to it (cheap pointer check, no
-        // prototype-version dependency). try_as_typed_array first so TypedArray
-        // keeps its own native path.
-        if (g_selfhosted_filter && !try_as_typed_array(arr)) {
-            extern TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2);
-            TsValue* res = ts_call_with_this_2((TsValue*)g_selfhosted_filter, ts_value_make_object(arr),
-                                               (TsValue*)callback, (TsValue*)thisArg);
-            return res ? ts_value_get_object(res) : nullptr;
-        }
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_filter_native(arr, 2, argvBuf);
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
+        }
+        // Inverted dispatch (V8 `Cast<FastJSArray> otherwise <generic>`): the C++
+        // native fast path is spec-correct for a PACKED array (no holes → no
+        // inherited-index fill). A HOLEY array may have an inherited index
+        // (Array.prototype[k]) supplying a held value per spec [[Get]], which the
+        // native skips — so delegate those to the self-hosted spec impl. Hot dense
+        // arrays stay on the C++ loop; only holey arrays pay the slow path.
+        if (g_selfhosted_filter && g_array_proto_has_indexed &&
+            arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
+            extern TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2);
+            TsValue* res = ts_call_with_this_2((TsValue*)g_selfhosted_filter, ts_value_make_object(arr),
+                                               (TsValue*)callback, (TsValue*)thisArg);
+            return res ? ts_value_get_object(res) : nullptr;
         }
         if (!array_require_callable(callback, "filter")) return nullptr;
         void* result = ((TsArray*)arr)->Filter(callback, thisArg);
