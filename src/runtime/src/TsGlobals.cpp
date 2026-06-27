@@ -3622,12 +3622,15 @@ void* ts_get_global_ArrayBuffer() {
 static TsDataView* dv_require(void* ctx){
     if(!ctx) ctx = ts_get_call_this();
     void* raw = ctx ? ts_nanbox_safe_unbox(ctx) : nullptr;
-    // TsDataView is a TsObject subclass: its tag lives at offset +16, not offset 0.
-    if(!raw || *(uint32_t*)((char*)raw+16) != TsDataView::MAGIC){
+    // ts_cast<TsDataView> is heap-checked (never dereferences a non-heap `this`)
+    // and reads the magic at the layout-correct offset (+16). A bad receiver
+    // -> nullptr -> TypeError rather than an access violation.
+    TsDataView* dv = raw ? ts_cast<TsDataView>(raw) : nullptr;
+    if(!dv){
         ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView method called on a non-DataView"));
         return nullptr;
     }
-    return (TsDataView*)raw;
+    return dv;
 }
 static int64_t dv_to_index(TsValue* v){
     double d = v ? ts_to_number(v) : 0.0;            // ToNumber (throws TypeError on a Symbol)
@@ -3739,34 +3742,42 @@ void* ts_get_global_DataView() {
                 // `if (!raw) raw = ctx;` which for primitive `this` left raw
                 // pointing at a tagged-value bit pattern; the MAGIC read
                 // dereferenced wild memory and crashed.
+                // TsDataView magic lives at offset +16 (TsObject subclass), so
+                // the old `*(uint32_t*)raw` (offset 0) read the vtable, not the
+                // magic — it both mis-classified valid DataViews and could
+                // dereference a non-heap `this`. ts_cast<TsDataView> is
+                // heap-checked and reads the magic at the layout-correct offset.
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                TsDataView* dv = raw ? ts_cast<TsDataView>(raw) : nullptr;
+                if (!dv) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get buffer called on non-DataView"));
                     return ts_value_make_undefined();
                 }
-                TsBuffer* buf = ((TsDataView*)raw)->GetBuffer();
+                TsBuffer* buf = dv->GetBuffer();
                 return buf ? ts_value_make_object(buf) : ts_value_make_undefined();
             });
             addAccessorGetter(dvProto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                TsDataView* dv = raw ? ts_cast<TsDataView>(raw) : nullptr;
+                if (!dv) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get byteLength called on non-DataView"));
                     return ts_value_make_undefined();
                 }
-                return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteLength());
+                return ts_value_make_int((int64_t)dv->GetByteLength());
             });
             addAccessorGetter(dvProto, "byteOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                TsDataView* dv = raw ? ts_cast<TsDataView>(raw) : nullptr;
+                if (!dv) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get byteOffset called on non-DataView"));
                     return ts_value_make_undefined();
                 }
-                return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteOffset());
+                return ts_value_make_int((int64_t)dv->GetByteOffset());
             });
             (void)requireDataView;
             // get* have length 1 (byteOffset[, littleEndian]); set* have length 2 (byteOffset, value[, littleEndian]).
