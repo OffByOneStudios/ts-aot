@@ -7243,6 +7243,20 @@ void* ts_create_arguments_from_params(
             setMathConst("SQRT2",   1.4142135623730951);
         }
         setToStringTag(mathMap, "Math");
+        // Spec: every Math property is non-enumerable. The method installs above
+        // used Set (enumerable by default — methods showed up in Object.keys(Math));
+        // clear the enumerable bit on every own property. The constants were set
+        // with attrs=0, so this is idempotent for them. Methods keep
+        // writable+configurable (only the enumerable bit is cleared).
+        {
+            TsArray* mkeys = (TsArray*)mathMap->GetKeys();
+            int64_t mn = mkeys ? mkeys->Length() : 0;
+            for (int64_t i = 0; i < mn; i++) {
+                TsValue mk = nanbox_to_tagged((TsValue*)(uintptr_t)mkeys->GetUnchecked((size_t)i));
+                uint8_t a = mathMap->GetPropertyAttrs(mk);
+                mathMap->SetPropertyAttrs(mk, (uint8_t)(a & ~TsHashTable::ATTR_ENUMERABLE));
+            }
+        }
         Math = ts_value_make_object(mathMap);
 
         // Initialize JSON with parse/stringify
