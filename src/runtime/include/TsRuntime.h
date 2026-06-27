@@ -99,7 +99,8 @@ void ts_set_exception(TsValue* exception);
 TsValue* ts_get_exception();
 
 // --- Entry Point ---
-int ts_main(int argc, char** argv, TsValue* (*user_main)(void*));
+int ts_main(int argc, char** argv, TsValue* (*user_main)(void*),
+            void (*prelude_init)(void));
 void* ts_get_process_argv();
 void* ts_get_process_env();
 void ts_process_set_env(const char* key, TsValue* val);

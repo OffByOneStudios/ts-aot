@@ -302,3 +302,21 @@ sys.exit(1)
         )
     endif()
 endif()
+
+# Precompile the self-hosted-builtins prelude (src/runtime/prelude/*.ts) into
+# ts_prelude.obj next to ts-aot. The Driver links it into emitted programs; it
+# defines a strong ts_prelude_init that installs spec builtins at startup. Runs
+# after the ICU POST_BUILD above so ts-aot can compile.
+add_custom_command(
+    TARGET ts-aot POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_SOURCE_DIR}/src/runtime/prelude
+            -DOUT_FILE=${CMAKE_CURRENT_BINARY_DIR}/ts_prelude_concat.ts
+            -P ${CMAKE_SOURCE_DIR}/cmake/concat_prelude.cmake
+    COMMAND $<TARGET_FILE:ts-aot>
+            ${CMAKE_CURRENT_BINARY_DIR}/ts_prelude_concat.ts
+            --prelude-object
+            -o $<TARGET_FILE_DIR:ts-aot>/ts_prelude.obj
+    COMMENT "Precompiling self-hosted prelude -> ts_prelude.obj"
+    VERBATIM
+)

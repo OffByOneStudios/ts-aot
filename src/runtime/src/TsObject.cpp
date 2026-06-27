@@ -106,6 +106,27 @@ extern "C" void* ts_get_global_Number();
 #include <unicode/regex.h>
 #include <unicode/unistr.h>
 
+// Defined in TsArray.cpp: prototype-aware HasProperty for an array index, used by
+// the `in` operator so an inherited index (Array.prototype[i]) on a holey array
+// reports present.
+extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i);
+extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i);
+extern "C" bool ts_array_is_prototype_map(void* maybeMap);
+extern "C" uint8_t g_array_proto_has_indexed;  // NoElementsProtector (TsArray.cpp)
+
+// Self-hosted builtin install (TsBuiltinInstall.cpp). The native wrapper lives
+// here so its registration is in the same TU (cross-file native-pointer
+// registration is fragile — see memory test262-gated-rounds).
+extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
+                                         int32_t length, TsValue* fn);
+static TsValue* ts_define_builtin_wrapper(void* /*ctx*/, int argc, TsValue** argv) {
+    if (argc >= 4) {
+        ts_define_builtin_method(argv[0], argv[1],
+                                 (int32_t)ts_value_get_int(argv[2]), argv[3]);
+    }
+    return ts_value_make_undefined();
+}
+
 namespace fs = std::filesystem;
 
 extern "C" {
@@ -2378,7 +2399,11 @@ void* ts_create_arguments_from_params(
                     // "unknown" (e.g. `'' + sparseArr['1']`), and lodash's
                     // dense iteration over arrays propagates the hole.
                     uint64_t ev = (uint64_t)(uintptr_t)arr->Get((size_t)index);
-                    if (ev == NANBOX_HOLE) return ts_value_make_undefined();
+                    if (ev == NANBOX_HOLE) {
+                        // [[Get]] on a hole walks the prototype chain — an
+                        // inherited index (Array.prototype[i]) supplies the value.
+                        return ts_array_get_property_at_idx((void*)arr, (int64_t)index);
+                    }
                     return (TsValue*)(uintptr_t)ev;
                 }
             }
@@ -3796,7 +3821,9 @@ void* ts_create_arguments_from_params(
         if (magic0 == 0x41525259) {
             TsArray* arr = (TsArray*)rawObj;
             if (keyIsInt) {
-                return ts_array_get_as_value(rawObj, keyIdx);
+                // [[Get]] on an index: own slot, else inherited (Array.prototype[i])
+                // on a hole — ts_array_get_property_at_idx does own-then-prototype.
+                return ts_array_get_property_at_idx(rawObj, keyIdx);
             }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
@@ -4784,6 +4811,23 @@ void* ts_create_arguments_from_params(
         void* rawObj = obj.ptr_val;
         if (!rawObj) return value;
 
+        // NoElementsProtector: an indexed write to Array.prototype lets holey
+        // arrays inherit a value at that index, so the C++ array builtins must
+        // thereafter bail holey arrays to the spec path. Record once.
+        if (!g_array_proto_has_indexed && ts_array_is_prototype_map(rawObj)) {
+            bool idx = false;
+            if (key.type == ValueType::NUMBER_INT) {
+                idx = (key.i_val >= 0);
+            } else if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+                const char* k = ((TsString*)key.ptr_val)->ToUtf8();
+                if (k && k[0] >= '0' && k[0] <= '9') {
+                    char* e = nullptr; long v = strtol(k, &e, 10);
+                    idx = (e != k && *e == '\0' && v >= 0);
+                }
+            }
+            if (idx) g_array_proto_has_indexed = 1;
+        }
+
         // If key is a number, try array access — but ONLY when it's a
         // canonical integer index. A fractional double like 1.1 is NOT an
         // array index (ECMA-262: ToString(ToUint32(1.1))="1"≠"1.1"); casting
@@ -5146,6 +5190,23 @@ void* ts_create_arguments_from_params(
         if (magic0 == 0x53545247 || magic0 == 0x434F4E53) return false; // TsString, TsConsString
         if (magic0 == 0x41525259) { // TsArray
             TsArray* arr = (TsArray*)rawObj;
+            // Numeric key (`k in arr` with k a number, e.g. inside a self-hosted
+            // loop) — handle as an index directly; ts_value_get_string returns
+            // null for it, so without this it would wrongly report absent and
+            // skip the prototype walk (HasProperty must still see inherited
+            // indices). Mirrors the string-index branch below.
+            {
+                uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
+                if (nanbox_is_int32(keyNb) || nanbox_is_double(keyNb)) {
+                    double kd = nanbox_is_int32(keyNb) ? (double)nanbox_to_int32(keyNb)
+                                                       : nanbox_to_double(keyNb);
+                    int64_t ki = (int64_t)kd;
+                    if (kd == (double)ki && ki >= 0) {
+                        if ((size_t)ki < (size_t)arr->Length() && !arr->IsHole((size_t)ki)) return true;
+                        return ts_array_has_property_at_idx((void*)arr, ki);
+                    }
+                }
+            }
             TsString* keyStr2 = (TsString*)ts_value_get_string(key);
             if (!keyStr2) return false;
             const char* k = keyStr2->ToUtf8();
@@ -5154,9 +5215,12 @@ void* ts_create_arguments_from_params(
             char* end = nullptr;
             long idx = strtol(k, &end, 10);
             if (end != k && *end == '\0' && idx >= 0 && idx < ts_array_length(rawObj)) {
-                // An in-bounds index is a present own property only if it is
-                // not a hole. `var a=[]; a[2]=5; 0 in a` must be false.
-                return !arr->IsHole((size_t)idx);
+                // ECMA-262 §7.3.11 HasProperty: a non-hole own slot is present; a
+                // HOLE is absent as an own property, so HasProperty must still walk
+                // the prototype chain (e.g. `Array.prototype[1]=x; 1 in [,,,]` is
+                // true). ts_array_has_property_at does own-then-Array.prototype.
+                if (!arr->IsHole((size_t)idx)) return true;
+                return ts_array_has_property_at_idx((void*)arr, (int64_t)idx);
             }
             // Non-index string key (e.g. `a.foo`): check the array's
             // string-keyed side map so `'foo' in arr` reflects assignments.
@@ -7207,6 +7271,9 @@ void* ts_create_arguments_from_params(
         if (Math) globalMap->SetWithAttrs(makeKey("Math"), nanbox_to_tagged(Math), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("parseFloat"), nanbox_to_tagged(parseFloatWrapper), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("__defineBuiltin"),
+            nanbox_to_tagged(makeNamedNativeFunction((void*)ts_define_builtin_wrapper, nullptr, "__defineBuiltin", 4)),
+            BUILTIN_ATTRS);
         if (process) globalMap->SetWithAttrs(makeKey("process"), nanbox_to_tagged(process), BUILTIN_ATTRS);
         if (Buffer) globalMap->SetWithAttrs(makeKey("Buffer"), nanbox_to_tagged(Buffer), BUILTIN_ATTRS);
         if (JSON) globalMap->SetWithAttrs(makeKey("JSON"), nanbox_to_tagged(JSON), BUILTIN_ATTRS);

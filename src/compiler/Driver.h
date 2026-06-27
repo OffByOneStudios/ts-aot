@@ -19,6 +19,7 @@ struct DriverOptions {
     bool dumpHirPre = false;    // Dump HIR before any optimization passes (raw ASTToHIR output)
     bool dumpTypes = false;
     bool compileOnly = false;
+    bool preludeObject = false; // --prelude-object: emit ts_prelude_init (no main/ts_main), for the precompiled self-hosted-builtins object
     bool debug = false;
     bool debugRuntime = false;  // Link against debug version of tsruntime
     bool sharedRuntime = false; // --shared-runtime: link the runtime as a shared DLL (tsruntime_shared) instead of statically

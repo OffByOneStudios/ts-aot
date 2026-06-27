@@ -105,6 +105,14 @@ public:
     /// Set the element kind (used during array creation/transition)
     void SetElementKind(ElementKind kind) { elementKind_ = kind; }
 
+    /// True once any real hole (within [0,length)) has been introduced. One-way
+    /// (never cleared), conservative: never false when holes exist, may stay true
+    /// after a hole is overwritten. Used as the V8-`FastJSArray` fast-path
+    /// qualifier — a packed (hole-free) array is spec-correct on the C++ native
+    /// builtins; a holey one may need prototype-chain [[Get]] (inherited indices).
+    bool HasHoles() const { return has_holes_; }
+    void MarkHoley() { has_holes_ = true; }
+
     /// Check if this array can use the fast SMI path
     bool IsSmiArray() const {
         return elementKind_ == ElementKind::PackedSmi ||
@@ -152,6 +160,7 @@ private:
     bool isSpecialized = false;
     bool isDouble = false;
     ElementKind elementKind_ = ElementKind::PackedAny;  ///< V8-style element kind
+    bool has_holes_ = false;  ///< one-way "this array has a real hole" flag (see HasHoles)
 
 public:
     // Set by require_array_or_throw when materializing a temp array from

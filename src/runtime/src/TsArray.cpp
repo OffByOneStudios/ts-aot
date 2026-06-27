@@ -26,6 +26,23 @@
 extern "C" {
     TsMap* g_array_prototype_map = nullptr;
     uint64_t g_array_prototype_version = 0;
+    // NoElementsProtector analogue: set once an indexed property is written to
+    // Array.prototype. While 0, the C++ array builtins are spec-correct for any
+    // array (a hole has nothing to inherit); when 1, holey arrays must bail to
+    // the spec path so inherited indices fill their holes.
+    uint8_t g_array_proto_has_indexed = 0;
+    // Self-hosted Array.prototype impls (TsBuiltinInstall.cpp), if the prelude
+    // installed them — the natives delegate a direct call to the spec impl.
+    extern void* g_selfhosted_filter;
+    extern void* g_selfhosted_map;
+    extern void* g_selfhosted_forEach;
+    extern void* g_selfhosted_some;
+    extern void* g_selfhosted_every;
+    extern void* g_selfhosted_find;
+    extern void* g_selfhosted_findIndex;
+    extern void* g_selfhosted_flatMap;
+    extern void* g_selfhosted_reduce;
+    extern void* g_selfhosted_reduceRight;
     // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
     // array iterator lives in a built-in fast path (not in the prototype map),
     // so its removal isn't otherwise observable; ts_iterator_get consults this
@@ -39,6 +56,14 @@ extern "C" {
     int64_t ts_to_index_integer_or_sentinel(TsValue* v);
     // ToNumber for a fromIndex arg (throws on Symbol/BigInt), preserving +/-Inf.
     double ts_to_index_number_or(TsValue* v, double deflt);
+}
+
+// Forward decls: defined just above ts_array_map, used by earlier iteration
+// natives. Matches the definition's C language linkage (it lives in the extern
+// "C" methods block).
+extern "C" {
+static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg);
+static TsValue* array_selfhost_holey_reduce(void* impl, void* rawArr, void* cb, void* initialValue);
 }
 
 extern "C" void ts_array_prototype_bump_version() {
@@ -107,6 +132,12 @@ bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     return g_array_prototype_map->Has(dk);
 }
 
+// extern "C" shim so other TUs (e.g. the `in` operator in TsObject.cpp) can
+// consult prototype-aware HasProperty without C++-mangling/linkage friction.
+extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i) {
+    return ts_array_has_property_at((TsArray*)arr, i);
+}
+
 // Spec Get(O, ToString(k)): if Array.prototype has an accessor for this
 // index, invoke it (inherited getter takes precedence over own when own
 // slot is absent). Otherwise fall back to own indexed slot.
@@ -119,6 +150,13 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     // Inherited via Array.prototype.
     TsValue* v = array_proto_get_at((void*)arr, i);
     return v ? v : ts_value_make_undefined();
+}
+
+// extern "C" shim: prototype-aware indexed Get for other TUs (the generic
+// `obj[k]` path in TsObject.cpp, reached when the receiver is statically typed
+// as object/any so it does not use the typed-array fast get).
+extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i) {
+    return ts_array_get_property_at((TsArray*)arr, i);
 }
 
 TsArray* TsArray::Create(size_t initialCapacity) {
@@ -146,6 +184,7 @@ TsArray* TsArray::CreateSized(size_t size) {
         for (size_t i = 0; i < arr->capacity; ++i) slots[i] = (int64_t)NANBOX_HOLE;
         arr->length = size;                     // sparse: length >> capacity
         arr->elementKind_ = ElementKind::HoleyAny;
+        arr->has_holes_ = true;                 // every index is a hole
         return arr;
     }
     void* mem = ts_alloc(sizeof(TsArray));
@@ -157,6 +196,7 @@ TsArray* TsArray::CreateSized(size_t size) {
     const int64_t hole = (int64_t)NANBOX_HOLE;
     for (size_t i = 0; i < size; ++i) slots[i] = hole;
     arr->elementKind_ = ElementKind::HoleyAny;
+    if (size > 0) arr->has_holes_ = true;       // new Array(n)/[,,] => n holes
     return arr;
 }
 
@@ -261,6 +301,7 @@ void TsArray::SetHole(size_t index) {
     if (elementKind_ != ElementKind::HoleyAny) {
         elementKind_ = ElementKind::HoleyAny;
     }
+    has_holes_ = true;
     ((int64_t*)elements)[index] = (int64_t)NANBOX_HOLE;
 }
 
@@ -569,6 +610,7 @@ void TsArray::Set(size_t index, int64_t value) {
     // kMaxDenseElements) instead of panicking or OOM-growing the dense buffer.
     size_t oldLen = length;
     length = index + 1;
+    if (index > oldLen) has_holes_ = true;  // a gap [oldLen, index) is real holes
     if (elementKind_ != ElementKind::HoleyAny) elementKind_ = ElementKind::HoleyAny;
     // Hole-fill the part of the gap that lies in the current dense buffer;
     // slots beyond capacity are implicit holes (readSlot) or hole-filled by
@@ -638,6 +680,7 @@ bool TsArray::SetLength(size_t newLength) {
         capacity = newCapacity;
     }
     if (elementSize == 8) {
+        if (newLength > length) has_holes_ = true;  // padded region [length,newLength) is holes
         for (size_t i = length; i < newLength; i++) {
             ((int64_t*)elements)[i] = (int64_t)NANBOX_HOLE;
         }
@@ -1311,14 +1354,15 @@ extern "C" {
         // Get() is accessor-aware (invokes a per-index getter defined via
         // Object.defineProperty); for a plain array it is the slot read.
         int64_t slot = array->Get((size_t)index);
-        // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain.
-        // For a plain Array.prototype that lookup returns undefined. We
-        // normalize NANBOX_HOLE → undefined here so `a[1] === undefined`
-        // is true for sparse arrays, while iteration that genuinely needs
-        // to distinguish holes (e.g. forEach) uses TsArray::IsHole()
-        // directly rather than reading through this path.
+        // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain: an
+        // inherited index (e.g. `Array.prototype[1]=x`) supplies the value the
+        // missing own slot would have. array_proto_get_at consults
+        // Array.prototype (data property or getter); a plain Array.prototype
+        // yields nullptr → undefined, preserving `a[1] === undefined` for sparse
+        // arrays. Iteration that must distinguish holes uses TsArray::IsHole().
         if ((uint64_t)slot == NANBOX_HOLE) {
-            return (void*)ts_value_make_undefined();
+            TsValue* inh = array_proto_get_at((void*)array, index);
+            return inh ? (void*)inh : (void*)ts_value_make_undefined();
         }
         return (void*)slot;
     }
@@ -1659,6 +1703,8 @@ extern "C" {
     static bool array_require_callable(void* callback, const char* name);
 
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg) {
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_flatMap, arr, callback, thisArg))
+            return ts_value_get_object(r);  // flatMap returns an array
         if (!array_require_callable(callback, "flatMap")) return nullptr;
         return ((TsArray*)arr)->FlatMap(callback, thisArg);
     }
@@ -2012,6 +2058,7 @@ extern "C" {
             ts_array_forEach_native(arr, 2, argvBuf);
             return;
         }
+        if (array_selfhost_holey(g_selfhosted_forEach, arr, callback, thisArg)) return;
         if (!array_require_callable(callback, "forEach")) return;
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
@@ -2217,6 +2264,32 @@ extern "C" {
         return raw ? raw : resultRaw;
     }
 
+    // Inverted-dispatch bailout shared by the array iteration natives: when a
+    // spec impl is installed AND the receiver is a HOLEY real array while the
+    // NoElementsProtector is invalidated (an inherited index could fill a hole),
+    // delegate to the self-hosted impl. `rawArr` is the unboxed array pointer.
+    // Returns the impl's boxed result, or nullptr to take the native fast path.
+    static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg) {
+        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+        return ts_call_with_this_3(ts_value_make_object(impl), ts_value_make_undefined(),
+                                   ts_value_make_object(rawArr), (TsValue*)cb, (TsValue*)thisArg);
+    }
+
+    // reduce/reduceRight variant: SH(receiver, callback, initialValue, hasInitial).
+    // `initialValue == nullptr` means "no initial value provided" (the spec
+    // distinction that decides the seed and the empty-array TypeError).
+    static TsValue* array_selfhost_holey_reduce(void* impl, void* rawArr, void* cb, void* initialValue) {
+        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        extern TsValue* ts_call_with_this_4(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
+        bool hasInitial = (initialValue != nullptr);
+        TsValue* iv = initialValue ? (TsValue*)initialValue : ts_value_make_undefined();
+        return ts_call_with_this_4(ts_value_make_object(impl), ts_value_make_undefined(),
+                                   ts_value_make_object(rawArr), (TsValue*)cb, iv, ts_value_make_bool(hasInitial));
+    }
+
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
@@ -2224,6 +2297,8 @@ extern "C" {
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_map, arr, callback, thisArg))
+            return ts_value_get_object(r);
         if (!array_require_callable(callback, "map")) return nullptr;
         void* result = ((TsArray*)arr)->Map(callback, thisArg);
         return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
@@ -2236,6 +2311,14 @@ extern "C" {
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
+        // Inverted dispatch (V8 `Cast<FastJSArray> otherwise <generic>`): the C++
+        // native fast path is spec-correct for a PACKED array (no holes → no
+        // inherited-index fill). A HOLEY array may have an inherited index
+        // (Array.prototype[k]) supplying a held value per spec [[Get]], which the
+        // native skips — so delegate those to the self-hosted spec impl. Hot dense
+        // arrays stay on the C++ loop; only holey arrays pay the slow path.
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_filter, arr, callback, thisArg))
+            return ts_value_get_object(r);
         if (!array_require_callable(callback, "filter")) return nullptr;
         void* result = ((TsArray*)arr)->Filter(callback, thisArg);
         return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
@@ -2282,6 +2365,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
             return (void*)ts_array_reduce_native(arr, argc, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey_reduce(g_selfhosted_reduce, arr, callback, initialValue))
+            return (void*)r;  // reduce returns any value: the void* result is a boxed TsValue*
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduce")) return nullptr;
         return a->Reduce(callback, initialValue);
@@ -2293,6 +2378,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
             return (void*)ts_array_reduceRight_native(arr, argc, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey_reduce(g_selfhosted_reduceRight, arr, callback, initialValue))
+            return (void*)r;  // reduceRight returns any value: boxed TsValue*
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduceRight")) return nullptr;
         return a->ReduceRight(callback, initialValue);
@@ -2312,6 +2399,8 @@ extern "C" {
             TsValue* res = ts_array_some_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : false;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_some, rawArr, callback, thisArg))
+            return ts_value_to_bool(r);
         if (!array_require_callable(callback, "some")) return false;
         return ((TsArray*)rawArr)->Some(callback, thisArg);
     }
@@ -2323,6 +2412,8 @@ extern "C" {
             TsValue* res = ts_array_every_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : true;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_every, rawArr, callback, thisArg))
+            return ts_value_to_bool(r);
         if (!array_require_callable(callback, "every")) return false;
         return ((TsArray*)rawArr)->Every(callback, thisArg);
     }
@@ -2333,6 +2424,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             return ts_array_find_native(arr, 2, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_find, rawArr, callback, thisArg))
+            return r;  // find returns the element (a boxed TsValue*)
         if (!array_require_callable(callback, "find")) return ts_value_make_undefined();
         return ((TsArray*)rawArr)->Find(callback, thisArg);
     }
@@ -2344,6 +2437,8 @@ extern "C" {
             TsValue* res = ts_array_findIndex_native(arr, 2, argvBuf);
             return res ? ts_value_get_int(res) : -1;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_findIndex, rawArr, callback, thisArg))
+            return ts_value_get_int(r);  // findIndex returns the index (number → int)
         if (!array_require_callable(callback, "findIndex")) return -1;
         return ((TsArray*)rawArr)->FindIndex(callback, thisArg);
     }

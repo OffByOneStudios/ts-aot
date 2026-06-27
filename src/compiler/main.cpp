@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
         options.add_options()
             ("o,output", "Output file", cxxopts::value<std::string>())
             ("c,compile", "Compile only (emit .obj)", cxxopts::value<bool>()->default_value("false"))
+            ("prelude-object", "Emit a precompiled self-hosted-builtins object (ts_prelude_init, no main)", cxxopts::value<bool>()->default_value("false"))
             ("r,run", "Run the executable after linking", cxxopts::value<bool>()->default_value("false"))
             ("emit-obj", "Emit object file (legacy)", cxxopts::value<std::string>())
             ("emit-exe", "Emit executable (legacy)", cxxopts::value<std::string>())
@@ -140,6 +141,11 @@ int main(int argc, char** argv) {
 
         if (result["compile"].as<bool>()) {
             driverOpts.compileOnly = true;
+        }
+
+        if (result["prelude-object"].as<bool>()) {
+            driverOpts.preludeObject = true;
+            driverOpts.compileOnly = true;  // object-only emission
         }
 
         if (result["run"].as<bool>()) {
