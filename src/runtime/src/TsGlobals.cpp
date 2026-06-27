@@ -383,7 +383,7 @@ void* ts_get_global_Object() {
     TsValue protoVal;
     protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    ctor->Set(protoKey, protoVal);
+    ctor->SetWithAttrs(protoKey, protoVal, 0);
 
     // Promote to TsFunction so `typeof Object === "function"` and
     // `isConstructor(Object)` returns true.
@@ -553,7 +553,7 @@ void* ts_get_global_Array() {
     TsValue protoVal;
     protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    ctorMap->Set(protoKey, protoVal);
+    ctorMap->SetWithAttrs(protoKey, protoVal, 0);
 
     // Promote to TsFunction so typeof Array === "function" and
     // isConstructor(Array) returns true.
@@ -837,7 +837,7 @@ void* ts_get_global_String() {
         protoKey.ptr_val = TsString::GetInterned("prototype");
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        ctorFunc->properties->Set(protoKey, protoVal);
+        ctorFunc->properties->SetWithAttrs(protoKey, protoVal, 0);
         g_string_wrapper_proto = proto;  // for stringFn's new-vs-call check
 
         ctorFunc->name = TsString::Create("String");
@@ -984,7 +984,8 @@ static void* makeErrorConstructor(const char* errorName) {
     nameKey.ptr_val = TsString::GetInterned("name");
     TsValue nameVal; nameVal.type = ValueType::STRING_PTR;
     nameVal.ptr_val = TsString::Create(errorName);
-    proto->Set(nameKey, nameVal);
+    // Spec: Error.prototype.name is { writable:true, enumerable:false, configurable:true }.
+    proto->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 
 
     // Per spec: TypeError.prototype / RangeError.prototype / etc.
@@ -1020,7 +1021,7 @@ static void* makeErrorConstructor(const char* errorName) {
     protoKey.ptr_val = TsString::GetInterned("prototype");
     TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    ctorFunc->properties->Set(protoKey, protoVal);
+    ctorFunc->properties->SetWithAttrs(protoKey, protoVal, 0);
 
     // Set .name on the constructor
     ctorFunc->name = TsString::Create(errorName);
@@ -1167,7 +1168,7 @@ void* ts_get_global_AggregateError() {
         protoKey.ptr_val = TsString::GetInterned("prototype");
         TsValue protoValFn; protoValFn.type = ValueType::OBJECT_PTR;
         protoValFn.ptr_val = proto;
-        ctorFunc->properties->Set(protoKey, protoValFn);
+        ctorFunc->properties->SetWithAttrs(protoKey, protoValFn, 0);
 
         TsValue nk; nk.type = ValueType::STRING_PTR;
         nk.ptr_val = TsString::GetInterned("name");
@@ -1476,7 +1477,7 @@ void* ts_get_global_Number() {
         protoKey.ptr_val = TsString::GetInterned("prototype");
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        ctorFunc->properties->Set(protoKey, protoVal);
+        ctorFunc->properties->SetWithAttrs(protoKey, protoVal, 0);
         g_number_wrapper_proto = proto;  // for numberFn's new-vs-call check
 
         // Number.prototype itself has [[NumberData]] = +0 per spec, so
@@ -1662,7 +1663,7 @@ void* ts_get_global_Boolean() {
         protoKey.ptr_val = TsString::GetInterned("prototype");
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        ctorFunc->properties->Set(protoKey, protoVal);
+        ctorFunc->properties->SetWithAttrs(protoKey, protoVal, 0);
         g_boolean_wrapper_proto = proto;  // for boolFn's new-vs-call check
 
         // Boolean.prototype seeds [[BooleanData]] = false per spec, so
@@ -1726,7 +1727,7 @@ void* ts_get_global_Function() {
         TsValue protoVal;
         protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        ctor->Set(protoKey, protoVal);
+        ctor->SetWithAttrs(protoKey, protoVal, 0);
 
         cached = wrapAsCallable(ctor, "Function", 1);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
@@ -1759,7 +1760,7 @@ void* ts_get_global_Date() {
         TsValue protoVal;
         protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        ctor->Set(protoKey, protoVal);
+        ctor->SetWithAttrs(protoKey, protoVal, 0);
 
         // Attach constructor static methods (Date.now/parse/UTC)
         ts_date_constructor_populate(ctor);
@@ -4981,7 +4982,7 @@ static void* makeTypedArrayCtor(const char* name,
     protoKey.ptr_val = TsString::GetInterned("prototype");
     TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    ctorFunc->properties->Set(protoKey, protoVal);
+    ctorFunc->properties->SetWithAttrs(protoKey, protoVal, 0);
 
     // .prototype.constructor = ctor (per spec — instance.constructor walks
     // the prototype chain and finds this; required for SpeciesConstructor's
