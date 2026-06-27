@@ -25,6 +25,9 @@ extern "C" {
 // onto its slow path.
 void* g_selfhosted_filter = nullptr;
 void* g_selfhosted_map = nullptr;
+void* g_selfhosted_forEach = nullptr;
+void* g_selfhosted_some = nullptr;
+void* g_selfhosted_every = nullptr;
 }
 
 extern "C" void ts_gc_register_root(void** location);
@@ -32,8 +35,11 @@ extern "C" void ts_gc_register_root(void** location);
 // name -> impl-pointer slot. Adding a self-hosted method = one row here, a global
 // above, the spec impl in the prelude, and a one-line bailout in its native.
 static const struct { const char* name; void** slot; } g_selfhosted_table[] = {
-    { "filter", &g_selfhosted_filter },
-    { "map",    &g_selfhosted_map },
+    { "filter",  &g_selfhosted_filter },
+    { "map",     &g_selfhosted_map },
+    { "forEach", &g_selfhosted_forEach },
+    { "some",    &g_selfhosted_some },
+    { "every",   &g_selfhosted_every },
 };
 
 extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,

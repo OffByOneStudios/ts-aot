@@ -83,7 +83,43 @@
     return A;
   };
 
+  // --- 23.1.3.15 Array.prototype.forEach ---
+  var forEach = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "forEach");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    for (var k = 0; k < len; k++) {
+      if (k in O) callbackfn.call(thisArg, O[k], k, O);
+    }
+    return undefined;
+  };
+
+  // --- 23.1.3.28 Array.prototype.some (∃) ---
+  var some = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "some");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    for (var k = 0; k < len; k++) {
+      if (k in O && callbackfn.call(thisArg, O[k], k, O)) return true;
+    }
+    return false;
+  };
+
+  // --- 23.1.3.6 Array.prototype.every (∀) ---
+  var every = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "every");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    for (var k = 0; k < len; k++) {
+      if (k in O && !callbackfn.call(thisArg, O[k], k, O)) return false;
+    }
+    return true;
+  };
+
   var def = (globalThis as any).__defineBuiltin;
   def(Array.prototype, "filter", 1, filter);
   def(Array.prototype, "map", 1, map);
+  def(Array.prototype, "forEach", 1, forEach);
+  def(Array.prototype, "some", 1, some);
+  def(Array.prototype, "every", 1, every);
 })();

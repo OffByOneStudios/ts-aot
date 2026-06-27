@@ -35,6 +35,9 @@ extern "C" {
     // installed them — the natives delegate a direct call to the spec impl.
     extern void* g_selfhosted_filter;
     extern void* g_selfhosted_map;
+    extern void* g_selfhosted_forEach;
+    extern void* g_selfhosted_some;
+    extern void* g_selfhosted_every;
     // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
     // array iterator lives in a built-in fast path (not in the prototype map),
     // so its removal isn't otherwise observable; ts_iterator_get consults this
@@ -48,6 +51,13 @@ extern "C" {
     int64_t ts_to_index_integer_or_sentinel(TsValue* v);
     // ToNumber for a fromIndex arg (throws on Symbol/BigInt), preserving +/-Inf.
     double ts_to_index_number_or(TsValue* v, double deflt);
+}
+
+// Forward decl: defined just above ts_array_map, used by earlier iteration
+// natives. Matches the definition's C language linkage (it lives in the extern
+// "C" methods block).
+extern "C" {
+static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg);
 }
 
 extern "C" void ts_array_prototype_bump_version() {
@@ -2040,6 +2050,7 @@ extern "C" {
             ts_array_forEach_native(arr, 2, argvBuf);
             return;
         }
+        if (array_selfhost_holey(g_selfhosted_forEach, arr, callback, thisArg)) return;
         if (!array_require_callable(callback, "forEach")) return;
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
@@ -2245,6 +2256,19 @@ extern "C" {
         return raw ? raw : resultRaw;
     }
 
+    // Inverted-dispatch bailout shared by the array iteration natives: when a
+    // spec impl is installed AND the receiver is a HOLEY real array while the
+    // NoElementsProtector is invalidated (an inherited index could fill a hole),
+    // delegate to the self-hosted impl. `rawArr` is the unboxed array pointer.
+    // Returns the impl's boxed result, or nullptr to take the native fast path.
+    static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg) {
+        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+        return ts_call_with_this_3(ts_value_make_object(impl), ts_value_make_undefined(),
+                                   ts_value_make_object(rawArr), (TsValue*)cb, (TsValue*)thisArg);
+    }
+
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
@@ -2252,15 +2276,8 @@ extern "C" {
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
-        // Inverted dispatch (see ts_array_filter): a holey real array while the
-        // NoElementsProtector is invalidated may inherit indices → spec impl.
-        if (g_selfhosted_map && g_array_proto_has_indexed &&
-            arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
-            extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
-            TsValue* res = ts_call_with_this_3(ts_value_make_object(g_selfhosted_map), ts_value_make_undefined(),
-                                               ts_value_make_object(arr), (TsValue*)callback, (TsValue*)thisArg);
-            return res ? ts_value_get_object(res) : nullptr;
-        }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_map, arr, callback, thisArg))
+            return ts_value_get_object(r);
         if (!array_require_callable(callback, "map")) return nullptr;
         void* result = ((TsArray*)arr)->Map(callback, thisArg);
         return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
@@ -2279,14 +2296,8 @@ extern "C" {
         // (Array.prototype[k]) supplying a held value per spec [[Get]], which the
         // native skips — so delegate those to the self-hosted spec impl. Hot dense
         // arrays stay on the C++ loop; only holey arrays pay the slow path.
-        if (g_selfhosted_filter && g_array_proto_has_indexed &&
-            arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
-            // SH(receiver, callbackfn, thisArg) — receiver is an explicit arg, not `this`.
-            extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
-            TsValue* res = ts_call_with_this_3(ts_value_make_object(g_selfhosted_filter), ts_value_make_undefined(),
-                                               ts_value_make_object(arr), (TsValue*)callback, (TsValue*)thisArg);
-            return res ? ts_value_get_object(res) : nullptr;
-        }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_filter, arr, callback, thisArg))
+            return ts_value_get_object(r);
         if (!array_require_callable(callback, "filter")) return nullptr;
         void* result = ((TsArray*)arr)->Filter(callback, thisArg);
         return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
@@ -2363,6 +2374,8 @@ extern "C" {
             TsValue* res = ts_array_some_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : false;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_some, rawArr, callback, thisArg))
+            return ts_value_to_bool(r);
         if (!array_require_callable(callback, "some")) return false;
         return ((TsArray*)rawArr)->Some(callback, thisArg);
     }
@@ -2374,6 +2387,8 @@ extern "C" {
             TsValue* res = ts_array_every_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : true;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_every, rawArr, callback, thisArg))
+            return ts_value_to_bool(r);
         if (!array_require_callable(callback, "every")) return false;
         return ((TsArray*)rawArr)->Every(callback, thisArg);
     }

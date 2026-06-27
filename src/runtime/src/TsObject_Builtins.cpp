@@ -570,6 +570,19 @@ extern "C" {
         return nullptr;
     }
 
+    // Inverted-dispatch bailout for the dynamic (.call/array-like) entry: if a
+    // spec impl is installed AND the receiver isn't a real array (array-like
+    // object / primitive / nullish), delegate to the self-hosted impl. Returns
+    // the impl's result, or nullptr to take the native path.
+    static TsValue* array_selfhost_arraylike(void* impl, void* ctx, int argc, TsValue** argv) {
+        if (!impl || resolve_array_ctx(ctx)) return nullptr;
+        extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+        return ts_call_with_this_3(ts_value_make_object(impl), ts_value_make_undefined(),
+                                   (TsValue*)ctx, cb, ta);
+    }
+
     // Spec preamble for Array.prototype.X.call(receiver) sites:
     //   1. Let O be ? ToObject(this value).  (we approximate: throw if nullish)
     //   2. Let len be ? LengthOfArrayLike(O). (caller's responsibility)
@@ -809,15 +822,8 @@ extern "C" {
 
     // P0: Extremely common methods
     TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
-        // Array-like receiver → self-hosted spec impl (see ts_array_filter_native).
         extern void* g_selfhosted_map;
-        if (g_selfhosted_map && !resolve_array_ctx(ctx)) {
-            extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-            TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
-            return ts_call_with_this_3(ts_value_make_object(g_selfhosted_map), ts_value_make_undefined(),
-                                       (TsValue*)ctx, cb, ta);
-        }
+        if (TsValue* r = array_selfhost_arraylike(g_selfhosted_map, ctx, argc, argv)) return r;
         TsArray* arr = require_array_or_throw(ctx, "map");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -833,19 +839,8 @@ extern "C" {
         // self-hosted spec impl (ToObject/ToLength/HasProperty). Real arrays fall
         // through to ts_array_filter, which itself routes holey→self-hosted and
         // packed→native fast loop.
-        // resolve_array_ctx safely returns the real TsArray or null for any
-        // receiver (array-like object, primitive, nullish) without dereferencing
-        // a non-pointer. A non-array receiver goes to the self-hosted spec impl
-        // (ToObject / ToLength, or the spec TypeError for null/undefined).
         extern void* g_selfhosted_filter;
-        if (g_selfhosted_filter && !resolve_array_ctx(ctx)) {
-            // SH(receiver, callbackfn, thisArg) — receiver passed as an explicit arg.
-            extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-            TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
-            return ts_call_with_this_3(ts_value_make_object(g_selfhosted_filter), ts_value_make_undefined(),
-                                       (TsValue*)ctx, cb, ta);
-        }
+        if (TsValue* r = array_selfhost_arraylike(g_selfhosted_filter, ctx, argc, argv)) return r;
         TsArray* arr = require_array_or_throw(ctx, "filter");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -855,6 +850,8 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv) {
+        extern void* g_selfhosted_forEach;
+        if (TsValue* r = array_selfhost_arraylike(g_selfhosted_forEach, ctx, argc, argv)) return r;
         TsArray* arr = require_array_or_throw(ctx, "forEach");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -1311,6 +1308,8 @@ extern "C" {
 
     // P1: Common methods
     TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
+        extern void* g_selfhosted_some;
+        if (TsValue* r = array_selfhost_arraylike(g_selfhosted_some, ctx, argc, argv)) return r;
         TsArray* arr = require_array_or_throw(ctx, "some");
         if (!arr) return ts_value_make_bool(false);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -1319,6 +1318,8 @@ extern "C" {
         return ts_value_make_bool(ts_array_some(arr, callback, thisArg));
     }
     TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv) {
+        extern void* g_selfhosted_every;
+        if (TsValue* r = array_selfhost_arraylike(g_selfhosted_every, ctx, argc, argv)) return r;
         TsArray* arr = require_array_or_throw(ctx, "every");
         if (!arr) return ts_value_make_bool(true);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
