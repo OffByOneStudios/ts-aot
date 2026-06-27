@@ -7550,11 +7550,37 @@ void* ts_create_arguments_from_params(
     // WeakMap - TsWeakMap wrapper (GC does not yet support weak refs; held strongly)
     // ============================================================================
 
+    // Receiver brand check for WeakMap/WeakSet methods (ECMA-262 RequireInternalSlot):
+    // throw TypeError unless `recv` is a non-primitive object carrying `wantMagic`
+    // at offset 16. Mirrors requireMapData (TsMap.cpp). Returns the raw pointer, or
+    // nullptr after setting a pending TypeError (the caller returns its default —
+    // the pending exception takes precedence over the return value). This is what
+    // makes WeakMap.prototype.set.call(<primitive-or-wrong-brand>, ...) throw.
+    static void* weak_require_brand(void* recv, uint32_t wantMagic) {
+        extern void* ts_error_create_typed(const char* type, const char* message);
+        extern void ts_throw(TsValue* err);
+        uint64_t nb = (uint64_t)(uintptr_t)recv;
+        bool ok = recv && nb > NANBOX_UNDEFINED &&
+                  !(!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0);
+        void* raw = nullptr;
+        if (ok) {
+            raw = (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) ? nanbox_to_ptr(nb) : recv;
+            ok = raw && *(uint32_t*)((char*)raw + 16) == wantMagic;
+        }
+        if (!ok) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Method called on incompatible receiver"));
+            return nullptr;
+        }
+        return raw;
+    }
+
     void* ts_weakmap_create() {
         return TsWeakMap::Create();
     }
 
     void* ts_weakmap_set(void* weakmap, void* key, TsValue* value) {
+        if (!weak_require_brand(weakmap, 0x574D4150 /*WMAP*/)) return weakmap;
         if (!weakmap || !key) return weakmap;
         TsMap* map = (TsMap*)weakmap;
 
@@ -7576,6 +7602,7 @@ void* ts_create_arguments_from_params(
     }
 
     TsValue* ts_weakmap_get(void* weakmap, void* key) {
+        if (!weak_require_brand(weakmap, 0x574D4150 /*WMAP*/)) return ts_value_make_undefined();
         if (!weakmap || !key) return ts_value_make_undefined();
         TsMap* map = (TsMap*)weakmap;
 
@@ -7590,6 +7617,7 @@ void* ts_create_arguments_from_params(
     }
 
     bool ts_weakmap_has(void* weakmap, void* key) {
+        if (!weak_require_brand(weakmap, 0x574D4150 /*WMAP*/)) return false;
         if (!weakmap || !key) return false;
         TsMap* map = (TsMap*)weakmap;
 
@@ -7603,6 +7631,7 @@ void* ts_create_arguments_from_params(
     }
 
     bool ts_weakmap_delete(void* weakmap, void* key) {
+        if (!weak_require_brand(weakmap, 0x574D4150 /*WMAP*/)) return false;
         if (!weakmap || !key) return false;
         TsMap* map = (TsMap*)weakmap;
 
@@ -7624,6 +7653,7 @@ void* ts_create_arguments_from_params(
     }
 
     void* ts_weakset_add(void* weakset, void* value) {
+        if (!weak_require_brand(weakset, 0x57534554 /*WSET*/)) return weakset;
         if (!weakset || !value) return weakset;
         TsSet* set = (TsSet*)weakset;
 
@@ -7638,6 +7668,7 @@ void* ts_create_arguments_from_params(
     }
 
     bool ts_weakset_has(void* weakset, void* value) {
+        if (!weak_require_brand(weakset, 0x57534554 /*WSET*/)) return false;
         if (!weakset || !value) return false;
         TsSet* set = (TsSet*)weakset;
 
@@ -7651,6 +7682,7 @@ void* ts_create_arguments_from_params(
     }
 
     bool ts_weakset_delete(void* weakset, void* value) {
+        if (!weak_require_brand(weakset, 0x57534554 /*WSET*/)) return false;
         if (!weakset || !value) return false;
         TsSet* set = (TsSet*)weakset;
 
