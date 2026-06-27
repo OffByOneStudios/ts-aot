@@ -4,6 +4,7 @@
 #include "TsArray.h"
 #include "TsRuntime.h"
 #include "TsFlatObject.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include <cstring>
 #include <cstdio>
@@ -230,6 +231,20 @@ TsValue* TsProxy::ownKeys() {
 // C API implementations
 
 extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
+    // ECMA-262 ProxyCreate steps 1-2: target and handler must both be Objects.
+    // Without this, `new Proxy({}, null)` / `(null, {})` / `({}, 5)` built a
+    // malformed proxy that later crashed (VectoredException) on first trap use.
+    auto isObject = [](void* arg) -> bool {
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+        if (nb <= NANBOX_UNDEFINED) return false;                                   // null/undefined/bool
+        if (!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0) return false;   // number primitive
+        return ts_nanbox_safe_unbox(arg) != nullptr;
+    };
+    if (!isObject(targetArg) || !isObject(handlerArg)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot create proxy with a non-object as target or handler"));
+        return ts_value_make_undefined();
+    }
     // Unbox arguments
     void* target = ts_nanbox_safe_unbox(targetArg);
 
