@@ -29,6 +29,13 @@ public:
     ASTToHIR();
     ~ASTToHIR() override = default;
 
+    // Flat-object shape IDs are a global runtime namespace (g_shape_table indexed
+    // by id). When compiling the precompiled prelude as a SEPARATE object that is
+    // linked beside a user object, its shape IDs must not collide with the user's
+    // (both otherwise number from 0 → the prelude clobbers user shapes 0,1 →
+    // wrong slot layouts). The Driver sets a high reserved base for the prelude.
+    void setShapeIdBase(uint32_t base) { nextShapeId_ = base; }
+
     // Main entry point - lower a program to HIR module (legacy interface)
     std::unique_ptr<HIRModule> lower(ast::Program* program, const std::string& moduleName);
 

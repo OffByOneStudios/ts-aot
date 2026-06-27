@@ -363,6 +363,9 @@ int Driver::run() {
         std::string moduleName = std::filesystem::path(tsFile).stem().string();
         auto t2 = std::chrono::steady_clock::now();
         hir::ASTToHIR astToHir;
+        // Reserve a high shape-ID sub-range (top 256 of MAX_SHAPES=4096) for the
+        // precompiled prelude so its shapes don't collide with the user object's.
+        if (options.preludeObject) astToHir.setShapeIdBase(3840);
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
         auto t3 = std::chrono::steady_clock::now();
         ms_astHir = MS(t2, t3);
