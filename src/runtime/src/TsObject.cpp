@@ -5085,9 +5085,25 @@ void* ts_create_arguments_from_params(
         if (magic16 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
 
-            // Check for a setter (__setter_<propertyName>), walking prototype chain
+            // An OWN data property shadows an INHERITED setter: OrdinarySet finds
+            // the own property first and writes it, rather than invoking the
+            // prototype's setter. "Own data" = own plain slot present AND NOT an
+            // own accessor (defineProperty leaves a marker under the plain key even
+            // for accessors, so we must exclude __getter_/__setter_ at this level
+            // explicitly — else an own setter would be wrongly skipped). Own
+            // setters fall through to dispatch_map_chain_set, which serves them at
+            // level 0; the ordinary write below still honors writable:false.
             const char* keyCStr = keyStr->ToUtf8();
-            if (keyCStr && dispatch_map_chain_set(map, keyCStr,
+            bool hasOwnData = false;
+            if (keyCStr) {
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned((std::string("__getter_") + keyCStr).c_str());
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned((std::string("__setter_") + keyCStr).c_str());
+                bool ownAccessor = map->Has(gk) || map->Has(sk);
+                hasOwnData = !ownAccessor && map->Has(key);
+            }
+            if (keyCStr && !hasOwnData && dispatch_map_chain_set(map, keyCStr,
                                                   nanbox_from_tagged(obj),
                                                   nanbox_from_tagged(value))) {
                 return value;
