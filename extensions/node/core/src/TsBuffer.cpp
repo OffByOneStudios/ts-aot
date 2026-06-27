@@ -2131,19 +2131,35 @@ extern "C" {
     // buffer arg is unboxed via ts_value_get_object so we accept either
     // a NaN-boxed pointer or a raw TsBuffer pointer.
     void* ts_dataview_create_full(void* bufferArg, int64_t byteOffset, int64_t byteLength) {
-        void* raw = ts_value_get_object((TsValue*)bufferArg);
-        if (!raw) raw = bufferArg;
-        TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)raw);
+        // `new DataView(x)` where x is a number/string/boolean/etc. must throw
+        // TypeError, not crash. ts_value_get_object returns nullptr for a
+        // NaN-boxed primitive; the old `if (!raw) raw = bufferArg` then left
+        // raw pointing at a tagged bit-pattern, and dynamic_cast dereferenced
+        // its (garbage) vtable -> access violation. ts_cast<TsBuffer> is
+        // heap-checked and magic-checked, so it never dereferences a
+        // non-heap / non-TsBuffer pointer (returns nullptr -> TypeError).
+        void* raw = ts_nanbox_safe_unbox(bufferArg);
+        TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
         if (!buf) {
-            ts_throw((TsValue*)ts_error_create(TsString::Create(
-                "TypeError: First argument to DataView constructor must be an ArrayBuffer")));
+            // Must be a real TypeError instance so assert.throws(TypeError,...)
+            // identity checks pass — ts_error_create() builds a generic Error.
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "First argument to DataView constructor must be an ArrayBuffer"));
             return nullptr;
         }
         size_t bufLen = buf->GetLength();
-        size_t off = (byteOffset > 0) ? (size_t)byteOffset : 0;
+        // A negative byteOffset is rejected by ToIndex with a RangeError
+        // (DataView/byteOffset-validated-*). The old `(byteOffset>0)?...:0`
+        // silently clamped negatives to 0 instead of throwing.
+        if (byteOffset < 0) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Start offset is outside the bounds of the buffer"));
+            return nullptr;
+        }
+        size_t off = (size_t)byteOffset;
         if (off > bufLen) {
-            ts_throw((TsValue*)ts_error_create(TsString::Create(
-                "RangeError: Start offset is outside the bounds of the buffer")));
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Start offset is outside the bounds of the buffer"));
             return nullptr;
         }
         size_t len;
@@ -2152,8 +2168,8 @@ extern "C" {
         } else {
             len = (size_t)byteLength;
             if (off + len > bufLen) {
-                ts_throw((TsValue*)ts_error_create(TsString::Create(
-                    "RangeError: Invalid DataView length")));
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid DataView length"));
                 return nullptr;
             }
         }
