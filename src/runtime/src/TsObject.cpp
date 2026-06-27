@@ -4292,6 +4292,21 @@ void* ts_create_arguments_from_params(
         // First check for a getter (__getter_<propertyName>) - walk prototype chain
         if (keyStr) {
             const char* propName = keyStr->ToUtf8();
+            // An OWN data property shadows any INHERITED accessor (ECMA-262: an own
+            // property is found before the prototype chain is consulted). Check the
+            // object's own data slot BEFORE the prototype-chain getter scan, which
+            // would otherwise invoke an inherited getter and wrongly win over the
+            // own data. A key defined as an own accessor has no own data slot, so
+            // this only fires for real own data; own getters are still served by
+            // the scan below (they sit at level 0, ahead of any inherited slot).
+            if (propName) {
+                TsValue dk; dk.type = ValueType::STRING_PTR;
+                dk.ptr_val = TsString::GetInterned(propName);
+                TsValue ownData = map->Get(dk);
+                if (ownData.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(ownData);
+                }
+            }
             // Getter-only chain scan; data lookup happens further below (after the
             // __proto__ / String-wrapper / Map.prototype special cases).
             TsValue* gr = nullptr;
