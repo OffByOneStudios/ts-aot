@@ -214,33 +214,25 @@ static uint64_t read_u64(const uint8_t* p) {
     return (uint64_t)read_u32(p) | ((uint64_t)read_u32(p + 4) << 32);
 }
 
-static void parse_stackmap_section(const uint8_t* data, size_t size, uint64_t imageBase) {
-    if (size < 16) return;
+// Parse ONE stack-map blob at `data` (a section may contain SEVERAL concatenated
+// blobs when objects compiled separately — e.g. user code + the precompiled
+// prelude object — are linked, since each emits its own .llvm_stackmaps with its
+// own 16-byte header). Appends safepoints to the pre-allocated g_safepoints /
+// g_hash_table. Returns the number of bytes consumed (the blob length), or 0 to
+// stop the outer loop (bad/zero header → padding/end of section).
+static size_t parse_one_blob(const uint8_t* data, size_t size, uint64_t imageBase) {
+    if (size < 16) return 0;
 
     // Header (16 bytes)
     uint8_t version = data[0];
     if (version != 3) {
-        fprintf(stderr, "[StackMap] Unsupported stack map version: %u (expected 3)\n", version);
-        return;
+        // Not a valid blob header (likely inter-blob padding / section end).
+        return 0;
     }
 
     uint32_t numFunctions = read_u32(data + 4);
     uint32_t numConstants = read_u32(data + 8);
     uint32_t numRecords = read_u32(data + 12);
-
-    if (numRecords > MAX_SAFEPOINTS) {
-        fprintf(stderr, "[StackMap] Too many safepoints: %u (max %zu)\n",
-                numRecords, MAX_SAFEPOINTS);
-        return;
-    }
-
-    // Allocate storage
-    g_safepoints = (SafepointInfo*)calloc(numRecords, sizeof(SafepointInfo));
-    g_hash_table = (HashEntry*)calloc(HASH_TABLE_SIZE, sizeof(HashEntry));
-    if (!g_safepoints || !g_hash_table) {
-        fprintf(stderr, "[StackMap] Failed to allocate safepoint storage\n");
-        return;
-    }
 
     const uint8_t* pos = data + 16;
     const uint8_t* end = data + size;
@@ -274,6 +266,7 @@ static void parse_stackmap_section(const uint8_t* data, size_t size, uint64_t im
         uint64_t recordsRemaining = (numFunctions > 0) ? functions[0].recordCount : 0;
 
         for (uint32_t i = 0; i < numRecords; i++) {
+            if (g_safepoint_count >= MAX_SAFEPOINTS) break;  // global cap across all blobs
             // Track which function this record belongs to
             while (funcIdx < numFunctions - 1 && recordsRemaining == 0) {
                 funcIdx++;
@@ -360,6 +353,7 @@ static void parse_stackmap_section(const uint8_t* data, size_t size, uint64_t im
 
 cleanup:
     free(functions);
+    return (size_t)(pos - data);
 }
 
 // ============================================================================
@@ -384,7 +378,24 @@ void ts_stackmap_init() {
     imageBase = (uint64_t)&__executable_start;
 #endif
 
-    parse_stackmap_section(section.data, section.size, imageBase);
+    // Allocate the accumulators once (sized for the global cap), then parse EVERY
+    // concatenated stack-map blob in the section. A binary that links the
+    // precompiled prelude object has two blobs (user + prelude); parsing only the
+    // first (the old behavior) dropped the other object's safepoints → missing GC
+    // roots → corruption. Blobs are 8-byte aligned in the section.
+    g_safepoints = (SafepointInfo*)calloc(MAX_SAFEPOINTS, sizeof(SafepointInfo));
+    g_hash_table = (HashEntry*)calloc(HASH_TABLE_SIZE, sizeof(HashEntry));
+    if (!g_safepoints || !g_hash_table) {
+        fprintf(stderr, "[StackMap] Failed to allocate safepoint storage\n");
+        return;
+    }
+    size_t off = 0;
+    while (off + 16 <= section.size && g_safepoint_count < MAX_SAFEPOINTS) {
+        size_t consumed = parse_one_blob(section.data + off, section.size - off, imageBase);
+        if (consumed == 0) break;
+        off += consumed;
+        if (off % 8 != 0) off += 8 - (off % 8);
+    }
 
     // Count total GC roots across all safepoints
     size_t totalRoots = 0;

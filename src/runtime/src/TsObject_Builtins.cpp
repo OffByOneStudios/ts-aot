@@ -834,7 +834,7 @@ extern "C" {
             extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
             TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
-            return ts_call_with_this_3((TsValue*)g_selfhosted_filter, ts_value_make_undefined(),
+            return ts_call_with_this_3(ts_value_make_object(g_selfhosted_filter), ts_value_make_undefined(),
                                        (TsValue*)ctx, cb, ta);
         }
         TsArray* arr = require_array_or_throw(ctx, "filter");

@@ -2273,7 +2273,7 @@ extern "C" {
             arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
             // SH(receiver, callbackfn, thisArg) — receiver is an explicit arg, not `this`.
             extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
-            TsValue* res = ts_call_with_this_3((TsValue*)g_selfhosted_filter, ts_value_make_undefined(),
+            TsValue* res = ts_call_with_this_3(ts_value_make_object(g_selfhosted_filter), ts_value_make_undefined(),
                                                ts_value_make_object(arr), (TsValue*)callback, (TsValue*)thisArg);
             return res ? ts_value_get_object(res) : nullptr;
         }

@@ -77,6 +77,11 @@ public:
     // When enabled, emits llvm.instrprof.increment intrinsics and coverage mapping sections.
     void setEmitCoverage(bool enable) { emitCoverage_ = enable; }
 
+    // Emit a precompiled prelude object: no main/ts_main; the synthetic main is
+    // internalized and a unique external `ts_prelude_init` runs it (called by the
+    // runtime's ts_main before user_main).
+    void setPreludeObject(bool enable) { preludeObject_ = enable; }
+
     //==========================================================================
     // Handler Accessors - Used by BuiltinHandler implementations
     //==========================================================================
@@ -100,6 +105,8 @@ private:
 
     // ICU data path to embed in generated binary (empty = don't embed)
     std::string icuDataPath_;
+
+    bool preludeObject_ = false;  // emit ts_prelude_init instead of main (see setPreludeObject)
 
     // GC statepoint infrastructure (experimental)
     bool enableGCStatepoints_ = false;

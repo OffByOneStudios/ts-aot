@@ -26,6 +26,8 @@ extern "C" {
 void* g_selfhosted_filter = nullptr;
 }
 
+extern "C" void ts_gc_register_root(void** location);
+
 extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
                                          int32_t length, TsValue* fn) {
     if (!nameStr || !fn) return;
@@ -33,12 +35,22 @@ extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,
     const char* name = nsRaw ? ((TsString*)nsRaw)->ToUtf8() : nullptr;
     if (!name) return;
 
-    // Record the self-hosted impl so the native delegates direct calls to it.
-    if (strcmp(name, "filter") == 0) g_selfhosted_filter = (void*)fn;
+    // The raw closure is a stable GC object; the incoming `fn` TsValue* may be a
+    // transient (stack/temp) box, so store and root the closure itself — rooting
+    // the transient box made the collector mark a non-heap pointer → corruption.
+    void* fnRaw = ts_value_get_object(fn);
+
+    // Record the self-hosted impl so the native delegates direct calls to it, and
+    // register the slot as a GC root (an unrooted C global holding a GC pointer is
+    // collected/moved out from under us — see runtime-safety rules).
+    if (strcmp(name, "filter") == 0) {
+        g_selfhosted_filter = fnRaw;
+        static bool rooted = false;
+        if (!rooted) { ts_gc_register_root(&g_selfhosted_filter); rooted = true; }
+    }
 
     // Give the closure spec builtin metadata: arity (.length), .name, and no
     // [[Construct]] / .prototype.
-    void* fnRaw = ts_value_get_object(fn);
     if (fnRaw && *(uint32_t*)((char*)fnRaw + 16) == 0x434C5352 /* TsClosure */) {
         TsClosure* cl = (TsClosure*)fnRaw;
         ts_closure_set_no_prototype(cl);

@@ -194,8 +194,10 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     // Initialize TsValue type
     initTsValueType();
 
-    // Emit ICU data path global if set (allows runtime to find icudt74l.dat)
-    if (!icuDataPath_.empty()) {
+    // Emit ICU data path global if set (allows runtime to find icudt74l.dat).
+    // Skip in prelude-object mode: the user object always provides this symbol;
+    // emitting it here too would be a duplicate definition at link time.
+    if (!icuDataPath_.empty() && !preludeObject_) {
         auto* strConst = llvm::ConstantDataArray::getString(context_, icuDataPath_, true);
         new llvm::GlobalVariable(
             *module_, strConst->getType(), true,
@@ -391,36 +393,40 @@ void HIRToLLVM::createMainFunction() {
         return;
     }
 
-    // Declare ts_main: int ts_main(int argc, char** argv, TsValue* (*user_main)(void*))
-    std::vector<llvm::Type*> tsMainArgs = {
-        llvm::Type::getInt32Ty(context_),    // argc
-        getGCPtrTy(),                 // argv
-        getGCPtrTy()                  // user_main function pointer
-    };
-    llvm::FunctionType* tsMainFt = llvm::FunctionType::get(
-        llvm::Type::getInt32Ty(context_), tsMainArgs, false);
-    llvm::FunctionCallee tsMain = module_->getOrInsertFunction("ts_main", tsMainFt);
-
-    // Define main: int main(int argc, char** argv)
-    std::vector<llvm::Type*> mainArgs = {
-        llvm::Type::getInt32Ty(context_),    // argc
-        getGCPtrTy()                  // argv
-    };
-    llvm::FunctionType* mainFt = llvm::FunctionType::get(
-        llvm::Type::getInt32Ty(context_), mainArgs, false);
-    llvm::Function* mainFn = llvm::Function::Create(
-        mainFt, llvm::Function::ExternalLinkage, "main", module_.get());
-    if (enableGCStatepoints_) {
-        mainFn->setGC("ts-aot-gc");
+    // Entry point: normally `int main(argc, argv)` which calls ts_main(...).
+    // In --prelude-object mode we instead emit `void ts_prelude_init()` (no main,
+    // no ts_main) — the runtime's ts_main calls it after init, before user_main.
+    llvm::Value* argc = nullptr;
+    llvm::Value* argv = nullptr;
+    if (preludeObject_) {
+        // Internalize the synthetic main so it doesn't collide with the user
+        // object's user_main / __synthetic_user_main when both are linked.
+        userMain->setLinkage(llvm::GlobalValue::InternalLinkage);
+        llvm::FunctionType* initFt =
+            llvm::FunctionType::get(builder_->getVoidTy(), {}, false);
+        llvm::Function* initFn = llvm::Function::Create(
+            initFt, llvm::Function::ExternalLinkage, "ts_prelude_init", module_.get());
+        if (enableGCStatepoints_) initFn->setGC("ts-aot-gc");
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", initFn);
+        builder_->SetInsertPoint(entryBB);
+    } else {
+        // Define main: int main(int argc, char** argv)
+        std::vector<llvm::Type*> mainArgs = {
+            llvm::Type::getInt32Ty(context_),    // argc
+            getGCPtrTy()                  // argv
+        };
+        llvm::FunctionType* mainFt = llvm::FunctionType::get(
+            llvm::Type::getInt32Ty(context_), mainArgs, false);
+        llvm::Function* mainFn = llvm::Function::Create(
+            mainFt, llvm::Function::ExternalLinkage, "main", module_.get());
+        if (enableGCStatepoints_) {
+            mainFn->setGC("ts-aot-gc");
+        }
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", mainFn);
+        builder_->SetInsertPoint(entryBB);
+        argc = mainFn->getArg(0);
+        argv = mainFn->getArg(1);
     }
-
-    // Create entry block
-    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", mainFn);
-    builder_->SetInsertPoint(entryBB);
-
-    // Get main arguments
-    llvm::Value* argc = mainFn->getArg(0);
-    llvm::Value* argv = mainFn->getArg(1);
 
     // Call all ___static_init functions before ts_main (for decorators, etc.)
     // Static init signature: void ClassName___static_init(void* ctx)
@@ -568,14 +574,44 @@ void HIRToLLVM::createMainFunction() {
         }
     }
 
-    // Call ts_main(argc, argv, user_main)
-    llvm::Value* result = builder_->CreateCall(
-        tsMainFt, tsMain.getCallee(),
-        { argc, argv, userMain }
-    );
+    if (preludeObject_) {
+        // The runtime (ts_main) is already initialized when it calls us. Just run
+        // the prelude's installs (the internalized synthetic main) and return.
+        // Pass a null/zero of the correct type for each of its parameters.
+        std::vector<llvm::Value*> umArgs;
+        for (auto& p : userMain->args()) {
+            umArgs.push_back(llvm::Constant::getNullValue(p.getType()));
+        }
+        builder_->CreateCall(userMain->getFunctionType(), userMain, umArgs);
+        builder_->CreateRetVoid();
 
-    // Return the result
-    builder_->CreateRet(result);
+        // Internalize every defined symbol except the entry so the prelude
+        // object's counter-named functions/globals (__fn_expr_N, etc.) don't
+        // collide with the user object's at link time. Runtime symbols the
+        // prelude references are declarations (no body/initializer) → stay
+        // external and resolve against the runtime.
+        for (auto& fn : module_->functions()) {
+            if (!fn.isDeclaration() && fn.getName() != "ts_prelude_init") {
+                fn.setLinkage(llvm::GlobalValue::InternalLinkage);
+            }
+        }
+        for (auto& gv : module_->globals()) {
+            if (gv.hasInitializer()) {
+                gv.setLinkage(llvm::GlobalValue::InternalLinkage);
+            }
+        }
+    } else {
+        // Call ts_main(argc, argv, user_main): int ts_main(int, char**, TsValue*(*)(void*))
+        std::vector<llvm::Type*> tsMainArgs = {
+            llvm::Type::getInt32Ty(context_), getGCPtrTy(), getGCPtrTy()
+        };
+        llvm::FunctionType* tsMainFt = llvm::FunctionType::get(
+            llvm::Type::getInt32Ty(context_), tsMainArgs, false);
+        llvm::FunctionCallee tsMain = module_->getOrInsertFunction("ts_main", tsMainFt);
+        llvm::Value* result = builder_->CreateCall(
+            tsMainFt, tsMain.getCallee(), { argc, argv, userMain });
+        builder_->CreateRet(result);
+    }
 }
 
 //==============================================================================

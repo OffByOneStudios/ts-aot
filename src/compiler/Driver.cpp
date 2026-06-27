@@ -424,6 +424,7 @@ int Driver::run() {
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
         hirToLlvm.setEmitDebugInfo(options.debug || options.coverage);
         hirToLlvm.setEmitCoverage(options.coverage);
+        hirToLlvm.setPreludeObject(options.preludeObject);
 
         // Embed ICU data path so compiled executables can find icudtXXl.dat
         // next to the compiler instead of needing a local copy
@@ -503,6 +504,26 @@ int Driver::run() {
                 compilerPath = compilerExe.parent_path();
             } else {
                 compilerPath = std::filesystem::current_path();
+            }
+
+            // Link the precompiled self-hosted-builtins prelude object if present
+            // (built from src/runtime/prelude/*.ts with --prelude-object). It
+            // defines a strong ts_prelude_init the runtime calls before user code;
+            // absent → the runtime's weak no-op default is used. Search next to the
+            // compiler exe, then the dev build tree.
+            {
+                std::vector<std::filesystem::path> preludeObjs = {
+                    compilerPath / "ts_prelude.obj",
+                    compilerPath / ".." / ".." / ".." / ".." / "build" / "ts_prelude.obj",
+                };
+                if (const char* p = std::getenv("TS_PRELUDE_OBJ")) preludeObjs.insert(preludeObjs.begin(), p);
+                for (const auto& po : preludeObjs) {
+                    std::error_code ec;
+                    if (std::filesystem::exists(po, ec)) {
+                        linkOpts.objectFiles.push_back(po.string());
+                        break;
+                    }
+                }
             }
 
             linkOpts.libraryPaths.push_back(compilerPath.string());
