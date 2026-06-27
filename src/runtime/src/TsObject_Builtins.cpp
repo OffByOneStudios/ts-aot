@@ -824,17 +824,18 @@ extern "C" {
         // self-hosted spec impl (ToObject/ToLength/HasProperty). Real arrays fall
         // through to ts_array_filter, which itself routes holey→self-hosted and
         // packed→native fast loop.
+        // resolve_array_ctx safely returns the real TsArray or null for any
+        // receiver (array-like object, primitive, nullish) without dereferencing
+        // a non-pointer. A non-array receiver goes to the self-hosted spec impl
+        // (ToObject / ToLength, or the spec TypeError for null/undefined).
         extern void* g_selfhosted_filter;
-        if (g_selfhosted_filter) {
-            void* recv = ts_value_get_object((TsValue*)ctx);
-            if (!recv) recv = ctx;  // ctx may be a raw array ptr (untyped path)
-            bool isArray = recv && *(uint32_t*)recv == 0x41525259 /* "ARRY" */;
-            if (!isArray) {
-                extern TsValue* ts_call_with_this_2(TsValue*, TsValue*, TsValue*, TsValue*);
-                TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-                TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
-                return ts_call_with_this_2((TsValue*)g_selfhosted_filter, (TsValue*)ctx, cb, ta);
-            }
+        if (g_selfhosted_filter && !resolve_array_ctx(ctx)) {
+            // SH(receiver, callbackfn, thisArg) — receiver passed as an explicit arg.
+            extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+            TsValue* ta = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+            return ts_call_with_this_3((TsValue*)g_selfhosted_filter, ts_value_make_undefined(),
+                                       (TsValue*)ctx, cb, ta);
         }
         TsArray* arr = require_array_or_throw(ctx, "filter");
         if (!arr) return ts_value_make_undefined();

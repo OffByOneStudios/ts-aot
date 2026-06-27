@@ -59,6 +59,52 @@ static std::filesystem::path getExecutablePath() {
 #endif
 }
 
+// Concatenate the self-hosted-builtins prelude (src/runtime/prelude/*.ts) into
+// one source string, sorted by filename so install order is deterministic. The
+// prelude is parsed separately and its statements are spliced ahead of user code
+// so they run first (installing spec-correct builtins) without shifting user
+// source line numbers. Returns "" if no prelude dir is found (graceful: the
+// runtime natives keep their pre-prelude behavior).
+static std::string loadPreludeSource() {
+    namespace fs = std::filesystem;
+    // OPT-IN (default off). The prepend-per-compilation mechanism works
+    // (validated: self-hosted filter nets +6 on the filter suite) but is too
+    // invasive to enable by default: it recompiles the prelude for every program
+    // (compile-time cost + fast-sweep timeout noise) and pollutes golden-IR
+    // output. Shipping default-on needs the prelude PRECOMPILED once into the
+    // runtime. Until then, enable explicitly with TS_PRELUDE=1.
+    const char* on = std::getenv("TS_PRELUDE");
+    if (!on || !on[0] || on[0] == '0') return "";
+    std::vector<fs::path> candidates;
+    if (const char* env = std::getenv("TS_PRELUDE_DIR")) candidates.push_back(env);
+    auto exeDir = getExecutablePath().parent_path();
+    if (!exeDir.empty()) {
+        candidates.push_back(exeDir / "prelude");
+        // Dev build-tree fallback: build/src/compiler/<cfg>/ -> repo/src/runtime/prelude
+        candidates.push_back(exeDir / ".." / ".." / ".." / ".." / "src" / "runtime" / "prelude");
+    }
+    for (const auto& dir : candidates) {
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec)) continue;
+        std::vector<fs::path> files;
+        for (const auto& e : fs::directory_iterator(dir, ec)) {
+            if (e.path().extension() == ".ts") files.push_back(e.path());
+        }
+        if (files.empty()) continue;
+        std::sort(files.begin(), files.end());
+        std::string out;
+        for (const auto& f : files) {
+            std::ifstream in(f);
+            if (!in.is_open()) continue;
+            out.append((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+            out.push_back('\n');
+        }
+        return out;
+    }
+    return "";
+}
+
 // Create a temporary file path
 static std::string createTempFile(const std::string& prefix, const std::string& suffix) {
 #ifdef _WIN32
@@ -218,6 +264,27 @@ int Driver::run() {
 
             if (isTemporaryJson) {
                 std::filesystem::remove(jsonFile);
+            }
+        }
+
+        // Prepend the self-hosted-builtins prelude. Parsed separately (native
+        // parser) and spliced to the FRONT of the program body so its installs
+        // run before user code, without shifting user source line numbers.
+        if (program) {
+            std::string preludeSrc = loadPreludeSource();
+            if (!preludeSrc.empty()) {
+                parser::Parser preludeParser;
+                auto preludeProg = preludeParser.parse(preludeSrc, "<prelude>");
+                if (preludeParser.getErrorCount() == 0 && preludeProg &&
+                    !preludeProg->body.empty()) {
+                    program->body.insert(
+                        program->body.begin(),
+                        std::make_move_iterator(preludeProg->body.begin()),
+                        std::make_move_iterator(preludeProg->body.end()));
+                } else if (preludeParser.getErrorCount() > 0) {
+                    SPDLOG_WARN("Prelude parse failed ({} errors); skipping self-hosted builtins.",
+                                preludeParser.getErrorCount());
+                }
             }
         }
 

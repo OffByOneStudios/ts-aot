@@ -2271,9 +2271,10 @@ extern "C" {
         // arrays stay on the C++ loop; only holey arrays pay the slow path.
         if (g_selfhosted_filter && g_array_proto_has_indexed &&
             arr && *(uint32_t*)arr == TsArray::MAGIC && ((TsArray*)arr)->HasHoles()) {
-            extern TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2);
-            TsValue* res = ts_call_with_this_2((TsValue*)g_selfhosted_filter, ts_value_make_object(arr),
-                                               (TsValue*)callback, (TsValue*)thisArg);
+            // SH(receiver, callbackfn, thisArg) — receiver is an explicit arg, not `this`.
+            extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+            TsValue* res = ts_call_with_this_3((TsValue*)g_selfhosted_filter, ts_value_make_undefined(),
+                                               ts_value_make_object(arr), (TsValue*)callback, (TsValue*)thisArg);
             return res ? ts_value_get_object(res) : nullptr;
         }
         if (!array_require_callable(callback, "filter")) return nullptr;
