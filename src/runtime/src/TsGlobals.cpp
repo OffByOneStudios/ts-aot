@@ -1541,7 +1541,8 @@ void* ts_get_global_Number() {
             TsValue k; k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::Create(name);
             TsValue v = nanbox_to_tagged(ts_value_make_double(val));
-            ctorFunc->properties->Set(k, v);
+            // Spec: Number constants are { writable:false, enumerable:false, configurable:false }.
+            ctorFunc->properties->SetWithAttrs(k, v, 0);
         };
         setDouble("NaN", std::numeric_limits<double>::quiet_NaN());
         setDouble("POSITIVE_INFINITY", std::numeric_limits<double>::infinity());
@@ -2065,7 +2066,8 @@ void* ts_get_global_Symbol() {
             k.ptr_val = TsString::GetInterned(kWellKnown[i]);
             TsValue v; v.type = ValueType::SYMBOL_PTR;
             v.ptr_val = sym;
-            ctor->Set(k, v);
+            // Spec: well-known symbols are { writable:false, enumerable:false, configurable:false }.
+            ctor->SetWithAttrs(k, v, 0);
         }
 
         // Static methods: Symbol.for(key), Symbol.keyFor(sym).
