@@ -116,10 +116,111 @@
     return true;
   };
 
+  // --- 23.1.3.24 Array.prototype.reduce. The native dispatch passes the explicit
+  // `hasInitial` flag (initialValue == undefined is ambiguous; the spec needs the
+  // "was an argument supplied" bit to pick the seed and the empty-array throw). ---
+  var reduce = function (O_recv: any, callbackfn: any, initialValue: any, hasInitial: any): any {
+    var O: any = toObject(O_recv, "reduce");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    var k = 0;
+    var acc: any;
+    if (hasInitial) {
+      acc = initialValue;
+    } else {
+      var found = false;
+      while (k < len && !found) {
+        if (k in O) { acc = O[k]; found = true; }
+        k++;
+      }
+      if (!found) throw new TypeError("Reduce of empty array with no initial value");
+    }
+    while (k < len) {
+      if (k in O) acc = callbackfn.call(undefined, acc, O[k], k, O);
+      k++;
+    }
+    return acc;
+  };
+
+  // --- 23.1.3.25 Array.prototype.reduceRight (right-to-left) ---
+  var reduceRight = function (O_recv: any, callbackfn: any, initialValue: any, hasInitial: any): any {
+    var O: any = toObject(O_recv, "reduceRight");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    var k = len - 1;
+    var acc: any;
+    if (hasInitial) {
+      acc = initialValue;
+    } else {
+      var found = false;
+      while (k >= 0 && !found) {
+        if (k in O) { acc = O[k]; found = true; }
+        k--;
+      }
+      if (!found) throw new TypeError("Reduce of empty array with no initial value");
+    }
+    while (k >= 0) {
+      if (k in O) acc = callbackfn.call(undefined, acc, O[k], k, O);
+      k--;
+    }
+    return acc;
+  };
+
+  // --- 23.1.3.9 Array.prototype.find / 23.1.3.10 findIndex (visit ALL indices;
+  // holes are observed as undefined via Get, not skipped) ---
+  var find = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "find");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    for (var k = 0; k < len; k++) {
+      var v = O[k];
+      if (callbackfn.call(thisArg, v, k, O)) return v;
+    }
+    return undefined;
+  };
+
+  var findIndex = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "findIndex");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    for (var k = 0; k < len; k++) {
+      if (callbackfn.call(thisArg, O[k], k, O)) return k;
+    }
+    return -1;
+  };
+
+  // --- 23.1.3.11 Array.prototype.flatMap (map then flatten one level) ---
+  var flatMap = function (O_recv: any, callbackfn: any, thisArg: any): any {
+    var O: any = toObject(O_recv, "flatMap");
+    var len: number = toLength(O.length);
+    requireCallable(callbackfn);
+    var A: any[] = [];
+    var to = 0;
+    for (var k = 0; k < len; k++) {
+      if (k in O) {
+        var v = callbackfn.call(thisArg, O[k], k, O);
+        if (Array.isArray(v)) {
+          var vlen = toLength(v.length);
+          for (var j = 0; j < vlen; j++) {
+            if (j in v) { A[to] = v[j]; to++; }
+          }
+        } else {
+          A[to] = v; to++;
+        }
+      }
+    }
+    return A;
+  };
+
   var def = (globalThis as any).__defineBuiltin;
   def(Array.prototype, "filter", 1, filter);
   def(Array.prototype, "map", 1, map);
   def(Array.prototype, "forEach", 1, forEach);
   def(Array.prototype, "some", 1, some);
   def(Array.prototype, "every", 1, every);
+  def(Array.prototype, "reduce", 1, reduce);
+  def(Array.prototype, "reduceRight", 1, reduceRight);
+  def(Array.prototype, "find", 1, find);
+  def(Array.prototype, "findIndex", 1, findIndex);
+  def(Array.prototype, "flatMap", 1, flatMap);
 })();

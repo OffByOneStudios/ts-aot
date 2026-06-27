@@ -28,6 +28,11 @@ void* g_selfhosted_map = nullptr;
 void* g_selfhosted_forEach = nullptr;
 void* g_selfhosted_some = nullptr;
 void* g_selfhosted_every = nullptr;
+void* g_selfhosted_find = nullptr;
+void* g_selfhosted_findIndex = nullptr;
+void* g_selfhosted_flatMap = nullptr;
+void* g_selfhosted_reduce = nullptr;
+void* g_selfhosted_reduceRight = nullptr;
 }
 
 extern "C" void ts_gc_register_root(void** location);
@@ -40,6 +45,11 @@ static const struct { const char* name; void** slot; } g_selfhosted_table[] = {
     { "forEach", &g_selfhosted_forEach },
     { "some",    &g_selfhosted_some },
     { "every",   &g_selfhosted_every },
+    { "find",        &g_selfhosted_find },
+    { "findIndex",   &g_selfhosted_findIndex },
+    { "flatMap",     &g_selfhosted_flatMap },
+    { "reduce",      &g_selfhosted_reduce },
+    { "reduceRight", &g_selfhosted_reduceRight },
 };
 
 extern "C" void ts_define_builtin_method(TsValue* target, TsValue* nameStr,

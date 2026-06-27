@@ -38,6 +38,11 @@ extern "C" {
     extern void* g_selfhosted_forEach;
     extern void* g_selfhosted_some;
     extern void* g_selfhosted_every;
+    extern void* g_selfhosted_find;
+    extern void* g_selfhosted_findIndex;
+    extern void* g_selfhosted_flatMap;
+    extern void* g_selfhosted_reduce;
+    extern void* g_selfhosted_reduceRight;
     // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
     // array iterator lives in a built-in fast path (not in the prototype map),
     // so its removal isn't otherwise observable; ts_iterator_get consults this
@@ -53,11 +58,12 @@ extern "C" {
     double ts_to_index_number_or(TsValue* v, double deflt);
 }
 
-// Forward decl: defined just above ts_array_map, used by earlier iteration
+// Forward decls: defined just above ts_array_map, used by earlier iteration
 // natives. Matches the definition's C language linkage (it lives in the extern
 // "C" methods block).
 extern "C" {
 static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg);
+static TsValue* array_selfhost_holey_reduce(void* impl, void* rawArr, void* cb, void* initialValue);
 }
 
 extern "C" void ts_array_prototype_bump_version() {
@@ -1697,6 +1703,8 @@ extern "C" {
     static bool array_require_callable(void* callback, const char* name);
 
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg) {
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_flatMap, arr, callback, thisArg))
+            return ts_value_get_object(r);  // flatMap returns an array
         if (!array_require_callable(callback, "flatMap")) return nullptr;
         return ((TsArray*)arr)->FlatMap(callback, thisArg);
     }
@@ -2269,6 +2277,19 @@ extern "C" {
                                    ts_value_make_object(rawArr), (TsValue*)cb, (TsValue*)thisArg);
     }
 
+    // reduce/reduceRight variant: SH(receiver, callback, initialValue, hasInitial).
+    // `initialValue == nullptr` means "no initial value provided" (the spec
+    // distinction that decides the seed and the empty-array TypeError).
+    static TsValue* array_selfhost_holey_reduce(void* impl, void* rawArr, void* cb, void* initialValue) {
+        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        extern TsValue* ts_call_with_this_4(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
+        bool hasInitial = (initialValue != nullptr);
+        TsValue* iv = initialValue ? (TsValue*)initialValue : ts_value_make_undefined();
+        return ts_call_with_this_4(ts_value_make_object(impl), ts_value_make_undefined(),
+                                   ts_value_make_object(rawArr), (TsValue*)cb, iv, ts_value_make_bool(hasInitial));
+    }
+
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
@@ -2344,6 +2365,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
             return (void*)ts_array_reduce_native(arr, argc, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey_reduce(g_selfhosted_reduce, arr, callback, initialValue))
+            return (void*)r;  // reduce returns any value: the void* result is a boxed TsValue*
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduce")) return nullptr;
         return a->Reduce(callback, initialValue);
@@ -2355,6 +2378,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
             return (void*)ts_array_reduceRight_native(arr, argc, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey_reduce(g_selfhosted_reduceRight, arr, callback, initialValue))
+            return (void*)r;  // reduceRight returns any value: boxed TsValue*
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduceRight")) return nullptr;
         return a->ReduceRight(callback, initialValue);
@@ -2399,6 +2424,8 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             return ts_array_find_native(arr, 2, argvBuf);
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_find, rawArr, callback, thisArg))
+            return r;  // find returns the element (a boxed TsValue*)
         if (!array_require_callable(callback, "find")) return ts_value_make_undefined();
         return ((TsArray*)rawArr)->Find(callback, thisArg);
     }
@@ -2410,6 +2437,8 @@ extern "C" {
             TsValue* res = ts_array_findIndex_native(arr, 2, argvBuf);
             return res ? ts_value_get_int(res) : -1;
         }
+        if (TsValue* r = array_selfhost_holey(g_selfhosted_findIndex, rawArr, callback, thisArg))
+            return ts_value_get_int(r);  // findIndex returns the index (number → int)
         if (!array_require_callable(callback, "findIndex")) return -1;
         return ((TsArray*)rawArr)->FindIndex(callback, thisArg);
     }
