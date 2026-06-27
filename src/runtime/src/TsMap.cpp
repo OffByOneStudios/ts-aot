@@ -1172,12 +1172,29 @@ static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv
 
     void* rawCtx = ts_value_get_object((TsValue*)ctx);
     if (!rawCtx) rawCtx = ctx;
+
+    // Brand check (%ArrayIteratorPrototype%/%MapIteratorPrototype%/%SetIteratorPrototype%
+    // .next): the receiver must be the corresponding iterator, which carries the
+    // __iter_items internal slot. A non-iterator (plain object, array, primitive,
+    // foreign object) must throw a TypeError instead of yielding {done:true}.
+    // Reject anything that isn't a safe heap pointer before dereferencing.
+    auto throw_iter_brand = []() {
+        extern void* ts_error_create_typed(const char* type, const char* message);
+        extern void ts_throw(TsValue* err);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.prototype.next called on incompatible receiver"));
+    };
+    {
+        uintptr_t p = (uintptr_t)rawCtx;
+        if (p < 4096 || p > 0x00007FFFFFFFFFFFULL) { throw_iter_brand(); return ts_value_make_undefined(); }
+    }
     TsMap* iter = (TsMap*)rawCtx;
 
     // Read state: items TsArray, index, kind (0=keys, 1=values, 2=entries).
     TsValue itemsKey; itemsKey.type = ValueType::STRING_PTR;
     itemsKey.ptr_val = TsString::GetInterned("__iter_items");
     TsValue itemsVal = iter->Get(itemsKey);
+    if (itemsVal.type == ValueType::UNDEFINED) { throw_iter_brand(); return ts_value_make_undefined(); }
     TsArray* items = (itemsVal.type == ValueType::OBJECT_PTR || itemsVal.type == ValueType::ARRAY_PTR)
                         ? (TsArray*)itemsVal.ptr_val : nullptr;
 
