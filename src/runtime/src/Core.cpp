@@ -1584,18 +1584,15 @@ static void ts_icu_init(const char* argv0) {
     exit(1);
 }
 
-// The precompiled self-hosted-builtins prelude object (compiled from
-// src/runtime/prelude/*.ts with --prelude-object) defines a strong
-// `ts_prelude_init` that installs spec builtins via __defineBuiltin. Programs
-// linked WITHOUT that object fall back to this no-op via the /alternatename weak
-// alias below, so the runtime links either way.
-extern "C" void ts_prelude_init(void);
-extern "C" void ts_prelude_init_default(void) {}
-#ifdef _MSC_VER
-#pragma comment(linker, "/alternatename:ts_prelude_init=ts_prelude_init_default")
-#endif
-
-int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
+// The self-hosted-builtins prelude installer is passed in as a function pointer
+// by the compiler-generated main (resolved in the EXE: the precompiled prelude
+// object's strong ts_prelude_init, or a weak no-op the compiler emits when no
+// prelude is linked). Passing it by value works identically whether ts_main is
+// in the static runtime or the shared-runtime DLL — no cross-module symbol
+// lookup, and the prelude's GC stack maps live in the exe where the parser reads
+// them. One linking strategy for both runtimes.
+int ts_main(int argc, char** argv, TsValue* (*user_main)(void*),
+            void (*prelude_init)(void)) {
 #ifdef _MSC_VER
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
@@ -1744,9 +1741,8 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     if (globalThis) ts_set_call_this((void*)globalThis);
 
     // Install the precompiled self-hosted builtins before user code (runtime
-    // globals — Array, globalThis, __defineBuiltin — are ready by now). No-op
-    // (weak default) when no prelude object is linked.
-    ts_prelude_init();
+    // globals — Array, globalThis, __defineBuiltin — are ready by now).
+    if (prelude_init) prelude_init();
 
     if (user_main) {
 

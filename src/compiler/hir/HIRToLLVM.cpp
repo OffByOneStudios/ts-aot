@@ -601,15 +601,31 @@ void HIRToLLVM::createMainFunction() {
             }
         }
     } else {
-        // Call ts_main(argc, argv, user_main): int ts_main(int, char**, TsValue*(*)(void*))
+        // Weak no-op ts_prelude_init so the EXE always defines the symbol; a
+        // linked --prelude-object's strong ts_prelude_init overrides it. We pass
+        // it to ts_main by value, so the call works identically whether ts_main
+        // lives in the static runtime or the shared-runtime DLL (no cross-module
+        // symbol lookup) — one linking strategy for both runtimes.
+        llvm::Function* preludeInit = module_->getFunction("ts_prelude_init");
+        if (!preludeInit) {
+            llvm::FunctionType* piFt =
+                llvm::FunctionType::get(builder_->getVoidTy(), {}, false);
+            preludeInit = llvm::Function::Create(
+                piFt, llvm::Function::WeakAnyLinkage, "ts_prelude_init", module_.get());
+            llvm::BasicBlock* piBB = llvm::BasicBlock::Create(context_, "entry", preludeInit);
+            llvm::IRBuilder<> piB(piBB);
+            piB.CreateRetVoid();
+        }
+
+        // Call ts_main(argc, argv, user_main, prelude_init)
         std::vector<llvm::Type*> tsMainArgs = {
-            llvm::Type::getInt32Ty(context_), getGCPtrTy(), getGCPtrTy()
+            llvm::Type::getInt32Ty(context_), getGCPtrTy(), getGCPtrTy(), getGCPtrTy()
         };
         llvm::FunctionType* tsMainFt = llvm::FunctionType::get(
             llvm::Type::getInt32Ty(context_), tsMainArgs, false);
         llvm::FunctionCallee tsMain = module_->getOrInsertFunction("ts_main", tsMainFt);
         llvm::Value* result = builder_->CreateCall(
-            tsMainFt, tsMain.getCallee(), { argc, argv, userMain });
+            tsMainFt, tsMain.getCallee(), { argc, argv, userMain, preludeInit });
         builder_->CreateRet(result);
     }
 }
