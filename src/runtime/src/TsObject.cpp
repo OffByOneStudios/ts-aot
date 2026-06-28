@@ -6916,6 +6916,29 @@ void* ts_create_arguments_from_params(
 
         uint64_t targetNb = nanbox_from_tsvalue_ptr(argv[0]);
         if (!nanbox_is_ptr(targetNb)) return ts_value_make_bool(false);
+        // A string/symbol arg is a heap pointer but is NOT an Object: step 1 returns
+        // false BEFORE ToObject (so isPrototypeOf.call(null, "str") is false, not a
+        // TypeError). Only a genuine object V proceeds to the ToObject(this) check.
+        {
+            void* tRaw = nanbox_to_ptr(targetNb);
+            uintptr_t tp = (uintptr_t)tRaw;
+            if (tRaw && tp >= 0x1000 && tp <= 0x00007FFFFFFFFFFFULL) {
+                uint32_t tm0 = *(uint32_t*)tRaw;
+                uint32_t tm16 = *(uint32_t*)((char*)tRaw + 16);
+                if (tm0 == 0x53545247 || tm0 == 0x434F4E53 ||
+                    tm0 == 0x53594D42 || tm16 == 0x53594D42)
+                    return ts_value_make_bool(false);
+            }
+        }
+
+        // V is an Object, so step 2 ToObject(this value) runs -> TypeError on
+        // null/undefined (must be AFTER the "V not Object -> false" checks above).
+        uint64_t isProtoCtxNb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        if (nanbox_is_null(isProtoCtxNb) || nanbox_is_undefined(isProtoCtxNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_bool(false);
+        }
 
         void* ctxObj = ts_nanbox_safe_unbox(ctx);
         if (!ctxObj) return ts_value_make_bool(false);
@@ -6939,6 +6962,15 @@ void* ts_create_arguments_from_params(
     // Object.prototype.propertyIsEnumerable(propName) - checks if property is enumerable
     TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
         if (!ctx) ctx = ts_get_call_this();
+        // Step 2 ToObject(this value) -> TypeError on null/undefined.
+        if (ctx) {
+            uint64_t pieCtxNb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(pieCtxNb) || nanbox_is_undefined(pieCtxNb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_bool(false);
+            }
+        }
         if (!ctx || argc == 0) return ts_value_make_bool(false);
         void* obj = ts_nanbox_safe_unbox(ctx);
         if (!obj) return ts_value_make_bool(false);

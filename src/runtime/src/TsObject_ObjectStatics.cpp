@@ -753,6 +753,23 @@ extern "C" {
                 "Object prototype may only be an Object or null"));
             return ts_value_make_undefined();  // unreachable
         }
+        // A string/symbol proto is heap-backed (passes nanbox_is_ptr above) but is
+        // still a primitive -> TypeError (proto must be Object or null). Mirror
+        // Object.create's primitive-proto reject.
+        if (proto && nanbox_is_ptr(nbProto)) {
+            void* protoRaw = nanbox_to_ptr(nbProto);
+            uintptr_t ppr = (uintptr_t)protoRaw;
+            if (protoRaw && ppr >= 0x1000 && ppr <= 0x00007FFFFFFFFFFFULL) {
+                uint32_t pm0 = *(uint32_t*)protoRaw;
+                uint32_t pm16 = *(uint32_t*)((char*)protoRaw + 16);
+                if (pm0 == 0x53545247 /*STRG*/ || pm0 == 0x434F4E53 /*CONS*/ ||
+                    pm0 == 0x53594D42 || pm16 == 0x53594D42 /*SYMB*/) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Object prototype may only be an Object or null"));
+                    return ts_value_make_undefined();  // unreachable
+                }
+            }
+        }
 
         // Unbox obj if needed
         void* objRaw = ts_value_get_object(obj);
