@@ -1637,6 +1637,14 @@ extern "C" {
         return ta;
     }
 
+    // Array.prototype.indexOf/lastIndexOf use strict equality, under which NaN
+    // never matches anything (NaN !== NaN). TsArray::IndexOf compares the raw
+    // nanbox bits, where NaN == NaN, so a NaN search value would be wrongly found.
+    static inline bool ts_search_value_is_nan(int64_t value) {
+        uint64_t vnb = (uint64_t)value;
+        return nanbox_is_double(vnb) && nanbox_to_double(vnb) != nanbox_to_double(vnb);
+    }
+
     int64_t ts_array_indexOf(void* arr, int64_t value) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             // `value` is the raw bit pattern of a boxed TsValue* or small int.
@@ -1651,6 +1659,7 @@ extern "C" {
             }
             return -1;
         }
+        if (ts_search_value_is_nan(value)) return -1;
         return ((TsArray*)arr)->IndexOf(value);
     }
 
@@ -1667,6 +1676,7 @@ extern "C" {
             if (fi < 0) fi = 0;
         }
         if (fi >= len) return -1;
+        if (ts_search_value_is_nan(value)) return -1;
         return a->IndexOf(value, (size_t)fi);
     }
 
@@ -1682,6 +1692,7 @@ extern "C" {
             }
             return -1;
         }
+        if (ts_search_value_is_nan(value)) return -1;
         return ((TsArray*)arr)->LastIndexOf(value);
     }
 
@@ -1699,6 +1710,7 @@ extern "C" {
             if (fi < 0) return -1;
             if (fi >= len) fi = len - 1;
         }
+        if (ts_search_value_is_nan(value)) return -1;
         return a->LastIndexOf(value, fi);
     }
 
