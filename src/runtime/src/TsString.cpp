@@ -2176,6 +2176,14 @@ extern "C" {
             if (rawObj) {
                 uint32_t magic = *(uint32_t*)rawObj;
                 if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                    // ECMA-262 22.1.3.21: replaceAll requires a global RegExp;
+                    // a non-global one throws a TypeError (only TsString* locals
+                    // are live here, so the ts_throw longjmp is safe).
+                    if (!((TsRegExp*)rawObj)->IsGlobal()) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "replaceAll must be called with a global RegExp"));
+                        return flatStr;  // unreachable
+                    }
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
                     TsString* flatRepl = ts_ensure_flat(rawRepl);
