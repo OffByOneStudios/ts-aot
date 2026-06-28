@@ -505,15 +505,17 @@ void BuiltinRegistry::registerSetMethods() {
     methodTable_[{HIRTypeKind::Set, "forEach"}] =
         MethodResolution::makeRuntimeCall("ts_set_forEach", -1, voidType);
 
-    // Iterator methods (return arrays for now)
+    // Iterator methods — return real %SetIteratorPrototype% iterators (with
+    // .next()), matching Map. Returning Any so the result is dynamic-dispatched
+    // (.next/.map/...); the previous arrayType lowering returned a bare TsArray.
     methodTable_[{HIRTypeKind::Set, "entries"}] =
-        MethodResolution::makeRuntimeCall("ts_set_entries", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_set_entries_iterator", 0, anyType);
 
     methodTable_[{HIRTypeKind::Set, "keys"}] =
-        MethodResolution::makeRuntimeCall("ts_set_keys", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_set_keys_iterator", 0, anyType);
 
     methodTable_[{HIRTypeKind::Set, "values"}] =
-        MethodResolution::makeRuntimeCall("ts_set_values", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_set_values_iterator", 0, anyType);
 
     // ES2024 Set methods
     methodTable_[{HIRTypeKind::Set, "union"}] =
