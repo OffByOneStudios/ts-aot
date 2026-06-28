@@ -3780,15 +3780,15 @@ void* ts_get_global_DataView() {
                 void* raw = ts_value_get_object((TsValue*)ctx);
                 if (!raw) raw = ctx;
                 if (!raw) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: DataView accessor invoked on non-DataView")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "DataView accessor invoked on non-DataView"));
                     return nullptr;
                 }
                 // Magic at offset 0 for TsDataView.
                 uint32_t magic0 = *(uint32_t*)raw;
                 if (magic0 != TsDataView::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: DataView accessor invoked on non-DataView")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "DataView accessor invoked on non-DataView"));
                     return nullptr;
                 }
                 return (TsDataView*)raw;
@@ -5428,24 +5428,24 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 size_t bufLen = buf->GetLength();                                        \
                 size_t off = (byteOffset > 0) ? (size_t)byteOffset : 0;                  \
                 if (off > bufLen || (off % (ElemSize)) != 0) {                           \
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(                 \
-                        "RangeError: byteOffset out of range or not aligned")));         \
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",               \
+                        "byteOffset out of range or not aligned"));                       \
                     return nullptr;                                                      \
                 }                                                                        \
                 size_t bytesAvail = bufLen - off;                                        \
                 size_t bytes;                                                            \
                 if (byteLength < 0) {                                                    \
                     if (bytesAvail % (ElemSize) != 0) {                                  \
-                        ts_throw((TsValue*)ts_error_create(TsString::Create(             \
-                            "RangeError: buffer length not divisible by element size")));\
+                        ts_throw((TsValue*)ts_error_create_typed("RangeError",           \
+                            "buffer length not divisible by element size"));              \
                         return nullptr;                                                  \
                     }                                                                    \
                     bytes = bytesAvail;                                                  \
                 } else {                                                                 \
                     bytes = (size_t)byteLength * (ElemSize);                             \
                     if (off + bytes > bufLen) {                                          \
-                        ts_throw((TsValue*)ts_error_create(TsString::Create(             \
-                            "RangeError: TypedArray length out of range")));             \
+                        ts_throw((TsValue*)ts_error_create_typed("RangeError",           \
+                            "TypedArray length out of range"));                          \
                         return nullptr;                                                  \
                     }                                                                    \
                 }                                                                        \
