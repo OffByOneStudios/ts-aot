@@ -705,6 +705,7 @@ extern "C" double ts_to_number(TsValue* v);
 // `baseTimes(n, String)` → wrapper-string keys → broken iteration.
 static TsMap* g_string_wrapper_proto = nullptr;
 
+extern "C" void* ts_create_string_iterator(void* strPtr);  // TsMap.cpp
 void* ts_get_global_String() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -801,6 +802,21 @@ void* ts_get_global_String() {
         addMethod(proto, "toLocaleUpperCase", (void*)ts_string_proto_toLocaleUpperCase, 0);
         addMethod(proto, "toString", (void*)ts_string_proto_toString, 0);
         addMethod(proto, "valueOf", (void*)ts_string_proto_valueOf, 0);
+
+        // String.prototype[Symbol.iterator] — ECMA-262 22.1.3.34. A code-point
+        // iterator backed by %StringIteratorPrototype%. RequireObjectCoercible
+        // (null/undefined this -> TypeError), then ToString.
+        addMethod(proto, "[Symbol.iterator]", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "String.prototype[Symbol.iterator] called on null or undefined"));
+                return ts_value_make_undefined();
+            }
+            void* s = ts_string_from_value((TsValue*)ctx);  // ToString
+            return (TsValue*)ts_create_string_iterator(s);
+        }, 0);
 
         // Annex B.2.3: HTML wrapper methods (deprecated but standardized).
         // These need to be on String.prototype directly so
