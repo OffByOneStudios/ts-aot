@@ -1,4 +1,5 @@
 #include "TsObject_Internal.h"
+#include "TsBoundFunction.h"
 
 // Function call / apply / construct dispatch extracted from TsObject.cpp:
 // ts_call_with_arity, the call_closure/funcptr/dispatch helpers, ts_call_with_this[_0..8],
@@ -486,6 +487,37 @@ extern "C" {
                 obj->Set(msgKey, nanbox_to_tagged(argv[0]));
             }
             return ts_value_make_object(obj);
+        }
+
+        // A BOUND function's [[Construct]] (ECMA-262 10.4.1.2 BoundFunctionCreate):
+        // `new boundFn(a)` constructs the TARGET with (boundArgs ++ callArgs); when
+        // newTarget is the bound function itself it folds to the target. bind() makes
+        // the bound function a native TsFunction whose funcPtr is
+        // ts_bound_function_call and whose context is the TsBoundFunction, so recurse
+        // on the target — it allocates `this` from target.prototype and runs the real
+        // constructor. The generic path below would instead override the bound context
+        // with `this` and merely [[Call]] the bound function (returning undefined).
+        {
+            void* raw = ts_value_get_object(constructorFn);
+            if (raw && (uintptr_t)raw > 0x1000 &&
+                *(uint32_t*)((char*)raw + 16) == TsFunction::MAGIC) {
+                TsFunction* tf = (TsFunction*)raw;
+                if (tf->funcPtr == (void*)ts_bound_function_call && tf->context) {
+                    TsBoundFunction* bound = (TsBoundFunction*)tf->context;
+                    if (bound->targetFunction &&
+                        bound->boundArgCount >= 0 && bound->boundArgCount <= 65535) {
+                        if (argc < 0) argc = 0;
+                        int total = bound->boundArgCount + argc;
+                        std::vector<TsValue*> combined((size_t)total, nullptr);
+                        for (int i = 0; i < bound->boundArgCount; i++)
+                            combined[i] = bound->boundArgs[i];
+                        for (int i = 0; i < argc; i++)
+                            combined[(size_t)bound->boundArgCount + i] = argv[i];
+                        return ts_new_from_constructor_impl(bound->targetFunction, total,
+                                                            total ? combined.data() : nullptr);
+                    }
+                }
+            }
         }
 
         // Per ES spec, built-in prototype methods (Array.prototype.X etc.)
