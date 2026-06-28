@@ -685,6 +685,26 @@ extern "C" {
             return thisVal;
         }
 
+        // Object.create(O): O must be Object or null (ECMA-262 20.1.2.2 step 1). A
+        // non-null primitive proto is a TypeError. Numbers/booleans (non-pointer
+        // nanboxes) already throw downstream; a STRING or SYMBOL proto is heap-
+        // backed and was silently accepted as an "object". Reject those brands here.
+        {
+            void* protoRaw = ts_value_get_object(proto);
+            uintptr_t pp = (uintptr_t)protoRaw;
+            if (protoRaw && pp >= 0x1000 && pp <= 0x00007FFFFFFFFFFFULL) {
+                uint32_t pm0 = *(uint32_t*)protoRaw;
+                uint32_t pm16 = *(uint32_t*)((char*)protoRaw + 16);
+                if (pm0 == 0x53545247 /*TsString "STRG"*/ ||
+                    pm0 == 0x434F4E53 /*TsConsString "CONS"*/ ||
+                    pm0 == 0x53594D42 || pm16 == 0x53594D42 /*TsSymbol "SYMB"*/) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Object prototype may only be an Object or null"));
+                    return ts_value_make_undefined();
+                }
+            }
+        }
+
         // Link the prototype via ts_object_setPrototypeOf, which handles BOTH
         // TsMap and FLAT-object prototypes (object literals — it converts a
         // flat proto to a map). The old code only matched magic-at-+16 == MAPS,
