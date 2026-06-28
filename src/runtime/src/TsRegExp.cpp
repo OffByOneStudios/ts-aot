@@ -78,8 +78,11 @@ TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
     // constructing, so an invalid/duplicate flag surfaces as a JS SyntaxError
     // rather than silently building a regex that ignores the bad flag.
     if (!validateRegExpFlags(flags)) {
-        ts_throw((TsValue*)ts_error_create_typed(
-            "SyntaxError", "Invalid flags supplied to RegExp constructor"));
+        // Do NOT ts_throw from THIS frame: TsRegExp holds a
+        // std::vector<pair<string,int>> (named-group state) and longjmp-based
+        // ts_throw unwinding out of a std-container frame corrupts the MSVC
+        // unwinder (GS failure). Callers pre-validate and throw the SyntaxError
+        // from a std-container-free frame. See longjmp-stdstring-frame-crash.
         return nullptr;
     }
     void* mem = ts_gc_alloc_old_gen(sizeof(TsRegExp));
@@ -578,6 +581,15 @@ extern "C" {
             if (ts_is<TsString>(f)) {
                 flagsStr = f->ToUtf8();
             }
+        }
+        // Validate flags HERE, in this std::string-free frame, BEFORE entering
+        // TsRegExp::Create (whose frame holds named-group std::vector state that the
+        // longjmp ts_throw cannot safely unwind through). See the note in
+        // TsRegExp::Create and the longjmp-stdstring-frame-crash memory.
+        if (!validateRegExpFlags(flagsStr)) {
+            ts_throw((TsValue*)ts_error_create_typed(
+                "SyntaxError", "Invalid flags supplied to RegExp constructor"));
+            return nullptr;
         }
         return TsRegExp::Create(p->ToUtf8(), flagsStr);
     }
