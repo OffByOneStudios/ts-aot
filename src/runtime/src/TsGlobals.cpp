@@ -1532,6 +1532,10 @@ void* ts_get_global_Number() {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toExponential");
             int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 6;
+            // ECMA-262 21.1.3.2 step 4: non-finite returns "NaN"/"Infinity" before
+            // the RangeError (step 5); snprintf would emit "nan"/"inf".
+            if (std::isnan(d)) return ts_value_make_string(TsString::Create("NaN"));
+            if (std::isinf(d)) return ts_value_make_string(TsString::Create(d < 0 ? "-Infinity" : "Infinity"));
             if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.2: RangeError
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "toExponential() argument must be between 0 and 100"));
@@ -1548,6 +1552,10 @@ void* ts_get_global_Number() {
                 return ts_value_make_string((TsString*)ts_number_to_string(d, 10));
             }
             int digits = (int)ts_value_get_int(argv[0]);
+            // ECMA-262 21.1.3.5 steps 4/6: non-finite returns "NaN"/"Infinity"
+            // before the RangeError (step 7).
+            if (std::isnan(d)) return ts_value_make_string(TsString::Create("NaN"));
+            if (std::isinf(d)) return ts_value_make_string(TsString::Create(d < 0 ? "-Infinity" : "Infinity"));
             if (digits < 1 || digits > 100) {  // ECMA-262 21.1.3.5: RangeError
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "toPrecision() argument must be between 1 and 100"));
