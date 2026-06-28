@@ -1130,13 +1130,32 @@ static void ts_map_addMethod_local(TsMap* map, const char* name, void* nativeFn,
         TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 }
 
-// All iterator prototypes share next()/[Symbol.iterator]() bodies — the only
-// per-kind difference is @@toStringTag and identity. Build the singleton
-// lazily; callers pick which prototype via ts_create_iterator_with_proto.
+// ECMA-262 27.1.2 %IteratorPrototype% — the root every built-in iterator
+// prototype inherits from. It owns `[Symbol.iterator]() { return this }`; the
+// per-kind prototypes (%ArrayIteratorPrototype% etc.) must NOT have their own
+// copy (tests assert `hasOwnProperty(@@iterator)` is false on them and that the
+// chain reaches %IteratorPrototype%). GC-rooted/immortal-tenured like the others.
+static TsMap* g_iterator_prototype = nullptr;
+TsMap* getIteratorPrototype() {
+    if (!g_iterator_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        ts_map_addMethod_local(proto, "[Symbol.iterator]",
+                               (void*)ts_array_iterator_proto_iter_self, 0);
+        g_iterator_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_iterator_prototype);
+    }
+    return g_iterator_prototype;
+}
+
+// All iterator prototypes share next() — the only per-kind difference is
+// @@toStringTag and identity. [Symbol.iterator] is inherited from
+// %IteratorPrototype% (set as the prototype here), not installed per-kind.
 static TsMap* buildIteratorPrototype(const char* tagStr) {
     TsMap* proto = TsMap::Create();
     ts_map_addMethod_local(proto, "next", (void*)ts_array_iterator_proto_next, 0);
-    ts_map_addMethod_local(proto, "[Symbol.iterator]", (void*)ts_array_iterator_proto_iter_self, 0);
+    proto->SetPrototype(getIteratorPrototype());
     TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
     tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
     TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
@@ -1186,6 +1205,41 @@ TsMap* getSetIteratorPrototype() {
         ts_gc_register_root((void**)&g_set_iterator_prototype);
     }
     return g_set_iterator_prototype;
+}
+
+static TsMap* g_string_iterator_prototype = nullptr;
+TsMap* getStringIteratorPrototype() {
+    if (!g_string_iterator_prototype) {
+        ts_gc_push_tenure();
+        g_string_iterator_prototype = buildIteratorPrototype("String Iterator");
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_string_iterator_prototype);
+    }
+    return g_string_iterator_prototype;
+}
+
+// ECMA-262 22.1.5 CreateStringIterator — iterate `str` by CODE POINT (surrogate
+// pairs count as one step). We decode up-front into a TsArray of one-code-point
+// strings and reuse the shared array-iterator next() (same approach as the
+// compiler's string for-of path), backed by %StringIteratorPrototype%.
+extern "C" void* ts_create_string_iterator(void* strPtr) {
+    // Caller passes a TsString* (ToString result). CodePointAt/Length handle the
+    // representation directly — mirrors the compiler's string for-of decode.
+    TsString* s = (TsString*)strPtr;
+    TsArray* arr = (TsArray*)ts_array_create();
+    if (s) {
+        int64_t len = s->Length();
+        int64_t i = 0;
+        while (i < len) {
+            int64_t cp = s->CodePointAt(i);
+            int64_t cps[1] = { cp };
+            TsString* part = TsString::FromCodePoint(cps, 1);
+            TsValue v; v.type = ValueType::STRING_PTR; v.ptr_val = part;
+            arr->Push((int64_t)(uintptr_t)nanbox_from_tagged(v));
+            i += (cp > 0xFFFF) ? 2 : 1;
+        }
+    }
+    return (void*)ts_create_iterator_with_proto(arr, getStringIteratorPrototype());
 }
 
 // Called via prototype dispatch with `this` bound to the iterator TsMap.
