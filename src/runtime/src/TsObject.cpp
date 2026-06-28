@@ -6838,6 +6838,19 @@ void* ts_create_arguments_from_params(
                     tag = "Function";
                 }
                 else if (magic16 == 0x4D415053) { // TsMap "MAPS"
+                    // A Proxy is a TsMap subclass; ECMA-262 20.1.3.6 brands it by
+                    // its target: IsArray -> "Array" (throws TypeError if revoked),
+                    // else callable -> "Function", else "Object". dynamic_cast is
+                    // safe here — magic16==MAPS means a vtable-bearing TsObject.
+                    if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)ptr)) {
+                        (void)px;
+                        extern bool ts_array_isArray(void* value);
+                        extern bool ts_is_callable(void* val);
+                        if (ts_array_isArray((void*)ctx)) tag = "Array";
+                        else if (ts_is_callable((void*)ctx)) tag = "Function";
+                        else tag = "Object";
+                    }
+                    else {
                     TsMap* m = (TsMap*)ptr;
                     // Distinguish explicit Map from plain object literal.
                     if (m->IsExplicitMap()) tag = "Map";
@@ -6856,6 +6869,7 @@ void* ts_create_arguments_from_params(
                         else if (m->Has(bk)) tag = "Boolean";
                         else if (m->Has(yk)) tag = "Symbol";
                         else { tag = "Object"; mapForTag = m; }
+                    }
                     }
                 }
                 // else: unknown / native-polymorphic / corrupt pointer. Leave
