@@ -1738,17 +1738,36 @@ extern "C" {
         return (int64_t)d;  // d > 0: truncate toward zero
     }
 
+    void* ts_string_from_value(TsValue* val);  // ToString (symbols throw), file scope
+
+    // ECMA-262 22.1.3.16/.17 step 4-5: coerce fillString. undefined -> a single
+    // SPACE; otherwise ToString(fillString). The old code fed a non-string pad
+    // (a number/null nanbox, e.g. "5".padStart(3, 0)) straight into ts_ensure_flat,
+    // which dereferenced the boxed value as a TsString and crashed.
+    static TsString* coerce_pad_string(void* padString) {
+        if (!padString) return TsString::Create(" ");
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)padString);
+        if (nanbox_is_undefined(nb)) return TsString::Create(" ");
+        void* raw = ts_nanbox_safe_unbox(padString);
+        if (raw && (uintptr_t)raw > 0x1000) {
+            uint32_t m = *(uint32_t*)raw;
+            if (m == 0x53545247 || m == TsConsString::MAGIC) return ts_ensure_flat(raw);
+        }
+        // number / null / boolean / bigint (symbol throws TypeError in ToString)
+        return ts_ensure_flat(ts_string_from_value((TsValue*)padString));
+    }
+
     void* ts_string_padStart(void* str, double targetLength, void* padString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;
-        TsString* pad = ts_ensure_flat(padString);
+        TsString* pad = coerce_pad_string(padString);
         return s->PadStart(pad_target_length(targetLength), pad);
     }
 
     void* ts_string_padEnd(void* str, double targetLength, void* padString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;
-        TsString* pad = ts_ensure_flat(padString);
+        TsString* pad = coerce_pad_string(padString);
         return s->PadEnd(pad_target_length(targetLength), pad);
     }
 
