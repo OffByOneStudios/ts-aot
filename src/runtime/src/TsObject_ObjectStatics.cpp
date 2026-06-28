@@ -1664,10 +1664,16 @@ extern "C" {
         // JS null to ValueType::OBJECT_PTR with ptr_val=nullptr (see
         // TsObject.h:62), so an explicit null check is required — the
         // earlier `type != OBJECT_PTR` test alone accepts null silently.
+        // Must be actually callable (a function/closure/callable proxy), not merely
+        // an object: `{get: {a:1}}` is a non-callable object and must throw a
+        // TypeError (ToPropertyDescriptor step 7.b / 9.b). The old "any non-null
+        // OBJECT_PTR" check accepted it. ts_is_callable wants the NaN-boxed value,
+        // so round-trip through nanbox_from_tagged. (ts_is_callable: TsRuntime.h)
         auto isCallableValue = [](const TsValue& v) -> bool {
             if (v.type != ValueType::OBJECT_PTR && v.type != ValueType::FUNCTION_PTR)
                 return false;
-            return v.ptr_val != nullptr;
+            if (!v.ptr_val) return false;
+            return ts_is_callable(nanbox_from_tagged(v));
         };
         if (hasGetDef) {
             TsValue gv = descCheck->Get(getKeyChk);
