@@ -563,6 +563,20 @@ extern "C" void* ts_set_entries(void* set) {
     return pairs;
 }
 
+// Receiver-convention real-iterator wrappers for the typed compiler path
+// (BuiltinRegistry). Set.values()/keys()/entries() must return a real
+// %SetIteratorPrototype% iterator (with .next()), NOT a bare TsArray — the
+// previous arrayType lowering was the "set.values().next is undefined" leak.
+extern "C" void* ts_set_values_iterator(void* set) {
+    return ts_create_set_iterator(ts_set_values(set));   // keys === values for a Set
+}
+extern "C" void* ts_set_keys_iterator(void* set) {
+    return ts_create_set_iterator(ts_set_values(set));
+}
+extern "C" void* ts_set_entries_iterator(void* set) {
+    return ts_create_set_iterator(ts_set_entries(set));  // [v, v] pairs
+}
+
 TsValue* ts_set_values_iter_wrapper(void* context, int argc, TsValue** argv) {
     void* rawCtx = requireSet(context, "values");
     if (!rawCtx) return ts_value_make_undefined();
