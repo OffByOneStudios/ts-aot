@@ -139,26 +139,33 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
         }
     }
 
-    // Call the target as a constructor. For a full implementation we'd create
-    // a new object with newTarget.prototype, but for the isConstructor harness
-    // (which only checks if TypeError was thrown), just calling the target
-    // and returning an object is sufficient.
-    TsValue* result = ts_value_make_object(TsMap::Create());
+    // Construct through the unified construct path — it allocates `this` from
+    // the constructor's prototype, runs the real constructor body, and handles
+    // user functions, BOUND functions, and builtin constructor globals (Array,
+    // Map, ...). The old stub just tsCall'd the target (dropping args past the
+    // first and never setting `this`), so Reflect.construct(F,[1,2]) returned
+    // undefined.
+    int argc = (int)(len > 0 ? (len > 1024 ? 1024 : len) : 0);
+    TsValue* argv[1024];
+    for (int i = 0; i < argc && argsArray; i++)
+        argv[i] = (TsValue*)argsArray->Get(i);
+    extern TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
+    TsValue* result = ts_new_from_constructor((TsValue*)targetArg, argc, argc ? argv : nullptr);
 
-    // Actually invoke the target constructor
-    TsValue* boxedTarget = (TsValue*)targetArg;
-    if (len == 0) {
-        result = tsCall(boxedTarget);
-    } else if (len >= 1 && argsArray) {
-        TsValue* arg0 = (TsValue*)argsArray->Get(0);
-        result = tsCall(boxedTarget, arg0);
+    // ECMA-262 OrdinaryCreateFromConstructor: the new object's [[Prototype]]
+    // comes from newTarget.prototype, not target.prototype. Re-link when a
+    // distinct newTarget was supplied.
+    if (newTargetArg && newTargetArg != targetArg && result &&
+        !ts_value_is_undefined(result) && !ts_value_is_null(result)) {
+        void* rnt = ts_value_get_object((TsValue*)newTargetArg);
+        if (rnt) {
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            extern TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
+            TsValue* ntProto = ts_object_get_property(rnt, "prototype");
+            if (ntProto && !ts_value_is_undefined(ntProto) && !ts_value_is_null(ntProto))
+                ts_object_setPrototypeOf(result, ntProto);
+        }
     }
-
-    // Per spec: if result is an object, return it; else return a new object
-    if (!result || ts_value_is_undefined(result) || ts_value_is_null(result)) {
-        result = ts_value_make_object(TsMap::Create());
-    }
-
     return result;
 }
 
