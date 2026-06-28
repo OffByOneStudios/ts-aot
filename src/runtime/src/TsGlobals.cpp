@@ -1607,7 +1607,11 @@ static bool ts_boolean_value_or_throw(void* ctx, const char* method) {
         if (nb == NANBOX_TRUE) return true;
         if (nb == NANBOX_FALSE) return false;
         void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
-        if (raw) {
+        // A number/string/symbol receiver is a non-pointer (or non-Map) nanbox: `raw`
+        // is non-null but `*(raw+16)` faults. Guard the offset-16 magic read with a
+        // safe heap-pointer range check (same fix as ts_number_value_or_throw).
+        uintptr_t rp = (uintptr_t)raw;
+        if (rp >= 0x1000 && rp <= 0x00007FFFFFFFFFFFULL) {
             uint32_t m16 = *(uint32_t*)((char*)raw + 16);
             if (m16 == 0x4D415053) {  // TsMap — only valid if it carries [[BooleanData]]
                 TsMap* obj = (TsMap*)raw;
