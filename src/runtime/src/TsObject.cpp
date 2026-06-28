@@ -5764,6 +5764,13 @@ void* ts_create_arguments_from_params(
     TsValue* ts_object_getOwnPropertySymbols_native(void* context, int argc, TsValue** argv) {
         TsArray* result = TsArray::Create(0);
         if (argc < 1 || !argv[0]) return ts_value_make_array(result);
+        // ECMA-262 20.1.2.9: ToObject(O) first -> TypeError on null/undefined.
+        uint64_t nbO = nanbox_from_tsvalue_ptr(argv[0]);
+        if (nanbox_is_null(nbO) || nanbox_is_undefined(nbO)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_array(result);
+        }
         void* rawPtr = ts_value_get_object(argv[0]);
         if (!rawPtr || (uintptr_t)rawPtr < 0x10000) return ts_value_make_array(result);
 

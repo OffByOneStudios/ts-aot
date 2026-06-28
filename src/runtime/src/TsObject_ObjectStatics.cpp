@@ -2072,6 +2072,15 @@ extern "C" {
         // ts_value_make_object(nullptr) which is the *null* TsValue.
         if (!obj || !prop) return ts_value_make_undefined();
 
+        // ECMA-262 20.1.2.8: ToObject(O) first -> TypeError on null/undefined
+        // (undefined is returned only when a property is genuinely absent).
+        uint64_t nbO = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nbO) || nanbox_is_undefined(nbO)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_undefined();
+        }
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
             return ts_value_make_undefined();
