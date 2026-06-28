@@ -2562,9 +2562,13 @@ extern "C" {
             // Get the descriptor for this property
             TsValue* descriptor = ts_object_getOwnPropertyDescriptor(obj, keyVal);
 
-            // Store descriptor in result with the property name as key
+            // Store descriptor in result with the property name as key. keyVal and
+            // descriptor are NaN-boxed TsValue* (the box IS the value), so convert
+            // to a tagged TsValue with nanbox_to_tagged — dereferencing them (*keyVal)
+            // read the TsString/descriptor object's bytes as a TsValue (garbage key),
+            // which is why getOwnPropertyDescriptors returned {}.
             if (descriptor && keyVal) {
-                result->Set(*keyVal, *descriptor);
+                result->Set(nanbox_to_tagged(keyVal), nanbox_to_tagged(descriptor));
             }
         }
 
