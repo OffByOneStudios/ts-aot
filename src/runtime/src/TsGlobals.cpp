@@ -5373,6 +5373,12 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
             /* TsBuffer (ArrayBuffer): share backing — Phase 3. */                       \
             if (srcMagic16 == 0x42554646) {                                              \
                 TsBuffer* buf = (TsBuffer*)rawSrc;                                       \
+                /* ECMA-262 22.2.5.1 step 4: cannot view a detached buffer. */            \
+                if (buf->IsDetached()) {                                                  \
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",                 \
+                        "Cannot construct a TypedArray on a detached ArrayBuffer"));      \
+                    return nullptr;                                                      \
+                }                                                                        \
                 size_t bufLen = buf->GetLength();                                        \
                 size_t off = (byteOffset > 0) ? (size_t)byteOffset : 0;                  \
                 if (off > bufLen || (off % (ElemSize)) != 0) {                           \
