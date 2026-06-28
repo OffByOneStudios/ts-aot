@@ -383,6 +383,11 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             joinFn->returnType = std::make_shared<Type>(TypeKind::String);
             lastType = joinFn;
             return;
+        } else if (node->name == "toLocaleString") {
+            auto tlsFn = std::make_shared<FunctionType>();
+            tlsFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = tlsFn;
+            return;
         } else if (node->name == "slice") {
             auto sliceFn = std::make_shared<FunctionType>();
             sliceFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));

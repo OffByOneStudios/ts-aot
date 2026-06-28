@@ -66,6 +66,8 @@ void BuiltinRegistry::registerArrayMethods() {
     // Non-mutating methods
     methodTable_[{HIRTypeKind::Array, "join"}] =
         MethodResolution::makeRuntimeCall("ts_array_join", -1, stringType);
+    methodTable_[{HIRTypeKind::Array, "toLocaleString"}] =
+        MethodResolution::makeRuntimeCall("ts_array_toLocaleString", 0, stringType);
 
     methodTable_[{HIRTypeKind::Array, "indexOf"}] =
         MethodResolution::makeRuntimeCall("ts_array_indexOf", -1, intType);

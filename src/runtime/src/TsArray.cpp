@@ -1945,6 +1945,42 @@ extern "C" {
         return ((TsArray*)rawArr)->Join(separator);
     }
 
+    // ECMA-262 23.1.3.32 Array.prototype.toLocaleString: like join(",") but each
+    // element is rendered via element.toLocaleString() (undefined/null -> "").
+    // Receiver-convention core (compiler BuiltinRegistry path: ts_array_toLocaleString(arr)).
+    void* ts_array_toLocaleString(void* arr) {
+        void* rawArr = ts_nanbox_safe_unbox((TsValue*)arr);
+        if (!rawArr || (uintptr_t)rawArr <= 0x1000 || *(uint32_t*)rawArr != TsArray::MAGIC)
+            return (void*)TsString::Create("");
+        extern TsValue* ts_object_get_property(void* obj, const char* key);
+        void* ts_string_from_value(TsValue* val);
+        TsArray* a = (TsArray*)rawArr;
+        int64_t len = a->Length();
+        std::string out;
+        for (int64_t i = 0; i < len; i++) {
+            if (i > 0) out += ",";
+            uint64_t ev = (uint64_t)a->Get(i);
+            if (nanbox_is_undefined(ev) || nanbox_is_null(ev)) continue;
+            TsValue* elem = (TsValue*)ev;
+            void* eraw = ts_value_get_object(elem); if (!eraw) eraw = elem;
+            TsValue* s = elem;
+            if (eraw && (uintptr_t)eraw > 0x1000) {
+                TsValue* m = ts_object_get_property(eraw, "toLocaleString");
+                if (m && ts_is_callable((void*)m)) s = ts_function_call_with_this(m, elem, 0, nullptr);
+            }
+            TsString* str = (TsString*)ts_string_from_value(s);
+            const char* u = str ? str->ToUtf8() : nullptr;
+            if (u) out += u;
+        }
+        return (void*)TsString::Create(out.c_str());
+    }
+    // Native-convention wrapper (dynamic dispatch / Array.prototype.toLocaleString.call).
+    TsValue* ts_array_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_get_call_this();
+        if (!ctx) ctx = ts_get_call_this();
+        return ts_value_make_string((TsString*)ts_array_toLocaleString(ctx));
+    }
+
     void* ts_array_reverse(void* arr) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             size_t len = ta->GetLength();

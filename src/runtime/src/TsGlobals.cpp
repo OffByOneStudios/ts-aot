@@ -481,6 +481,8 @@ void* ts_get_global_Array() {
     addMethod(proto, "push", (void*)ts_array_push_native);
     addMethod(proto, "pop", (void*)ts_array_pop_native, 0);
     addMethod(proto, "join", (void*)ts_array_join_native);
+    { extern TsValue* ts_array_toLocaleString_native(void*, int, TsValue**);
+      addMethod(proto, "toLocaleString", (void*)ts_array_toLocaleString_native, 0); }
     addMethod(proto, "indexOf", (void*)ts_array_indexOf_native);
     addMethod(proto, "includes", (void*)ts_array_includes_native);
     addMethod(proto, "some", (void*)ts_array_some_native);
