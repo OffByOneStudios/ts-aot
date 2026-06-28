@@ -5093,6 +5093,50 @@ static TsTypedArray* requireTypedArrayOrThrow(void* ctx, const char* methodName)
     return nullptr;
 }
 
+// Direct %TypedArray%.prototype.find/findIndex/findLast/findLastIndex.
+// Previously these delegated to ts_array_find(...), which routes a TypedArray
+// through the self-hosted array-like path (resolve_array_ctx only matches ARRY,
+// not TARR) where raw TA elements were fed to nanbox_from_tagged -> access
+// violation. Iterate the TA directly here: TsTypedArray::Get is detach-safe and
+// we re-read GetLength()/IsDetachedBuffer() each step (a predicate may detach).
+static TsValue* ta_find_impl(void* ctx, int argc, TsValue** argv,
+                             const char* name, bool wantIndex, bool fromEnd) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, name);
+    if (!ta) return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
+    // BigInt TAs: ta->Get returns a double, so the direct read below mis-boxes a
+    // BigInt element. findIndex/findLastIndex (index-returning) were already
+    // correct via the legacy path; keep delegating those to avoid regressing the
+    // bigint-TA tests. (find/findLast previously CRASHED on BigInt and now fail
+    // cleanly via the direct loop — no AV, no regression.)
+    if (wantIndex && (ta->GetType() == TypedArrayType::BigInt64 ||
+                      ta->GetType() == TypedArrayType::BigUint64)) {
+        void* cbv = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        void* thisv = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        return ts_value_make_int(fromEnd ? ts_array_findLastIndex((void*)ta, cbv, thisv)
+                                         : ts_array_findIndex((void*)ta, cbv, thisv));
+    }
+    TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!ts_is_callable(cb)) {
+        char m[128]; snprintf(m, sizeof(m), "TypedArray.prototype.%s predicate is not a function", name);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", m));
+        return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
+    }
+    TsValue* thisArg = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+    extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+    TsValue* taBoxed = ts_value_make_object(ta);
+    size_t len = ta->GetLength();  // captured per spec (TypedArrayLength at entry)
+    for (size_t s = 0; s < len; s++) {
+        size_t i = fromEnd ? (len - 1 - s) : s;
+        // After a mid-iteration detach, the integer-indexed read is undefined.
+        TsValue* v = ta->IsDetachedBuffer() ? ts_value_make_undefined()
+                                            : ts_value_make_double(ta->Get(i));
+        TsValue* idx = ts_value_make_int((int64_t)i);
+        TsValue* r = ts_call_with_this_3(cb, thisArg, v, idx, taBoxed);
+        if (r && ts_value_to_bool(r)) return wantIndex ? idx : v;
+    }
+    return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
+}
+
 void* ts_get_global_TypedArray() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -5243,34 +5287,16 @@ void* ts_get_global_TypedArray() {
                 return ts_value_make_bool(ts_array_some((void*)ta, cb, thisArg));
             });
             addMethod(tproto, "find", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "find");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                struct TaggedValue* res = ts_array_find((void*)ta, cb, thisArg);
-                return res ? nanbox_from_tagged(*(TsValue*)res) : ts_value_make_undefined();
+                return ta_find_impl(ctx, argc, argv, "find", false, false);
             });
             addMethod(tproto, "findIndex", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findIndex");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                return ts_value_make_int(ts_array_findIndex((void*)ta, cb, thisArg));
+                return ta_find_impl(ctx, argc, argv, "findIndex", true, false);
             });
             addMethod(tproto, "findLast", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findLast");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                struct TaggedValue* res = ts_array_findLast((void*)ta, cb, thisArg);
-                return res ? nanbox_from_tagged(*(TsValue*)res) : ts_value_make_undefined();
+                return ta_find_impl(ctx, argc, argv, "findLast", false, true);
             });
             addMethod(tproto, "findLastIndex", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findLastIndex");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                return ts_value_make_int(ts_array_findLastIndex((void*)ta, cb, thisArg));
+                return ta_find_impl(ctx, argc, argv, "findLastIndex", true, true);
             });
             addMethod(tproto, "reduce", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "reduce");
