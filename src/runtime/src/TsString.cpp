@@ -2421,6 +2421,20 @@ extern "C" {
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
+        // ECMA-262 19.2.6.5: every '%' must be followed by two hex digits, else
+        // URIError. Validate first, in this std::string-free scope, so the
+        // ts_throw longjmp does not unwind through the std::string below.
+        for (const char* p = utf8; *p; ++p) {
+            if (*p == '%') {
+                int hi = p[1] ? hexDigit(p[1]) : -1;
+                int lo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
+                if (hi < 0 || lo < 0) {
+                    ts_throw((TsValue*)ts_error_create_typed("URIError", "URI malformed"));
+                    return TsString::GetInterned("");  // unreachable
+                }
+            }
+        }
+
         std::string result;
         for (const char* p = utf8; *p; ++p) {
             if (*p == '%' && p[1] && p[2]) {
@@ -2465,6 +2479,19 @@ extern "C" {
         if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
+
+        // ECMA-262 19.2.6.4: malformed '%' escape -> URIError. Validate first in
+        // this std::string-free scope (longjmp must not unwind through std::string).
+        for (const char* p = utf8; *p; ++p) {
+            if (*p == '%') {
+                int hi = p[1] ? hexDigit(p[1]) : -1;
+                int lo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
+                if (hi < 0 || lo < 0) {
+                    ts_throw((TsValue*)ts_error_create_typed("URIError", "URI malformed"));
+                    return TsString::GetInterned("");  // unreachable
+                }
+            }
+        }
 
         std::string result;
         for (const char* p = utf8; *p; ++p) {
