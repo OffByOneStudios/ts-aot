@@ -209,7 +209,16 @@ void* ts_bigint_from_value(TsValue* val) {
     if (decoded.type == ValueType::NUMBER_INT) {
         return TsBigInt::Create(decoded.i_val);
     } else if (decoded.type == ValueType::NUMBER_DBL) {
-        return TsBigInt::Create((int64_t)decoded.d_val);
+        // ECMA-262 21.2.1.1.1 NumberToBigInt: a non-integral or non-finite Number
+        // (1.5, NaN, Infinity) throws a RangeError instead of being truncated.
+        double d = decoded.d_val;
+        extern void* ts_error_create_typed(const char* type, const char* message);
+        if (d != d || d > 9.2e18 || d < -9.2e18 || d != (double)(int64_t)d) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "The number is not a safe integer and cannot be converted to a BigInt"));
+            return TsBigInt::Create((int64_t)0);  // unreachable
+        }
+        return TsBigInt::Create((int64_t)d);
     } else if (decoded.type == ValueType::STRING_PTR) {
         // Delegate to the trimming/prefix-detecting helper so that
         // BigInt("0xa"), BigInt(" 10 "), BigInt("-5"), etc. follow
