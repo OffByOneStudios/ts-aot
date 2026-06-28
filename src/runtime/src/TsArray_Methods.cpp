@@ -170,6 +170,17 @@ int64_t TsArray::LastIndexOf(int64_t value, int64_t fromIndex) {
 }
 
 bool TsArray::Includes(int64_t value, size_t fromIndex) {
+    // ECMA-262 23.1.3.16 reads array holes as `undefined` (unlike indexOf, which
+    // skips them). Only the undefined search needs special handling — for every
+    // other value defer to IndexOf, which carries the full SameValueZero/element
+    // comparison. A hole matched against undefined returns true.
+    if (nanbox_is_undefined((uint64_t)value)) {
+        for (size_t i = fromIndex; i < length; i++) {
+            if (IsHole(i)) return true;
+            if (((int64_t*)elements)[i] == value) return true;
+        }
+        return false;
+    }
     return IndexOf(value, fromIndex) != -1;
 }
 
