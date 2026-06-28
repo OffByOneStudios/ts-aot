@@ -1684,6 +1684,11 @@ extern "C" {
             return ts_value_make_string((TsString*)ts_number_to_string(value, 10));
         }
         int64_t precision = ts_value_get_int(argv[0]);
+        // ECMA-262 21.1.3.5 steps 4/6: a non-finite x returns "NaN"/"Infinity"
+        // BEFORE the precision RangeError (step 7), and snprintf's "nan"/"inf"
+        // are not the JS spellings.
+        if (std::isnan(value)) return ts_value_make_string(TsString::Create("NaN"));
+        if (std::isinf(value)) return ts_value_make_string(TsString::Create(value < 0 ? "-Infinity" : "Infinity"));
         if (precision < 1 || precision > 100) {  // ECMA-262 21.1.3.5: RangeError
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "toPrecision() argument must be between 1 and 100"));
@@ -1696,6 +1701,10 @@ extern "C" {
     TsValue* ts_number_toExponential_native(void* ctx, int argc, TsValue** argv) {
         double value = numberThisValueOrThrow(ctx, "toExponential");
         int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 6;
+        // ECMA-262 21.1.3.2 step 4: a non-finite x returns "NaN"/"Infinity" BEFORE
+        // the fractionDigits RangeError (step 5); snprintf emits "nan"/"inf".
+        if (std::isnan(value)) return ts_value_make_string(TsString::Create("NaN"));
+        if (std::isinf(value)) return ts_value_make_string(TsString::Create(value < 0 ? "-Infinity" : "Infinity"));
         if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.2: RangeError
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "toExponential() argument must be between 0 and 100"));
