@@ -1187,6 +1187,12 @@ static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv
     {
         uintptr_t p = (uintptr_t)rawCtx;
         if (p < 4096 || p > 0x00007FFFFFFFFFFFULL) { throw_iter_brand(); return ts_value_make_undefined(); }
+        // The iterator is a TsMap (it carries __iter_items). A heap pointer that
+        // isn't a TsMap — e.g. a string receiver `next.call('')`, where
+        // ts_value_get_object returns the TsString — passed the range guard above
+        // and then CRASHED when Get() dereferenced it as a TsMap. Require the TsMap
+        // magic at offset 16 before the deref.
+        if (*(uint32_t*)((char*)rawCtx + 16) != TsMap::MAGIC) { throw_iter_brand(); return ts_value_make_undefined(); }
     }
     TsMap* iter = (TsMap*)rawCtx;
 
