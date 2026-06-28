@@ -1284,16 +1284,22 @@ void* ts_create_set_iterator(void* items) {
 
 // Map method wrappers that return iterators
 static TsValue* ts_map_keys_iter_wrapper(void* context, int argc, TsValue** argv) {
+    // Brand-check the receiver: a primitive (Map.prototype.keys.call(5)) was cast
+    // straight to TsMap* -> GetKeys() deref -> crash; a non-Map object yielded a
+    // bogus iterator. requireMapData throws a TypeError on either.
+    if (!requireMapData(context, "keys", CollBrand::Map)) return ts_value_make_undefined();
     TsArray* keys = (TsArray*)ts_map_keys(context);
     return ts_create_iterator_with_proto(keys, getMapIteratorPrototype());
 }
 
 static TsValue* ts_map_values_iter_wrapper(void* context, int argc, TsValue** argv) {
+    if (!requireMapData(context, "values", CollBrand::Map)) return ts_value_make_undefined();
     TsArray* values = (TsArray*)ts_map_values(context);
     return ts_create_iterator_with_proto(values, getMapIteratorPrototype());
 }
 
 static TsValue* ts_map_entries_iter_wrapper(void* context, int argc, TsValue** argv) {
+    if (!requireMapData(context, "entries", CollBrand::Map)) return ts_value_make_undefined();
     TsArray* entries = (TsArray*)ts_map_entries(context);
     return ts_create_iterator_with_proto(entries, getMapIteratorPrototype());
 }

@@ -2298,6 +2298,10 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             void* raw = ts_value_get_object((TsValue*)ctx);
             if (!raw) raw = ctx;
+            // Brand-check: a primitive/non-Map receiver (Map.prototype.entries.call(5)
+            // or .call("x")) was cast to TsMap* -> GetEntries deref -> crash. Require
+            // the TsMap magic (offset 16) on a safe heap pointer; else TypeError.
+            { uintptr_t _p=(uintptr_t)raw; if (_p<0x1000 || _p>0x00007FFFFFFFFFFFULL || *(uint32_t*)((char*)raw+16)!=0x4D415053 || !((TsMap*)raw)->IsExplicitMap()) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Map.prototype.entries called on incompatible receiver")); return ts_value_make_undefined(); } }
             void* it = ts_map_entries_iter(raw);
             return it ? ts_value_make_object(it) : ts_value_make_undefined();
         }, 0);
@@ -2305,6 +2309,7 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             void* raw = ts_value_get_object((TsValue*)ctx);
             if (!raw) raw = ctx;
+            { uintptr_t _p=(uintptr_t)raw; if (_p<0x1000 || _p>0x00007FFFFFFFFFFFULL || *(uint32_t*)((char*)raw+16)!=0x4D415053 || !((TsMap*)raw)->IsExplicitMap()) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Map.prototype.keys called on incompatible receiver")); return ts_value_make_undefined(); } }
             void* it = ts_map_keys_iter(raw);
             return it ? ts_value_make_object(it) : ts_value_make_undefined();
         }, 0);
@@ -2312,6 +2317,7 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             void* raw = ts_value_get_object((TsValue*)ctx);
             if (!raw) raw = ctx;
+            { uintptr_t _p=(uintptr_t)raw; if (_p<0x1000 || _p>0x00007FFFFFFFFFFFULL || *(uint32_t*)((char*)raw+16)!=0x4D415053 || !((TsMap*)raw)->IsExplicitMap()) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Map.prototype.values called on incompatible receiver")); return ts_value_make_undefined(); } }
             void* it = ts_map_values_iter(raw);
             return it ? ts_value_make_object(it) : ts_value_make_undefined();
         }, 0);
