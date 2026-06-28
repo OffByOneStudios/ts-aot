@@ -802,7 +802,19 @@ TsValue* ts_map_get_fast(void* map, TsValue* key) {
 
 // Fast path for Map.set() — bypasses nanbox decode into __ts_map_set_at's
 // magic check, setter check, and NaN-box unboxing of the map parameter.
+extern "C" bool ts_can_be_held_weakly(TsValue* key);  // defined below
+
 TsValue* ts_map_set_fast(void* map, TsValue* key, TsValue* value) {
+    // A WeakMap receiver (WMAP magic at offset 16) requires a weakly-holdable key
+    // (Object or non-registered Symbol), else TypeError. Checked here so BOTH the
+    // compiler-direct lowering and the branded wrapper are covered.
+    if (map && (uintptr_t)map >= 0x1000 &&
+        *(uint32_t*)((char*)map + 16) == 0x574D4150 /* WEAKMAP_MAGIC "WMAP" */ &&
+        !ts_can_be_held_weakly(key)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Invalid value used as weak map key"));
+        return ts_value_make_undefined();
+    }
     TsValue keyTV = nanbox_to_tagged(key);
     TsValue valTV = nanbox_to_tagged(value);
     ((TsMap*)map)->Set(keyTV, valTV);
@@ -927,9 +939,25 @@ extern "C" TsValue* ts_map_get_wrapper_branded(void* context, TsValue* key, int 
     return ts_map_get_fast(rawCtx, key);
 }
 
+// ECMA-262 7.2.9 CanBeHeldWeakly: a WeakMap/WeakSet key must be an Object or a
+// (non-registered) Symbol. Primitives (number/string/boolean/null/undefined) are
+// rejected with a TypeError. Symbols are heap-backed (SYMB magic) so they pass the
+// "pointer that isn't a string primitive" test; the rare registered-symbol case
+// is not distinguished here.
+extern "C" bool ts_can_be_held_weakly(TsValue* key) {
+    uint64_t nb = nanbox_from_tsvalue_ptr(key);
+    if (!nanbox_is_ptr(nb)) return false;            // number/bool/null/undefined
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw || (uintptr_t)raw < 0x1000) return false;
+    uint32_t m0 = *(uint32_t*)raw;
+    if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/) return false;  // string primitive
+    return true;  // objects + symbols are weakly holdable
+}
+
 extern "C" TsValue* ts_map_set_wrapper_branded(void* context, TsValue* key, TsValue* value, int brand) {
     void* rawCtx = requireMapData(context, "set", (CollBrand)brand);
     if (!rawCtx) return ts_value_make_undefined();
+    // WeakMap CanBeHeldWeakly key validation lives in ts_map_set_fast (covers all paths).
     ts_map_set_fast(rawCtx, key, value);
     return ts_value_make_undefined();
 }
