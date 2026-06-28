@@ -3522,6 +3522,15 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
     for (int i = 0; i < argc; i++) {
         TsValue* item = argv ? argv[i] : nullptr;
         void* raw = item ? ts_value_get_object(item) : nullptr;
+        // ECMA-262 27.1.3.1.1 step 2a: each item must be an Object. A primitive
+        // string/symbol/cons-string unboxes to a non-null pointer but is NOT an
+        // Object, so brand-exclude it (a primitive string is now iterable via
+        // String.prototype[Symbol.iterator], which would otherwise slip through).
+        if (raw && (uintptr_t)raw > 0x1000) {
+            uint32_t m0 = *(uint32_t*)raw;
+            if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
+                m0 == 0x53594D42 /*SYMB*/) raw = nullptr;
+        }
         if (!raw) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Iterator.concat: argument is not an object"));
@@ -3553,6 +3562,7 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
     return ts_value_make_object(st);
 }
 
+extern "C" void* getIteratorPrototypeBoxed();  // TsMap.cpp — %IteratorPrototype%
 void* ts_get_global_Iterator() {
     TenureScope _tenure;
     static TsMap* cached = nullptr;
@@ -3560,7 +3570,18 @@ void* ts_get_global_Iterator() {
         cached = makeSimpleConstructorGlobal("Iterator");
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         addMethod(cached, "concat", (void*)iterator_concat_native, 1);
-        setProtoStringTag(cached, "Iterator");
+        // ECMA-262 27.1.3.3: Iterator.prototype IS %IteratorPrototype% (which now
+        // carries the iterator-helper methods), not a fresh object. Overwrite the
+        // ctor's "prototype" slot and link %IteratorPrototype%.constructor = Iterator.
+        TsMap* iterProto = (TsMap*)ts_value_get_object((TsValue*)getIteratorPrototypeBoxed());
+        if (iterProto) {
+            TsValue pk; pk.type = ValueType::STRING_PTR; pk.ptr_val = TsString::GetInterned("prototype");
+            TsValue pv; pv.type = ValueType::OBJECT_PTR; pv.ptr_val = iterProto;
+            cached->SetWithAttrs(pk, pv, 0);  // {writable:false,enumerable:false,configurable:false}
+            TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
+            TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = cached;
+            iterProto->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        }
     }
     return cached;
 }

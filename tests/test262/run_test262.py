@@ -75,7 +75,7 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "json-parse-with-source",
     "RegExp.escape",
     "explicit-resource-management",
-    "iterator-helpers",
+    # "iterator-helpers",  # CONF-P2b: implementing (eager helpers landed)
     "set-methods",
     "promise-try",
     "regexp-modifiers",
