@@ -117,11 +117,18 @@ void* ts_set_create() {
 // Currently only handles TsArray iterables (the common case in test262);
 // general iterators (custom @@iterator) fall through to empty Set.
 void* ts_set_create_from_iterable(TsValue* iterable) {
+    extern void* ts_error_create_typed(const char* type, const char* message);
     void* set = TsSet::Create();
     if (!iterable) return set;
     uint64_t nb = (uint64_t)(uintptr_t)iterable;
     if (nb <= NANBOX_UNDEFINED) return set;  // null / undefined → empty
-    if (!nanbox_is_ptr(nb)) return set;
+    // A non-pointer primitive (number/boolean) is not iterable: new Set(5) must
+    // throw a TypeError (ECMA-262 GetIterator), not silently return empty.
+    if (!nanbox_is_ptr(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "object is not iterable (cannot read property Symbol(Symbol.iterator))"));
+        return set;  // unreachable
+    }
     void* raw = nanbox_to_ptr(nb);
     if (!raw) return set;
     // Unbox if it's a TsValue wrapper
