@@ -3512,7 +3512,7 @@ void* ts_get_global_ArrayBuffer() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw) return nullptr;
-                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)raw);
+                TsBuffer* buf = ts_cast<TsBuffer>(raw);  // heap-safe brand check
                 if (!buf) return nullptr;
                 (void)getterName;
                 return buf;
@@ -3520,7 +3520,7 @@ void* ts_get_global_ArrayBuffer() {
             addAccessorGetter(abProto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;  // heap-safe: dynamic_cast crashed on a string receiver
                 if (!buf) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get byteLength called on non-ArrayBuffer"));
@@ -3531,7 +3531,7 @@ void* ts_get_global_ArrayBuffer() {
             addAccessorGetter(abProto, "detached", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;  // heap-safe: dynamic_cast crashed on a string receiver
                 if (!buf) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get detached called on non-ArrayBuffer"));
@@ -3542,7 +3542,7 @@ void* ts_get_global_ArrayBuffer() {
             addAccessorGetter(abProto, "resizable", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;  // heap-safe: dynamic_cast crashed on a string receiver
                 if (!buf) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get resizable called on non-ArrayBuffer"));
@@ -3553,7 +3553,7 @@ void* ts_get_global_ArrayBuffer() {
             addAccessorGetter(abProto, "maxByteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;  // heap-safe: dynamic_cast crashed on a string receiver
                 if (!buf) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "get maxByteLength called on non-ArrayBuffer"));
@@ -3572,7 +3572,7 @@ void* ts_get_global_ArrayBuffer() {
                     (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                         if (!ctx) ctx = ts_get_call_this();
                         void* raw = ts_nanbox_safe_unbox(ctx);
-                        TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                        TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;  // heap-safe: dynamic_cast crashed on a string receiver
                         if (!buf) {
                             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                                 "ArrayBuffer.prototype.resize called on non-ArrayBuffer"));
