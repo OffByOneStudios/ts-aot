@@ -1779,7 +1779,10 @@ extern "C" {
     bool ts_string_includes(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
-        TsString* search = ts_ensure_flat(searchString);
+        // ToString-coerce the search arg: a non-string (undefined from
+        // indexOf(void 0), a number, etc.) must become its string form rather
+        // than crash ts_ensure_flat, which dereferences a non-string value.
+        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
         if (!search) return false;
         // ECMA-262: the empty string is contained in every string.
         if (search->Length() == 0) return true;
@@ -1789,7 +1792,10 @@ extern "C" {
     int64_t ts_string_indexOf(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
-        TsString* search = ts_ensure_flat(searchString);
+        // ToString-coerce the search arg: a non-string (undefined from
+        // indexOf(void 0), a number, etc.) must become its string form rather
+        // than crash ts_ensure_flat, which dereferences a non-string value.
+        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
         if (!search) return -1;
         // ECMA-262 22.1.3.8: the empty string is found at position 0.
         // ICU's IndexOf returns -1 for an empty needle, which is wrong.
@@ -1800,7 +1806,10 @@ extern "C" {
     int64_t ts_string_indexOf_from(void* str, void* searchString, int64_t startPos) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
-        TsString* search = ts_ensure_flat(searchString);
+        // ToString-coerce the search arg: a non-string (undefined from
+        // indexOf(void 0), a number, etc.) must become its string form rather
+        // than crash ts_ensure_flat, which dereferences a non-string value.
+        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
         if (!search) return -1;
         // ECMA-262: an empty search string matches at min(max(startPos,0),len)
         // (so `'1234'.indexOf('', 4)` === 4, not -1). lodash `_.includes`
@@ -1833,7 +1842,10 @@ extern "C" {
     int64_t ts_string_lastIndexOf(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
-        TsString* search = ts_ensure_flat(searchString);
+        // ToString-coerce the search arg: a non-string (undefined from
+        // indexOf(void 0), a number, etc.) must become its string form rather
+        // than crash ts_ensure_flat, which dereferences a non-string value.
+        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
         if (!search) return -1;
         return s->LastIndexOf(search);
     }
