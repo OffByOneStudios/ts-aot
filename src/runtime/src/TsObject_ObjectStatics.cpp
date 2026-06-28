@@ -285,6 +285,30 @@ extern "C" {
                     (TsString*)ts_string_charAt(rawPtr, i)));
             return ts_value_make_array(arr);
         }
+        if (magic0 == 0x41525259) { // TsArray "ARRY": values = enumerable element values
+            TsArray* a = (TsArray*)rawPtr;
+            int64_t len = a->Length();
+            TsArray* out = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++) {
+                if (a->IsHole((size_t)i)) continue;
+                if (a->properties) {  // skip non-enumerable / accessor indices (mirror Object.keys)
+                    char ak[40]; snprintf(ak, sizeof(ak), "__arr_attrs_%lld", (long long)i);
+                    TsValue atk; atk.type = ValueType::STRING_PTR; atk.ptr_val = TsString::GetInterned(ak);
+                    if (a->properties->Has(atk)) {
+                        TsValue av = a->properties->Get(atk);
+                        if (!(((uint64_t)av.i_val) & 0x01)) continue;
+                    } else {
+                        snprintf(ak, sizeof(ak), "__arr_getter_%lld", (long long)i);
+                        TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(ak);
+                        snprintf(ak, sizeof(ak), "__arr_setter_%lld", (long long)i);
+                        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(ak);
+                        if (a->properties->Has(gk) || a->properties->Has(sk)) continue;
+                    }
+                }
+                out->Push((int64_t)a->Get(i));
+            }
+            return ts_value_make_array(out);
+        }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
@@ -333,6 +357,33 @@ extern "C" {
                 pair->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
                 pair->Push((int64_t)(uintptr_t)ts_value_make_string(
                     (TsString*)ts_string_charAt(rawPtr, i)));
+                arr->Push((int64_t)(uintptr_t)ts_value_make_array(pair));
+            }
+            return ts_value_make_array(arr);
+        }
+        if (magic0_e == 0x41525259) { // TsArray "ARRY": entries = [[String(i), value], ...]
+            TsArray* a = (TsArray*)rawPtr;
+            int64_t len = a->Length();
+            TsArray* arr = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++) {
+                if (a->IsHole((size_t)i)) continue;
+                if (a->properties) {  // skip non-enumerable / accessor indices (mirror Object.keys)
+                    char ak[40]; snprintf(ak, sizeof(ak), "__arr_attrs_%lld", (long long)i);
+                    TsValue atk; atk.type = ValueType::STRING_PTR; atk.ptr_val = TsString::GetInterned(ak);
+                    if (a->properties->Has(atk)) {
+                        TsValue av = a->properties->Get(atk);
+                        if (!(((uint64_t)av.i_val) & 0x01)) continue;
+                    } else {
+                        snprintf(ak, sizeof(ak), "__arr_getter_%lld", (long long)i);
+                        TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(ak);
+                        snprintf(ak, sizeof(ak), "__arr_setter_%lld", (long long)i);
+                        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(ak);
+                        if (a->properties->Has(gk) || a->properties->Has(sk)) continue;
+                    }
+                }
+                TsArray* pair = TsArray::Create(0);
+                pair->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+                pair->Push((int64_t)a->Get(i));
                 arr->Push((int64_t)(uintptr_t)ts_value_make_array(pair));
             }
             return ts_value_make_array(arr);
