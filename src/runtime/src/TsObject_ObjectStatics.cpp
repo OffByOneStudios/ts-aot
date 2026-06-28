@@ -275,6 +275,16 @@ extern "C" {
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             return ts_value_make_array((TsArray*)ts_flat_object_values(rawPtr));
         }
+        if (magic0 == 0x53545247) { // TsString "STRG": values = the characters
+            extern int64_t ts_string_length(void* str);
+            extern void* ts_string_charAt(void* str, int64_t index);
+            int64_t len = ts_string_length(rawPtr);
+            TsArray* arr = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++)
+                arr->Push((int64_t)(uintptr_t)ts_value_make_string(
+                    (TsString*)ts_string_charAt(rawPtr, i)));
+            return ts_value_make_array(arr);
+        }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
@@ -312,6 +322,20 @@ extern "C" {
         uint32_t magic0_e = *(uint32_t*)rawPtr;
         if (magic0_e == 0x464C4154) { // FLAT_MAGIC
             return ts_value_make_array((TsArray*)ts_flat_object_entries(rawPtr));
+        }
+        if (magic0_e == 0x53545247) { // TsString "STRG": entries = [["0","a"],...]
+            extern int64_t ts_string_length(void* str);
+            extern void* ts_string_charAt(void* str, int64_t index);
+            int64_t len = ts_string_length(rawPtr);
+            TsArray* arr = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++) {
+                TsArray* pair = TsArray::Create(0);
+                pair->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+                pair->Push((int64_t)(uintptr_t)ts_value_make_string(
+                    (TsString*)ts_string_charAt(rawPtr, i)));
+                arr->Push((int64_t)(uintptr_t)ts_value_make_array(pair));
+            }
+            return ts_value_make_array(arr);
         }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
@@ -391,6 +415,17 @@ extern "C" {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) return ts_value_make_array(TsArray::Create(0));
+
+        // String wrapper: own property names are "0".."len-1" then "length".
+        if ((uintptr_t)rawPtr >= 0x10000 && *(uint32_t*)rawPtr == 0x53545247) { // STRG
+            extern int64_t ts_string_length(void* str);
+            int64_t len = ts_string_length(rawPtr);
+            TsArray* arr = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++)
+                arr->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+            arr->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::Create("length")));
+            return ts_value_make_array(arr);
+        }
 
         // Handle flat objects
         if (is_flat_object(rawPtr)) {
