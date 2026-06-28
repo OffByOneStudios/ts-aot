@@ -1551,6 +1551,19 @@ extern "C" {
             return array;
         }
 
+        // ECMA-262 23.1.3.27 step 1: comparefn must be undefined or callable.
+        // undefined -> default sort; any other non-callable value -> TypeError
+        // (was silently ignored, leaving the array unsorted).
+        if (ts_value_is_undefined((TsValue*)comparator)) {
+            array->Sort();
+            return array;
+        }
+        if (!ts_is_callable(comparator)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Array.prototype.sort comparator must be a function or undefined"));
+            return nullptr;
+        }
+
         // Check if comparator is a TsClosure (from HIR path)
         if (ts_is_closure(comparator)) {
             g_current_comparator = comparator;
