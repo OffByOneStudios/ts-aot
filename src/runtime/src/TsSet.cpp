@@ -143,8 +143,21 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
     return set;
 }
 
+extern "C" bool ts_can_be_held_weakly(TsValue* key);  // defined in TsMap.cpp
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
 void ts_set_add(void* set, TsValue* value) {
     if (!set) return;
+    // A WeakSet receiver (WSET magic at offset 16) requires a weakly-holdable
+    // value, else TypeError. Checked here so both the compiler-direct lowering
+    // and the branded wrapper are covered.
+    if ((uintptr_t)set >= 0x1000 &&
+        *(uint32_t*)((char*)set + 16) == 0x57534554 /* WEAKSET_MAGIC "WSET" */ &&
+        !ts_can_be_held_weakly(value)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Invalid value used in weak set"));
+        return;
+    }
     TsValue v = nanbox_to_tagged(value);
     ((TsSet*)set)->Add(v);
 }
@@ -466,6 +479,7 @@ TsValue* ts_set_size_wrapper(void* context) {
 TsValue* ts_set_add_wrapper_branded(void* context, TsValue* value, int brand) {
     void* rawCtx = requireSet(context, "add", (SetBrand)brand);
     if (!rawCtx) return ts_value_make_undefined();
+    // WeakSet CanBeHeldWeakly validation lives in ts_set_add (covers all paths).
     ts_set_add(rawCtx, value);
     return ts_value_make_object(rawCtx);
 }
