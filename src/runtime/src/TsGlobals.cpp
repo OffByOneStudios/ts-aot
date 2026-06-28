@@ -2548,6 +2548,28 @@ static TsValue* ts_reflect_apply_native(void* ctx, int argc, TsValue** argv) {
     void* target = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
     void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
     void* args = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
+    // ECMA-262 28.1.1 Reflect.apply(target, thisArg, argumentsList):
+    //   1. If IsCallable(target) is false, throw a TypeError.
+    //   3. CreateListFromArrayLike(argumentsList) -> TypeError if not an Object.
+    if (!ts_is_callable(target)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Reflect.apply called on non-callable target"));
+        return ts_value_make_undefined();
+    }
+    void* argsRaw = args ? ts_value_get_object((TsValue*)args) : nullptr;
+    bool argsIsObject = false;
+    if (argsRaw) {
+        uintptr_t ap = (uintptr_t)argsRaw;
+        if (ap >= 0x1000 && ap <= 0x00007FFFFFFFFFFFULL) {
+            uint32_t am0 = *(uint32_t*)argsRaw;       // reject string primitives
+            argsIsObject = (am0 != 0x53545247 && am0 != 0x434F4E53);
+        }
+    }
+    if (!argsIsObject) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Reflect.apply argumentsList is not an object"));
+        return ts_value_make_undefined();
+    }
     return ts_reflect_apply(target, thisArg, args);
 }
 
