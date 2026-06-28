@@ -460,9 +460,10 @@ extern "C" {
         // throws TypeError on null/undefined. Without this guard, the
         // magic-check below dereferences a tagged primitive and crashes.
         if (!obj || ts_value_is_nullish(obj)) {
-            ts_throw((TsValue*)ts_error_create(
-                (void*)TsString::Create(
-                    "Object.getPrototypeOf called on null or undefined")));
+            // ToObject(null/undefined) throws a real TypeError (was a generic
+            // Error whose constructor is Object, so assert.throws(TypeError) failed).
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.getPrototypeOf called on null or undefined"));
             return ts_value_make_undefined();
         }
 
