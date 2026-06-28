@@ -1130,11 +1130,155 @@ static void ts_map_addMethod_local(TsMap* map, const char* name, void* nativeFn,
         TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 }
 
+// ---- Iterator Helpers (ECMA-262 27.1.4) — EAGER consumers ----------------
+// Installed on %IteratorPrototype% so every iterator inherits them. The generic
+// protocol functions live in namespace ts (TsPromise.h); a file-local static
+// ts_iterator_next(void*,int,argv) shadows the unqualified name, so qualify with
+// ts:: (mirrors TsArray.cpp's spread/destructure callers).
+
+// `this` must be an Object (the iterator); else TypeError. Returns it boxed.
+static TsValue* iterhelper_require_this() {
+    void* ctx = ts_get_call_this();
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+    if (!nanbox_is_ptr(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.prototype method called on a non-object"));
+        return nullptr;
+    }
+    return (TsValue*)ctx;
+}
+// IfAbruptCloseIterator is approximated by direct return (array-backed iterators
+// have no observable .return; custom-iterator close is a later refinement).
+static bool iterhelper_require_callable(TsValue* fn) {
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return false;
+    }
+    return true;
+}
+// Generic iterator step via the object protocol (avoids the file-local
+// ts_iterator_next shadow): call iter.next(), read result.done / result.value.
+static TsValue* ih_iter_next(TsValue* iter) {
+    void* raw = ts_value_get_object(iter); if (!raw) raw = iter;
+    TsValue* nextFn = ts_object_get_property(raw, "next");
+    if (!nextFn || !ts_is_callable((void*)nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", "iterator.next is not a function"));
+        return nullptr;
+    }
+    return ts_function_call_with_this(nextFn, iter, 0, nullptr);
+}
+static bool ih_res_done(TsValue* res) {
+    if (!res) return true;
+    void* raw = ts_value_get_object(res); if (!raw) raw = res;
+    TsValue* d = ts_object_get_property(raw, "done");
+    return d && ts_value_to_bool(d);
+}
+static TsValue* ih_res_value(TsValue* res) {
+    if (!res) return ts_value_make_undefined();
+    void* raw = ts_value_get_object(res); if (!raw) raw = res;
+    return ts_object_get_property(raw, "value");
+}
+static TsValue* iterhelper_call(TsValue* fn, TsValue* v, int64_t i) {
+    TsValue* idx = ts_value_make_double((double)i);
+    TsValue* a[2] = { v, idx };
+    return ts_function_call_with_this(fn, ts_value_make_undefined(), 2, a);
+}
+
+static TsValue* iter_toArray_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsArray* out = (TsArray*)ts_array_create();
+    TsValue* u = ts_value_make_undefined();
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        out->Push((int64_t)nanbox_from_tsvalue_ptr(ih_res_value(res)));
+    }
+    return ts_value_make_object(out);
+}
+static TsValue* iter_forEach_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        iterhelper_call(fn, ih_res_value(res), i++);
+    }
+    return ts_value_make_undefined();
+}
+static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        if (ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
+            return ts_value_make_bool(true);
+    }
+    return ts_value_make_bool(false);
+}
+static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        if (!ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
+            return ts_value_make_bool(false);
+    }
+    return ts_value_make_bool(true);
+}
+static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        TsValue* v = ih_res_value(res);
+        if (ts_value_to_bool(iterhelper_call(fn, v, i++))) return v;
+    }
+    return ts_value_make_undefined();
+}
+static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* u = ts_value_make_undefined();
+    TsValue* acc; int64_t i = 0;
+    bool haveInit = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
+    if (haveInit) { acc = argv[1]; }
+    else {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reduce of empty iterator with no initial value"));
+            return ts_value_make_undefined();
+        }
+        acc = ih_res_value(res); i = 1;
+    }
+    while (true) {
+        TsValue* res = ih_iter_next(it);
+        if (!res || ih_res_done(res)) break;
+        TsValue* v = ih_res_value(res);
+        TsValue* a[3] = { acc, v, ts_value_make_double((double)i++) };
+        acc = ts_function_call_with_this(fn, ts_value_make_undefined(), 3, a);
+    }
+    return acc;
+}
+
 // ECMA-262 27.1.2 %IteratorPrototype% — the root every built-in iterator
-// prototype inherits from. It owns `[Symbol.iterator]() { return this }`; the
-// per-kind prototypes (%ArrayIteratorPrototype% etc.) must NOT have their own
-// copy (tests assert `hasOwnProperty(@@iterator)` is false on them and that the
-// chain reaches %IteratorPrototype%). GC-rooted/immortal-tenured like the others.
+// prototype inherits from. It owns `[Symbol.iterator]() { return this }` and the
+// (proposal) iterator-helper methods; the per-kind prototypes (%ArrayIteratorPrototype%
+// etc.) must NOT have their own @@iterator (tests assert hasOwnProperty is false
+// and that the chain reaches %IteratorPrototype%). GC-rooted/immortal-tenured.
 static TsMap* g_iterator_prototype = nullptr;
 TsMap* getIteratorPrototype() {
     if (!g_iterator_prototype) {
@@ -1142,11 +1286,22 @@ TsMap* getIteratorPrototype() {
         TsMap* proto = TsMap::Create();
         ts_map_addMethod_local(proto, "[Symbol.iterator]",
                                (void*)ts_array_iterator_proto_iter_self, 0);
+        ts_map_addMethod_local(proto, "toArray", (void*)iter_toArray_native, 0);
+        ts_map_addMethod_local(proto, "forEach", (void*)iter_forEach_native, 1);
+        ts_map_addMethod_local(proto, "some",    (void*)iter_some_native, 1);
+        ts_map_addMethod_local(proto, "every",   (void*)iter_every_native, 1);
+        ts_map_addMethod_local(proto, "find",    (void*)iter_find_native, 1);
+        ts_map_addMethod_local(proto, "reduce",  (void*)iter_reduce_native, 1);
         g_iterator_prototype = proto;
         ts_gc_pop_tenure();
         ts_gc_register_root((void**)&g_iterator_prototype);
     }
     return g_iterator_prototype;
+}
+
+// Boxed accessor for TsGlobals.cpp (Iterator.prototype === %IteratorPrototype%).
+extern "C" void* getIteratorPrototypeBoxed() {
+    return (void*)ts_value_make_object(getIteratorPrototype());
 }
 
 // All iterator prototypes share next() — the only per-kind difference is
