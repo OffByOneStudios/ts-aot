@@ -1869,21 +1869,23 @@ extern "C" {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
         if (!rawArr) return TsString::Create("");
-        // Per ES spec: if separator is undefined, use default ",".
-        // Guard against boxed/raw undefined sentinels and NaN-boxed undefined.
+        // ECMA-262 23.1.3.18 step 4: ONLY undefined uses the "," default; null and
+        // every other value is ToString'd (join(null) -> "1null2", not "1,2").
         if (separator) {
             uint64_t sepBits = (uint64_t)separator;
             if (sepBits == 10 /* raw undefined sentinel */ ||
-                nanbox_is_undefined(sepBits) || nanbox_is_null(sepBits)) {
+                nanbox_is_undefined(sepBits)) {
                 separator = nullptr;
             }
         }
+        extern void* ts_string_from_value(TsValue* val);  // ToString (symbols throw)
         // TypedArray receiver: format elements as numbers.
         if (TsTypedArray* ta = try_as_typed_array(rawArr)) {
             std::string sep = ",";
             if (separator) {
-                TsString* sepStr = (TsString*)ts_value_get_string((TsValue*)separator);
-                if (!sepStr) sepStr = (TsString*)separator;
+                // ToString the separator (null/true/Infinity/123...) — a blind
+                // (TsString*)cast here crashed in ToUtf8 on a non-string nanbox.
+                TsString* sepStr = (TsString*)ts_string_from_value((TsValue*)separator);
                 if (sepStr) {
                     const char* u = sepStr->ToUtf8();
                     if (u) sep = u;
