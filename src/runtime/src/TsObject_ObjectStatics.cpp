@@ -11,6 +11,17 @@ extern "C" {
     TsValue* ts_object_keys(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
+        // ECMA-262 20.1.2.17: ToObject(O) is performed first -> TypeError on
+        // null/undefined. (Object.values/entries already do this; keys did not,
+        // returning []). Other primitives coerce to a wrapper with an empty own-key
+        // set and are handled by the fall-through below.
+        uint64_t nbK = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nbK) || nanbox_is_undefined(nbK)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_array(TsArray::Create(0));
+        }
+
         // Unbox if needed. ts_value_get_object returns null for non-object
         // NaN-boxed primitives (number / bool / undefined / null). Per
         // ECMA-262 §19.1.2.16, Object.keys(primitive) ToObjects to a wrapper
