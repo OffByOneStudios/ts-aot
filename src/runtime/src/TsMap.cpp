@@ -1372,7 +1372,32 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
             }
         }
     }
+    if (kind == 5) { // wrap (Iterator.from) — delegate to the underlying iterator
+        TsValue* res = ih_iter_next(src);
+        if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+        return ih_make_result(ih_res_value(res), false);
+    }
     setDone(); return ih_make_result(nullptr, true);
+}
+// ECMA-262 27.1.4.1 Iterator.from(O): get O's iterator (via @@iterator, else O
+// itself if it has .next), and if it isn't already a %IteratorPrototype% iterator
+// wrap it so the helpers apply.
+extern "C" void* ts_iterator_from(void* argRaw) {
+    TsValue* arg = (TsValue*)argRaw;
+    if (!arg) { ts_throw((TsValue*)ts_error_create_typed("TypeError", "Iterator.from of undefined")); return (void*)ts_value_make_undefined(); }
+    void* raw = ts_value_get_object(arg); if (!raw) raw = arg;
+    TsValue* iter = arg;
+    TsValue* itf = ts_object_get_property(raw, "[Symbol.iterator]");
+    if (itf && ts_is_callable((void*)itf)) {
+        iter = ts_function_call_with_this(itf, arg, 0, nullptr);
+    } else {
+        TsValue* nx = ts_object_get_property(raw, "next");
+        if (!nx || !ts_is_callable((void*)nx)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", "Iterator.from argument is not iterable"));
+            return (void*)ts_value_make_undefined();
+        }
+    }
+    return (void*)make_iter_helper(5, iter, nullptr, 0);
 }
 static TsMap* g_iter_helper_prototype = nullptr;
 static TsMap* getIterHelperPrototype() {

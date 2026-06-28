@@ -3563,6 +3563,7 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
 }
 
 extern "C" void* getIteratorPrototypeBoxed();  // TsMap.cpp — %IteratorPrototype%
+extern "C" void* ts_iterator_from(void* arg);  // TsMap.cpp
 void* ts_get_global_Iterator() {
     TenureScope _tenure;
     static TsMap* cached = nullptr;
@@ -3570,6 +3571,9 @@ void* ts_get_global_Iterator() {
         cached = makeSimpleConstructorGlobal("Iterator");
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         addMethod(cached, "concat", (void*)iterator_concat_native, 1);
+        addMethod(cached, "from", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+              return (TsValue*)ts_iterator_from((argc>=1&&argv)?(void*)argv[0]:(void*)ts_value_make_undefined());
+          }, 1);
         // ECMA-262 27.1.3.3: Iterator.prototype IS %IteratorPrototype% (which now
         // carries the iterator-helper methods), not a fresh object. Overwrite the
         // ctor's "prototype" slot and link %IteratorPrototype%.constructor = Iterator.
