@@ -2108,6 +2108,37 @@ extern "C" {
         return TsString::Create(result.c_str());
     }
 
+    // First-match replace for a STRING pattern, expanding the replacement's
+    // $-patterns per ECMA-262 22.1.3.18 GetSubstitution: $$ -> $, $& -> match,
+    // $` -> portion before, $' -> portion after. ($n is literal for a string
+    // pattern — no capture groups.) Returns nullptr if the pattern isn't found
+    // (caller falls back to the plain replace, which leaves the string unchanged).
+    static void* ts_string_replace_first_dollar(TsString* flatStr, TsString* flatPattern,
+                                                TsString* flatRepl) {
+        std::string src = flatStr->ToUtf8();
+        std::string pat = flatPattern ? flatPattern->ToUtf8() : "";
+        std::string rep = flatRepl ? flatRepl->ToUtf8() : "";
+        size_t pos = src.find(pat);
+        if (pos == std::string::npos) return nullptr;
+        std::string prefix = src.substr(0, pos);
+        std::string suffix = src.substr(pos + pat.size());
+        std::string expanded;
+        for (size_t i = 0; i < rep.size(); i++) {
+            if (rep[i] == '$' && i + 1 < rep.size()) {
+                char c = rep[i + 1];
+                if (c == '$')      { expanded += '$';    i++; }
+                else if (c == '&') { expanded += pat;    i++; }
+                else if (c == '`') { expanded += prefix; i++; }
+                else if (c == '\''){ expanded += suffix; i++; }
+                else               { expanded += '$'; }  // $n / other: literal
+            } else {
+                expanded += rep[i];
+            }
+        }
+        std::string result = prefix + expanded + suffix;
+        return TsString::Create(result.c_str(), result.size());
+    }
+
     void* ts_string_replace(void* str, void* pattern, void* replacement) {
         TsString* flatStr = ts_ensure_flat(str);
         if (!flatStr) return str;
@@ -2138,6 +2169,10 @@ extern "C" {
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
                     TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    if (flatRepl && strchr(flatRepl->ToUtf8(), '$')) {
+                        void* r = ts_string_replace_first_dollar(flatStr, flatPattern, flatRepl);
+                        if (r) return r;
+                    }
                     return flatStr->Replace(flatPattern, flatRepl);
                 }
             }
@@ -2151,6 +2186,10 @@ extern "C" {
                 void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                 if (!rawRepl) rawRepl = replacement;
                 TsString* flatRepl = ts_ensure_flat(rawRepl);
+                if (flatRepl && strchr(flatRepl->ToUtf8(), '$')) {
+                    void* r = ts_string_replace_first_dollar(flatStr, flatPattern, flatRepl);
+                    if (r) return r;
+                }
                 return flatStr->Replace(flatPattern, flatRepl);
             }
         }
