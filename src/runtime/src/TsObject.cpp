@@ -5297,6 +5297,38 @@ void* ts_create_arguments_from_params(
         // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
 
+        // WeakMap/WeakSet instances: `set`/`get`/`has`/`delete`/`add`/`constructor`
+        // are inherited from <ctor>.prototype, but WMAP/WSET are excluded from the
+        // map method/chain handling below (see the matching get_dynamic fix), so
+        // `'set' in m` was false. Report inherited prototype methods (and the
+        // Object.prototype members) as present.
+        if (magic16 == 0x574D4150 /*WMAP*/ || magic16 == 0x57534554 /*WSET*/) {
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (k) {
+                extern void* ts_get_global_WeakMap();
+                extern void* ts_get_global_WeakSet();
+                void* g = (magic16 == 0x574D4150) ? ts_get_global_WeakMap() : ts_get_global_WeakSet();
+                void* fraw = ts_value_get_object((TsValue*)g);
+                if (!fraw) fraw = g;
+                if (fraw && *(uint32_t*)((char*)fraw + 16) == TsFunction::MAGIC) {
+                    TsFunction* fctor = (TsFunction*)fraw;
+                    if (fctor->properties) {
+                        TsValue pk; pk.type = ValueType::STRING_PTR;
+                        pk.ptr_val = TsString::GetInterned("prototype");
+                        TsValue pv = fctor->properties->Get(pk);
+                        if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {
+                            TsValue kk; kk.type = ValueType::STRING_PTR;
+                            kk.ptr_val = TsString::GetInterned(k);
+                            if (((TsMap*)pv.ptr_val)->Get(kk).type != ValueType::UNDEFINED) return true;
+                        }
+                    }
+                }
+                if (is_object_prototype_member(k)) return true;
+            }
+            // else fall through (no inherited match for this key)
+        }
+
         // TypedArray (integer-indexed exotic object): a canonical in-bounds
         // numeric index is always a present own property (dense by
         // construction); out-of-bounds / non-integral indices are absent.
