@@ -987,6 +987,44 @@ static void* makeErrorConstructor(const char* errorName) {
     // Spec: Error.prototype.name is { writable:true, enumerable:false, configurable:true }.
     proto->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 
+    // ECMA-262 20.5.3.4 Error.prototype.toString: "name: message" (only "name"
+    // or "message" if the other is empty). Installed once on Error.prototype so
+    // TypeError/RangeError/... inherit it via the prototype chain; without it,
+    // errorObj.toString()/String(errorObj) fell through to Object.prototype.
+    // toString and returned "[object Error]".
+    if (strcmp(errorName, "Error") == 0) {
+        addMethod(proto, "toString", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            void* raw = nanbox_is_ptr(nb) ? ts_value_get_object((TsValue*)ctx) : nullptr;
+            if (!raw && nanbox_is_ptr(nb)) raw = ts_nanbox_safe_unbox((TsValue*)ctx);
+            // Step 1: Type(O) must be Object (reject primitives incl. string/symbol).
+            bool isObject = false;
+            if (raw && (uintptr_t)raw > 0x1000) {
+                uint32_t m0 = *(uint32_t*)raw;
+                isObject = (m0 != 0x53545247 /*STRG*/ && m0 != 0x434F4E53 /*CONS*/ &&
+                            m0 != 0x53594D42 /*SYMB*/ && m0 != 0x42494749 /*BIGI*/);
+            }
+            if (!isObject) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Error.prototype.toString called on non-object"));
+                return ts_value_make_undefined();
+            }
+            extern TsValue* ts_object_get_property(void* obj, const char* key);
+            extern void* ts_string_from_value(TsValue* val);
+            TsValue* nameV = ts_object_get_property(raw, "name");
+            TsValue* msgV  = ts_object_get_property(raw, "message");
+            TsString* nameS = (nameV && !ts_value_is_undefined(nameV))
+                ? (TsString*)ts_string_from_value(nameV) : TsString::Create("Error");
+            TsString* msgS = (msgV && !ts_value_is_undefined(msgV))
+                ? (TsString*)ts_string_from_value(msgV) : TsString::Create("");
+            std::string name = (nameS && nameS->ToUtf8()) ? nameS->ToUtf8() : "";
+            std::string msg  = (msgS && msgS->ToUtf8()) ? msgS->ToUtf8() : "";
+            std::string out = name.empty() ? msg : (msg.empty() ? name : name + ": " + msg);
+            return ts_value_make_string(TsString::Create(out.c_str()));
+        }, 0);
+    }
+
 
     // Per spec: TypeError.prototype / RangeError.prototype / etc.
     // inherit from Error.prototype. Link via the TsMap prototype chain
