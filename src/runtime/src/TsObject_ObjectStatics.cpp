@@ -2594,7 +2594,18 @@ extern "C" {
         
         void* rawPtr = ts_value_get_object(entries);
         if (!rawPtr) rawPtr = entries;
-        
+
+        // RequireObjectCoercible + GetIterator (Object.fromEntries step 1-3): a
+        // primitive (null/undefined/number/boolean) is not iterable -> TypeError.
+        // Without this guard the magic read below dereferenced a NaN-boxed primitive
+        // (Object.fromEntries(null) -> access violation).
+        uintptr_t pp = (uintptr_t)rawPtr;
+        if (pp < 0x1000 || pp > 0x00007FFFFFFFFFFFULL) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.fromEntries requires an iterable of [key, value] entries"));
+            return ts_value_make_undefined();
+        }
+
         // Check if it's an array
         uint32_t magic = *(uint32_t*)rawPtr;
         if (magic != 0x41525259) { // TsArray::MAGIC
