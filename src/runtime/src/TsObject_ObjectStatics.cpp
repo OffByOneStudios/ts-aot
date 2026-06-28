@@ -8,7 +8,11 @@
 extern "C" {
 
 
+    // Revoked-proxy guard (defined in TsProxy.cpp): throws TypeError for a
+    // revoked-proxy receiver in the Object.* operations below.
+    extern "C" void ts_proxy_throw_if_revoked(void* boxed);
     TsValue* ts_object_keys(TsValue* obj) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
         // ECMA-262 20.1.2.17: ToObject(O) is performed first -> TypeError on
@@ -449,6 +453,7 @@ extern "C" {
     // In our runtime, this is the same as Object.keys() since we don't have
     // non-enumerable properties
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
         // ECMA-262 19.1.2.10: ToObject(O) is performed first, which throws
@@ -542,6 +547,7 @@ extern "C" {
 
     // Object.getPrototypeOf(obj) - returns the prototype of an object
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Per spec 19.1.2.12: ToObject(O) is performed first, which
         // throws TypeError on null/undefined. Without this guard, the
         // magic-check below dereferences a tagged primitive and crashes.
@@ -1081,6 +1087,7 @@ extern "C" {
 
     // Object.preventExtensions(obj) - prevents new properties from being added
     TsValue* ts_object_preventExtensions(TsValue* obj) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return obj;
 
         // ES2015+: Object.preventExtensions of a non-object returns the
@@ -1164,6 +1171,7 @@ extern "C" {
 
     // Object.isExtensible(obj) - returns true if object is extensible
     TsValue* ts_object_isExtensible(TsValue* obj) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_bool(false);  // null/undefined not extensible
         // Per ES2015+ spec: non-object arguments return false (don't throw).
         // NaN-boxed undefined/null/numbers/bools are not objects.
@@ -1245,6 +1253,7 @@ extern "C" {
     extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Spec step 1: If Type(O) is not Object, throw a TypeError exception.
         // Throws on null/undefined/number/bool/string/symbol — anything
         // that isn't an object reference. Unknown raw pointers (e.g.
@@ -2182,6 +2191,7 @@ extern "C" {
     }
 
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
+        ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Per ECMA-262 19.1.2.6: returns undefined when the property does
         // not exist (or the receiver isn't an object). Previously returned
         // ts_value_make_object(nullptr) which is the *null* TsValue.

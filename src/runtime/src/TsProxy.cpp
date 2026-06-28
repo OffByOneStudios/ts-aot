@@ -41,6 +41,20 @@ TsProxy* TsProxy::Create(void* target, TsMap* handler) {
     return p;
 }
 
+// Public guard for builtins (Object.keys/getPrototypeOf/defineProperty/...) that
+// operate on an object directly rather than through the proxy's internal methods:
+// if the receiver is a REVOKED proxy they must throw a TypeError (ECMA-262 10.5.x)
+// instead of silently reading the dead proxy as a plain map. No-op for anything
+// else. Detects the proxy via the captured vtable pointer (offset 0) — safe on any
+// heap object and avoids dynamic_cast UB on non-polymorphic types.
+extern "C" void ts_proxy_throw_if_revoked(void* boxed) {
+    void* raw = ts_value_get_object((TsValue*)boxed);
+    if (!raw) raw = boxed;
+    if (!raw || (uintptr_t)raw <= 0x1000) return;
+    if (!g_ts_proxy_vtable || *(void**)raw != g_ts_proxy_vtable) return;
+    if (((TsProxy*)raw)->revoked) throw_revoked("get");
+}
+
 TsValue* TsProxy::getTrap(const char* trapName) {
     if (revoked || !handler) return nullptr;
 
