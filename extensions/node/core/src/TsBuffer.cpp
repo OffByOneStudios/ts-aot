@@ -149,8 +149,8 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
                 TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
                 if (!buf) return ts_value_make_undefined();
                 if (buf->IsDetached()) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: ArrayBuffer is detached")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "ArrayBuffer is detached"));
                     return ts_value_make_undefined();
                 }
                 int64_t oldLen = (int64_t)buf->GetLength();
