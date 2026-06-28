@@ -1760,9 +1760,27 @@ extern "C" {
         return ts_string_padEnd(str, ts_to_number(targetLength), padString);
     }
 
+    // ECMA-262 22.1.3.7/.22/.8 step 4: String.prototype.includes/startsWith/endsWith
+    // throw a TypeError if the search argument IsRegExp. We approximate IsRegExp with
+    // the TsRegExp brand (covers regexp literals/instances; the rare @@match-override
+    // case is not handled). Throws from this std-container-free frame.
+    static void reject_regexp_search(void* v, const char* method) {
+        void* raw = ts_nanbox_safe_unbox(v);
+        if (!raw) return;
+        uintptr_t p = (uintptr_t)raw;
+        if (p < 0x1000 || p > 0x00007FFFFFFFFFFFULL) return;
+        if (*(uint32_t*)raw == 0x52454758 /* TsRegExp "REGX" */) {
+            char msg[96];
+            std::snprintf(msg, sizeof(msg),
+                "First argument to String.prototype.%s must not be a regular expression", method);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        }
+    }
+
     bool ts_string_startsWith(void* str, void* prefix) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
+        reject_regexp_search(prefix, "startsWith");
         TsString* p = ts_ensure_flat(prefix);
         if (!p) return false;
         return s->StartsWith(p);
@@ -1771,6 +1789,7 @@ extern "C" {
     bool ts_string_endsWith(void* str, void* suffix) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
+        reject_regexp_search(suffix, "endsWith");
         TsString* suf = ts_ensure_flat(suffix);
         if (!suf) return false;
         return s->EndsWith(suf);
@@ -1779,6 +1798,7 @@ extern "C" {
     bool ts_string_includes(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
+        reject_regexp_search(searchString, "includes");
         // ToString-coerce the search arg: a non-string (undefined from
         // indexOf(void 0), a number, etc.) must become its string form rather
         // than crash ts_ensure_flat, which dereferences a non-string value.
