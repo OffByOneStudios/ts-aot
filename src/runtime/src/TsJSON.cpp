@@ -301,7 +301,17 @@ extern "C" {
                 "SyntaxError", "Unexpected token u in JSON"));
             return nullptr;
         }
-        TsString* s = (TsString*)json_str;
+        // ECMA-262 25.5.1: JSON.parse(text) does ToString(text) FIRST. A non-string
+        // arg (true, 123, null, undefined, ...) was cast straight to TsString and
+        // ToUtf8'd -> access violation. Coerce to its string form; an unparseable
+        // result ("undefined", "true" is valid -> true) surfaces below as a
+        // SyntaxError via the parse step.
+        extern void* ts_string_from_value(TsValue* val);
+        TsString* s = (TsString*)ts_string_from_value((TsValue*)json_str);
+        if (!s) {
+            ts_throw((TsValue*)ts_error_create_typed("SyntaxError", "Unexpected token in JSON"));
+            return nullptr;
+        }
         // Parse the text. Malformed input must surface as a JS SyntaxError
         // (ECMA-262 25.5.1), not as an internal C++ exception escaping the
         // runtime. Only the parse step can throw on bad input; isolate it.
