@@ -2861,6 +2861,34 @@ extern "C" {
             return result;
         }
 
+        // TypedArray: array-like with a numeric-indexed backing, but
+        // ts_array_is_array() is false for it AND ts_iterator_get() does not
+        // expose its @@iterator (for-of uses a separate compiler lowering), so
+        // it otherwise fell through to []. Read elements directly via the
+        // TsTypedArray API. BigInt TAs read lossily through Get()'s double, so
+        // skip them here (bigint-TA storage is handled elsewhere).
+        if (rawPtr && (uintptr_t)rawPtr >= 0x1000 &&
+            *(uint32_t*)((char*)rawPtr + 16) == 0x54415252 /* TsTypedArray "TARR" */) {
+            TsTypedArray* ta = (TsTypedArray*)rawPtr;
+            TypedArrayType tt = ta->GetType();
+            if (tt != TypedArrayType::BigInt64 && tt != TypedArrayType::BigUint64) {
+                int64_t n = (int64_t)ta->GetLength();
+                TsArray* result = TsArray::Create(n);
+                for (int64_t i = 0; i < n; i++) {
+                    TsValue elem = nanbox_to_tagged(ts_value_make_double(ta->Get((size_t)i)));
+                    if (hasMapFn) {
+                        TsValue* elemBoxed = nanbox_from_tagged(elem);
+                        TsValue* indexVal = ts_value_make_int(i);
+                        TsValue* mapped = tsCall(mapFnVal, elemBoxed, indexVal);
+                        ts_array_set_v(result, i, mapped ? nanbox_to_tagged(mapped) : elem);
+                    } else {
+                        ts_array_set_v(result, i, elem);
+                    }
+                }
+                return result;
+            }
+        }
+
         // Check if it's a string - convert to character array
         // With NaN boxing, arrayLike is a NaN-boxed pointer to a TsString
         uint64_t alNB = (uint64_t)(uintptr_t)arrayLike;
