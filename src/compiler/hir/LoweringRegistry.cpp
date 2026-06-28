@@ -1498,16 +1498,20 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // val2
             .build());
 
+    // String.fromCharCode(...codes) / fromCodePoint(...points) are variadic: pack
+    // ALL args into an array (like ts_array_of) so the runtime sees every code.
+    // A single .ptrArg() passed only the first argument, so fromCharCode(65,66,67)
+    // returned "A" instead of "ABC".
     reg.registerLowering("ts_string_fromCharCode",
         lowering("ts_string_fromCharCode")
             .returnsPtr()
-            .ptrArg()      // codePoints array
+            .variadicHandling(VariadicHandling::PackArray, 0)
             .build());
 
     reg.registerLowering("ts_string_fromCodePoint",
         lowering("ts_string_fromCodePoint")
             .returnsPtr()
-            .ptrArg()      // codePoints array
+            .variadicHandling(VariadicHandling::PackArray, 0)
             .build());
 
     reg.registerLowering("ts_string_isWellFormed",
