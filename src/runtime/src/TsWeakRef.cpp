@@ -46,9 +46,19 @@ TsFinalizationRegistry* TsFinalizationRegistry::Create(void* cleanupCallback) {
 // C API Functions
 // ============================================================================
 
+extern "C" bool ts_can_be_held_weakly(TsValue* key);  // defined in TsMap.cpp
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
 extern "C" {
 
 void* ts_weakref_create(void* target) {
+    // ECMA-262 26.1.1.1: target must satisfy CanBeHeldWeakly (Object or
+    // non-registered Symbol), else TypeError — a primitive target was accepted.
+    if (!ts_can_be_held_weakly((TsValue*)target)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "WeakRef: target must be an object or an unregistered symbol"));
+        return nullptr;  // unreachable
+    }
     // Unbox if needed
     void* rawTarget = ts_nanbox_safe_unbox(target);
     return TsWeakRef::Create(rawTarget);
@@ -62,6 +72,12 @@ void* ts_weakref_deref(void* weakref) {
 }
 
 void* ts_finalization_registry_create(void* cleanupCallback) {
+    // ECMA-262 26.2.1.1: the cleanup callback must be callable, else TypeError.
+    if (!ts_is_callable(cleanupCallback)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "FinalizationRegistry: cleanup callback must be a function"));
+        return nullptr;  // unreachable
+    }
     return TsFinalizationRegistry::Create(cleanupCallback);
 }
 
