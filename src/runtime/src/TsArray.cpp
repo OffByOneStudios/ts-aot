@@ -1805,7 +1805,16 @@ extern "C" {
                                       TsValue* start, TsValue* end) {
         int64_t t = ts_to_index_integer_or_sentinel(target);  // may throw
         int64_t s = ts_to_index_integer_or_sentinel(start);   // may throw
-        int64_t e = ts_to_index_integer_or_sentinel(end);     // may throw
+        // INT64_MIN doubles as "omitted" (-> default len) AND as ToInteger(-Infinity).
+        // For `end` these differ (omitted -> len, -Infinity -> clamp to 0), so resolve
+        // explicit-undefined here and remap a real -Infinity to a distinct sentinel.
+        int64_t e;
+        if (ts_value_is_undefined(end)) {
+            e = INT64_MIN;                 // omitted -> len
+        } else {
+            e = ts_to_index_integer_or_sentinel(end);  // may throw
+            if (e == INT64_MIN) e = INT64_MIN + 1;     // -Infinity -> clamp to 0, not len
+        }
         return ts_array_copyWithin(arr, t, s, e);
     }
 
@@ -3373,6 +3382,7 @@ extern "C" {
             if (target == INT64_MIN) target = 0;
             if (start == INT64_MIN) start = 0;
             if (end == INT64_MIN) end = len;
+            else if (end == INT64_MIN + 1) end = 0;  // ToInteger(-Infinity)
             if (target < 0) target = std::max((int64_t)0, len + target);
             if (start < 0) start = std::max((int64_t)0, len + start);
             if (end < 0) end = std::max((int64_t)0, len + end);
@@ -3389,6 +3399,14 @@ extern "C" {
 
         TsArray* array = (TsArray*)arr;
         int64_t len = (int64_t)array->Length();
+
+        // Omitted arguments arrive as INT64_MIN: target/start default to 0 and end
+        // defaults to len (this default-end handling was present only on the
+        // TypedArray path above, so [1,2,3].copyWithin(0,1) silently no-op'd).
+        if (target == INT64_MIN) target = 0;
+        if (start == INT64_MIN) start = 0;
+        if (end == INT64_MIN) end = len;
+        else if (end == INT64_MIN + 1) end = 0;  // ToInteger(-Infinity) -> clamps to 0
 
         // Handle negative indices
         if (target < 0) target = std::max((int64_t)0, len + target);
