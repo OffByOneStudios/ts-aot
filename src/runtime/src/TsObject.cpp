@@ -2174,6 +2174,36 @@ void* ts_create_arguments_from_params(
         // TsGenerator ('GENR') and TsAsyncGenerator ('AGEN') inherit from TsMap and
         // store their iterator methods (.next, [Symbol.iterator]) via the map; include
         // their magics here so property access routes through the map path.
+        // WeakMap/WeakSet instances (WMAP/WSET) are excluded from the Map-method
+        // fast path below (and aren't IsExplicitMap), so without this `m.set` was
+        // undefined — making `m.set.call(0)` a silent no-op (the instance-form
+        // ".call wall"). Resolve a string method name to the constructor's
+        // .prototype so `m.set` is the real function and `m.set.call(x)` reaches its
+        // brand check. The compiler still lowers direct `m.set(k,v)` to the typed
+        // native, so valid calls are unaffected.
+        if (keyStr && (magic16 == 0x574D4150 /*WMAP*/ || magic16 == 0x57534554 /*WSET*/)) {
+            extern void* ts_get_global_WeakMap();
+            extern void* ts_get_global_WeakSet();
+            void* g = (magic16 == 0x574D4150) ? ts_get_global_WeakMap() : ts_get_global_WeakSet();
+            void* fraw = ts_value_get_object((TsValue*)g);
+            if (!fraw) fraw = g;
+            if (fraw && *(uint32_t*)((char*)fraw + 16) == TsFunction::MAGIC) {
+                TsFunction* fctor = (TsFunction*)fraw;
+                if (fctor->properties) {
+                    TsValue pk; pk.type = ValueType::STRING_PTR;
+                    pk.ptr_val = TsString::GetInterned("prototype");
+                    TsValue pv = fctor->properties->Get(pk);
+                    if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {
+                        TsValue k; k.type = ValueType::STRING_PTR;
+                        k.ptr_val = TsString::GetInterned(keyStr);
+                        TsValue v = ((TsMap*)pv.ptr_val)->Get(k);
+                        if (v.type != ValueType::UNDEFINED) return nanbox_from_tagged(v);
+                    }
+                }
+            }
+            // No prototype method for this key — fall through to general handling.
+        }
+
         if (magic16 == 0x4D415053 ||   // TsMap "MAPS"
             magic16 == 0x47454E52 ||   // TsGenerator "GENR"
             magic16 == 0x4147454E) {   // TsAsyncGenerator "AGEN"
