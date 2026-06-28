@@ -2695,6 +2695,11 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
                     int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
+                    if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError", \
+                            "DataView: the underlying ArrayBuffer is detached")); \
+                        return ts_value_make_undefined(); \
+                    } \
                     if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
                         ts_throw((TsValue*)ts_error_create(TsString::Create( \
                             "RangeError: Offset is outside the bounds of the DataView"))); \
@@ -2719,6 +2724,11 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                     int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
                     double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : 0.0; \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
+                    if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError", \
+                            "DataView: the underlying ArrayBuffer is detached")); \
+                        return ts_value_make_undefined(); \
+                    } \
                     if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
                         ts_throw((TsValue*)ts_error_create(TsString::Create( \
                             "RangeError: Offset is outside the bounds of the DataView"))); \
