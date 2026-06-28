@@ -1122,6 +1122,63 @@ int64_t ts_value_get_int(TsValue* v) {
     return nanbox_to_int64(nb);
 }
 
+// ECMA-262 7.1.4.1 StringToNumber on a trimmed-able UTF-8 string. Handles the
+// pieces bare strtod gets wrong: "Infinity" (exact case, optional sign) and the
+// NonDecimalIntegerLiteral prefixes 0b/0o/0x; rejects strtod's lowercase
+// "inf"/"infinity"/"nan" spellings (invalid in JS) while still mapping decimal
+// overflow ("1e400") to Infinity. Empty/all-whitespace -> +0.
+static double js_string_to_number(const char* utf8) {
+    const double NaN = std::numeric_limits<double>::quiet_NaN();
+    if (!utf8) return 0.0;
+    auto isws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'||c=='\f'||c=='\v'; };
+    const char* s = utf8;
+    while (*s && isws(*s)) s++;
+    if (*s == '\0') return 0.0;
+    const char* e = s; while (*e) e++;
+    while (e > s && isws(e[-1])) e--;
+    size_t n = (size_t)(e - s);
+    // Infinity (optional leading sign)
+    {
+        const char* p = s; double sign = 1.0;
+        if (*p=='+'||*p=='-'){ if(*p=='-') sign=-1.0; p++; }
+        if ((size_t)(e-p)==8 && std::strncmp(p,"Infinity",8)==0)
+            return sign*std::numeric_limits<double>::infinity();
+    }
+    // NonDecimalIntegerLiteral 0b/0o/0x (no sign permitted)
+    if (n>=2 && s[0]=='0') {
+        int base=0; char c1=s[1];
+        if (c1=='b'||c1=='B') base=2;
+        else if (c1=='o'||c1=='O') base=8;
+        else if (c1=='x'||c1=='X') base=16;
+        if (base) {
+            if (e==s+2) return NaN;
+            double val=0.0;
+            for (const char* p=s+2;p<e;p++){
+                int dig; char c=*p;
+                if (c>='0'&&c<='9') dig=c-'0';
+                else if (c>='a'&&c<='f') dig=c-'a'+10;
+                else if (c>='A'&&c<='F') dig=c-'A'+10;
+                else return NaN;
+                if (dig>=base) return NaN;
+                val=val*base+dig;
+            }
+            return val;
+        }
+    }
+    // StrDecimalLiteral: must start with a digit or '.', else it's a stray
+    // alpha token ("inf"/"nan"/...) that JS rejects.
+    {
+        const char* p = s;
+        if (*p=='+'||*p=='-') p++;
+        if (!((*p>='0'&&*p<='9')||*p=='.')) return NaN;
+    }
+    char* end=nullptr;
+    double d=std::strtod(s,&end);
+    if (end != e) return NaN;     // trailing non-numeric content
+    if (d != d) return NaN;       // canonicalize any NaN
+    return d;
+}
+
 double ts_value_get_double(TsValue* v) {
     if (!v) return 0.0;
     uint64_t nb = nanbox_from_tsvalue_ptr(v);
@@ -1142,24 +1199,11 @@ double ts_value_get_double(TsValue* v) {
             // input which we'd otherwise turn into NaN — wrong per spec.
             // Trim ASCII whitespace and reject trailing non-whitespace
             // characters to match StrUnsignedDecimalLiteral semantics.
-            const char* utf8 = ts_ensure_flat(ptr)->ToUtf8();
-            if (!utf8 || *utf8 == '\0') return 0.0;
-            const char* s = utf8;
-            while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
-            if (*s == '\0') return 0.0;
-            char* end = nullptr;
-            double d = std::strtod(s, &end);
-            while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
-            if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
-            // Canonicalize NaN: strtod accepts "NaN"/"-NaN" and returns a
-            // sign-/payload-bearing NaN (e.g. -NaN, bits 0xFFF8.../0xFFFF...).
-            // Such non-canonical NaN bits collide with the NaN-box tag space
-            // when biased-encoded, so the value is later misread as a string
-            // pointer and dereferenced (AV). The sign/payload of NaN is not
-            // observable in JS, so collapse every NaN to the canonical quiet
-            // NaN. Fixes `_.toNumber('-NaN')` crash.
-            if (d != d) return std::numeric_limits<double>::quiet_NaN();
-            return d;
+            // ECMA-262 7.1.4.1 StringToNumber (handles Infinity, 0b/0o/0x,
+            // empty -> +0, and canonicalizes NaN — the latter fixes the
+            // `_.toNumber('-NaN')` AV where non-canonical NaN bits alias the
+            // NaN-box tag space).
+            return js_string_to_number(ts_ensure_flat(ptr)->ToUtf8());
         }
         // ES5.1 §9.3 ToNumber on an object: call ToPrimitive with hint
         // "number", which invokes user-defined valueOf/toString. If that
@@ -1241,22 +1285,8 @@ double ts_to_number(TsValue* v) {
         if (!ptr) return 0.0;
         uint32_t magic = *(uint32_t*)ptr;  // also used for the Symbol check below
         if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
-            TsString* str = ts_ensure_flat(ptr);
-            const char* utf8 = str->ToUtf8();
-            if (!utf8 || *utf8 == '\0') return 0.0;
-            // Trim whitespace
-            const char* s = utf8;
-            while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
-            if (*s == '\0') return 0.0;
-            char* end = nullptr;
-            double d = std::strtod(s, &end);
-            // Check remaining chars are whitespace
-            while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
-            if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
-            // Canonicalize NaN (strtod's "-NaN" -> non-canonical NaN bits that
-            // alias the NaN-box tag space; see the sibling site above).
-            if (d != d) return std::numeric_limits<double>::quiet_NaN();
-            return d;
+            // ECMA-262 7.1.4.1 StringToNumber (shared with ts_value_get_double).
+            return js_string_to_number(ts_ensure_flat(ptr)->ToUtf8());
         }
         // Per ES spec: ToNumber(symbol) throws TypeError.
         // TsSymbol has MAGIC=0x53594D42 at offset 0 (see TsSymbol.h).
