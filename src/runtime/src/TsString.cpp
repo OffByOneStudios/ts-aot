@@ -2611,18 +2611,25 @@ extern "C" {
         // which handles every TsValue tag.
         TsString* s = (TsString*)ts_string_from_value((TsValue*)str);
         if (!s) s = (TsString*)str;  // fallback: assume already a TsString*
-        const char* utf8 = s->ToUtf8();
-        if (!utf8) return TsString::GetInterned("");
 
+        // ECMA-262 B.2.1.1 operates on UTF-16 CODE UNITS, not UTF-8 bytes: a unit
+        // < 256 becomes "%XX", a unit >= 256 becomes "%uXXXX". Iterating UTF-8
+        // bytes (the old loop) wrongly emitted "é" (U+00E9) as "%C3%A9" instead of
+        // "%E9", and "☃" (U+2603) as its UTF-8 bytes instead of "%u2603".
+        int64_t len = s->Length();
         std::string result;
-        for (const unsigned char* p = (const unsigned char*)utf8; *p; ++p) {
-            if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
-                (*p >= '0' && *p <= '9') || *p == '@' || *p == '*' ||
-                *p == '_' || *p == '+' || *p == '-' || *p == '.' || *p == '/') {
-                result += (char)*p;
-            } else if (*p < 256) {
-                char hex[4];
-                snprintf(hex, sizeof(hex), "%%%02X", *p);
+        char hex[8];
+        for (int64_t i = 0; i < len; i++) {
+            int64_t c = s->CharCodeAt(i);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '@' || c == '*' ||
+                c == '_' || c == '+' || c == '-' || c == '.' || c == '/') {
+                result += (char)c;
+            } else if (c < 256) {
+                snprintf(hex, sizeof(hex), "%%%02X", (unsigned)c);
+                result += hex;
+            } else {
+                snprintf(hex, sizeof(hex), "%%u%04X", (unsigned)c);
                 result += hex;
             }
         }
