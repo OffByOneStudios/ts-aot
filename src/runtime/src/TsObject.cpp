@@ -2825,6 +2825,12 @@ void* ts_create_arguments_from_params(
     TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv) {
         TsValue* target = (TsValue*)ctx;
         if (!target) target = (TsValue*)ts_get_call_this();
+        // Function.prototype.call: step 1 requires IsCallable(this) -> TypeError.
+        if (!ts_is_callable(target)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Function.prototype.call called on incompatible (non-callable) receiver"));
+            return ts_value_make_undefined();
+        }
         TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
         TsValue** args = (argc > 1 && argv) ? (argv + 1) : nullptr;
         int callArgc = argc > 1 ? (argc - 1) : 0;
@@ -2834,6 +2840,12 @@ void* ts_create_arguments_from_params(
     TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv) {
         TsValue* target = (TsValue*)ctx;
         if (!target) target = (TsValue*)ts_get_call_this();
+        // Function.prototype.apply: step 1 requires IsCallable(this) -> TypeError.
+        if (!ts_is_callable(target)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Function.prototype.apply called on incompatible (non-callable) receiver"));
+            return ts_value_make_undefined();
+        }
         TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
         TsValue* argsArray = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
 

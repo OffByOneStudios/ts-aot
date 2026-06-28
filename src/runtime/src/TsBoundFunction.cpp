@@ -50,9 +50,18 @@ TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv) {
 // Creates a bound function
 // ctx is a TsValue* containing the target function
 // argv[0] is thisArg, argv[1...] are bound arguments
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
 TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv) {
     TsValue* targetFunc = (TsValue*)ctx;
     if (!targetFunc) targetFunc = (TsValue*)ts_get_call_this();
+
+    // Function.prototype.bind: step 2 requires IsCallable(this) -> TypeError.
+    if (!ts_is_callable(targetFunc)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Function.prototype.bind called on incompatible (non-callable) receiver"));
+        return ts_value_make_undefined();
+    }
 
     // Get thisArg (first argument) or undefined
     TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
