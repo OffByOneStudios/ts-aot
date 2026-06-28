@@ -1,6 +1,7 @@
 #include "TsArray.h"
 #include "TsConsString.h"
 #include "TsObject.h"
+#include "TsProxy.h"
 #include "TsNanBox.h"
 #include "TsMap.h"
 #include "TsRegExp.h"
@@ -1471,8 +1472,25 @@ extern "C" {
             return !isArgs(decoded.ptr_val);
         }
         if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
-            uint32_t magic = *(uint32_t*)decoded.ptr_val;
-            if (magic == TsArray::MAGIC) return !isArgs(decoded.ptr_val);
+            void* p = decoded.ptr_val;
+            // ECMA-262 7.2.2 IsArray: a Proxy delegates to its target object; a
+            // revoked proxy throws a TypeError. Only TsMap-derived objects (a
+            // Proxy is one) carry the TsObject vtable + MAPS magic at offset 16;
+            // Date/RegExp/etc. keep their magic at offset 0 and have NO vtable, so
+            // dynamic_cast on them is UB — guard it with the offset-16 magic.
+            if ((uintptr_t)p >= 0x1000 && *(uint32_t*)((char*)p + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)p)) {
+                    if (px->revoked) {
+                        extern void* ts_error_create_typed(const char* type, const char* message);
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot perform 'IsArray' on a proxy that has been revoked"));
+                        return false;  // unreachable
+                    }
+                    return ts_array_isArray(px->target);
+                }
+            }
+            uint32_t magic = *(uint32_t*)p;
+            if (magic == TsArray::MAGIC) return !isArgs(p);
             return magic == 0x524D4154; // TsRegExpMatchArray
         }
         return false;
