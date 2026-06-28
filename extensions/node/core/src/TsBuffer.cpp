@@ -2701,8 +2701,8 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                         return ts_value_make_undefined(); \
                     } \
                     if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
-                        ts_throw((TsValue*)ts_error_create(TsString::Create( \
-                            "RangeError: Offset is outside the bounds of the DataView"))); \
+                        ts_throw((TsValue*)ts_error_create_typed("RangeError", \
+                            "Offset is outside the bounds of the DataView")); \
                         return ts_value_make_undefined(); \
                     } \
                     uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off; \
@@ -2730,8 +2730,8 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                         return ts_value_make_undefined(); \
                     } \
                     if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
-                        ts_throw((TsValue*)ts_error_create(TsString::Create( \
-                            "RangeError: Offset is outside the bounds of the DataView"))); \
+                        ts_throw((TsValue*)ts_error_create_typed("RangeError", \
+                            "Offset is outside the bounds of the DataView")); \
                         return ts_value_make_undefined(); \
                     } \
                     uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off; \
