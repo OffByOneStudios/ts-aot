@@ -1267,6 +1267,15 @@ extern "C" {
     }
 
     void* ts_number_to_string(double value, int64_t radix) {
+        // ECMA-262 21.1.3.6 Number.prototype.toString: radix must be an integer in
+        // [2, 36], else RangeError. The compiler lowers `n.toString(r)` directly to
+        // this (bypassing the prototype method), so the check lives here. Every
+        // internal caller passes 10, so a valid default never triggers it.
+        if (radix < 2 || radix > 36) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Number.prototype.toString() radix must be an integer between 2 and 36"));
+            return nullptr;
+        }
         return ts_double_to_string(value, radix);
     }
 
