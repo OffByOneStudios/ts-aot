@@ -1519,7 +1519,11 @@ void* ts_get_global_Number() {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toFixed");
             int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 0;
-            if (digits < 0 || digits > 100) digits = 0;
+            if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.3: RangeError
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "toFixed() digits argument must be between 0 and 100"));
+                return ts_value_make_undefined();
+            }
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%.*f", digits, d);
             return ts_value_make_string(TsString::Create(buf));
@@ -1528,7 +1532,11 @@ void* ts_get_global_Number() {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toExponential");
             int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 6;
-            if (digits < 0 || digits > 100) digits = 6;
+            if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.2: RangeError
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "toExponential() argument must be between 0 and 100"));
+                return ts_value_make_undefined();
+            }
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%.*e", digits, d);
             return ts_value_make_string(TsString::Create(buf));
@@ -1540,7 +1548,11 @@ void* ts_get_global_Number() {
                 return ts_value_make_string((TsString*)ts_number_to_string(d, 10));
             }
             int digits = (int)ts_value_get_int(argv[0]);
-            if (digits < 1 || digits > 100) digits = 6;
+            if (digits < 1 || digits > 100) {  // ECMA-262 21.1.3.5: RangeError
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "toPrecision() argument must be between 1 and 100"));
+                return ts_value_make_undefined();
+            }
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%.*g", digits, d);
             return ts_value_make_string(TsString::Create(buf));
