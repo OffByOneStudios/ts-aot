@@ -1274,6 +1274,155 @@ static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
     return acc;
 }
 
+// ---- Iterator Helpers (LAZY) — map/filter/take/drop/flatMap --------------
+TsMap* getIteratorPrototype();
+static TsMap* getIterHelperPrototype();
+double ts_to_number(TsValue* v);
+static void ih_set(TsMap* m, const char* k, const TsValue& v) {
+    TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k); m->Set(kk, v);
+}
+static TsValue ih_get(TsMap* m, const char* k) {
+    TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k); return m->Get(kk);
+}
+static TsValue* ih_make_result(TsValue* value, bool done) {
+    TsMap* r = TsMap::Create();
+    TsValue dk; dk.type = ValueType::STRING_PTR; dk.ptr_val = TsString::GetInterned("done");
+    TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = done ? 1 : 0; r->Set(dk, dv);
+    TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+    r->Set(vk, value ? nanbox_to_tagged(value) : TsValue());
+    return ts_value_make_object(r);
+}
+// kind: 0 map, 1 filter, 2 take, 3 drop, 4 flatMap
+static TsValue* make_iter_helper(int kind, TsValue* src, TsValue* fn, double n) {
+    TsMap* it = TsMap::Create();
+    it->SetPrototype(getIterHelperPrototype());
+    TsValue kv; kv.type = ValueType::NUMBER_INT; kv.i_val = kind; ih_set(it, "__ihk", kv);
+    ih_set(it, "__ihs", src ? nanbox_to_tagged(src) : TsValue());
+    ih_set(it, "__ihf", fn ? nanbox_to_tagged(fn) : TsValue());
+    TsValue nv; nv.type = ValueType::NUMBER_DBL; nv.d_val = n; ih_set(it, "__ihn", nv);
+    TsValue cv; cv.type = ValueType::NUMBER_DBL; cv.d_val = 0; ih_set(it, "__ihc", cv);
+    return ts_value_make_object(it);
+}
+static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+    TsMap* it = (TsMap*)raw;
+    if (ih_get(it, "__ihdone").i_val) return ih_make_result(nullptr, true);
+    int kind = (int)ih_get(it, "__ihk").i_val;
+    TsValue srcT = ih_get(it, "__ihs"); TsValue* src = nanbox_from_tagged(srcT);
+    TsValue fnT = ih_get(it, "__ihf");
+    TsValue* fn = (fnT.type != ValueType::UNDEFINED) ? nanbox_from_tagged(fnT) : nullptr;
+    double cnt = ih_get(it, "__ihc").d_val;
+    double n   = ih_get(it, "__ihn").d_val;
+    auto setDone = [&]() { TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 1; ih_set(it, "__ihdone", d); };
+    auto setCnt  = [&](double c) { TsValue v; v.type = ValueType::NUMBER_DBL; v.d_val = c; ih_set(it, "__ihc", v); };
+
+    if (kind == 0) { // map
+        TsValue* res = ih_iter_next(src);
+        if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+        TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(cnt + 1);
+        return ih_make_result(mapped, false);
+    }
+    if (kind == 1) { // filter
+        while (true) {
+            TsValue* res = ih_iter_next(src);
+            if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+            TsValue* v = ih_res_value(res);
+            bool keep = ts_value_to_bool(iterhelper_call(fn, v, (int64_t)cnt)); setCnt(++cnt);
+            if (keep) return ih_make_result(v, false);
+        }
+    }
+    if (kind == 2) { // take(n)
+        if (cnt >= n) { setDone(); return ih_make_result(nullptr, true); }
+        TsValue* res = ih_iter_next(src);
+        if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+        setCnt(cnt + 1);
+        return ih_make_result(ih_res_value(res), false);
+    }
+    if (kind == 3) { // drop(n)
+        while (cnt < n) {
+            TsValue* res = ih_iter_next(src);
+            if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+            cnt += 1;
+        }
+        setCnt(cnt);
+        TsValue* res = ih_iter_next(src);
+        if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+        return ih_make_result(ih_res_value(res), false);
+    }
+    if (kind == 4) { // flatMap
+        while (true) {
+            TsValue innerT = ih_get(it, "__ihinner");
+            if (innerT.type != ValueType::UNDEFINED) {
+                TsValue* res = ih_iter_next(nanbox_from_tagged(innerT));
+                if (res && !ih_res_done(res)) return ih_make_result(ih_res_value(res), false);
+                ih_set(it, "__ihinner", TsValue());
+            }
+            TsValue* res = ih_iter_next(src);
+            if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
+            TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(++cnt);
+            void* mraw = ts_value_get_object(mapped); if (!mraw) mraw = mapped;
+            TsValue* itf = ts_object_get_property(mraw, "[Symbol.iterator]");
+            if (itf && ts_is_callable((void*)itf)) {
+                ih_set(it, "__ihinner", nanbox_to_tagged(ts_function_call_with_this(itf, mapped, 0, nullptr)));
+            } else {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "flatMap callback did not return an iterable"));
+                return ih_make_result(nullptr, true);
+            }
+        }
+    }
+    setDone(); return ih_make_result(nullptr, true);
+}
+static TsMap* g_iter_helper_prototype = nullptr;
+static TsMap* getIterHelperPrototype() {
+    if (!g_iter_helper_prototype) {
+        ts_gc_push_tenure();
+        TsMap* p = TsMap::Create();
+        ts_map_addMethod_local(p, "next", (void*)iter_helper_proto_next, 0);
+        p->SetPrototype(getIteratorPrototype());
+        TsValue tk; tk.type = ValueType::STRING_PTR; tk.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tv; tv.type = ValueType::STRING_PTR; tv.ptr_val = TsString::Create("Iterator Helper");
+        p->SetWithAttrs(tk, tv, TsHashTable::ATTR_CONFIGURABLE);
+        g_iter_helper_prototype = p;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_iter_helper_prototype);
+    }
+    return g_iter_helper_prototype;
+}
+static TsValue* iter_map_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    return make_iter_helper(0, it, fn, 0);
+}
+static TsValue* iter_filter_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    return make_iter_helper(1, it, fn, 0);
+}
+static TsValue* iter_take_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    double n = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : (double)(0.0/1.0*0.0/1.0);
+    if (n != n) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is NaN")); return ts_value_make_undefined(); }
+    if (n < 0) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is negative")); return ts_value_make_undefined(); }
+    return make_iter_helper(2, it, nullptr, n);
+}
+static TsValue* iter_drop_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    double n = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : (double)(0.0/1.0*0.0/1.0);
+    if (n != n) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is NaN")); return ts_value_make_undefined(); }
+    if (n < 0) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is negative")); return ts_value_make_undefined(); }
+    return make_iter_helper(3, it, nullptr, n);
+}
+static TsValue* iter_flatMap_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    return make_iter_helper(4, it, fn, 0);
+}
+
 // ECMA-262 27.1.2 %IteratorPrototype% — the root every built-in iterator
 // prototype inherits from. It owns `[Symbol.iterator]() { return this }` and the
 // (proposal) iterator-helper methods; the per-kind prototypes (%ArrayIteratorPrototype%
@@ -1292,6 +1441,11 @@ TsMap* getIteratorPrototype() {
         ts_map_addMethod_local(proto, "every",   (void*)iter_every_native, 1);
         ts_map_addMethod_local(proto, "find",    (void*)iter_find_native, 1);
         ts_map_addMethod_local(proto, "reduce",  (void*)iter_reduce_native, 1);
+        ts_map_addMethod_local(proto, "map",     (void*)iter_map_native, 1);
+        ts_map_addMethod_local(proto, "filter",  (void*)iter_filter_native, 1);
+        ts_map_addMethod_local(proto, "take",    (void*)iter_take_native, 1);
+        ts_map_addMethod_local(proto, "drop",    (void*)iter_drop_native, 1);
+        ts_map_addMethod_local(proto, "flatMap", (void*)iter_flatMap_native, 1);
         g_iterator_prototype = proto;
         ts_gc_pop_tenure();
         ts_gc_register_root((void**)&g_iterator_prototype);
