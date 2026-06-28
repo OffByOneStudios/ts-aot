@@ -991,21 +991,13 @@ TsArray* TsArray::With(int64_t index, int64_t value) {
     // Normalize index (negative indices count from end)
     if (index < 0) index = length + index;
 
-    // Out of bounds throws RangeError in JS, but we'll return a copy unchanged
+    // ECMA-262 23.1.3.39 Array.prototype.with step 5: a normalized index that is
+    // out of range (>= len or < 0) throws a RangeError. No std::containers are live
+    // in this frame, so the ts_throw longjmp unwinds cleanly.
     if (index < 0 || index >= (int64_t)length) {
-        TsArray* result;
-        if (isSpecialized) {
-            result = TsArray::CreateSpecialized(length, elementSize, isDouble);
-            std::memcpy(result->elements, elements, length * elementSize);
-            ts_gc_write_barrier_range(result->elements, length * elementSize);
-        } else {
-            result = TsArray::Create(length);
-            int64_t* srcElems = (int64_t*)elements;
-            for (size_t i = 0; i < length; ++i) {
-                result->Push(srcElems[i]);
-            }
-        }
-        return result;
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid index : Array.prototype.with index is out of range"));
+        return nullptr;  // unreachable
     }
 
     TsArray* result;
