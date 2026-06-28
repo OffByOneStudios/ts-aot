@@ -2540,6 +2540,21 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Symbol key: the string/TsMap fast paths below would ToUtf8 / STRING_PTR-hash
+        // the symbol (-> crash for a description-less symbol, and never matches the
+        // symbol-keyed storage, which lives in a side-map). Route through
+        // getOwnPropertyDescriptor, which resolves symbol-keyed own properties
+        // correctly (the same path the Object.hasOwn native wrapper and
+        // Object.prototype.hasOwnProperty use).
+        {
+            void* propRawSym = ts_nanbox_safe_unbox(prop);
+            if (propRawSym && *(uint32_t*)propRawSym == 0x53594D42 /* TsSymbol "SYMB" */) {
+                extern TsValue* ts_object_getOwnPropertyDescriptor(TsValue*, TsValue*);
+                TsValue* desc = ts_object_getOwnPropertyDescriptor(obj, prop);
+                return desc != nullptr && !ts_value_is_undefined(desc);
+            }
+        }
+
         // Check for flat object first
         uint32_t magic0 = *(uint32_t*)rawPtr;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
