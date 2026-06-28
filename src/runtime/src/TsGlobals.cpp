@@ -1408,7 +1408,11 @@ static double ts_number_value_or_throw(void* ctx, const char* method) {
         if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
         if (nanbox_is_double(nb)) return nanbox_to_double(nb);
         void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
-        if (raw) {
+        // A boolean/null/undefined receiver is a small special nanbox (e.g. true=0x06),
+        // not a heap pointer: `raw` is non-null but `*(raw+16)` faults. Guard the
+        // offset-16 magic read with a safe heap-pointer range check.
+        uintptr_t rp = (uintptr_t)raw;
+        if (rp >= 0x1000 && rp <= 0x00007FFFFFFFFFFFULL) {
             uint32_t m16 = *(uint32_t*)((char*)raw + 16);
             if (m16 == 0x4D415053) {  // TsMap — only valid if it carries [[NumberData]]
                 TsMap* obj = (TsMap*)raw;
