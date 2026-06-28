@@ -283,6 +283,9 @@ extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
         return ts_value_make_undefined();
     });
     TsFunction* revokeFunc = new (ts_alloc(sizeof(TsFunction))) TsFunction(revokeFuncAddr, ctx, FunctionType::COMPILED);
+    // The revoke trampoline reads its [[RevocableProxy]] from `context`; a
+    // method-style `r.revoke()` must NOT override that with `this`.
+    revokeFunc->keep_context = true;
 
     TsValue revokeFuncVal;
     revokeFuncVal.type = ValueType::FUNCTION_PTR;

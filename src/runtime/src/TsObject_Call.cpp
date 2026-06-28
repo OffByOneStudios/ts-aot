@@ -266,7 +266,7 @@ extern "C" {
     // would corrupt the trampoline's read of the method pointer).
     static inline void* maybe_override_context(TsFunction* func, TsValue* thisArg) {
         void* savedCtx = func->context;
-        if (func->funcPtr != (void*)flat_bound_method_trampoline) {
+        if (func->funcPtr != (void*)flat_bound_method_trampoline && !func->keep_context) {
             func->context = thisArg;
         }
         return savedCtx;
