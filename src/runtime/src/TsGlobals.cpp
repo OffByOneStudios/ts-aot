@@ -1495,8 +1495,16 @@ void* ts_get_global_Number() {
         auto numProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toString");
-            int64_t radix = (argc >= 1 && argv && argv[0])
-                ? ts_value_get_int(argv[0]) : 10;
+            int64_t radix = 10;  // ECMA-262 21.1.3.6: radix undefined -> 10
+            if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+                radix = ts_value_get_int(argv[0]);  // ToIntegerOrInfinity (truncates)
+            }
+            // radix must be an integer in [2, 36], else RangeError.
+            if (radix < 2 || radix > 36) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Number.prototype.toString() radix must be an integer between 2 and 36"));
+                return ts_value_make_undefined();
+            }
             return ts_value_make_string((TsString*)ts_number_to_string(d, radix));
         };
         auto numProtoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
