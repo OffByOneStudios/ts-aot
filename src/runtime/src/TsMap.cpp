@@ -352,11 +352,18 @@ void ts_map_init_inplace(void* mem) {
 // Currently handles TsArray-of-TsArrays iterables (the common test262 case).
 void* ts_map_create_from_iterable(TsValue* iterable) {
     extern void* ts_map_create_explicit();
+    extern void* ts_error_create_typed(const char* type, const char* message);
     void* map = ts_map_create_explicit();
     if (!iterable) return map;
     uint64_t nb = (uint64_t)(uintptr_t)iterable;
-    if (nb <= NANBOX_UNDEFINED) return map;
-    if (!nanbox_is_ptr(nb)) return map;
+    if (nb <= NANBOX_UNDEFINED) return map;  // null / undefined → empty map (no throw)
+    // A non-pointer primitive (number/boolean) is not iterable: new Map(5) must
+    // throw a TypeError (ECMA-262 24.1.1.1 GetIterator), not silently return empty.
+    if (!nanbox_is_ptr(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "object is not iterable (cannot read property Symbol(Symbol.iterator))"));
+        return map;  // unreachable
+    }
     void* raw = nanbox_to_ptr(nb);
     if (!raw) return map;
     void* unboxed = ts_value_get_object(iterable);
