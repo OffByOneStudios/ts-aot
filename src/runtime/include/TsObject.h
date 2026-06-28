@@ -170,6 +170,12 @@ public:
     // false. Used by ~3000 tests in the "*-emulates-undefined" pattern
     // to model legacy DOM document.all behavior.
     bool is_htmldda = false;
+    // When true, a method-style call must NOT override `context` with `this`
+    // (maybe_override_context). Set for closures that carry an internal slot in
+    // their captured context — e.g. the Proxy.revocable revoke function, whose
+    // context holds the [[RevocableProxy]]; overriding it with `this` (the result
+    // object) made the revoke trampoline dereference a non-RevokeContext -> crash.
+    bool keep_context = false;
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED, int a = -1)
         : funcPtr(fp), context(ctx), type(t), arity(a) {
         magic = MAGIC;
