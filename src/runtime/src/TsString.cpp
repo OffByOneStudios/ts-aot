@@ -2380,6 +2380,44 @@ extern "C" {
         return -1;
     }
 
+    // ECMA-262 Decode (19.2.6.x): validate a percent-encoded URI string.
+    // Every '%' must be followed by two hex digits, and a %-decoded byte >= 0x80
+    // must begin a well-formed (non-overlong, non-surrogate, in-range) UTF-8
+    // sequence built from further %XX escapes. Throws URIError otherwise.
+    // std::string-free so the ts_throw longjmp unwinds cleanly.
+    static void validate_uri_escapes(const char* utf8) {
+        auto bad = []() {
+            ts_throw((TsValue*)ts_error_create_typed("URIError", "URI malformed"));
+        };
+        for (const char* p = utf8; *p; ) {
+            if (*p != '%') { ++p; continue; }
+            int hi = p[1] ? hexDigit(p[1]) : -1;
+            int lo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
+            if (hi < 0 || lo < 0) { bad(); return; }
+            int b0 = (hi << 4) | lo;
+            p += 3;
+            if (b0 < 0x80) continue;                 // ASCII byte
+            int n, cp;
+            if ((b0 & 0xE0) == 0xC0) { n = 1; cp = b0 & 0x1F; }
+            else if ((b0 & 0xF0) == 0xE0) { n = 2; cp = b0 & 0x0F; }
+            else if ((b0 & 0xF8) == 0xF0) { n = 3; cp = b0 & 0x07; }
+            else { bad(); return; }                  // invalid lead byte
+            for (int k = 0; k < n; k++) {
+                if (*p != '%') { bad(); return; }    // continuation must be %XX
+                int chi = p[1] ? hexDigit(p[1]) : -1;
+                int clo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
+                if (chi < 0 || clo < 0) { bad(); return; }
+                int bc = (chi << 4) | clo;
+                if ((bc & 0xC0) != 0x80) { bad(); return; }  // not a continuation
+                cp = (cp << 6) | (bc & 0x3F);
+                p += 3;
+            }
+            if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) { bad(); return; }
+            if ((n == 1 && cp < 0x80) || (n == 2 && cp < 0x800) ||
+                (n == 3 && cp < 0x10000)) { bad(); return; }  // overlong
+        }
+    }
+
     void* ts_encode_uri_component(void* str) {
         if (!str) return TsString::GetInterned("undefined");
         // ToString-coerce: handle NaN-boxed primitives. ts_ensure_flat
@@ -2421,19 +2459,9 @@ extern "C" {
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
-        // ECMA-262 19.2.6.5: every '%' must be followed by two hex digits, else
-        // URIError. Validate first, in this std::string-free scope, so the
-        // ts_throw longjmp does not unwind through the std::string below.
-        for (const char* p = utf8; *p; ++p) {
-            if (*p == '%') {
-                int hi = p[1] ? hexDigit(p[1]) : -1;
-                int lo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
-                if (hi < 0 || lo < 0) {
-                    ts_throw((TsValue*)ts_error_create_typed("URIError", "URI malformed"));
-                    return TsString::GetInterned("");  // unreachable
-                }
-            }
-        }
+        // ECMA-262 19.2.6.5: malformed % escapes and ill-formed UTF-8 -> URIError.
+        // Validated in a std::string-free scope so the longjmp is safe.
+        validate_uri_escapes(utf8);
 
         std::string result;
         for (const char* p = utf8; *p; ++p) {
@@ -2480,18 +2508,10 @@ extern "C" {
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
-        // ECMA-262 19.2.6.4: malformed '%' escape -> URIError. Validate first in
-        // this std::string-free scope (longjmp must not unwind through std::string).
-        for (const char* p = utf8; *p; ++p) {
-            if (*p == '%') {
-                int hi = p[1] ? hexDigit(p[1]) : -1;
-                int lo = (p[1] && p[2]) ? hexDigit(p[2]) : -1;
-                if (hi < 0 || lo < 0) {
-                    ts_throw((TsValue*)ts_error_create_typed("URIError", "URI malformed"));
-                    return TsString::GetInterned("");  // unreachable
-                }
-            }
-        }
+        // ECMA-262 19.2.6.4: malformed % escapes and ill-formed UTF-8 -> URIError.
+        // Reserved characters decode to ASCII bytes (< 0x80), so the UTF-8 check
+        // does not affect them. std::string-free scope -> safe longjmp.
+        validate_uri_escapes(utf8);
 
         std::string result;
         for (const char* p = utf8; *p; ++p) {
