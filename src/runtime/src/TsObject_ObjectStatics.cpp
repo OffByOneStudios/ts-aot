@@ -1416,6 +1416,27 @@ extern "C" {
                                         return ts_value_make_undefined();
                                     }
                                 }
+                                // ECMA-262 10.4.2.4 ArraySetLength: reducing
+                                // length deletes elements top-down; a
+                                // non-configurable element cannot be deleted —
+                                // length stops just above it and a TypeError is
+                                // thrown. Scan from the top: the first
+                                // non-configurable index found is the highest.
+                                if ((size_t)u < arr->Length()) {
+                                    for (size_t i = arr->Length(); i > (size_t)u; ) {
+                                        --i;
+                                        uint8_t ea;
+                                        if (array_index_attrs_get(arr, i, &ea) &&
+                                            !(ea & 0x04 /*ATTR_CONFIGURABLE*/)) {
+                                            arr->SetLength(i + 1);
+                                            ts_throw((TsValue*)ts_error_create_typed(
+                                                "TypeError",
+                                                "Cannot delete non-configurable array "
+                                                "element while shrinking length"));
+                                            return ts_value_make_undefined();
+                                        }
+                                    }
+                                }
                                 arr->SetLength((size_t)u);
                                 return obj;
                             }
