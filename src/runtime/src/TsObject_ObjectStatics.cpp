@@ -1918,6 +1918,52 @@ extern "C" {
             return ts_value_make_undefined();
         }
 
+        // ECMA-262 10.1.6.3 ValidateAndApplyPropertyDescriptor: a
+        // non-configurable existing property rejects (TypeError) a change of
+        // KIND (data<->accessor) and any change to an accessor's [[Get]]/
+        // [[Set]]. This MUST run before the get/set storage below, which would
+        // otherwise mutate the accessor as a side effect even when rejected.
+        {
+            TsValue exPropKey; exPropKey.type = ValueType::STRING_PTR; exPropKey.ptr_val = propStr;
+            if (map->Has(exPropKey) && !(map->GetPropertyAttrs(exPropKey) & 0x04 /*ATTR_CONFIGURABLE*/)) {
+                TsValue exGk; exGk.type = ValueType::STRING_PTR;
+                exGk.ptr_val = TsString::GetInterned((std::string("__getter_") + propName).c_str());
+                TsValue exSk; exSk.type = ValueType::STRING_PTR;
+                exSk.ptr_val = TsString::GetInterned((std::string("__setter_") + propName).c_str());
+                bool existingIsAccessor = map->Has(exGk) || map->Has(exSk);
+                TsValue gKx; gKx.type = ValueType::STRING_PTR; gKx.ptr_val = TsString::GetInterned("get");
+                TsValue sKx; sKx.type = ValueType::STRING_PTR; sKx.ptr_val = TsString::GetInterned("set");
+                TsValue vKx; vKx.type = ValueType::STRING_PTR; vKx.ptr_val = TsString::GetInterned("value");
+                TsValue wKx; wKx.type = ValueType::STRING_PTR; wKx.ptr_val = TsString::GetInterned("writable");
+                bool newHasGet = descMap->Has(gKx), newHasSet = descMap->Has(sKx);
+                bool newIsAccessor = newHasGet || newHasSet;
+                bool newIsData = descMap->Has(vKx) || descMap->Has(wKx);
+                bool reject = false;
+                if (existingIsAccessor) {
+                    if (newIsData) reject = true;                 // accessor -> data
+                    else {
+                        if (newHasGet) {                          // accessor -> accessor: [[Get]] must match
+                            TsValue ng = descMap->Get(gKx);
+                            TsValue eg = map->Has(exGk) ? map->Get(exGk) : TsValue();
+                            if (!(ng.type == eg.type && ng.i_val == eg.i_val)) reject = true;
+                        }
+                        if (newHasSet) {                          // [[Set]] must match
+                            TsValue ns = descMap->Get(sKx);
+                            TsValue es = map->Has(exSk) ? map->Get(exSk) : TsValue();
+                            if (!(ns.type == es.type && ns.i_val == es.i_val)) reject = true;
+                        }
+                    }
+                } else if (newIsAccessor) {
+                    reject = true;                                // data -> accessor
+                }
+                if (reject) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot redefine property: non-configurable (kind change)"));
+                    return ts_value_make_undefined();
+                }
+            }
+        }
+
         // Check for getter
         TsValue getKey;
         getKey.type = ValueType::STRING_PTR;
@@ -2410,6 +2456,34 @@ extern "C" {
                 }
                 // Named property in side map
                 if (arr->properties) {
+                    // Accessor (__getter_/__setter_<key>) installed via
+                    // Object.defineProperty(arr, "x", {get/set}) — report a
+                    // {get, set, enumerable, configurable} accessor descriptor.
+                    const char* propC = keyStr ? keyStr->ToUtf8() : nullptr;
+                    if (propC) {
+                        TsValue agk; agk.type = ValueType::STRING_PTR;
+                        agk.ptr_val = TsString::GetInterned((std::string("__getter_") + propC).c_str());
+                        TsValue ask; ask.type = ValueType::STRING_PTR;
+                        ask.ptr_val = TsString::GetInterned((std::string("__setter_") + propC).c_str());
+                        bool hg = arr->properties->Has(agk), hs = arr->properties->Has(ask);
+                        if (hg || hs) {
+                            TsMap* desc = TsMap::Create();
+                            TsValue undef; undef.type = ValueType::UNDEFINED; undef.i_val = 0;
+                            TsValue getK; getK.type = ValueType::STRING_PTR; getK.ptr_val = TsString::GetInterned("get");
+                            TsValue setK; setK.type = ValueType::STRING_PTR; setK.ptr_val = TsString::GetInterned("set");
+                            desc->Set(getK, hg ? arr->properties->Get(agk) : undef);
+                            desc->Set(setK, hs ? arr->properties->Get(ask) : undef);
+                            TsValue pk; pk.type = ValueType::STRING_PTR; pk.ptr_val = keyStr;
+                            uint8_t a = arr->properties->Has(pk) ? arr->properties->GetPropertyAttrs(pk)
+                                      : (hg ? arr->properties->GetPropertyAttrs(agk)
+                                            : arr->properties->GetPropertyAttrs(ask));
+                            TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("enumerable");
+                            TsValue ev; ev.type = ValueType::BOOLEAN; ev.i_val = (a & 0x01) ? 1 : 0; desc->Set(ek, ev);
+                            TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("configurable");
+                            TsValue cv; cv.type = ValueType::BOOLEAN; cv.i_val = (a & 0x04) ? 1 : 0; desc->Set(ck, cv);
+                            return ts_value_make_object(desc);
+                        }
+                    }
                     TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = keyStr;
                     if (arr->properties->Has(k)) {
                         TsValue v = arr->properties->Get(k);
