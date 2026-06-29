@@ -181,6 +181,11 @@ private:
     void popLexicalScope();
     // Returns false if redeclaration conflict. Emits error if conflict.
     bool declareLexicalName(const std::string& name, PDeclKind kind);
+    // Pre-declare a function's formal parameters as Var in the just-pushed body
+    // lexical scope so a body let/const with a param's name is a redeclaration
+    // error (ECMA-262 14.1.2/14.2), while body var/function stays legal.
+    void predeclareFormalParamsAsVar(
+        const std::vector<std::unique_ptr<ast::Parameter>>& params);
 
     // --- Data ---
     std::unique_ptr<Lexer> lexer_;
