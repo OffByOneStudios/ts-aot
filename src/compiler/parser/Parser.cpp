@@ -3170,7 +3170,12 @@ ast::StmtPtr Parser::parseIfStatement() {
         node->thenStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
         popLexicalScope();
     } else {
+        // Non-direct-function body: a labelled function here is forbidden
+        // (IsLabelledFunction early error), though a direct function above is OK.
+        bool prevLBF = labelBodyForbidsFunction_;
+        labelBodyForbidsFunction_ = true;
         node->thenStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
+        labelBodyForbidsFunction_ = prevLBF;
     }
 
     if (match(TokenKind::KW_else)) {
@@ -3179,7 +3184,10 @@ ast::StmtPtr Parser::parseIfStatement() {
             node->elseStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
             popLexicalScope();
         } else {
+            bool prevLBF = labelBodyForbidsFunction_;
+            labelBodyForbidsFunction_ = true;
             node->elseStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
+            labelBodyForbidsFunction_ = prevLBF;
         }
     }
 
@@ -3907,10 +3915,15 @@ ast::StmtPtr Parser::parseBlockStatement() {
     setLocation(node.get(), startTok);
 
     pushLexicalScope();
+    // A block is a StatementList position: labelled functions inside it are fine
+    // even when the block is the body of an if/loop (`if (x) { L: function f(){} }`).
+    bool prevLBF = labelBodyForbidsFunction_;
+    labelBodyForbidsFunction_ = false;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (stmt) node->statements.push_back(std::move(stmt));
     }
+    labelBodyForbidsFunction_ = prevLBF;
     popLexicalScope();
     expect(TokenKind::CloseBrace, "'}'");
 
@@ -4098,7 +4111,7 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
             node->label = decodedName;
-            bool allowAnnexB = (iterationDepth_ == 0);
+            bool allowAnnexB = (iterationDepth_ == 0 && !labelBodyForbidsFunction_);
             // ECMA-262 14.13 / 14.14: push label so `break LABEL` /
             // `continue LABEL` can verify LABEL is in scope. We don't yet
             // know whether the labelled statement is an IterationStatement

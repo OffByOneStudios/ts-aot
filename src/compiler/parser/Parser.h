@@ -225,6 +225,12 @@ private:
     // the CoverInitializedName check and lets it propagate up to the enclosing
     // value context, which decides whether refinement legitimizes it.
     bool inCoverCandidate_ = false;
+    // True while parsing an if/else body (a lone-statement position). ECMA-262
+    // 14.6.1: IsLabelledFunction(Statement) of an if/else body is a Syntax Error,
+    // so a labelled FunctionDeclaration there (`if (x) L: function f(){}`) is
+    // rejected — a *direct* `if (x) function f(){}` (Annex B.3.4) still parses.
+    // Propagated through a contiguous label chain; reset on entering a block.
+    bool labelBodyForbidsFunction_ = false;
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
