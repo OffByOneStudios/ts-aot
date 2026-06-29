@@ -6,6 +6,7 @@
 #include "TsObject.h"
 #include "TsDate.h"
 #include "TsRegExp.h"
+#include "TsProxy.h"
 #include "TsClosure.h"
 #include "TsFlatObject.h"
 #include "TsTyped.h"
@@ -69,6 +70,12 @@ static TsValue json_to_ts(const json& j) {
     return TsValue(nullptr);
 }
 
+// Signals a revoked Proxy encountered during serialization. Thrown as a C++
+// exception (safe through the nlohmann/std frames), converted to a JS TypeError
+// by ts_json_stringify's catch (a ts_throw from inside the recursion would
+// longjmp through std-object frames and corrupt the unwinder).
+struct JsonRevokedProxyError {};
+
 static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited);
 
 static nlohmann::ordered_json ts_value_to_json(TsValue v, std::set<void*>& visited) {
@@ -126,6 +133,16 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
     uint32_t magic_offset16 = 0;
     if ((uintptr_t)p > 0x1000) {
         magic_offset16 = *(uint32_t*)((char*)p + 16);
+    }
+
+    // A revoked Proxy crashes when its traps deref the null target. ECMA-262
+    // requires JSON.stringify to throw a TypeError on it. We can't ts_throw
+    // (longjmp) from here — this frame holds nlohmann/std objects — so signal
+    // via a C++ exception that ts_json_stringify converts to a JS TypeError.
+    if (magic_offset16 == 0x4D415053) {  // TsMap (Proxy is a TsMap subclass, vtable)
+        if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)p)) {
+            if (px->revoked) throw JsonRevokedProxyError{};
+        }
     }
 
     if (magic == TsString::MAGIC) {
@@ -364,6 +381,13 @@ extern "C" {
 
             std::string s = (indent >= 0) ? j.dump(indent) : j.dump();
             return TsString::Create(s.c_str());
+        } catch (const JsonRevokedProxyError&) {
+            // The C++ exception unwound the nlohmann/std frames; this catch
+            // frame is clean, so the ts_throw longjmp is safe here.
+            extern void* ts_error_create_typed(const char* type, const char* message);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot serialize a revoked Proxy with JSON.stringify"));
+            return TsString::Create("null");  // unreachable
         } catch (...) {
             return TsString::Create("null");
         }
