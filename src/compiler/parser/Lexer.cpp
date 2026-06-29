@@ -409,10 +409,13 @@ void Lexer::skipWhitespaceAndComments() {
             // contains a LineTerminator, the whole comment is treated as
             // a LineTerminator for ASI purposes — set hadNewline_ on
             // \n, \r, AND U+2028/U+2029 (the non-ASCII line terminators).
+            int commentLine = line_, commentCol = column_;
             advance(); advance(); // skip /*
+            bool closed = false;
             while (!isAtEnd()) {
                 if (peek() == '*' && peekAt(1) == '/') {
                     advance(); advance(); // skip */
+                    closed = true;
                     break;
                 }
                 if (peek() == '\n' || peek() == '\r') {
@@ -430,6 +433,15 @@ void Lexer::skipWhitespaceAndComments() {
                     }
                 }
                 advance();
+            }
+            // ECMA-262 12.4: a MultiLineComment must be closed with `*/`; reaching
+            // end of input first is a SyntaxError (`/*CHECK#1/` with no `*/`).
+            if (!closed) {
+                char buf[128];
+                snprintf(buf, sizeof(buf),
+                         "%d:%d: SyntaxError: unterminated multi-line comment",
+                         commentLine, commentCol);
+                throw std::runtime_error(buf);
             }
         } else if (c == '#' && pos_ == 0 && peekAt(1) == '!') {
             // Hashbang: #! at start of file. Terminated by any LineTerminator
