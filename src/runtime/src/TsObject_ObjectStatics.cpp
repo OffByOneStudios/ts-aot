@@ -2191,6 +2191,19 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // A String/Symbol primitive is pointer-shaped but NOT an Object —
+        // ECMA-262 20.1.2.3 step 1 requires Type(O) is Object, else TypeError
+        // (Object.defineProperties("abc", {}) must throw). The nanbox_is_ptr
+        // gate above only catches number/bool/null/undefined.
+        if (rawPtr && (uintptr_t)rawPtr > 0x1000) {
+            uint32_t m0p = *(uint32_t*)rawPtr;
+            if (m0p == 0x53545247 /*TsString STRG*/ || m0p == 0x53594D42 /*TsSymbol SYMB*/) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Object.defineProperties called on non-object"));
+                return obj;  // unreachable
+            }
+        }
+
         // Convert flat objects to TsMap
         if (is_flat_object(rawPtr)) {
             rawPtr = ts_flat_object_to_map(rawPtr);
