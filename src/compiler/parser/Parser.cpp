@@ -4042,6 +4042,17 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             // isIteration=true. The iterationDepth_ tracking in
             // parseContinueStatement still catches `continue` outside loops.
             // (A future refinement could detect iteration-form lookahead.)
+            // ECMA-262 14.13.1: a LabelledStatement's label may not duplicate an
+            // enclosing label in the same LabelSet — `x: x: 0;` is a SyntaxError.
+            // (Sequential reuse `x: a; x: b;` is fine — the outer label has been
+            // popped by then.)
+            for (auto& al : activeLabels_) {
+                if (al.name == decodedName) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: label '{}' has already been declared",
+                        fileName_, line, decodedName));
+                }
+            }
             activeLabels_.push_back({decodedName, true});
             try {
                 node->statement = parseStatementOnly(allowAnnexB);
