@@ -830,6 +830,15 @@ extern "C" {
     }
 
     void* ts_array_create_sized(int64_t size) {
+        // ECMA-262 23.1.1.1: `new Array(len)` with a length that isn't a valid
+        // uint32 (negative or > 2^32-1) is a RangeError. The typed-number
+        // `new Array(n)` path lowers straight here (bypassing ts_array_constructor),
+        // so without this a huge len (e.g. the array-like length 2^32 the spec
+        // wants rejected) created a giant array and map/filter iterated it forever.
+        if (size < 0 || size > 4294967295LL) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError", "Invalid array length"));
+            return TsArray::CreateSized(0);  // unreachable
+        }
         return TsArray::CreateSized((size_t)size);
     }
 
@@ -3707,23 +3716,23 @@ extern "C" {
 
         uint64_t nb = (uint64_t)(uintptr_t)arg;
 
-        // Check if arg is a number
+        // Single Number arg = the array length. ECMA-262 23.1.1.1: it must be a
+        // valid array length — ToUint32(len) === len, i.e. a non-negative integer
+        // <= 2^32-1 — otherwise throw RangeError (NOT a single element). Without
+        // this, `new Array(2**32)` returned a 2^32-length array and a subsequent
+        // map/filter/splice over it iterated ~4 billion times (execution timeout).
         if (nanbox_is_int32(nb)) {
             int64_t n = nanbox_to_int64(nb);
-            if (n >= 0) return TsArray::CreateSized((size_t)n);
-            // Negative: treat as single element
-            TsArray* arr = TsArray::Create(1);
-            arr->Push((int64_t)arg);
-            return arr;
+            if (n >= 0) return TsArray::CreateSized((size_t)n);  // int32 >=0 is always a valid uint32 length
+            ts_throw((TsValue*)ts_error_create_typed("RangeError", "Invalid array length"));
+            return TsArray::Create(0);  // unreachable
         }
         if (nanbox_is_double(nb)) {
             double d = nanbox_to_double(nb);
-            int64_t n = (int64_t)d;
-            if (d == (double)n && n >= 0) return TsArray::CreateSized((size_t)n);
-            // Non-integer or negative: single element
-            TsArray* arr = TsArray::Create(1);
-            arr->Push((int64_t)arg);
-            return arr;
+            if (d >= 0.0 && d <= 4294967295.0 && d == (double)(uint32_t)d)
+                return TsArray::CreateSized((size_t)d);
+            ts_throw((TsValue*)ts_error_create_typed("RangeError", "Invalid array length"));
+            return TsArray::Create(0);  // unreachable
         }
 
         // Non-number: create array with arg as single element
