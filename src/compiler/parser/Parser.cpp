@@ -437,15 +437,12 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
         return;
     }
 
-    // CallExpression: the spec strictly forbids it as
-    // SimpleAssignmentTarget, but legacy non-strict code (and many
-    // browsers) tolerate it; we follow tsc's behavior and accept it
-    // at parse time. Downstream type-check would catch real errors.
-    if (dynamic_cast<const ast::CallExpression*>(expr)) return;
-
-    // Everything else is invalid: literals, arrow / function /
-    // class expressions, binary / conditional / unary / new /
-    // await / yield / spread / template / super.
+    // Everything else is an invalid assignment target. ECMA-262 13.15.1 gives a
+    // CallExpression AssignmentTargetType = invalid, so `f() = 1` / `f() += 1` is
+    // a SyntaxError — both V8 and tsc (TS2364) reject it. Likewise literals,
+    // arrow / function / class expressions, binary / conditional / unary / new /
+    // await / yield / spread / template / super. (A member access ON a call,
+    // `f().x = 1`, is a PropertyAccessExpression and was accepted above.)
     throw std::runtime_error(fmt::format(
         "{}:{}: SyntaxError: invalid assignment target",
         expr->line, expr->column));
