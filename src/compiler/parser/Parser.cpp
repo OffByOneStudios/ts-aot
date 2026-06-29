@@ -322,6 +322,16 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
     // Object/Array literals — valid only as destructuring targets,
     // and only for plain `=` (not `+=` etc.).
     if (auto* arr = dynamic_cast<const ast::ArrayLiteralExpression*>(expr)) {
+        // ECMA-262 13.15.1: a directly-parenthesized array/object literal has
+        // AssignmentTargetType ~invalid~ — `([a]) = x` / `({}) = 1` are
+        // SyntaxErrors (the parens prevent refinement to a destructuring
+        // pattern). `[a] = x` is fine (not parenthesized); `(x) = 1` is fine
+        // (Identifier branch, doesn't reach here).
+        if (arr->parenthesized) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: a parenthesized destructuring pattern is "
+                "not a valid assignment target", expr->line, expr->column));
+        }
         if (forCompoundAssign) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
@@ -372,6 +382,15 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
         return;
     }
     if (auto* obj = dynamic_cast<const ast::ObjectLiteralExpression*>(expr)) {
+        // See array branch: a parenthesized object literal cannot be refined to
+        // an ObjectAssignmentPattern — `({}) = 1` / `({a}) = x` are SyntaxErrors.
+        // (`({a} = x)` is fine: there the parens wrap the assignment, so the
+        // object node itself is not marked parenthesized.)
+        if (obj->parenthesized) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: a parenthesized destructuring pattern is "
+                "not a valid assignment target", expr->line, expr->column));
+        }
         if (forCompoundAssign) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
