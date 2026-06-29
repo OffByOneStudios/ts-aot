@@ -131,6 +131,21 @@ void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
         }
     }
 
+    // Untyped-JS (sloppy) only: an assignment to an undeclared identifier is the
+    // assignment TARGET — in sloppy mode it creates an implicit global, it is NOT
+    // an unresolved read. Define it BEFORE visiting the LHS so visitIdentifier
+    // doesn't flag it isUnresolvedReference (which makes codegen drop the store).
+    // Without this, `for (i = 0; i <= 1; i++) {}` lowered the whole loop to no IR
+    // -> an unconditional branch to the body -> infinite loop. Gated on the
+    // untyped/permissive profile so .ts keeps its "Undefined variable" diagnostic.
+    if (activeOptions.autoDefineUndefinedIdents || activeOptions.suppressErrors) {
+        if (auto* id = dynamic_cast<Identifier*>(node->left.get())) {
+            if (!symbols.lookup(id->name) && !symbols.lookupType(id->name)) {
+                symbols.define(id->name, std::make_shared<Type>(TypeKind::Any));
+            }
+        }
+    }
+
     visit(node->left.get());
     visit(node->right.get());
 }
