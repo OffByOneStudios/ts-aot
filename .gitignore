@@ -50,6 +50,7 @@ CMakeUserPresets.json
 *.obj
 *.lib
 *.exe
+*.dll
 *.exp
 *.recipe
 *.tlog/
