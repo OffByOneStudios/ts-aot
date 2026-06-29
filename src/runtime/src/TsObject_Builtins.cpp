@@ -98,6 +98,18 @@ extern "C" {
         }
         return ts_value_make_int(la < lb ? -1 : (la > lb ? 1 : 0));
     }
+    // isWellFormed / toWellFormed (ES2024) — also STRING_PROTO_METHODs missing
+    // from the string get dispatch, so they recursed forever (crash).
+    TsValue* ts_string_isWellFormed_native(void* ctx, int argc, TsValue** argv) {
+        extern bool ts_string_isWellFormed(void* str);
+        if (!ctx) ctx = ts_get_call_this();
+        return ts_value_make_bool(ts_string_isWellFormed((void*)ts_ensure_flat((TsString*)ctx)));
+    }
+    TsValue* ts_string_toWellFormed_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_string_toWellFormed(void* str);
+        if (!ctx) ctx = ts_get_call_this();
+        return ts_value_make_string((TsString*)ts_string_toWellFormed((void*)ts_ensure_flat((TsString*)ctx)));
+    }
 
     // Annex B.2.3: HTML wrapper methods on String.prototype. Each wraps the
     // receiver's ToString with a fixed HTML tag. RequireObjectCoercible

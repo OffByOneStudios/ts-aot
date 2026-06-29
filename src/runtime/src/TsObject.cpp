@@ -2506,6 +2506,9 @@ void* ts_create_arguments_from_params(
             // localeCompare: same recursion-crash class — missing from this
             // dispatch, so the prototype macro re-resolved to itself forever.
             if (strcmp(keyStr, "localeCompare") == 0) { extern TsValue* ts_string_localeCompare_native(void*, int, TsValue**); return makeNamedNativeFunction((void*)ts_string_localeCompare_native, strObj, "localeCompare", 1); }
+            // isWellFormed/toWellFormed (ES2024): same recursion-crash class.
+            if (strcmp(keyStr, "isWellFormed") == 0) { extern TsValue* ts_string_isWellFormed_native(void*, int, TsValue**); return makeNamedNativeFunction((void*)ts_string_isWellFormed_native, strObj, "isWellFormed", 0); }
+            if (strcmp(keyStr, "toWellFormed") == 0) { extern TsValue* ts_string_toWellFormed_native(void*, int, TsValue**); return makeNamedNativeFunction((void*)ts_string_toWellFormed_native, strObj, "toWellFormed", 0); }
             if (strcmp(keyStr, "trim") == 0) return makeNamedNativeFunction((void*)ts_string_trim_native, strObj, "trim", 0);
             if (strcmp(keyStr, "split") == 0) return makeNamedNativeFunction((void*)ts_string_split_native, strObj, "split", 2);
             if (strcmp(keyStr, "replace") == 0) return makeNamedNativeFunction((void*)ts_string_replace_native, strObj, "replace", 2);
