@@ -787,6 +787,27 @@ ast::ExprPtr Parser::parseCallExpression() {
             restoreState(saved);
             break;
         } else if (check(TokenKind::TemplateHead) || check(TokenKind::NoSubstitutionTemplate)) {
+            // ECMA-262 13.3.1.1: a TaggedTemplate's tag may not be an
+            // OptionalChain — `a?.b`tpl`` / `null?.fn`hi`` is a SyntaxError.
+            {
+                std::function<bool(const ast::Node*)> hasOpt =
+                    [&](const ast::Node* n) -> bool {
+                    if (!n) return false;
+                    if (auto* p = dynamic_cast<const ast::PropertyAccessExpression*>(n))
+                        return p->isOptional || hasOpt(p->expression.get());
+                    if (auto* e = dynamic_cast<const ast::ElementAccessExpression*>(n))
+                        return e->isOptional || hasOpt(e->expression.get());
+                    if (auto* c = dynamic_cast<const ast::CallExpression*>(n))
+                        return c->isOptional || hasOpt(c->callee.get());
+                    return false;
+                };
+                if (hasOpt(expr.get())) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: tagged template expression cannot be "
+                        "used in an optional chain",
+                        fileName_, current_.line));
+                }
+            }
             // Tagged template: expr`...`
             expr = parseTaggedTemplate(std::move(expr));
         } else if (check(TokenKind::LessThan)) {
@@ -1739,6 +1760,16 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                         "reference",
                         fileName_, nameLine, name));
                 }
+                // ECMA-262 12.6.1: `yield` is reserved as an IdentifierReference
+                // inside a generator (even in non-strict code), and `await`
+                // inside an async function — so they can't be shorthand values.
+                if ((name == "yield" && inGenerator_) ||
+                    (name == "await" && inAsync_)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' is not a valid IdentifierReference "
+                        "in this context and cannot be a shorthand property",
+                        fileName_, nameLine, name));
+                }
                 auto prop = std::make_unique<ast::ShorthandPropertyAssignment>();
                 setLocation(prop.get(), previous_);
                 prop->name = name;
@@ -1952,6 +1983,19 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     int nameLine = current_.line;
     if (isIdentifierOrKeyword() && !check(TokenKind::OpenParen)) {
         node->name = identifierName();
+        // ECMA-262: a GeneratorExpression's BindingIdentifier is [+Yield] so it
+        // may not be `yield`; an AsyncFunction/AsyncGenerator's is [+Await] so it
+        // may not be `await`. (StringValue check covers escaped forms too.)
+        if (node->isGenerator && node->name == "yield") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'yield' is not a valid binding identifier "
+                "for a generator function", fileName_, nameLine));
+        }
+        if (node->isAsync && node->name == "await") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'await' is not a valid binding identifier "
+                "for an async function", fileName_, nameLine));
+        }
     }
     // ECMA-262 14.1.5.3: BindingIdentifier of FunctionExpression must not
     // be 'eval' or 'arguments' in strict-mode code. The outer strict
