@@ -2212,6 +2212,12 @@ ast::ExprPtr Parser::parseClassExpression() {
                     "be used as a class name in strict mode",
                     fileName_, current_.line, nm));
             }
+            // [+Await] context: `await` is reserved and cannot be a class name.
+            if (nm == "await" && inAsync_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'await' cannot be used as a class name "
+                    "in this context", fileName_, current_.line));
+            }
         }
         node->name = identifierName();
     }
