@@ -1362,11 +1362,15 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
             static const std::unordered_set<std::string> kStrictFRW = {
                 "implements", "interface", "let",    "package",
                 "private",    "protected", "public", "static"};
-            if (kStrictFRW.count(std::string(current_.text))) {
+            // Use the decoded name so an escape-encoded form (`var package`)
+            // is rejected too — an escaped reserved word is still that word.
+            std::string nm = current_.decodedText.empty()
+                ? std::string(current_.text) : current_.decodedText;
+            if (kStrictFRW.count(nm)) {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: SyntaxError: '{}' is a reserved word in strict "
                     "mode and cannot be used as a binding identifier",
-                    fileName_, current_.line, std::string(current_.text)));
+                    fileName_, current_.line, nm));
             }
         }
     }
