@@ -203,6 +203,11 @@ struct Node {
 struct Statement : Node {};
 struct Expression : Node {
     std::shared_ptr<ts::Type> inferredType;
+    // True when this expression was directly wrapped in parentheses in the
+    // source ( `( expr )` ). The parser keeps parens transparent (no wrapper
+    // node), so this flag preserves the one place it still matters for grammar:
+    // the ?? / && / || mixing rule (ECMA-262 13.13).
+    bool parenthesized = false;
 };
 
 // --- Statements ---

@@ -422,6 +422,31 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
         bin->op = tokenToOperator(opTok.kind);
         bin->left = std::move(left);
         bin->right = std::move(right);
+
+        // ECMA-262 13.13: the ?? operator may NOT be combined with && or ||
+        // without parentheses (CoalesceExpression is grammatically separate from
+        // LogicalAND/ORExpression). A parenthesized operand is a
+        // ParenthesizedExpression node, so a raw BinaryExpression operand here was
+        // unparenthesized — e.g. `0 && 0 ?? 1`, `0 ?? 0 && 1`.
+        {
+            auto childOp = [](const ast::Expression* e) -> std::string {
+                if (!e || e->parenthesized) return std::string();  // parens make it legal
+                auto* be = dynamic_cast<const ast::BinaryExpression*>(e);
+                return be ? be->op : std::string();
+            };
+            const std::string& o = bin->op;
+            std::string lo = childOp(bin->left.get());
+            std::string ro = childOp(bin->right.get());
+            bool badMix =
+                (o == "??" && (lo == "&&" || lo == "||" || ro == "&&" || ro == "||")) ||
+                ((o == "&&" || o == "||") && (lo == "??" || ro == "??"));
+            if (badMix) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '??' cannot be mixed with '&&' or '||' "
+                    "without parentheses", fileName_, opTok.line));
+            }
+        }
+
         left = std::move(bin);
     }
 
@@ -1508,7 +1533,10 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     auto expr = parseExpression();
     expect(TokenKind::CloseParen, "')'");
     lexer_->setRegexAllowed(false);
-    // The parenthesized expression is transparent (matching AstLoader behavior)
+    // The parenthesized expression is transparent (matching AstLoader behavior),
+    // but mark it so the ?? / && / || mixing rule can tell `(a && b) ?? c` (legal)
+    // from `a && b ?? c` (SyntaxError).
+    if (expr) expr->parenthesized = true;
     return expr;
 }
 
