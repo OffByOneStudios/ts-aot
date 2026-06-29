@@ -1555,7 +1555,14 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     expect(TokenKind::OpenParen, "'('");
     if (check(TokenKind::CloseParen)) {
         advance();
-        // Empty parens - must be () =>
+        // Empty parens - must be () =>. ECMA-262 14.3: no LineTerminator is
+        // allowed between the ArrowParameters and `=>` (`()` newline `=>` is a
+        // SyntaxError; mirrors the parametrized path's !hadNewlineBefore guard).
+        if (check(TokenKind::Arrow) && current_.hadNewlineBefore) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: no line terminator is allowed before '=>'",
+                fileName_, current_.line));
+        }
         if (check(TokenKind::Arrow)) {
             advance();
             auto arrow = std::make_unique<ast::ArrowFunction>();
