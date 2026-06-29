@@ -17,6 +17,7 @@ extern "C" {
     TsValue* ts_map_get_property(void* obj, void* propName);
     void ts_set_call_this(void* thisArg);
     void* ts_get_call_this();
+    void* getIteratorPrototypeBoxed();  // TsMap.cpp — boxed %IteratorPrototype%
 }
 
 // Async iterator wrapper for arrays - used by for await...of
@@ -69,6 +70,13 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
         return ts_value_make_object(ctx);
     }, this));
     this->Set(TsString::Create("[Symbol.iterator]"), iterFunc);
+
+    // Link the generator's [[Prototype]] to %IteratorPrototype% so it inherits
+    // the iterator helpers (map/filter/take/drop/flatMap/toArray/...). The own
+    // next/@@iterator above still shadow the inherited ones. Was null before,
+    // so `gen.map(...)` / `Object.getPrototypeOf(gen)` returned undefined/null.
+    if (void* ip = ts_value_get_object((TsValue*)getIteratorPrototypeBoxed()))
+        this->SetPrototype((TsMap*)ip);
 }
 
 TsValue* TsGenerator::next(TsValue* value) {
