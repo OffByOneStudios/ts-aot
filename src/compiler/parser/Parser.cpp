@@ -2606,6 +2606,23 @@ ast::NodePtr Parser::parseClassMember() {
                 throw;
             }
             popLexicalScope();
+            // ECMA-262 15.7.1: ClassStaticBlockStatementList may not Contain
+            // `arguments` (no arguments object) or a SuperCall (no
+            // [[ConstructorKind]]). Nested non-arrow functions/methods have
+            // their own bindings and are skipped by the walk; arrows inherit.
+            for (auto& s : block->body) {
+                int v = containsArgumentsOrSuperCall(s.get());
+                if (v == FIELD_INIT_ARGUMENTS) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'arguments' is not allowed in a "
+                        "class static initialization block", fileName_, block->line));
+                }
+                if (v == FIELD_INIT_SUPER_CALL) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: a super() call is not allowed in a "
+                        "class static initialization block", fileName_, block->line));
+                }
+            }
             activeLabels_.swap(savedLabels);
             iterationDepth_ = prevIter;
             switchDepth_ = prevSwitch;
