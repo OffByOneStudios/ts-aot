@@ -318,6 +318,16 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         return node;
     }
 
+    // ECMA-262 CoverInitializedName scoping. A `{a=1}` shorthand-initializer is
+    // legal only when its object literal is refined to a destructuring target;
+    // parseObjectLiteral records a deferred error and validateAssignmentTarget
+    // clears it on refinement. A value-context AssignmentExpression (the common
+    // case) resets the deferred error on entry and throws at the single exit if a
+    // cover-init survived. In a pattern-candidate position (array element / object
+    // property value / for-of-in head — flagged by inCoverCandidate_) we parse
+    // straight through so the deferred error propagates up to the enclosing value
+    // context, which decides whether refinement legitimizes it.
+    auto parseBody = [&]() -> ast::ExprPtr {
     // Regular expression with binary/ternary
     auto expr = parsePrecedenceExpression(4); // Start above assignment
 
@@ -382,6 +392,35 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
     }
 
     return expr;
+    };  // end parseBody lambda
+
+    // Pattern-candidate position: parse straight through and let any
+    // CoverInitializedName propagate to the enclosing value context.
+    if (inCoverCandidate_) {
+        return parseBody();
+    }
+    // Value context: reset, parse, reject a surviving cover-init at the single
+    // exit. Save/restore is exception-safe so a caught speculative parse can't
+    // leak the flag, and preserves an outer pending across a ternary's branches.
+    int savedCoverLine = coverInitErrorLine_, savedCoverCol = coverInitErrorCol_;
+    coverInitErrorLine_ = -1; coverInitErrorCol_ = -1;
+    ast::ExprPtr coverResult;
+    try {
+        coverResult = parseBody();
+    } catch (...) {
+        coverInitErrorLine_ = savedCoverLine; coverInitErrorCol_ = savedCoverCol;
+        throw;
+    }
+    if (coverInitErrorLine_ != -1) {
+        int errLine = coverInitErrorLine_, errCol = coverInitErrorCol_;
+        coverInitErrorLine_ = savedCoverLine; coverInitErrorCol_ = savedCoverCol;
+        throw std::runtime_error(fmt::format(
+            "{}:{}:{}: SyntaxError: invalid shorthand property initializer "
+            "(a CoverInitializedName is valid only in a destructuring assignment)",
+            fileName_, errLine, errCol));
+    }
+    coverInitErrorLine_ = savedCoverLine; coverInitErrorCol_ = savedCoverCol;
+    return coverResult;
 }
 
 ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
@@ -1611,6 +1650,10 @@ ast::ExprPtr Parser::parseObjectLiteral() {
     // ECMA-262: ObjectLiteral PropertyDefinition uses AssignmentExpression[+In].
     bool prevNoIn = noIn_;
     noIn_ = false;
+    // Property values are pattern-candidate positions: a CoverInitializedName in
+    // them defers and propagates up to the enclosing value/target decision.
+    bool prevCoverCandidate = inCoverCandidate_;
+    inCoverCandidate_ = true;
     // ECMA-262 B.3.1 / 13.2.5.1: at most one `__proto__: value` (the colon data
     // form) is allowed per object literal. Shorthand `__proto__`, methods, and
     // computed `["__proto__"]:` do NOT count.
@@ -1845,6 +1888,15 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                             fileName_, nameLine, name));
                     }
                     prop->initializer = parseAssignmentExpression();
+                    // CoverInitializedName seen — defer the early error. It is
+                    // legal only if this object literal is later refined to a
+                    // destructuring assignment target (which clears the flag in
+                    // validateAssignmentTarget); otherwise the enclosing
+                    // parseAssignmentExpression throws at this position.
+                    if (coverInitErrorLine_ == -1) {
+                        coverInitErrorLine_ = prop->line;
+                        coverInitErrorCol_ = prop->column;
+                    }
                 }
                 node->properties.push_back(std::move(prop));
             }
@@ -1855,6 +1907,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
         }
     }
     noIn_ = prevNoIn;
+    inCoverCandidate_ = prevCoverCandidate;
 
     expect(TokenKind::CloseBrace, "'}'");
     lexer_->setRegexAllowed(false);
@@ -1871,6 +1924,9 @@ ast::ExprPtr Parser::parseArrayLiteral() {
     // ECMA-262: ArrayLiteral elements are AssignmentExpression[+In].
     bool prevNoIn = noIn_;
     noIn_ = false;
+    // Elements are pattern-candidate positions (defer CoverInitializedName).
+    bool prevCoverCandidate = inCoverCandidate_;
+    inCoverCandidate_ = true;
     while (!check(TokenKind::CloseBracket) && !isAtEnd()) {
         if (check(TokenKind::Comma)) {
             // Elision (hole in array)
@@ -1904,6 +1960,7 @@ ast::ExprPtr Parser::parseArrayLiteral() {
         }
     }
     noIn_ = prevNoIn;
+    inCoverCandidate_ = prevCoverCandidate;
 
     expect(TokenKind::CloseBracket, "']'");
     lexer_->setRegexAllowed(false);

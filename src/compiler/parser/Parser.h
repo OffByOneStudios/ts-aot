@@ -212,6 +212,19 @@ private:
     bool inAsync_ = false;      // Inside async function?
     bool inGenerator_ = false;  // Inside generator function?
     bool inParamDefault_ = false;  // Parsing a FormalParameter Initializer (default value)?
+    // ECMA-262 CoverInitializedName: `{ a = 1 }` is legal only when refined to a
+    // destructuring assignment target. Records the position of the first such
+    // shorthand-with-initializer not (yet) refined; -1 = none. Set in
+    // parseObjectLiteral, cleared in validateAssignmentTarget on a refined
+    // object/array target, checked/scoped per parseAssignmentExpression.
+    // mutable: cleared by the const validateAssignmentTarget on refinement.
+    mutable int coverInitErrorLine_ = -1;
+    mutable int coverInitErrorCol_ = -1;
+    // True while parsing a pattern-candidate position (array element / object
+    // property value / for-of-in head). There parseAssignmentExpression defers
+    // the CoverInitializedName check and lets it propagate up to the enclosing
+    // value context, which decides whether refinement legitimizes it.
+    bool inCoverCandidate_ = false;
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?

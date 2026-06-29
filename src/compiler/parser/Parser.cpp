@@ -332,6 +332,9 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                 "{}:{}: SyntaxError: a parenthesized destructuring pattern is "
                 "not a valid assignment target", expr->line, expr->column));
         }
+        // Refinement to an AssignmentPattern legitimizes any CoverInitializedName
+        // inside this (possibly nested) target — clear the deferred error.
+        coverInitErrorLine_ = -1;
         if (forCompoundAssign) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
@@ -391,6 +394,8 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                 "{}:{}: SyntaxError: a parenthesized destructuring pattern is "
                 "not a valid assignment target", expr->line, expr->column));
         }
+        // Refinement clears any deferred CoverInitializedName error (see array).
+        coverInitErrorLine_ = -1;
         if (forCompoundAssign) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
@@ -3471,7 +3476,13 @@ ast::StmtPtr Parser::parseForStatement() {
         // a binary expression 'x in obj'
         bool prevNoIn = noIn_;
         noIn_ = true;
+        // The for-(of|in) head is a pattern-candidate position: defer any
+        // CoverInitializedName so `for ({a=1} of it)` isn't rejected before
+        // validateAssignmentTarget refines the head.
+        bool prevCoverCandidate = inCoverCandidate_;
+        inCoverCandidate_ = true;
         auto expr = parseAssignmentExpression();
+        inCoverCandidate_ = prevCoverCandidate;
         noIn_ = prevNoIn;
 
         // Check for for-of: for (x of iterable)
