@@ -2553,6 +2553,21 @@ void* ts_create_arguments_from_params(
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
             TsFunction* func = (TsFunction*)obj;
             if (func->properties) {
+                // Own ACCESSOR getter (__getter_<key>) — static accessors on a
+                // constructor (e.g. Array/Map/...[Symbol.species]) install a
+                // __getter_ slot plus an undefined data placeholder. Without this
+                // check the data lookup below returns the placeholder (undefined)
+                // and the getter never fires. Invoke it with `this` = the function.
+                {
+                    TsValue gk; gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned((std::string("__getter_") + keyStr).c_str());
+                    TsValue gv = func->properties->Get(gk);
+                    if (gv.type != ValueType::UNDEFINED && gv.ptr_val &&
+                        (gv.type == ValueType::FUNCTION_PTR || gv.type == ValueType::OBJECT_PTR)) {
+                        return ts_function_call_with_this((TsValue*)gv.ptr_val,
+                                                          ts_value_make_object(obj), 0, nullptr);
+                    }
+                }
                 TsValue k;
                 k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
@@ -3854,6 +3869,23 @@ void* ts_create_arguments_from_params(
             // integer string).
             keyStr = primitive_key_to_string(keyNb);
             if (keyStr) key = ts_value_make_string(keyStr);
+        }
+
+        // A constructor's own symbol-keyed ACCESSOR (e.g. Array[Symbol.species])
+        // is stored as __getter_<key> in its properties. The static-key path
+        // (ts_object_get_property) invokes it, but this dynamic path runs its own
+        // per-type lookup that would return the undefined data placeholder. When a
+        // TsFunction receiver has an own __getter_ for this key, delegate so the
+        // getter actually fires.
+        if (keyStr && (uintptr_t)rawObj > 0x1000 &&
+            *(uint32_t*)((char*)rawObj + 16) == 0x46554E43 /*TsFunction FUNC*/) {
+            TsFunction* fnRecv = (TsFunction*)rawObj;
+            const char* kc = keyStr->ToUtf8();
+            if (fnRecv->properties && kc) {
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned((std::string("__getter_") + kc).c_str());
+                if (fnRecv->properties->Has(gk)) return ts_object_get_property(obj, kc);
+            }
         }
 
         // Check magic to determine object type

@@ -177,6 +177,11 @@ static void addAccessorGetter(TsMap* map, const char* propName, void* nativeFn) 
 
 // Helper: add a native function to a TsMap, setting .name and .arity
 // so hasOwnProperty('length'/'name') works per ES spec.
+// get [Symbol.species]() { return this; } — returns the receiver (the constructor).
+static TsValue* species_this_getter(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    return (TsValue*)ctx;
+}
 static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 1) {
     TsValue key;
     key.type = ValueType::STRING_PTR;
@@ -559,6 +564,7 @@ void* ts_get_global_Array() {
 
     // Promote to TsFunction so typeof Array === "function" and
     // isConstructor(Array) returns true.
+    addAccessorGetter(ctorMap, "[Symbol.species]", (void*)species_this_getter);
     cached = wrapAsCallable(ctorMap, "Array", 1);
     { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
 
@@ -2067,6 +2073,7 @@ void* ts_get_global_Promise() {
                     (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
             }, 1);
         }
+        addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Promise", 1);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2451,6 +2458,7 @@ void* ts_get_global_Map() {
         }
 
         setProtoStringTag(proto, "Map");
+        addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Map", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2527,6 +2535,7 @@ void* ts_get_global_Set() {
         });
 
         setProtoStringTag(proto, "Set");
+        addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Set", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -3739,6 +3748,7 @@ void* ts_get_global_ArrayBuffer() {
             (void)requireBuffer;
         }
 
+        addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "ArrayBuffer", 1);
         // Wire ArrayBuffer.prototype.constructor = ArrayBuffer (the callable
         // global, `cached` — NOT the inner ctor map). It was unset, so
