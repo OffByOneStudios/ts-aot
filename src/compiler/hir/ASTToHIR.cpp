@@ -2016,11 +2016,22 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             varType = initValue->type;
         }
 
-        // Check if this variable was already pre-hoisted in the CURRENT function -
-        // if so, reuse its alloca. We must only match allocas from the current
-        // function scope, not from outer functions, because a `var` declaration
-        // inside a nested function should shadow outer variables, not overwrite them.
-        auto* existingInfo = lookupVariableInfoInCurrentFunction(ident->name);
+        // Decide whether to reuse an existing alloca or create a fresh one:
+        //  - `var` is function-scoped & hoisted: reuse the pre-hoisted alloca in
+        //    the current function (a `var` in a nested function still shadows via
+        //    lookupVariableInfoInCurrentFunction's function-boundary stop).
+        //  - `let`/`const` is block-scoped: only reuse if already declared in THIS
+        //    innermost scope; otherwise create a FRESH alloca so it SHADOWS any
+        //    outer same-named binding. Without this, the inner `let x` in
+        //    `for (let x=0; x<10;) { x++; { let x="hi"; } }` reused the loop var's
+        //    slot, clobbered the counter with a string, and looped forever.
+        VariableInfo* existingInfo = nullptr;
+        if (node->varKind == ast::VarKind::Var) {
+            existingInfo = lookupVariableInfoInCurrentFunction(ident->name);
+        } else if (!scopes_.empty()) {
+            auto it = scopes_.back().variables.find(ident->name);
+            if (it != scopes_.back().variables.end()) existingInfo = &it->second;
+        }
         if (existingInfo && existingInfo->isAlloca) {
             // Variable was pre-hoisted: just store the init value into the existing alloca
             builder_.createStore(initValue, existingInfo->value, varType);
