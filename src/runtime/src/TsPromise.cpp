@@ -18,6 +18,7 @@ extern "C" {
     void ts_set_call_this(void* thisArg);
     void* ts_get_call_this();
     void* getIteratorPrototypeBoxed();  // TsMap.cpp — boxed %IteratorPrototype%
+    void* ts_get_global_Promise();      // TsGlobals.cpp — the Promise constructor
 }
 
 // Async iterator wrapper for arrays - used by for await...of
@@ -2462,7 +2463,24 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
                 if (ts_iterator_result_done(res)) break;
                 TsValue* item = ts_iterator_result_value(res);
                 ctx->remaining++;
-                TsValue* p = ts_promise_resolve(nullptr, item);
+                // PerformPromiseAny: nextPromise = ? Call(promiseResolve, C, «item»)
+                // where promiseResolve = Get(C, "resolve") — the OVERRIDABLE
+                // constructor resolve. A user override of Promise.resolve that
+                // throws must abort the drain and IteratorClose; the OOM-cluster
+                // tests use an INFINITE iterator stopped only by that throw. Fall
+                // back to the internal resolve if no callable resolve is present.
+                TsValue* p = nullptr;
+                {
+                    void* pc = ts_get_global_Promise();
+                    void* pcRaw = pc ? ts_value_get_object((TsValue*)pc) : nullptr;
+                    TsValue* resolveFn = (pcRaw ? pcRaw : pc)
+                        ? ts_object_get_property(pcRaw ? pcRaw : pc, "resolve") : nullptr;
+                    if (resolveFn && ts_is_callable((void*)resolveFn)) {
+                        p = ts_call_with_this_1(resolveFn, (TsValue*)pc, item);
+                    } else {
+                        p = ts_promise_resolve(nullptr, item);
+                    }
+                }
                 TsValue* onF = ts_value_make_function(
                     (void*)ts_promise_any_fulfilled_helper, ctx);
                 TsValue* onR = ts_value_make_function(
