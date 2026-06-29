@@ -46,3 +46,7 @@ The `this.app` lookup inside `res.jsonp` goes through `Object.create`'s prototyp
 |------|---------------|
 | `src/runtime/src/TsObject.cpp` | `ts_object_create` — does Object.create with descriptors correctly store closure values? |
 | `src/runtime/src/TsObject.cpp` | Prototype chain property lookup — does `this.app` traverse the prototype to find the descriptor value? |
+
+---
+## NOTE (2026-06-29)
+The Object.create-with-descriptors / defineProperty path was substantially hardened in the iterator/defineProperty session (descriptor attr ToBoolean(-0/NaN/""); non-configurable delete; array/Arguments string-key ACCESSOR store/get/set/descriptor; data<->accessor kind-change validation; defineProperties +58 test262). Re-run this scenario against current master before further investigation — the prototype-descriptor closure-value storage may now behave differently. Root cause NOT confirmed fixed; ticket stays open.

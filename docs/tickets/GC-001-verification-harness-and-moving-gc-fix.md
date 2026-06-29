@@ -358,3 +358,7 @@ holder type.
   do NOT apply the Phase 3a object-literal tenuring (no repro justifies its GC-
   throughput cost); instead treat Phase 3 as "harden-the-proof" until/unless a
   red matrix case appears.
+
+---
+## NOTE (2026-06-29)
+Phase 3b (precise GC statepoints — the "real general cure") was subsequently COMPLETED and made the compiler DEFAULT in PHASE0-gc-memory-safety.md §0.3 (commit 6fe1ef99). GC-001's Phase-3b worklist is superseded by that. Remaining unique work is Phase 2 (full type×holder×trigger matrix / shadow-heap fuzzer), much of which PHASE0 §0.5 also covers. Recommend reconciling GC-001 into PHASE0 and archiving, or narrowing GC-001 to the residual fuzzer work. (Independent of the 2026-06 iterator session.)

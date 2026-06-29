@@ -453,6 +453,29 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 ---
 
+## ES2025 (ES16)
+
+### Iterator Helpers
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `%IteratorPrototype%` root (`[Symbol.iterator]`) | ✅ | Every built-in iterator inherits it |
+| `Iterator.from()` | ✅ | Wraps an iterable/iterator (incl. generators) |
+| `Iterator.prototype.map()` | ✅ | Lazy |
+| `Iterator.prototype.filter()` | ✅ | Lazy |
+| `Iterator.prototype.take()` | ✅ | Lazy, RangeError on NaN/negative |
+| `Iterator.prototype.drop()` | ✅ | Lazy |
+| `Iterator.prototype.flatMap()` | ✅ | Lazy |
+| `Iterator.prototype.toArray()` | ✅ | |
+| `Iterator.prototype.forEach()` | ✅ | |
+| `Iterator.prototype.reduce()` | ✅ | Empty-no-init TypeError |
+| `Iterator.prototype.some()` | ✅ | |
+| `Iterator.prototype.every()` | ✅ | |
+| `Iterator.prototype.find()` | ✅ | |
+
+Generators inherit `%IteratorPrototype%`, so the helpers work on generator results. Iterator went 0 → 153 passing on test262 with this subsystem.
+
+---
+
 ## Summary by ES Version
 
 | Version | Implemented | Partial | Not Implemented | Total | % |
@@ -468,9 +491,17 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 10 | 0 | 0 | 10 | 100% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 6 | 0 | 3 | 9 | 67% |
-| **TOTAL** | **221** | **2** | **7** | **230** | **96%** |
+| ES2025 | 13 | 0 | 0 | 13 | 100% |
+| **TOTAL** | **234** | **2** | **7** | **243** | **96%** |
 
-**Overall ECMAScript Conformance: 221/230 features (96%)**
+**Overall ECMAScript Conformance: 234/243 features (96%)**
+
+> 2026-06-29 update: added the ES2025 Iterator Helpers section (+13). Several ES2015/ES5 built-ins
+> implemented this session are correctness fixes on already-✅ rows (Set `values/keys/entries` real
+> iterators, `%TypedArray%.prototype[@@toStringTag]`, `@@species` accessors on 7 constructors,
+> `Array.prototype.toLocaleString`, `String.prototype.localeCompare/toLocaleLowerCase/toLocaleUpperCase`
+> — the last three were previously crashing via infinite recursion) and are tracked in the
+> autonomous-grind log rather than as separate matrix rows.
 
 ---
 

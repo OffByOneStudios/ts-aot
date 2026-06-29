@@ -60,3 +60,7 @@ The response-specific hang means the issue is in how `this.app` on a native C++ 
 | `tests/npm/express/node_modules/express/lib/middleware/init.js` | 36 | setPrototypeOf(res, app.response) |
 | `tests/npm/express/node_modules/express/lib/response.js` | All `this.app` usages | How response accesses app |
 | `src/runtime/src/TsObject.cpp` | `ts_object_get_property` | How native C++ objects resolve properties via side-map prototype chain |
+
+---
+## NOTE (2026-06-29)
+The Object.create-with-descriptors / defineProperty path was substantially hardened in the iterator/defineProperty session (descriptor attr ToBoolean(-0/NaN/""); non-configurable delete; array/Arguments string-key ACCESSOR store/get/set/descriptor; data<->accessor kind-change validation; defineProperties +58 test262). Re-run this scenario against current master before further investigation — the prototype-descriptor closure-value storage may now behave differently. Root cause NOT confirmed fixed; ticket stays open.

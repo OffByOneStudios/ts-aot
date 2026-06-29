@@ -638,3 +638,7 @@ Deferred / found:
   _report_gsfailure) when a yield* @@asyncIterator getter throws
   (yield-star-getiter-*-abrupt family, repro tmp/ysabrupt.js). Invisible
   under the fast-preset (shared/-O0) sweeps. File separately.
+
+---
+## NOTE (2026-06-29) — interaction with iterator-protocol session work
+A SINGLE-LEVEL link was added so generators inherit %IteratorPrototype% (gen [[Prototype]] set in the TsGenerator ctor, TsPromise.cpp), enabling iterator helpers on generators (+73 test262). This is NOT the full hierarchy: gen→g.prototype→%GeneratorPrototype%→%IteratorPrototype% plus the %Generator%/GeneratorFunction objects are still NOT built (compiler-touching — a single-level link to %GeneratorPrototype% is net-0 because tests navigate getPrototypeOf(getPrototypeOf(gen)) and getPrototypeOf(genFn).prototype). When GEN-001 reworks generator object construction, build the full prototype hierarchy at the same time rather than layering on the single-level link.
