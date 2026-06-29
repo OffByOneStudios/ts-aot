@@ -211,6 +211,7 @@ private:
     const std::string* source_ = nullptr;
     bool inAsync_ = false;      // Inside async function?
     bool inGenerator_ = false;  // Inside generator function?
+    bool inParamDefault_ = false;  // Parsing a FormalParameter Initializer (default value)?
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
