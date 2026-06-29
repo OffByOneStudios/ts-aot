@@ -1039,7 +1039,14 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
                 current_.line, current_.column));
         }
         advance();
+        // ECMA-262: a generator/async function's FormalParameters may not contain
+        // a YieldExpression/AwaitExpression. Mark that we're in a parameter
+        // default so the yield/await parse sites can reject it (reset to false
+        // inside any nested function/method body — see those body parsers).
+        bool prevInParamDefault = inParamDefault_;
+        inParamDefault_ = true;
         param->initializer = parseAssignmentExpression();
+        inParamDefault_ = prevInParamDefault;
     }
 
     return param;
@@ -2068,6 +2075,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         // other functions or outer blocks (has-instance-jitted.js hit this).
         pushLexicalScope();
         predeclareFormalParamsAsVar(node->parameters);
+        bool prevInParamDefault = inParamDefault_; inParamDefault_ = false;
         pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -2080,6 +2088,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
             }
         }
         popLexicalScope();
+        inParamDefault_ = prevInParamDefault;
         expect(TokenKind::CloseBrace, "'}'");
 
         // Per ECMA-262 14.1.1: It is a SyntaxError if ContainsUseStrict of
@@ -2983,6 +2992,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         // method bodies of an object literal or class mistakenly conflict.
         pushLexicalScope();
         predeclareFormalParamsAsVar(method->parameters);  // body let/const must not duplicate a param
+        bool prevInParamDefault = inParamDefault_; inParamDefault_ = false;
         pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -2995,6 +3005,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
             }
         }
         popLexicalScope();
+        inParamDefault_ = prevInParamDefault;
         expect(TokenKind::CloseBrace, "'}'");
 
         if (sawUseStrictDirective_ &&

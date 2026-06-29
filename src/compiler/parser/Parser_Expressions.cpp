@@ -289,6 +289,14 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
 
     // Yield expression
     if (current_.kind == TokenKind::KW_yield && inGenerator_) {
+        // ECMA-262 15.5: a generator's FormalParameters may not contain a
+        // YieldExpression — `function*(x = yield) {}`, `*g(x = yield) {}`, and an
+        // arrow `(x = yield) => {}` inside a generator are SyntaxErrors.
+        if (inParamDefault_) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: a yield expression is not allowed in a "
+                "formal-parameter default", fileName_, current_.line));
+        }
         auto startTok = current_;
         advance(); // yield
 
@@ -2085,6 +2093,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // sibling method bodies of an object literal mistakenly conflict.
     pushLexicalScope();
     predeclareFormalParamsAsVar(node->parameters);  // body let/const must not duplicate a param
+    bool prevInParamDefault = inParamDefault_; inParamDefault_ = false;
     pendingPrologueStrings_.clear();
     bool inPrologue = true;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -2097,6 +2106,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
         }
     }
     popLexicalScope();
+    inParamDefault_ = prevInParamDefault;
     expect(TokenKind::CloseBrace, "'}'");
 
     if (sawUseStrictDirective_ &&
