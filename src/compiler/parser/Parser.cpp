@@ -1059,6 +1059,63 @@ void Parser::predeclareFormalParamsAsVar(
     }
 }
 
+void Parser::checkForHeadLexicalVsBodyVar(const ast::Node* initializer,
+                                          const ast::Node* body) {
+    auto* vd = dynamic_cast<const ast::VariableDeclaration*>(initializer);
+    if (!vd || vd->varKind == ast::VarKind::Var) return;  // only let/const heads
+    std::vector<std::pair<std::string, int>> headPairs;
+    collectBoundIdentNames(vd->name.get(), headPairs);
+    if (headPairs.empty() || !body) return;
+    auto headNamesHas = [&](const std::string& nm) {
+        for (auto& h : headPairs) if (h.first == nm) return true;
+        return false;
+    };
+
+    // Walk the body collecting VarDeclaredNames (var only), stopping at function
+    // and class boundaries (their own var scope). Mirrors the switch CaseBlock
+    // collector. Throw on the first body `var` that shadows a head lexical name.
+    std::function<void(const ast::Node*)> walk = [&](const ast::Node* n) {
+        if (!n) return;
+        if (auto* d = dynamic_cast<const ast::VariableDeclaration*>(n)) {
+            if (d->varKind == ast::VarKind::Var) {
+                std::vector<std::pair<std::string, int>> names;
+                collectBoundIdentNames(d->name.get(), names);
+                for (auto& [nm, ln] : names) {
+                    if (headNamesHas(nm)) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: '{}' is a lexical binding of the "
+                            "for-loop head and cannot be re-declared as 'var' in "
+                            "the body", fileName_, ln, nm));
+                    }
+                }
+            }
+            return;
+        }
+        if (auto* b = dynamic_cast<const ast::BlockStatement*>(n)) { for (auto& s : b->statements) walk(s.get()); return; }
+        if (auto* ifs = dynamic_cast<const ast::IfStatement*>(n)) { walk(ifs->thenStatement.get()); walk(ifs->elseStatement.get()); return; }
+        if (auto* ws = dynamic_cast<const ast::WhileStatement*>(n)) { walk(ws->body.get()); return; }  // do-while is a WhileStatement w/ isDoWhile
+        if (auto* fs = dynamic_cast<const ast::ForStatement*>(n)) { walk(fs->initializer.get()); walk(fs->body.get()); return; }
+        if (auto* fos = dynamic_cast<const ast::ForOfStatement*>(n)) { walk(fos->initializer.get()); walk(fos->body.get()); return; }
+        if (auto* fis = dynamic_cast<const ast::ForInStatement*>(n)) { walk(fis->initializer.get()); walk(fis->body.get()); return; }
+        if (auto* tr = dynamic_cast<const ast::TryStatement*>(n)) {
+            for (auto& s : tr->tryBlock) walk(s.get());
+            if (tr->catchClause) for (auto& s : tr->catchClause->block) walk(s.get());
+            for (auto& s : tr->finallyBlock) walk(s.get());
+            return;
+        }
+        if (auto* lbl = dynamic_cast<const ast::LabeledStatement*>(n)) { walk(lbl->statement.get()); return; }
+        if (auto* sw = dynamic_cast<const ast::SwitchStatement*>(n)) {
+            for (auto& c : sw->clauses) {
+                if (auto* cc = dynamic_cast<const ast::CaseClause*>(c.get())) for (auto& s : cc->statements) walk(s.get());
+                else if (auto* dc = dynamic_cast<const ast::DefaultClause*>(c.get())) for (auto& s : dc->statements) walk(s.get());
+            }
+            return;
+        }
+        // FunctionDeclaration / class / arrow bodies are their own var scope — stop.
+    };
+    walk(body);
+}
+
 std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool checkDuplicates, bool uniqueParams) {
     std::vector<std::unique_ptr<ast::Parameter>> params;
     expect(TokenKind::OpenParen, "'('");
@@ -3181,6 +3238,7 @@ ast::StmtPtr Parser::parseForStatement() {
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
             node->body = parseLoopBody();
+            checkForHeadLexicalVsBodyVar(node->initializer.get(), node->body.get());
             return node;
         }
 
@@ -3195,6 +3253,7 @@ ast::StmtPtr Parser::parseForStatement() {
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
             node->body = parseLoopBody();
+            checkForHeadLexicalVsBodyVar(node->initializer.get(), node->body.get());
             return node;
         }
 
@@ -3277,6 +3336,7 @@ ast::StmtPtr Parser::parseForStatement() {
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
         node->body = parseLoopBody();
+        checkForHeadLexicalVsBodyVar(node->initializer.get(), node->body.get());
         return node;
     }
 
