@@ -2151,6 +2151,16 @@ void* ts_create_arguments_from_params(
                     TsValue protoVal = taCtor->properties->Get(protoKey);
                     if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
                         TsMap* taProto = (TsMap*)protoVal.ptr_val;
+                        // Accessor getter (__getter_<key>, e.g. @@toStringTag) on
+                        // %TypedArray%.prototype — invoke with the instance as this.
+                        TsValue gkey; gkey.type = ValueType::STRING_PTR;
+                        gkey.ptr_val = TsString::GetInterned((std::string("__getter_") + keyStr).c_str());
+                        TsValue gv = taProto->Get(gkey);
+                        if (gv.type != ValueType::UNDEFINED && gv.ptr_val &&
+                            (gv.type == ValueType::FUNCTION_PTR || gv.type == ValueType::OBJECT_PTR)) {
+                            return ts_function_call_with_this((TsValue*)gv.ptr_val,
+                                                              ts_value_make_object(obj), 0, nullptr);
+                        }
                         TsValue methodKey; methodKey.type = ValueType::STRING_PTR;
                         methodKey.ptr_val = TsString::Create(keyStr);
                         TsValue methodVal = taProto->Get(methodKey);
