@@ -1065,6 +1065,16 @@ void* TsString::MatchAll(TsRegExp* regexp) {
 
         // Each result is a full match array from exec (with index, input, groups)
         results->Push((int64_t)execResult);
+
+        // ECMA-262 RegExpStringIterator: an EMPTY match is zero-width, so Exec
+        // leaves lastIndex parked on it and the next Exec matches empty at the
+        // same spot forever (e.g. `'a'.matchAll(undefined)` -> /(?:)/g). On an
+        // empty match, AdvanceStringIndex: lastIndex += 1.
+        int64_t m0 = (int64_t)((TsArray*)execResult)->Get(0);
+        TsString* matchStr = (TsString*)ts_value_get_string((TsValue*)m0);
+        if (!matchStr || matchStr->Length() == 0) {
+            regexp->SetLastIndex(regexp->GetLastIndex() + 1);
+        }
     }
 
     // Reset lastIndex after iteration
