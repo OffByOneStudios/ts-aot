@@ -2505,6 +2505,13 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                     "be used as a class name in strict mode",
                     fileName_, current_.line, nm));
             }
+            // [+Await] context (async function body / class static block): `await`
+            // is reserved and cannot be a BindingIdentifier.
+            if (nm == "await" && inAsync_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'await' cannot be used as a class name "
+                    "in this context", fileName_, current_.line));
+            }
         }
         node->name = identifierName();
         // ECMA-262 13.2.1.1 (Block early error) + 14.1.2: ClassDeclaration
@@ -2579,12 +2586,16 @@ ast::NodePtr Parser::parseClassMember() {
             // that moment, the pop_back is undefined behavior. Swapping
             // back here keeps activeLabels_ matching the outer scope's
             // view at every catch site upstream.
+            // ECMA-262 15.7.1: the ClassStaticBlockBody is its own lexical scope;
+            // duplicate let/const and let-vs-var conflicts are early errors.
+            pushLexicalScope();
             try {
                 while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
                     auto stmt = parseDeclarationOrStatement();
                     if (stmt) block->body.push_back(std::move(stmt));
                 }
             } catch (...) {
+                popLexicalScope();
                 activeLabels_.swap(savedLabels);
                 iterationDepth_ = prevIter;
                 switchDepth_ = prevSwitch;
@@ -2594,6 +2605,7 @@ ast::NodePtr Parser::parseClassMember() {
                 superAllowed_ = prevSuperAllowed;
                 throw;
             }
+            popLexicalScope();
             activeLabels_.swap(savedLabels);
             iterationDepth_ = prevIter;
             switchDepth_ = prevSwitch;
