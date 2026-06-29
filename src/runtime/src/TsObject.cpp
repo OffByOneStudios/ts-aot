@@ -5651,7 +5651,14 @@ void* ts_create_arguments_from_params(
                     }
                 }
             }
-            // Also check overflow map
+            // Also check overflow map — flat objects keep defineProperty'd
+            // (attribute-bearing) properties here, so honor the configurable
+            // attribute per ES spec [[Delete]]: a non-configurable property
+            // cannot be deleted (return 0; the compiler wrapper throws in
+            // strict mode). Previously this deleted unconditionally, so
+            // verifyProperty's delete-probe wrongly removed non-configurable
+            // properties and ~every Object.defineProperty verifyProperty test
+            // (and many others harness-wide) failed.
             if (desc) {
                 void* overflow = *(void**)((char*)rawMap + 16 + desc->numSlots * 8);
                 if (overflow) {
@@ -5659,6 +5666,10 @@ void* ts_create_arguments_from_params(
                     TsValue kv;
                     kv.type = ValueType::STRING_PTR;
                     kv.ptr_val = keyStr;
+                    if (overflowMap->Has(kv)) {
+                        uint8_t attrs = overflowMap->GetPropertyAttrs(kv);
+                        if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                    }
                     return overflowMap->Delete(kv) ? 1 : 0;
                 }
             }
