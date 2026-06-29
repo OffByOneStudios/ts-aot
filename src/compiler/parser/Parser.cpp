@@ -1503,6 +1503,13 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
                         "cannot be used as a shorthand binding",
                         fileName_, propLine, propName));
                 }
+                // [+Await] context (async body / class static block): `await`
+                // is reserved as a BindingIdentifier — `var {await} = {}` errors.
+                if (propName == "await" && inAsync_) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'await' cannot be used as a binding "
+                        "identifier in this context", fileName_, propLine));
+                }
                 auto id = std::make_unique<ast::Identifier>();
                 id->name = propName;
                 elem->name = std::move(id);
@@ -2010,6 +2017,15 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     // Name (optional for default exports)
     if (isIdentifierOrKeyword()) {
         node->name = identifierName();
+        // ECMA-262: in a [+Await] context (async function body / class static
+        // block) `await` is reserved and cannot be a function BindingIdentifier.
+        // The name is parsed in the enclosing context, so inAsync_ here is that
+        // context's value (the function's own body hasn't been entered yet).
+        if (node->name == "await" && inAsync_) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'await' cannot be used as a binding "
+                "identifier in this context", fileName_, node->line));
+        }
         // Track in lexical scope for redeclaration detection.
         // ECMA-262 Annex B.3.3 legacy hoisting / var-fn-merge only covers
         // plain (sync-non-generator) FunctionDeclarations. Async functions,
