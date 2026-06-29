@@ -3679,13 +3679,19 @@ ast::StmtPtr Parser::parseTryStatement() {
     if (match(TokenKind::KW_catch)) {
         node->catchClause = std::make_unique<ast::CatchClause>();
         if (match(TokenKind::OpenParen)) {
-            // catch (e) or catch (e: Type) or just catch { }
-            if (!check(TokenKind::CloseParen)) {
-                node->catchClause->variable = parseBindingNameOrPattern();
-                // Optional type annotation on catch variable
-                if (check(TokenKind::Colon)) {
-                    parseTypeAnnotation(); // Skip the type
-                }
+            // catch (e) or catch (e: Type). ECMA-262 14.15: when parens are
+            // present a CatchParameter is REQUIRED — `catch ()` (empty parens) is
+            // a SyntaxError; the binding-less form is `catch { }` with NO parens.
+            if (check(TokenKind::CloseParen)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: missing catch binding (the binding-less "
+                    "catch form omits the parentheses entirely)",
+                    fileName_, current_.line));
+            }
+            node->catchClause->variable = parseBindingNameOrPattern();
+            // Optional type annotation on catch variable
+            if (check(TokenKind::Colon)) {
+                parseTypeAnnotation(); // Skip the type
             }
             expect(TokenKind::CloseParen, "')'");
         }
