@@ -1746,7 +1746,8 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 // escaped forms lex as plain Identifiers, so checking the token
                 // kind — not the name string — keeps `{ null }` legal.)
                 if (nameTok == TokenKind::KW_this || nameTok == TokenKind::KW_null ||
-                    nameTok == TokenKind::KW_true || nameTok == TokenKind::KW_false) {
+                    nameTok == TokenKind::KW_true || nameTok == TokenKind::KW_false ||
+                    nameTok == TokenKind::KW_default || nameTok == TokenKind::KW_extends) {
                     throw std::runtime_error(fmt::format(
                         "{}:{}: SyntaxError: '{}' is not a valid shorthand property "
                         "(not an IdentifierReference)",
