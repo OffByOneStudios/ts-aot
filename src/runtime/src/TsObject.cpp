@@ -2496,6 +2496,13 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "slice") == 0) return makeNamedNativeFunction((void*)ts_string_slice_native, strObj, "slice", 2);
             if (strcmp(keyStr, "toLowerCase") == 0) return makeNamedNativeFunction((void*)ts_string_toLowerCase_native, strObj, "toLowerCase", 0);
             if (strcmp(keyStr, "toUpperCase") == 0) return makeNamedNativeFunction((void*)ts_string_toUpperCase_native, strObj, "toUpperCase", 0);
+            // toLocaleLowerCase/toLocaleUpperCase are spec-equivalent to the
+            // non-locale forms without Intl. They were NOT in this string-get
+            // dispatch, so String.prototype.toLocaleLowerCase.call(x) re-resolved
+            // to the prototype macro and recursed forever (stack overflow / AV).
+            // Return the direct natives here (correctly-named) to break the loop.
+            if (strcmp(keyStr, "toLocaleLowerCase") == 0) return makeNamedNativeFunction((void*)ts_string_toLowerCase_native, strObj, "toLocaleLowerCase", 0);
+            if (strcmp(keyStr, "toLocaleUpperCase") == 0) return makeNamedNativeFunction((void*)ts_string_toUpperCase_native, strObj, "toLocaleUpperCase", 0);
             if (strcmp(keyStr, "trim") == 0) return makeNamedNativeFunction((void*)ts_string_trim_native, strObj, "trim", 0);
             if (strcmp(keyStr, "split") == 0) return makeNamedNativeFunction((void*)ts_string_split_native, strObj, "split", 2);
             if (strcmp(keyStr, "replace") == 0) return makeNamedNativeFunction((void*)ts_string_replace_native, strObj, "replace", 2);
