@@ -2370,6 +2370,21 @@ void* ts_create_arguments_from_params(
             // name never matches -> the common `[].map` path still falls through
             // to the builtin. (length/constructor are exotic, handled above.)
             if (arr->properties) {
+                // Accessor getter (__getter_<key>) defined via
+                // Object.defineProperty(arr, "x", {get}) — invoke it with the
+                // array as `this`. Must precede the data lookup (the outward
+                // "x" slot holds an undefined placeholder for an accessor).
+                std::string agk = std::string("__getter_") + keyStr;
+                TsValue agkv; agkv.type = ValueType::STRING_PTR;
+                agkv.ptr_val = TsString::GetInterned(agk.c_str());
+                if (arr->properties->Has(agkv)) {
+                    TsValue gv = arr->properties->Get(agkv);
+                    if (gv.ptr_val && (gv.type == ValueType::FUNCTION_PTR ||
+                                       gv.type == ValueType::OBJECT_PTR)) {
+                        return ts_function_call_with_this((TsValue*)gv.ptr_val,
+                                   ts_value_make_object(arr), 0, nullptr);
+                    }
+                }
                 TsValue k; k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
                 TsValue v = arr->properties->Get(k);
