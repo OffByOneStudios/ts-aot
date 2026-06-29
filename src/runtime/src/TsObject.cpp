@@ -5134,6 +5134,31 @@ void* ts_create_arguments_from_params(
                 arr->properties = TsMap::Create();
                 ts_gc_write_barrier(&arr->properties, arr->properties);
             }
+            // Accessor property (__setter_/__getter_<key>) defined via
+            // Object.defineProperty(arr, "x", {set/get}). OrdinarySet on an
+            // accessor invokes its [[Set]] with the array as `this`; an accessor
+            // with no setter is a no-op (must NOT fall through to a data store).
+            if (keyStr) {
+                const char* kc2 = keyStr->ToUtf8();
+                if (kc2) {
+                    TsValue sk; sk.type = ValueType::STRING_PTR;
+                    sk.ptr_val = TsString::GetInterned((std::string("__setter_") + kc2).c_str());
+                    if (arr->properties->Has(sk)) {
+                        TsValue sv = arr->properties->Get(sk);
+                        if (sv.ptr_val && (sv.type == ValueType::FUNCTION_PTR ||
+                                           sv.type == ValueType::OBJECT_PTR)) {
+                            TsValue* vptr = nanbox_from_tagged(value);
+                            TsValue* args[1] = { vptr };
+                            ts_function_call_with_this((TsValue*)sv.ptr_val,
+                                ts_value_make_object(arr), 1, args);
+                            return value;
+                        }
+                    }
+                    TsValue gk; gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned((std::string("__getter_") + kc2).c_str());
+                    if (arr->properties->Has(gk)) return value; // accessor, no setter -> no-op
+                }
+            }
             // OrdinarySet: honor writable:false on the side-map.
             if (arr->properties->Has(key)) {
                 uint8_t a = arr->properties->GetPropertyAttrs(key);
