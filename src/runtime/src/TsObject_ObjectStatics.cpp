@@ -1640,7 +1640,20 @@ extern "C" {
                     magic = 0x4D415053;
                     routedToProps = true;
                 }
-                if (!routedToProps) return obj;
+                if (!routedToProps) {
+                    // Non-index string key on an array (e.g. Object.defineProperty(
+                    // arr, "x", {get/set/value})). Was returned without storing, so
+                    // accessors never applied (arr.x === undefined, desc.get wrong).
+                    // Route into arr->properties and fall through to the generic
+                    // TsMap [[DefineOwnProperty]] path (which stores __getter_/
+                    // __setter_, validates non-configurable, and records attrs).
+                    if (!arr->properties) {
+                        arr->properties = TsMap::Create();
+                        ts_gc_write_barrier(&arr->properties, arr->properties);
+                    }
+                    rawPtr = arr->properties;
+                    magic = 0x4D415053;
+                }
                 // else: fall through to TsMap branch below with rawPtr reassigned.
             } else {
                 // Native / exotic object (RegExp, Date, native C++ objects, …):
