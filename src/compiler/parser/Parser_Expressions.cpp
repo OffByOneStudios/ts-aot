@@ -1636,6 +1636,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             bool nameEscapedReserved = false;
             bool nameIsIdentifier = false;  // true => eligible for shorthand form
             int nameLine = current_.line;
+            TokenKind nameTok = current_.kind;  // first token of the name (for shorthand validity)
 
             if (check(TokenKind::OpenBracket)) {
                 // Computed property name — AssignmentExpression[+In].
@@ -1699,6 +1700,17 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                         "name must be followed by ':' (only "
                         "IdentifierReference is valid in shorthand form)",
                         fileName_, nameLine));
+                }
+                // ECMA-262 13.2.5: the shorthand value is an IdentifierReference,
+                // which `this` and the literals null/true/false are not. (Their
+                // escaped forms lex as plain Identifiers, so checking the token
+                // kind — not the name string — keeps `{ null }` legal.)
+                if (nameTok == TokenKind::KW_this || nameTok == TokenKind::KW_null ||
+                    nameTok == TokenKind::KW_true || nameTok == TokenKind::KW_false) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' is not a valid shorthand property "
+                        "(not an IdentifierReference)",
+                        fileName_, nameLine, name));
                 }
                 // Shorthand acts as IdentifierReference. An escape-encoded
                 // reserved word here is a SyntaxError per ES262 12.6.1
@@ -2292,6 +2304,16 @@ ast::ExprPtr Parser::parseNewExpression() {
                 "{}:{}: SyntaxError: 'target' in a new.target meta-property "
                 "must not contain a Unicode escape sequence",
                 fileName_, current_.line));
+        }
+        // ECMA-262 13.3.12: new.target is only valid inside a function. At the
+        // top level (functionDepth_ == 0) it is a SyntaxError. (The
+        // inside-an-arrow-at-top-level case — arrows inherit the enclosing
+        // [[NewTarget]] — needs arrow-aware tracking and is left for later.)
+        if (functionDepth_ == 0) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: new.target expression is not allowed here "
+                "(only inside functions)",
+                fileName_, startTok.line));
         }
         auto prop = std::make_unique<ast::PropertyAccessExpression>();
         setLocation(prop.get(), startTok);
