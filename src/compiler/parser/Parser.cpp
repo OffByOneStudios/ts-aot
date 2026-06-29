@@ -2387,6 +2387,8 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
         bool isGetter = false;
         bool isSetter = false;
         bool isOther = false;  // method, field, async, generator, etc.
+        bool getterStatic = false;
+        bool setterStatic = false;
         int line = 0;
     };
     std::unordered_map<std::string, PrivateEntry> privateNames;
@@ -2417,12 +2419,19 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                 if (nameIsAscii && !m->name.empty() && m->name[0] == '#') {
                     auto& e = privateNames[m->name];
                     bool conflict = false;
+                    // ECMA-262 15.7.1: a private name may appear twice only as a
+                    // getter+setter PAIR, and the two must agree on static-ness
+                    // (`get #f(){}` + `static set #f(v){}` is a SyntaxError).
                     if (m->isGetter) {
                         if (e.isGetter || e.isOther) conflict = true;
+                        if (e.isSetter && e.setterStatic != m->isStatic) conflict = true;
                         e.isGetter = true;
+                        e.getterStatic = m->isStatic;
                     } else if (m->isSetter) {
                         if (e.isSetter || e.isOther) conflict = true;
+                        if (e.isGetter && e.getterStatic != m->isStatic) conflict = true;
                         e.isSetter = true;
+                        e.setterStatic = m->isStatic;
                     } else {
                         if (e.isGetter || e.isSetter || e.isOther) conflict = true;
                         e.isOther = true;
