@@ -2052,6 +2052,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // (same rationale as parseFunctionDeclaration). Without this, `let X` in
     // sibling method bodies of an object literal mistakenly conflict.
     pushLexicalScope();
+    predeclareFormalParamsAsVar(node->parameters);  // body let/const must not duplicate a param
     pendingPrologueStrings_.clear();
     bool inPrologue = true;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {

@@ -1049,6 +1049,16 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
 static void collectBoundIdentNames(const ast::Node* n,
                                    std::vector<std::pair<std::string, int>>& out);
 
+void Parser::predeclareFormalParamsAsVar(
+        const std::vector<std::unique_ptr<ast::Parameter>>& params) {
+    for (auto& p : params) {
+        if (!p || !p->name) continue;
+        std::vector<std::pair<std::string, int>> pnames;
+        collectBoundIdentNames(p->name.get(), pnames);
+        for (auto& pn : pnames) declareLexicalName(pn.first, PDeclKind::Var);
+    }
+}
+
 std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool checkDuplicates, bool uniqueParams) {
     std::vector<std::unique_ptr<ast::Parameter>> params;
     expect(TokenKind::OpenParen, "'('");
@@ -2000,6 +2010,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         // in the enclosing scope, conflicting with sibling `let t` decls in
         // other functions or outer blocks (has-instance-jitted.js hit this).
         pushLexicalScope();
+        predeclareFormalParamsAsVar(node->parameters);
         pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
