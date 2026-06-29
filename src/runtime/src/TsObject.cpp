@@ -2503,6 +2503,9 @@ void* ts_create_arguments_from_params(
             // Return the direct natives here (correctly-named) to break the loop.
             if (strcmp(keyStr, "toLocaleLowerCase") == 0) return makeNamedNativeFunction((void*)ts_string_toLowerCase_native, strObj, "toLocaleLowerCase", 0);
             if (strcmp(keyStr, "toLocaleUpperCase") == 0) return makeNamedNativeFunction((void*)ts_string_toUpperCase_native, strObj, "toLocaleUpperCase", 0);
+            // localeCompare: same recursion-crash class — missing from this
+            // dispatch, so the prototype macro re-resolved to itself forever.
+            if (strcmp(keyStr, "localeCompare") == 0) { extern TsValue* ts_string_localeCompare_native(void*, int, TsValue**); return makeNamedNativeFunction((void*)ts_string_localeCompare_native, strObj, "localeCompare", 1); }
             if (strcmp(keyStr, "trim") == 0) return makeNamedNativeFunction((void*)ts_string_trim_native, strObj, "trim", 0);
             if (strcmp(keyStr, "split") == 0) return makeNamedNativeFunction((void*)ts_string_split_native, strObj, "split", 2);
             if (strcmp(keyStr, "replace") == 0) return makeNamedNativeFunction((void*)ts_string_replace_native, strObj, "replace", 2);

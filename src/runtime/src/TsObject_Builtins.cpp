@@ -80,6 +80,24 @@ extern "C" {
     TsValue* ts_string_trim_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_string((TsString*)ts_string_trim((TsString*)ctx));
     }
+    // String.prototype.localeCompare(that) — without Intl this is a code-unit
+    // (UTF-16) comparison returning a negative/zero/positive Number. Was a
+    // STRING_PROTO_METHOD with no entry in the string get dispatch, so it
+    // re-resolved to its own prototype macro and recursed forever (crash).
+    TsValue* ts_string_localeCompare_native(void* ctx, int argc, TsValue** argv) {
+        if (!ctx) ctx = ts_get_call_this();
+        TsString* a = ts_ensure_flat((TsString*)ctx);
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        TsString* b = ts_ensure_flat((TsString*)ts_string_from_value(arg));
+        if (!a || !b) return ts_value_make_int(0);
+        int64_t la = a->Length(), lb = b->Length();
+        int64_t n = (la < lb) ? la : lb;
+        for (int64_t i = 0; i < n; i++) {
+            int ca = (int)a->CharCodeAt(i), cb = (int)b->CharCodeAt(i);
+            if (ca != cb) return ts_value_make_int(ca < cb ? -1 : 1);
+        }
+        return ts_value_make_int(la < lb ? -1 : (la > lb ? 1 : 0));
+    }
 
     // Annex B.2.3: HTML wrapper methods on String.prototype. Each wraps the
     // receiver's ToString with a fixed HTML tag. RequireObjectCoercible
