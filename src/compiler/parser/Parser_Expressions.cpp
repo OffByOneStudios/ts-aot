@@ -678,6 +678,14 @@ ast::ExprPtr Parser::parseCallExpression() {
             setLocation(access.get(), expr->line, expr->column);
             access->expression = std::move(expr);
             if (check(TokenKind::Hash)) {
+                // ECMA-262 13.3.7: SuperProperty is `super.IdentifierName` /
+                // `super[Expr]`; a PrivateIdentifier is not an IdentifierName, so
+                // `super.#x` is a SyntaxError.
+                if (dynamic_cast<ast::SuperExpression*>(access->expression.get())) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: private name cannot be referenced "
+                        "through 'super'", fileName_, current_.line));
+                }
                 advance();  // consume '#'
                 // ECMA-262: PrivateIdentifier is a single token "#IdentifierName"
                 // — no whitespace, line terminator, or comment between # and
