@@ -2210,69 +2210,12 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
     return result;
 }
 
-ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport) {
+void Parser::parseClassHeritageClause(std::string& baseClass,
+                                      std::vector<std::string>& implementsOut,
+                                      bool& hasHeritage) {
     auto startTok = current_;
-    expect(TokenKind::KW_class, "'class'");
-
-    auto node = std::make_unique<ast::ClassDeclaration>();
-    setLocation(node.get(), startTok);
-    node->isAbstract = isAbstract;
-    node->isExported = isExported;
-    node->isDefaultExport = isDefaultExport;
-
-    // Name (optional for expressions). Class names are BindingIdentifier
-    // and the class body is always strict (ES262 10.2.1), so escape-
-    // encoded reserved words including contextual-strict ones (let,
-    // static, yield) must be rejected here.
-    if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) && !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
-        if (current_.escapedReservedWord) {
-            // ECMA-262: `await` is NOT strict-reserved; it's reserved only
-            // in modules / async function bodies. Class body being strict
-            // doesn't make `await` reserved (strict reserves `yield`, not
-            // `await`).
-            bool isAwaitEscape = current_.decodedText == "await";
-            if (!isAwaitEscape || inAsync_) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: identifier resolves to reserved word "
-                    "via Unicode escape and cannot be used as a class name",
-                    fileName_, current_.line));
-            }
-        }
-        // ECMA-262 14.6.1 + 13.1.1: the class BindingIdentifier is evaluated
-        // in strict mode (a class body is always strict), so the strict
-        // reserved words — let, static, yield, and the future-reserved set —
-        // are not valid class names even when the surrounding code is sloppy.
-        {
-            std::string nm = !current_.decodedText.empty()
-                ? current_.decodedText : std::string(current_.text);
-            static const std::unordered_set<std::string> kStrictReserved = {
-                "let", "static", "yield", "implements", "interface",
-                "package", "private", "protected", "public"};
-            if (kStrictReserved.count(nm)) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: '{}' is a reserved word and cannot "
-                    "be used as a class name in strict mode",
-                    fileName_, current_.line, nm));
-            }
-        }
-        node->name = identifierName();
-        // ECMA-262 13.2.1.1 (Block early error) + 14.1.2: ClassDeclaration
-        // contributes to LexicallyDeclaredNames. Track the class name so
-        // `{ class f {} class f {} }`, `{ class f {} let f }`,
-        // `{ function f() {} class f {} }`, etc. all error per spec.
-        // Use PDeclKind::Let since Class is a strict lex declaration (same
-        // conflict rules as `let`).
-        if (!node->name.empty()) {
-            declareLexicalName(node->name, PDeclKind::Let);
-        }
-    }
-
-    // Type parameters
-    node->typeParameters = parseTypeParameterList();
-
-    // extends
-    bool hasHeritage = false;
     if (match(TokenKind::KW_extends)) {
+
         hasHeritage = true;
         // ECMA-262 ClassHeritage : extends LeftHandSideExpression. The AST
         // currently stores baseClass as a plain identifier string. For the
@@ -2302,7 +2245,7 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
             if (check(TokenKind::OpenBrace) ||
                 check(TokenKind::KW_implements) ||
                 check(TokenKind::LessThan)) {
-                node->baseClass = firstName;
+                baseClass = firstName;
                 if (check(TokenKind::LessThan)) {
                     skipTypeExpression();
                 }
@@ -2346,7 +2289,17 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                 // Best-effort baseClass: leave empty so analyzer treats
                 // this as no user-defined base; downstream still registers
                 // the class. Parse the full LHS expression to consume tokens.
-                (void)parseCallExpression();
+                auto heritageExpr = parseCallExpression();
+                // ECMA-262 ClassHeritage : extends LeftHandSideExpression. An
+                // arrow function is an AssignmentExpression, not a LHS, so
+                // `extends () => {}` is a SyntaxError (parseCallExpression
+                // greedily consumes the `=> body`, so detect it here).
+                if (dynamic_cast<ast::ArrowFunction*>(heritageExpr.get())) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: an arrow function is not a valid "
+                        "class heritage (extends requires a LeftHandSideExpression)",
+                        fileName_, startTok.line));
+                }
             }
         }
     }
@@ -2355,14 +2308,17 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     if (current_.kind == TokenKind::KW_implements) {
         advance();
         do {
-            node->implementsInterfaces.push_back(identifierName());
+            implementsOut.push_back(identifierName());
             // Skip generic type args
             if (check(TokenKind::LessThan)) {
                 skipTypeExpression();
             }
         } while (match(TokenKind::Comma));
     }
+}
 
+void Parser::parseClassBodyInto(std::vector<ast::NodePtr>& members,
+                                bool hasHeritage) {
     // Body. ECMA-262 §10.2.1: ClassBody is always strict-mode code.
     StrictModeGuard sg(this);
     strictMode_ = true;
@@ -2467,7 +2423,7 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                     classPrivateScopes_.back().declared.insert(p->name);
                 }
             }
-            node->members.push_back(std::move(member));
+            members.push_back(std::move(member));
         }
         // Consume trailing semicolons between members
         while (match(TokenKind::Semicolon)) {}
@@ -2494,7 +2450,73 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
             }
         }
     }
+}
 
+ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport) {
+    auto startTok = current_;
+    expect(TokenKind::KW_class, "'class'");
+
+    auto node = std::make_unique<ast::ClassDeclaration>();
+    setLocation(node.get(), startTok);
+    node->isAbstract = isAbstract;
+    node->isExported = isExported;
+    node->isDefaultExport = isDefaultExport;
+
+    // Name (optional for expressions). Class names are BindingIdentifier
+    // and the class body is always strict (ES262 10.2.1), so escape-
+    // encoded reserved words including contextual-strict ones (let,
+    // static, yield) must be rejected here.
+    if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) && !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
+        if (current_.escapedReservedWord) {
+            // ECMA-262: `await` is NOT strict-reserved; it's reserved only
+            // in modules / async function bodies. Class body being strict
+            // doesn't make `await` reserved (strict reserves `yield`, not
+            // `await`).
+            bool isAwaitEscape = current_.decodedText == "await";
+            if (!isAwaitEscape || inAsync_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a class name",
+                    fileName_, current_.line));
+            }
+        }
+        // ECMA-262 14.6.1 + 13.1.1: the class BindingIdentifier is evaluated
+        // in strict mode (a class body is always strict), so the strict
+        // reserved words — let, static, yield, and the future-reserved set —
+        // are not valid class names even when the surrounding code is sloppy.
+        {
+            std::string nm = !current_.decodedText.empty()
+                ? current_.decodedText : std::string(current_.text);
+            static const std::unordered_set<std::string> kStrictReserved = {
+                "let", "static", "yield", "implements", "interface",
+                "package", "private", "protected", "public"};
+            if (kStrictReserved.count(nm)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is a reserved word and cannot "
+                    "be used as a class name in strict mode",
+                    fileName_, current_.line, nm));
+            }
+        }
+        node->name = identifierName();
+        // ECMA-262 13.2.1.1 (Block early error) + 14.1.2: ClassDeclaration
+        // contributes to LexicallyDeclaredNames. Track the class name so
+        // `{ class f {} class f {} }`, `{ class f {} let f }`,
+        // `{ function f() {} class f {} }`, etc. all error per spec.
+        // Use PDeclKind::Let since Class is a strict lex declaration (same
+        // conflict rules as `let`).
+        if (!node->name.empty()) {
+            declareLexicalName(node->name, PDeclKind::Let);
+        }
+    }
+
+    // Type parameters
+    node->typeParameters = parseTypeParameterList();
+
+    // extends + implements + body — shared with parseClassExpression so the
+    // ECMA-262 15.7.1 early errors are enforced once for both forms.
+    bool hasHeritage = false;
+    parseClassHeritageClause(node->baseClass, node->implementsInterfaces, hasHeritage);
+    parseClassBodyInto(node->members, hasHeritage);
     return node;
 }
 

@@ -85,6 +85,17 @@ private:
 
     // --- Class/interface members ---
     ast::NodePtr parseClassMember();
+    // Shared by parseClassDeclaration + parseClassExpression so every ECMA-262
+    // 15.7.1 early error is written ONCE (not duplicated/mismatched).
+    //  - parseClassHeritageClause: `extends Heritage` (incl. the arrow-heritage
+    //    early error) + `implements ...`.
+    //  - parseClassBodyInto: the strict-mode class body `{ ... }`, appending
+    //    members and enforcing constructor-count, private-name duplicates (with
+    //    get/set static agreement), and AllPrivateIdentifiersValid.
+    void parseClassHeritageClause(std::string& baseClass,
+                                  std::vector<std::string>& implementsOut,
+                                  bool& hasHeritage);
+    void parseClassBodyInto(std::vector<ast::NodePtr>& members, bool hasHeritage);
     std::unique_ptr<ast::MethodDefinition> parseMethodDefinition(
         const std::string& name, ast::NodePtr nameNode,
         bool isStatic, bool isAbstract, bool isAsync, bool isGenerator,
