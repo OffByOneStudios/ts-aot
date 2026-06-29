@@ -1514,6 +1514,20 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
                         "{}:{}: SyntaxError: 'await' cannot be used as a binding "
                         "identifier in this context", fileName_, propLine));
                 }
+                // Strict-mode FutureReservedWords (incl. escape-encoded forms —
+                // propName is the decoded name): `({ package }) => {}` in strict
+                // code is a SyntaxError.
+                if (strictMode_) {
+                    static const std::unordered_set<std::string> kStrictFRWsh = {
+                        "implements", "interface", "let",    "package",
+                        "private",    "protected", "public", "static", "yield"};
+                    if (kStrictFRWsh.count(propName)) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: '{}' is a reserved word in strict "
+                            "mode and cannot be used as a shorthand binding",
+                            fileName_, propLine, propName));
+                    }
+                }
                 auto id = std::make_unique<ast::Identifier>();
                 id->name = propName;
                 elem->name = std::move(id);
