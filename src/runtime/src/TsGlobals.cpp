@@ -5371,6 +5371,33 @@ void* ts_get_global_TypedArray() {
                 }
                 return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetLength());
             });
+            // get %TypedArray%.prototype[@@toStringTag] (ECMA-262 23.2.3.38): an
+            // accessor returning the typed-array's constructor name for a valid
+            // TypedArray receiver, else undefined (NOT a throw). Object.prototype.
+            // toString consults this for [object Int8Array] etc.
+            addAccessorGetter(tproto, "[Symbol.toStringTag]", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                if (!raw || (uintptr_t)raw <= 0x1000 ||
+                    *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC)
+                    return ts_value_make_undefined();
+                const char* name;
+                switch (((TsTypedArray*)raw)->GetType()) {
+                    case TypedArrayType::Int8:         name = "Int8Array"; break;
+                    case TypedArrayType::Uint8:        name = "Uint8Array"; break;
+                    case TypedArrayType::Uint8Clamped: name = "Uint8ClampedArray"; break;
+                    case TypedArrayType::Int16:        name = "Int16Array"; break;
+                    case TypedArrayType::Uint16:       name = "Uint16Array"; break;
+                    case TypedArrayType::Int32:        name = "Int32Array"; break;
+                    case TypedArrayType::Uint32:       name = "Uint32Array"; break;
+                    case TypedArrayType::Float32:      name = "Float32Array"; break;
+                    case TypedArrayType::Float64:      name = "Float64Array"; break;
+                    case TypedArrayType::BigInt64:     name = "BigInt64Array"; break;
+                    case TypedArrayType::BigUint64:    name = "BigUint64Array"; break;
+                    default: return ts_value_make_undefined();
+                }
+                return ts_value_make_string(TsString::Create(name));
+            });
             #define TA_PROTO_STUB(NAME) \
                 addMethod(tproto, #NAME, (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* { \
                     TsTypedArray* ta = requireTypedArrayOrThrow(ctx, #NAME); \
