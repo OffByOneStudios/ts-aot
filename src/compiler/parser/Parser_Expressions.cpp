@@ -393,6 +393,18 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
         // context. Otherwise rewind and fall through (will likely error).
         bool isPrivateIn = (current_.kind == TokenKind::KW_in) && !noIn_;
         if (isPrivateIn) {
+            // ECMA-262 13.10.1: `#name in obj` requires #name to be a declared
+            // private name of an enclosing class. Record the reference for
+            // AllPrivateIdentifiersValid (validated at class-body end), and error
+            // now if there is no enclosing class scope at all — mirrors the
+            // `obj.#x` member-access site.
+            if (classPrivateScopes_.empty()) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: private name '{}' is not in scope; "
+                    "private names are only valid inside a class",
+                    fileName_, hashLine, privName));
+            }
+            classPrivateScopes_.back().unresolved.push_back({privName, hashLine});
             auto litLeft = std::make_unique<ast::StringLiteral>();
             setLocation(litLeft.get(), hashLine, hashCol);
             litLeft->value = privName;
