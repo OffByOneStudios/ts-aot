@@ -1579,6 +1579,10 @@ ast::ExprPtr Parser::parseObjectLiteral() {
     // ECMA-262: ObjectLiteral PropertyDefinition uses AssignmentExpression[+In].
     bool prevNoIn = noIn_;
     noIn_ = false;
+    // ECMA-262 B.3.1 / 13.2.5.1: at most one `__proto__: value` (the colon data
+    // form) is allowed per object literal. Shorthand `__proto__`, methods, and
+    // computed `["__proto__"]:` do NOT count.
+    int protoColonCount = 0;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         // Spread property: ...expr
         if (check(TokenKind::DotDotDot)) {
@@ -1714,6 +1718,13 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 auto prop = std::make_unique<ast::PropertyAssignment>();
                 setLocation(prop.get(), previous_);
                 prop->name = name;
+                // `__proto__: x` (identifier or string name, not computed) is the
+                // proto-setter data form; more than one is a SyntaxError.
+                if (name == "__proto__" && ++protoColonCount > 1) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate __proto__ property is not "
+                        "allowed in an object literal", fileName_, nameLine));
+                }
                 prop->nameNode = std::move(nameNode);
                 prop->initializer = parseAssignmentExpression();
                 node->properties.push_back(std::move(prop));

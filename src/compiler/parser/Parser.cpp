@@ -2982,6 +2982,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         // as parseFunctionDeclaration). Without this, `let X` in sibling
         // method bodies of an object literal or class mistakenly conflict.
         pushLexicalScope();
+        predeclareFormalParamsAsVar(method->parameters);  // body let/const must not duplicate a param
         pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
