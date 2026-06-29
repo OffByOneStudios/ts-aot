@@ -522,6 +522,32 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
     else if (optLevel == "z") level = llvm::OptimizationLevel::Oz;
     else level = llvm::OptimizationLevel::O0;
 
+    // Compile-time guard: the O1+ pass pipeline contains a superlinear pass that
+    // chokes on very large modules. Measured on the test262 `testIntl.js` harness
+    // (~3k lines): O2 and O1 both ~24s, while O0 is ~1s — i.e. ~all the time is the
+    // optimizer, not RS4GC/codegen. For such outliers force O0: optimization
+    // quality is irrelevant for these huge generated/harness modules and
+    // correctness is unaffected. Normal programs (well under the thresholds) keep
+    // their requested level.
+    if (level != llvm::OptimizationLevel::O0) {
+        size_t totalInsts = 0, maxFuncInsts = 0;
+        for (auto& F : *module) {
+            if (F.isDeclaration()) continue;
+            size_t fi = F.getInstructionCount();
+            totalInsts += fi;
+            if (fi > maxFuncInsts) maxFuncInsts = fi;
+        }
+        if (totalInsts > 200000 || maxFuncInsts > 10000) {
+            SPDLOG_WARN("Module too large for O{} (total {} insts, max fn {} insts); "
+                        "forcing O0 to avoid pathological optimizer compile time",
+                        optLevel, totalInsts, maxFuncInsts);
+            level = llvm::OptimizationLevel::O0;
+        } else {
+            SPDLOG_INFO("Module size: total {} insts, max fn {} insts (keeping O{})",
+                        totalInsts, maxFuncInsts, optLevel);
+        }
+    }
+
     if (level != llvm::OptimizationLevel::O0) {
         SPDLOG_INFO("Running IR optimizations (Level O{})", optLevel);
 
