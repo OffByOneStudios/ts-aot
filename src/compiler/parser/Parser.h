@@ -186,6 +186,11 @@ private:
     // error (ECMA-262 14.1.2/14.2), while body var/function stays legal.
     void predeclareFormalParamsAsVar(
         const std::vector<std::unique_ptr<ast::Parameter>>& params);
+    // ECMA-262 14.7.4.1/14.7.5.1: the let/const BoundNames of a for/for-in/for-of
+    // head must not also be VarDeclaredNames of the body. Throws SyntaxError on
+    // conflict; no-op for a var head.
+    void checkForHeadLexicalVsBodyVar(const ast::Node* initializer,
+                                      const ast::Node* body);
 
     // --- Data ---
     std::unique_ptr<Lexer> lexer_;
