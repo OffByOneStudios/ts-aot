@@ -1159,13 +1159,22 @@ static bool iterhelper_require_callable(TsValue* fn) {
 }
 // Generic iterator step via the object protocol (avoids the file-local
 // ts_iterator_next shadow): call iter.next(), read result.done / result.value.
-static TsValue* ih_iter_next(TsValue* iter) {
+// ECMA-262 GetIteratorDirect: read the iterator's `next` method ONCE and cache
+// it; IteratorStep then calls the cached method. Re-reading `next` each step is a
+// spec violation AND an infinite-loop hazard when `next` is an accessor that
+// hands back a fresh closure (e.g. a counter reset every read) — that caused the
+// Iterator/prototype/*/this-plain-iterator tests to hang.
+static TsValue* ih_get_next(TsValue* iter) {
     void* raw = ts_value_get_object(iter); if (!raw) raw = iter;
     TsValue* nextFn = ts_object_get_property(raw, "next");
     if (!nextFn || !ts_is_callable((void*)nextFn)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError", "iterator.next is not a function"));
         return nullptr;
     }
+    return nextFn;
+}
+static TsValue* ih_iter_next(TsValue* iter, TsValue* nextFn) {
+    if (!nextFn) return nullptr;
     return ts_function_call_with_this(nextFn, iter, 0, nullptr);
 }
 static bool ih_res_done(TsValue* res) {
@@ -1189,8 +1198,9 @@ static TsValue* iter_toArray_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsArray* out = (TsArray*)ts_array_create();
     TsValue* u = ts_value_make_undefined();
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         out->Push((int64_t)nanbox_from_tsvalue_ptr(ih_res_value(res)));
     }
@@ -1201,8 +1211,9 @@ static TsValue* iter_forEach_native(void* ctx, int argc, TsValue** argv) {
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         iterhelper_call(fn, ih_res_value(res), i++);
     }
@@ -1213,8 +1224,9 @@ static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         if (ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
             return ts_value_make_bool(true);
@@ -1226,8 +1238,9 @@ static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         if (!ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
             return ts_value_make_bool(false);
@@ -1239,8 +1252,9 @@ static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         TsValue* v = ih_res_value(res);
         if (ts_value_to_bool(iterhelper_call(fn, v, i++))) return v;
@@ -1251,12 +1265,13 @@ static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined();
     TsValue* acc; int64_t i = 0;
     bool haveInit = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
     if (haveInit) { acc = argv[1]; }
     else {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Reduce of empty iterator with no initial value"));
@@ -1265,7 +1280,7 @@ static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
         acc = ih_res_value(res); i = 1;
     }
     while (true) {
-        TsValue* res = ih_iter_next(it);
+        TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         TsValue* v = ih_res_value(res);
         TsValue* a[3] = { acc, v, ts_value_make_double((double)i++) };
@@ -1298,6 +1313,8 @@ static TsValue* make_iter_helper(int kind, TsValue* src, TsValue* fn, double n) 
     it->SetPrototype(getIterHelperPrototype());
     TsValue kv; kv.type = ValueType::NUMBER_INT; kv.i_val = kind; ih_set(it, "__ihk", kv);
     ih_set(it, "__ihs", src ? nanbox_to_tagged(src) : TsValue());
+    // Cache the source iterator's next method ONCE (GetIteratorDirect).
+    ih_set(it, "__ihnext", src ? nanbox_to_tagged(ih_get_next(src)) : TsValue());
     ih_set(it, "__ihf", fn ? nanbox_to_tagged(fn) : TsValue());
     TsValue nv; nv.type = ValueType::NUMBER_DBL; nv.d_val = n; ih_set(it, "__ihn", nv);
     TsValue cv; cv.type = ValueType::NUMBER_DBL; cv.d_val = 0; ih_set(it, "__ihc", cv);
@@ -1310,6 +1327,7 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     if (ih_get(it, "__ihdone").i_val) return ih_make_result(nullptr, true);
     int kind = (int)ih_get(it, "__ihk").i_val;
     TsValue srcT = ih_get(it, "__ihs"); TsValue* src = nanbox_from_tagged(srcT);
+    TsValue* srcNext = nanbox_from_tagged(ih_get(it, "__ihnext"));  // cached once at creation
     TsValue fnT = ih_get(it, "__ihf");
     TsValue* fn = (fnT.type != ValueType::UNDEFINED) ? nanbox_from_tagged(fnT) : nullptr;
     double cnt = ih_get(it, "__ihc").d_val;
@@ -1318,14 +1336,14 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     auto setCnt  = [&](double c) { TsValue v; v.type = ValueType::NUMBER_DBL; v.d_val = c; ih_set(it, "__ihc", v); };
 
     if (kind == 0) { // map
-        TsValue* res = ih_iter_next(src);
+        TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
         TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(cnt + 1);
         return ih_make_result(mapped, false);
     }
     if (kind == 1) { // filter
         while (true) {
-            TsValue* res = ih_iter_next(src);
+            TsValue* res = ih_iter_next(src, srcNext);
             if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
             TsValue* v = ih_res_value(res);
             bool keep = ts_value_to_bool(iterhelper_call(fn, v, (int64_t)cnt)); setCnt(++cnt);
@@ -1334,19 +1352,19 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     }
     if (kind == 2) { // take(n)
         if (cnt >= n) { setDone(); return ih_make_result(nullptr, true); }
-        TsValue* res = ih_iter_next(src);
+        TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
         setCnt(cnt + 1);
         return ih_make_result(ih_res_value(res), false);
     }
     if (kind == 3) { // drop(n)
         while (cnt < n) {
-            TsValue* res = ih_iter_next(src);
+            TsValue* res = ih_iter_next(src, srcNext);
             if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
             cnt += 1;
         }
         setCnt(cnt);
-        TsValue* res = ih_iter_next(src);
+        TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
         return ih_make_result(ih_res_value(res), false);
     }
@@ -1354,17 +1372,20 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
         while (true) {
             TsValue innerT = ih_get(it, "__ihinner");
             if (innerT.type != ValueType::UNDEFINED) {
-                TsValue* res = ih_iter_next(nanbox_from_tagged(innerT));
+                TsValue* res = ih_iter_next(nanbox_from_tagged(innerT),
+                                            nanbox_from_tagged(ih_get(it, "__ihinnext")));
                 if (res && !ih_res_done(res)) return ih_make_result(ih_res_value(res), false);
                 ih_set(it, "__ihinner", TsValue());
             }
-            TsValue* res = ih_iter_next(src);
+            TsValue* res = ih_iter_next(src, srcNext);
             if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
             TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(++cnt);
             void* mraw = ts_value_get_object(mapped); if (!mraw) mraw = mapped;
             TsValue* itf = ts_object_get_property(mraw, "[Symbol.iterator]");
             if (itf && ts_is_callable((void*)itf)) {
-                ih_set(it, "__ihinner", nanbox_to_tagged(ts_function_call_with_this(itf, mapped, 0, nullptr)));
+                TsValue* inner = ts_function_call_with_this(itf, mapped, 0, nullptr);
+                ih_set(it, "__ihinner", nanbox_to_tagged(inner));
+                ih_set(it, "__ihinnext", nanbox_to_tagged(ih_get_next(inner)));  // cache inner next once
             } else {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "flatMap callback did not return an iterable"));
@@ -1373,7 +1394,7 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
         }
     }
     if (kind == 5) { // wrap (Iterator.from) — delegate to the underlying iterator
-        TsValue* res = ih_iter_next(src);
+        TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
         return ih_make_result(ih_res_value(res), false);
     }
