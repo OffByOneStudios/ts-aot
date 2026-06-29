@@ -1010,6 +1010,16 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             info->value = allocaPtr;
             info->elemType = rhs->type;
             info->isAlloca = true;
+        } else if (!ident->isUnresolvedReference) {
+            // Untyped-JS implicit global: a bare assignment to a name the analyzer
+            // resolved (NOT the TS "Undefined variable"/isUnresolvedReference case)
+            // with no prior binding is a sloppy-mode implicit global. Give it real
+            // global storage so reads/updates persist across loop iterations —
+            // without this `for (i = 0; i <= 1; i++) {}` stored the increment into
+            // a dead SSA value and looped forever.
+            moduleGlobalVarsByModule_[ident->name].insert(currentModulePath_);
+            module_->globals[modVarName(ident->name)] = HIRType::makeAny();
+            builder_.createStoreGlobal(modVarName(ident->name), rhs);
         } else {
             // New variable - should not happen in assignment, but handle gracefully
             defineVariable(ident->name, rhs);
