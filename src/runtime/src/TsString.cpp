@@ -1039,12 +1039,22 @@ void* TsString::Match(TsRegExp* regexp) {
     while (true) {
         void* execResult = regexp->Exec(this);
         if (!execResult) break;
-        
+
         TsArray* arr = (TsArray*)execResult;
         // In global match, we only want the full match (index 0)
-        results->Push(arr->At(0));
+        int64_t m0 = arr->At(0);
+        results->Push(m0);
+
+        // ECMA-262 21.2.5.6 (@@match, global): on an EMPTY match Exec leaves
+        // lastIndex parked, so the next Exec matches empty at the same spot
+        // forever (e.g. `"abc".match(/x*|/g)` or the `|`-alternation regexes in
+        // AdvanceStringIndex). AdvanceStringIndex: bump lastIndex by 1.
+        TsString* matchStr = (TsString*)ts_value_get_string((TsValue*)m0);
+        if (!matchStr || matchStr->Length() == 0) {
+            regexp->SetLastIndex(regexp->GetLastIndex() + 1);
+        }
     }
-    
+
     if (results->Length() == 0) return nullptr;
     return results;
 }
