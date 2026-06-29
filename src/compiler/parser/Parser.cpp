@@ -3411,6 +3411,15 @@ ast::StmtPtr Parser::parseSwitchStatement() {
                 if (stmt) clause->statements.push_back(std::move(stmt));
             }
             node->clauses.push_back(std::move(clause));
+        } else {
+            // ECMA-262 13.12: a CaseBlock contains only CaseClauses and a
+            // DefaultClause. Any other token here (e.g. a statement before the
+            // first `case`, as in `switch(v){ x=2; case 0: }`) is a SyntaxError.
+            // Without this branch neither match() consumed the token, so the loop
+            // never advanced and the parser spun forever on malformed switches.
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: Unexpected token in switch body; expected 'case' or 'default'",
+                fileName_, current_.line));
         }
     }
     popLexicalScope();
