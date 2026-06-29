@@ -1951,13 +1951,28 @@ extern "C" {
         bool propertyExists = map->Has(propKey);
         uint8_t attrs = 0;
 
+        // ECMA-262 ToBoolean for descriptor attribute values: -0/0/NaN/""/
+        // null/undefined are FALSE. The previous `v.ptr_val`-bit test treated
+        // -0 (raw bits 0x8000000000000000) and "" as true, so e.g.
+        // `Object.defineProperty(o,p,{configurable:-0})` wrongly produced a
+        // *configurable* property (ToBoolean(-0) must be false).
+        auto descToBool = [](const TsValue& v) -> bool {
+            switch (v.type) {
+                case ValueType::BOOLEAN:    return v.i_val != 0;
+                case ValueType::NUMBER_INT: return v.i_val != 0;
+                case ValueType::NUMBER_DBL: return v.d_val != 0.0 && v.d_val == v.d_val;
+                case ValueType::STRING_PTR: return v.ptr_val && ((TsString*)v.ptr_val)->Length() > 0;
+                case ValueType::UNDEFINED:  return false;
+                default:                    return v.ptr_val != nullptr;
+            }
+        };
+
         // enumerable
         TsValue enumKey;
         enumKey.type = ValueType::STRING_PTR;
         enumKey.ptr_val = TsString::GetInterned("enumerable");
         if (descMap->Has(enumKey)) {
-            TsValue ev = descMap->Get(enumKey);
-            if (ev.type == ValueType::BOOLEAN ? ev.i_val : (ev.type != ValueType::UNDEFINED && ev.ptr_val))
+            if (descToBool(descMap->Get(enumKey)))
                 attrs |= ATTR_ENUMERABLE;
         } else if (propertyExists) {
             attrs |= (existingAttrs & ATTR_ENUMERABLE);
@@ -1968,8 +1983,7 @@ extern "C" {
         writableKey.type = ValueType::STRING_PTR;
         writableKey.ptr_val = TsString::GetInterned("writable");
         if (descMap->Has(writableKey)) {
-            TsValue wv = descMap->Get(writableKey);
-            if (wv.type == ValueType::BOOLEAN ? wv.i_val : (wv.type != ValueType::UNDEFINED && wv.ptr_val))
+            if (descToBool(descMap->Get(writableKey)))
                 attrs |= ATTR_WRITABLE;
         } else if (propertyExists) {
             attrs |= (existingAttrs & ATTR_WRITABLE);
@@ -1980,8 +1994,7 @@ extern "C" {
         configKey.type = ValueType::STRING_PTR;
         configKey.ptr_val = TsString::GetInterned("configurable");
         if (descMap->Has(configKey)) {
-            TsValue cv = descMap->Get(configKey);
-            if (cv.type == ValueType::BOOLEAN ? cv.i_val : (cv.type != ValueType::UNDEFINED && cv.ptr_val))
+            if (descToBool(descMap->Get(configKey)))
                 attrs |= ATTR_CONFIGURABLE;
         } else if (propertyExists) {
             attrs |= (existingAttrs & ATTR_CONFIGURABLE);
@@ -1993,9 +2006,7 @@ extern "C" {
         if (propertyExists && !(existingAttrs & ATTR_CONFIGURABLE)) {
             // 1. Cannot go non-configurable → configurable.
             if (descMap->Has(configKey)) {
-                TsValue cv = descMap->Get(configKey);
-                bool newConfig = (cv.type == ValueType::BOOLEAN ? cv.i_val :
-                    (cv.type != ValueType::UNDEFINED && cv.ptr_val));
+                bool newConfig = descToBool(descMap->Get(configKey));
                 if (newConfig) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "Cannot redefine property: non-configurable"));
@@ -2004,9 +2015,7 @@ extern "C" {
             }
             // 2. Cannot change enumerable.
             if (descMap->Has(enumKey)) {
-                TsValue ev = descMap->Get(enumKey);
-                bool newEnum = (ev.type == ValueType::BOOLEAN ? ev.i_val :
-                    (ev.type != ValueType::UNDEFINED && ev.ptr_val));
+                bool newEnum = descToBool(descMap->Get(enumKey));
                 bool oldEnum = (existingAttrs & ATTR_ENUMERABLE) != 0;
                 if (newEnum != oldEnum) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -2018,9 +2027,7 @@ extern "C" {
             //    and cannot change value.
             if (!(existingAttrs & ATTR_WRITABLE)) {
                 if (descMap->Has(writableKey)) {
-                    TsValue wv = descMap->Get(writableKey);
-                    bool newWritable = (wv.type == ValueType::BOOLEAN ? wv.i_val :
-                        (wv.type != ValueType::UNDEFINED && wv.ptr_val));
+                    bool newWritable = descToBool(descMap->Get(writableKey));
                     if (newWritable) {
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                             "Cannot redefine property: non-configurable (writable)"));
