@@ -373,6 +373,15 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
             if (auto* spread = dynamic_cast<const ast::SpreadElement*>(elem.get())) {
                 target = spread->expression.get();
                 if (!target) continue;
+                // ECMA-262: AssignmentRestElement is `... DestructuringAssignment-
+                // Target` with NO Initializer — `[...x = 1] = arr` (and the same in
+                // a for-in/of head) is a SyntaxError.
+                if (dynamic_cast<const ast::AssignmentExpression*>(target)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: a rest element may not have an "
+                        "initializer in an assignment pattern",
+                        expr->line, expr->column));
+                }
             }
             // Default value wrapper: `[a = 0]` — the AST stores `a = 0` as
             // AssignmentExpression. Recurse into its left.
@@ -3495,6 +3504,18 @@ ast::StmtPtr Parser::parseForStatement() {
 
         // Check for for-of: for (x of iterable)
         if (current_.kind == TokenKind::KW_of) {
+            // ECMA-262 14.7.5: `for ( [lookahead ≠ async of] LHS of ...)`. A bare
+            // `async` as a (non-await) for-of head is a SyntaxError (disambiguates
+            // from `for await`). `for ((async) of …)` and `for await (async of …)`
+            // are unaffected.
+            if (!isAwait) {
+                auto* id = dynamic_cast<ast::Identifier*>(expr.get());
+                if (id && id->name == "async" && !expr->parenthesized) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'async' is not allowed as the "
+                        "left-hand side of a for-of loop", fileName_, expr->line));
+                }
+            }
             // ECMA-262 14.7.5.1: the head LHS must be a valid assignment
             // target / destructuring pattern (`for (this of [])`,
             // `for ([...x, y] of [[]])`, strict `for ({eval} of ...)` are
