@@ -1442,9 +1442,16 @@ def main():
         # setdefault lets an explicit env override still win.
         os.environ.setdefault("TS262_SHARED_RUNTIME", "1")
         os.environ.setdefault("TS262_BATCH", "16")
-        _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "")
-        if "-O" not in _extra:
-            os.environ["TSAOT_EXTRA_FLAGS"] = (_extra + " -O0").strip()
+
+    # Default to -O0 for ALL runs (not just --fast): conformance tests care about
+    # correctness, not codegen quality, and O0 compiles ~24x faster than O2. The
+    # LLVM O1+ pipeline has a superlinear pass that made large harnesses
+    # (testIntl.js, big array/switch literals, the Unicode-identifier tables)
+    # blow the 30s compile budget and record spurious "compilation timeouts".
+    # An explicit -O in TSAOT_EXTRA_FLAGS still wins; pass --opt to override.
+    _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "")
+    if "-O" not in _extra:
+        os.environ["TSAOT_EXTRA_FLAGS"] = (_extra + " -O0").strip()
 
     runner = Test262Runner(args)
     sys.exit(runner.run())
