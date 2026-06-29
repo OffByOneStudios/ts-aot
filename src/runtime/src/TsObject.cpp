@@ -7140,7 +7140,23 @@ void* ts_create_arguments_from_params(
         } else if (m16 == 0x434C5352) {  // TsClosure
             map = ((TsClosure*)obj)->properties;
         } else if (m0 == 0x41525259) {  // TsArray
-            map = ((TsArray*)obj)->properties;
+            TsArray* arr = (TsArray*)obj;
+            // A canonical array index is an own element, not a side-map entry:
+            // a plain present element is enumerable; a defineProperty'd index
+            // records its enumerable bit in the __arr_attrs_<i> side-map.
+            // (propertyIsEnumerable returned undefined/false for every array
+            // index, so verifyProperty's isEnumerable check failed wholesale.)
+            const char* kc = (keyTV.type == ValueType::STRING_PTR)
+                ? ((TsString*)keyTV.ptr_val)->ToUtf8() : nullptr;
+            int64_t idx = 0;
+            if (kc && parse_canonical_array_index(kc, &idx)) {
+                uint8_t a;
+                if (array_index_attrs_get(arr, (size_t)idx, &a))
+                    return ts_value_make_bool((a & 0x01) != 0);  // defineProperty'd index
+                bool present = ((size_t)idx < arr->Length()) && !arr->IsHole((size_t)idx);
+                return ts_value_make_bool(present);              // plain element
+            }
+            map = arr->properties;  // non-index string key -> side map
         } else if (m16 == 0x4D415053) {  // TsMap
             map = (TsMap*)obj;
         }
