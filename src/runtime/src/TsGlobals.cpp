@@ -1905,7 +1905,9 @@ void* ts_get_global_RegExp() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
-        cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
+        TsMap* reCtor = makeSimpleConstructorGlobal("RegExp");
+        addAccessorGetter(reCtor, "[Symbol.species]", (void*)species_this_getter);
+        cached = wrapAsCallable(reCtor, "RegExp", 2);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // Populate RegExp.prototype with the spec-required methods so that
         // `RegExp.prototype.exec`, `.test`, etc. are accessible with proper
@@ -5180,11 +5182,10 @@ static void* makeTypedArrayCtor(const char* name,
     // and falls back to default if undefined/null; storing self matches the
     // spec-default behavior and lets tests that override Symbol.species on
     // a subclass take effect.
-    TsValue speciesKey; speciesKey.type = ValueType::STRING_PTR;
-    speciesKey.ptr_val = TsString::GetInterned("[Symbol.species]");
-    TsValue speciesVal; speciesVal.type = ValueType::FUNCTION_PTR;
-    speciesVal.ptr_val = ctorFunc;
-    ctorFunc->properties->Set(speciesKey, speciesVal);
+    // Install as an ACCESSOR (get [@@species]() { return this; }) so the
+    // descriptor is {get, configurable} per spec (a data property fails the
+    // Symbol.species tests' get-is-a-function check).
+    addAccessorGetter(ctorFunc->properties, "[Symbol.species]", (void*)species_this_getter);
 
     // Link [[Prototype]] (the __proto__ slot, NOT .prototype) to %TypedArray%.
     // This is what Object.getPrototypeOf(Int8Array) returns.
