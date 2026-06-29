@@ -308,7 +308,10 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         auto node = std::make_unique<ast::YieldExpression>();
         setLocation(node.get(), startTok);
 
-        if (match(TokenKind::Star)) {
+        // ECMA-262 14.4: `yield [no LineTerminator here] * AssignmentExpression`.
+        // A newline before `*` means the yield is argument-less (ASI) and the `*`
+        // starts a new — illegal — statement, so do NOT consume it as `yield*`.
+        if (!current_.hadNewlineBefore && match(TokenKind::Star)) {
             node->isAsterisk = true;
         }
 
@@ -638,6 +641,14 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             // parsePrimary which handles KW_await as an Identifier (per
             // ES262 13.1.1).
             if (inAsync_) {
+                // ECMA-262 15.8: an async (generator) function's FormalParameters
+                // may not contain an AwaitExpression — `async function f(x = await
+                // 1){}` / `(async function*(x = await 1){})` are SyntaxErrors.
+                if (inParamDefault_) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: an await expression is not allowed in "
+                        "a formal-parameter default", fileName_, current_.line));
+                }
                 auto tok = current_;
                 advance();
                 auto node = std::make_unique<ast::AwaitExpression>();
