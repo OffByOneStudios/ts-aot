@@ -446,7 +446,13 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
         std::string privName = "#" + identifierName();
         // Only proceed if followed by `in` AND `in` is enabled in this
         // context. Otherwise rewind and fall through (will likely error).
-        bool isPrivateIn = (current_.kind == TokenKind::KW_in) && !noIn_;
+        // ECMA-262 13.10: `PrivateIdentifier in ShiftExpression` is a
+        // RelationalExpression (precedence 11). The `#name` LHS is therefore only
+        // legal at the relational level or below — a `#name` parsed as a
+        // higher-precedence operand (e.g. the ShiftExpression on the RHS of
+        // another `in`: `#field in #field in this`) is invalid.
+        bool isPrivateIn = (current_.kind == TokenKind::KW_in) && !noIn_ &&
+                           minPrec <= 11;
         if (isPrivateIn) {
             // ECMA-262 13.10.1: `#name in obj` requires #name to be a declared
             // private name of an enclosing class. Record the reference for
