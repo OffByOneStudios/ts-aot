@@ -1031,6 +1031,7 @@ Token Lexer::scanRegularExpression() {
                  tokenStartLine_, tokenStartColumn_);
         throw std::runtime_error(buf);
     };
+    bool closed = false;
     while (!isAtEnd()) {
         char c = peek();
         if (c == '\\') {
@@ -1047,6 +1048,7 @@ Token Lexer::scanRegularExpression() {
             advance();
         } else if (c == '/' && !inCharClass) {
             advance(); // closing /
+            closed = true;
             break;
         } else if (c == '\n' || c == '\r') {
             break; // Unterminated regex on this line
@@ -1056,6 +1058,11 @@ Token Lexer::scanRegularExpression() {
             advance();
         }
     }
+    // ECMA-262 12.9.5: a RegularExpressionLiteral must have a closing `/`.
+    // Reaching a LineTerminator or end of input first is a SyntaxError — e.g.
+    // `x*/` (a stray comment-close) re-lexes the `/` as a regex that never
+    // closes.
+    if (!closed) throwRegexLineTerm();
     int bodyEnd = pos_ - 1;  // position of closing '/' (or end if unterminated)
     if (bodyEnd < bodyStart) bodyEnd = bodyStart;
 
