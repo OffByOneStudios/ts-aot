@@ -431,6 +431,48 @@ static void validateVModeClasses(const std::string& body, int line, int col) {
     }
 }
 
+// ECMA-262 22.2.1 UnicodeMode (`u`/`v`) escape early errors. IdentityEscape is
+// restricted to SyntaxCharacter / `/` — Annex B leniency does NOT apply, so
+// `\M`, `\a`, `\c0`, `(?<a>\a)` are SyntaxErrors. ICU accepts them.
+static void validateUnicodeModeEscapes(const std::string& body, bool hasV,
+                                       int line, int col) {
+    // AtomEscape (outside a class): SyntaxCharacter / `/` + the named escapes.
+    static const char* kAtomEscape =
+        "^$\\.*+?()[]{}|/dDsSwWbBfnrtv0123456789cxupPk";
+    // Inside a class, ClassEscape additionally permits `\-`.
+    static const char* kClassExtra = "-";
+    // In `v`-mode, a class also permits the ClassSetSyntaxCharacter escapes
+    // `( ) [ ] { } / - |` and the `\q{...}` ClassStringDisjunction.
+    static const char* kVClassExtra = "-()[]{}|/q";
+    int classDepth = 0;
+    for (size_t i = 0; i + 1 < body.size(); i++) {
+        char c = body[i];
+        if (c == '\\') {
+            char n = body[i + 1];
+            bool ok = strchr(kAtomEscape, n) != nullptr;
+            if (!ok && classDepth > 0)
+                ok = strchr(hasV ? kVClassExtra : kClassExtra, n) != nullptr;
+            if (!ok) {
+                failSyntax(line, col,
+                    std::string("invalid escape '\\") + n +
+                    "' in a Unicode-mode regular expression");
+            }
+            if (n == 'c') {
+                char a = (i + 2 < body.size()) ? body[i + 2] : '\0';
+                if (!((a >= 'A' && a <= 'Z') || (a >= 'a' && a <= 'z'))) {
+                    failSyntax(line, col,
+                        "'\\c' must be followed by an ASCII letter in a "
+                        "Unicode-mode regular expression");
+                }
+            }
+            i++;  // skip the escaped char
+            continue;
+        }
+        if (c == '[') classDepth++;
+        else if (c == ']' && classDepth > 0) classDepth--;
+    }
+}
+
 void validateRegExpLiteral(const std::string& body, const std::string& flags,
                            int line, int col) {
     // 1. Flag early errors (ECMA-262 22.2.1.1).
@@ -461,6 +503,9 @@ void validateRegExpLiteral(const std::string& body, const std::string& flags,
     // `u` and `v` modes — must precede the `hasV` early return below, since
     // the most common violations are `v`-flag patterns.
     validatePropertiesOfStrings(body, hasU, hasV, line, col);
+
+    // 2b. UnicodeMode (`u`/`v`) identity-escape early errors.
+    if (hasU || hasV) validateUnicodeModeEscapes(body, hasV, line, col);
 
     // 3. Pattern probe via ICU with the runtime's translation. The `v` flag's
     // unicodeSets grammar is not ICU-compatible; ICU can't probe it, so run the
