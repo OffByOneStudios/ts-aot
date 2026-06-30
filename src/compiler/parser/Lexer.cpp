@@ -379,6 +379,15 @@ void Lexer::skipWhitespaceAndComments() {
             // Single-line comment
             advance(); advance(); // skip //
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+                // ECMA-262 12.4: U+2028 (LS) / U+2029 (PS) are LineTerminators
+                // too, so they END a single-line (or HTML-like) comment — code
+                // after them is parsed, not commented out.
+                if ((unsigned char)peek() == 0xE2 &&
+                    (unsigned char)peekAt(1) == 0x80 &&
+                    ((unsigned char)peekAt(2) == 0xA8 ||
+                     (unsigned char)peekAt(2) == 0xA9)) {
+                    break;
+                }
                 advance();
             }
         }
@@ -391,6 +400,15 @@ void Lexer::skipWhitespaceAndComments() {
         else if (c == '<' && peekAt(1) == '!' && peekAt(2) == '-' && peekAt(3) == '-') {
             advance(); advance(); advance(); advance();  // skip <!--
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+                // ECMA-262 12.4: U+2028 (LS) / U+2029 (PS) are LineTerminators
+                // too, so they END a single-line (or HTML-like) comment — code
+                // after them is parsed, not commented out.
+                if ((unsigned char)peek() == 0xE2 &&
+                    (unsigned char)peekAt(1) == 0x80 &&
+                    ((unsigned char)peekAt(2) == 0xA8 ||
+                     (unsigned char)peekAt(2) == 0xA9)) {
+                    break;
+                }
                 advance();
             }
         }
@@ -401,6 +419,15 @@ void Lexer::skipWhitespaceAndComments() {
             // productions where it appears at the start of a script).
             advance(); advance(); advance();  // skip -->
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+                // ECMA-262 12.4: U+2028 (LS) / U+2029 (PS) are LineTerminators
+                // too, so they END a single-line (or HTML-like) comment — code
+                // after them is parsed, not commented out.
+                if ((unsigned char)peek() == 0xE2 &&
+                    (unsigned char)peekAt(1) == 0x80 &&
+                    ((unsigned char)peekAt(2) == 0xA8 ||
+                     (unsigned char)peekAt(2) == 0xA9)) {
+                    break;
+                }
                 advance();
             }
         }
