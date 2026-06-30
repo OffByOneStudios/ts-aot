@@ -2290,6 +2290,11 @@ void Parser::parseClassHeritageClause(std::string& baseClass,
                                       std::vector<std::string>& implementsOut,
                                       bool& hasHeritage) {
     auto startTok = current_;
+    // ECMA-262 10.2.1 / 15.7: a class definition is strict-mode code in its
+    // entirety, including the ClassHeritage — so e.g. a `with` statement in a
+    // function used as the superclass expression is a SyntaxError.
+    StrictModeGuard heritageStrict(this);
+    strictMode_ = true;
     if (match(TokenKind::KW_extends)) {
 
         hasHeritage = true;
