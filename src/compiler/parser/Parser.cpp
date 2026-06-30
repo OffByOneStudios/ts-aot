@@ -4168,12 +4168,33 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             node->label = decodedName;
             bool allowAnnexB = (iterationDepth_ == 0 && !labelBodyForbidsFunction_);
             // ECMA-262 14.13 / 14.14: push label so `break LABEL` /
-            // `continue LABEL` can verify LABEL is in scope. We don't yet
-            // know whether the labelled statement is an IterationStatement
-            // — that affects continue legality — so optimistically push
-            // isIteration=true. The iterationDepth_ tracking in
-            // parseContinueStatement still catches `continue` outside loops.
-            // (A future refinement could detect iteration-form lookahead.)
+            // `continue LABEL` can verify LABEL is in scope. Determine whether
+            // this label ultimately denotes an IterationStatement (for/while/do),
+            // skipping any nested label prefixes, so `continue LABEL` can reject a
+            // label attached to a non-iteration statement (e.g. a block).
+            bool labelsIteration = false;
+            {
+                auto savedLA = saveState();
+                while (true) {
+                    if (current_.kind == TokenKind::KW_for ||
+                        current_.kind == TokenKind::KW_while ||
+                        current_.kind == TokenKind::KW_do) {
+                        labelsIteration = true;
+                        break;
+                    }
+                    // A nested label prefix is `<name> :` — detect it by peeking
+                    // for the ':' (works for identifier and contextual-keyword
+                    // label names, and stops at a block `{`, `if`, etc.).
+                    auto peek = saveState();
+                    advance();
+                    bool isLabelPrefix = (current_.kind == TokenKind::Colon);
+                    restoreState(peek);
+                    if (!isLabelPrefix) break;
+                    advance();  // consume the nested label name
+                    advance();  // consume its ':'
+                }
+                restoreState(savedLA);
+            }
             // ECMA-262 14.13.1: a LabelledStatement's label may not duplicate an
             // enclosing label in the same LabelSet — `x: x: 0;` is a SyntaxError.
             // (Sequential reuse `x: a; x: b;` is fine — the outer label has been
@@ -4185,7 +4206,7 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
                         fileName_, line, decodedName));
                 }
             }
-            activeLabels_.push_back({decodedName, true});
+            activeLabels_.push_back({decodedName, labelsIteration});
             try {
                 node->statement = parseStatementOnly(allowAnnexB);
             } catch (...) {
@@ -4254,14 +4275,22 @@ ast::StmtPtr Parser::parseContinueStatement() {
             fileName_, startTok.line));
     }
     if (!node->label.empty()) {
-        bool found = false;
+        bool found = false, isIter = false;
         for (auto& l : activeLabels_) {
-            if (l.name == node->label) { found = true; break; }
+            if (l.name == node->label) { found = true; isIter = l.isIteration; break; }
         }
         if (!found) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: undefined label '{}'",
                 fileName_, startTok.line, node->label));
+        }
+        // ECMA-262 14.13.3: a `continue` target label must denote an
+        // IterationStatement — `label: { for(;;){ continue label; } }` (label on
+        // a block) is a SyntaxError.
+        if (!isIter) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'continue' label '{}' does not denote an "
+                "iteration statement", fileName_, startTok.line, node->label));
         }
     }
     expectSemicolon();
