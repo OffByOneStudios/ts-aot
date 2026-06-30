@@ -592,6 +592,12 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     // them re-validates the earlier ones via pendingPrologueStrings_.
     pendingPrologueStrings_.clear();
     bool inPrologue = true;
+    // ECMA-262 16.1.1 / 16.2.1: the top level of a Script/Module is a
+    // declaration scope — duplicate LexicallyDeclaredNames (and lex-vs-var
+    // conflicts) are early errors there too. Without a pushed scope,
+    // declareLexicalName is a no-op, so `class A {} class A {}` and
+    // `let a; class a {}` slip through (block/function scopes already catch them).
+    pushLexicalScope();
     while (!isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (!stmt) continue;
@@ -600,6 +606,7 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
         }
         program->body.push_back(std::move(stmt));
     }
+    popLexicalScope();
 
     return program;
 }
