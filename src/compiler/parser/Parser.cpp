@@ -616,6 +616,8 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     current_ = lexer_->nextToken();
     previous_ = current_;
 
+    scriptGoal_ = (std::getenv("TS_SCRIPT_GOAL") != nullptr);
+
     auto program = std::make_unique<ast::Program>();
     program->sourceFile = fileName;
 
@@ -4380,6 +4382,12 @@ ast::StmtPtr Parser::parseDebuggerStatement() {
 
 ast::StmtPtr Parser::parseImportDeclaration() {
     auto startTok = current_;
+    // ECMA-262: an ImportDeclaration is only a ModuleItem — illegal in a Script.
+    if (scriptGoal_) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'import' declarations may only appear in a module",
+            fileName_, current_.line));
+    }
     expect(TokenKind::KW_import, "'import'");
 
     // import X = require('module') — TypeScript import equals
@@ -4513,6 +4521,12 @@ ast::StmtPtr Parser::parseImportDeclaration() {
 
 ast::StmtPtr Parser::parseExportDeclaration() {
     auto startTok = current_;
+    // ECMA-262: an ExportDeclaration is only a ModuleItem — illegal in a Script.
+    if (scriptGoal_) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'export' declarations may only appear in a module",
+            fileName_, current_.line));
+    }
     expect(TokenKind::KW_export, "'export'");
 
     // export default
