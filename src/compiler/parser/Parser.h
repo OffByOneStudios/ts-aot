@@ -241,6 +241,11 @@ private:
     struct PendingPrologueString { std::string raw; int line; int column; };
     std::vector<PendingPrologueString> pendingPrologueStrings_;
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
+    // Like functionDepth_ but NOT incremented by arrow functions (which inherit
+    // their [[NewTarget]] from the enclosing non-arrow function). 0 means there
+    // is no enclosing ordinary function/method, so `new.target` is invalid —
+    // including inside a top-level arrow (`() => { new.target; }`).
+    int nonArrowFunctionDepth_ = 0;
     int iterationDepth_ = 0;   // Inside for/while/do-while body (break + continue allowed)
     int switchDepth_ = 0;      // Inside switch body (break allowed, continue not)
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
