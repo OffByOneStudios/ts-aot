@@ -2166,6 +2166,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
     functionDepth_++;
+    nonArrowFunctionDepth_++;
     int prevIter = iterationDepth_, prevSwitch = switchDepth_;
     iterationDepth_ = 0; switchDepth_ = 0;
     // ECMA-262 8.6: label scope does not cross function-expression body.
@@ -2242,6 +2243,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     sawUseStrictDirective_ = prevSawUseStrict;
 
     functionDepth_--;
+    nonArrowFunctionDepth_--;
     iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
     activeLabels_.swap(savedLabels);
     inAsync_ = prevAsync;
@@ -2333,11 +2335,11 @@ ast::ExprPtr Parser::parseNewExpression() {
                 "must not contain a Unicode escape sequence",
                 fileName_, current_.line));
         }
-        // ECMA-262 13.3.12: new.target is only valid inside a function. At the
-        // top level (functionDepth_ == 0) it is a SyntaxError. (The
-        // inside-an-arrow-at-top-level case — arrows inherit the enclosing
-        // [[NewTarget]] — needs arrow-aware tracking and is left for later.)
-        if (functionDepth_ == 0) {
+        // ECMA-262 13.3.12: new.target is only valid inside an ordinary
+        // function/method. Arrows inherit the enclosing [[NewTarget]], so use the
+        // arrow-aware depth — `() => { new.target; }` at the top level (no
+        // enclosing ordinary function) is a SyntaxError.
+        if (nonArrowFunctionDepth_ == 0) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: new.target expression is not allowed here "
                 "(only inside functions)",

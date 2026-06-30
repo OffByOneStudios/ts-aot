@@ -2125,6 +2125,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         inAsync_ = node->isAsync;
         inGenerator_ = node->isGenerator;
         functionDepth_++;
+        nonArrowFunctionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
         // ECMA-262 8.6 (ContainsUndefinedBreakTarget/ContinueTarget walks
@@ -2171,6 +2172,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
+        nonArrowFunctionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
@@ -3079,6 +3081,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         inAsync_ = method->isAsync;
         inGenerator_ = method->isGenerator;
         functionDepth_++;
+        nonArrowFunctionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
         // ECMA-262 8.6: label scope does not cross function/method bodies.
@@ -3119,6 +3122,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
+        nonArrowFunctionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
