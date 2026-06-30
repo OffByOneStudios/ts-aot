@@ -1257,11 +1257,14 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
         }
 
         case TokenKind::DotDotDot: {
-            advance();
-            auto node = std::make_unique<ast::SpreadElement>();
-            setLocation(node.get(), tok);
-            node->expression = parseAssignmentExpression();
-            return node;
+            // A `...` is only valid inside an array literal, call arguments, or an
+            // object literal (each handled at its own site) — never at a primary-
+            // expression position. So `var af = ...x => x` (rest parameter without
+            // parentheses) and a bare `...x` are SyntaxErrors. (Real rest params
+            // `(...x) => x` are parsed by parseParameterList, not here.)
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: unexpected '...' (a spread/rest element is "
+                "not valid here)", fileName_, tok.line));
         }
 
         case TokenKind::Slash: {
