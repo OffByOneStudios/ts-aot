@@ -1917,7 +1917,11 @@ ast::ExprPtr Parser::parseObjectLiteral() {
         }
 
         if (!check(TokenKind::CloseBrace)) {
-            match(TokenKind::Comma);  // Trailing comma is optional
+            // ECMA-262: object-literal properties are comma-separated. A trailing
+            // comma before `}` is allowed (guarded above), but a MISSING comma is
+            // a SyntaxError — e.g. `({ async <newline> foo(){} })`, where the
+            // line terminator stops `async foo(){}` being one async method.
+            expect(TokenKind::Comma, "',' or '}'");
         }
     }
     noIn_ = prevNoIn;
