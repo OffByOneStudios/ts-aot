@@ -976,7 +976,11 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             advance();
             auto node = std::make_unique<ast::Identifier>();
             setLocation(node.get(), tok);
-            node->name = std::string(tok.text);
+            // ECMA-262: an IdentifierName's StringValue uses the DECODED form, so
+            // `arguments` IS `arguments` (resolves to the same binding, and
+            // is caught by name-based early errors). Mirror identifierName().
+            node->name = tok.decodedText.empty()
+                ? std::string(tok.text) : tok.decodedText;
             return node;
         }
 

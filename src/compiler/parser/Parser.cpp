@@ -50,12 +50,39 @@ int containsArgumentsOrSuperCall(const ast::Node* node) {
         return FIELD_INIT_OK;
     }
 
-    // Boundary nodes — own arguments / super binding, do NOT recurse
+    // A ComputedPropertyName wraps its key expression (`[expr]`).
+    if (auto* cpn = dynamic_cast<const ast::ComputedPropertyName*>(node)) {
+        return containsArgumentsOrSuperCall(cpn->expression.get());
+    }
+
+    // Boundary nodes — own arguments / super binding, do NOT recurse into their
+    // bodies. BUT a member's COMPUTED KEY (`[expr]`) is evaluated in the
+    // ENCLOSING scope, so `arguments`/super in a computed key still counts
+    // (`static { (class { [arguments]() {} }); }` is a SyntaxError). Recurse into
+    // computed keys (name == "[computed]" → expression in nameNode) only.
     if (dynamic_cast<const ast::FunctionExpression*>(node)) return FIELD_INIT_OK;
     if (dynamic_cast<const ast::FunctionDeclaration*>(node)) return FIELD_INIT_OK;
-    if (dynamic_cast<const ast::MethodDefinition*>(node)) return FIELD_INIT_OK;
-    if (dynamic_cast<const ast::ClassDeclaration*>(node)) return FIELD_INIT_OK;
-    if (dynamic_cast<const ast::ClassExpression*>(node)) return FIELD_INIT_OK;
+    if (auto* md = dynamic_cast<const ast::MethodDefinition*>(node)) {
+        if (md->name == "[computed]" && md->nameNode)
+            return containsArgumentsOrSuperCall(md->nameNode.get());
+        return FIELD_INIT_OK;
+    }
+    auto scanClassComputedKeys = [](const std::vector<ast::NodePtr>& members) -> int {
+        for (auto& m : members) {
+            if (auto* mm = dynamic_cast<const ast::MethodDefinition*>(m.get())) {
+                if (mm->name == "[computed]" && mm->nameNode)
+                    if (int r = containsArgumentsOrSuperCall(mm->nameNode.get())) return r;
+            } else if (auto* pp = dynamic_cast<const ast::PropertyDefinition*>(m.get())) {
+                if (pp->name == "[computed]" && pp->nameNode)
+                    if (int r = containsArgumentsOrSuperCall(pp->nameNode.get())) return r;
+            }
+        }
+        return FIELD_INIT_OK;
+    };
+    if (auto* cd = dynamic_cast<const ast::ClassDeclaration*>(node))
+        return scanClassComputedKeys(cd->members);
+    if (auto* ce = dynamic_cast<const ast::ClassExpression*>(node))
+        return scanClassComputedKeys(ce->members);
 
     // Arrow functions: do recurse (no own arguments/super)
     if (auto* arrow = dynamic_cast<const ast::ArrowFunction*>(node)) {
