@@ -16,6 +16,7 @@
 
 #include "RegExpEarlyErrors.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -473,6 +474,66 @@ static void validateUnicodeModeEscapes(const std::string& body, bool hasV,
     }
 }
 
+// Scan one ClassAtom starting at `i` (inside a character class) and return the
+// index just past it. Sets *isClassEscape when the atom is a CharacterClassEscape
+// (`\d \D \s \S \w \W \p{...} \P{...}`), which may not be a range endpoint.
+static size_t scanClassAtom(const std::string& s, size_t i, bool* isClassEscape) {
+    *isClassEscape = false;
+    if (s[i] != '\\') return i + 1;            // literal (ASCII or UTF-8 lead byte)
+    if (i + 1 >= s.size()) return i + 1;
+    char n = s[i + 1];
+    if (n=='d'||n=='D'||n=='s'||n=='S'||n=='w'||n=='W') { *isClassEscape=true; return i+2; }
+    if (n=='p'||n=='P') {
+        *isClassEscape = true;
+        if (i+2 < s.size() && s[i+2]=='{') {
+            size_t c = s.find('}', i+3);
+            return c == std::string::npos ? s.size() : c+1;
+        }
+        return i+2;
+    }
+    if (n=='x') return std::min(i+4, s.size());          // \xHH
+    if (n=='u') {
+        if (i+2 < s.size() && s[i+2]=='{') {
+            size_t c = s.find('}', i+3);
+            return c == std::string::npos ? s.size() : c+1;
+        }
+        return std::min(i+6, s.size());                  // \uHHHH
+    }
+    if (n=='c') return std::min(i+3, s.size());          // \cX
+    return i + 2;                                        // \- \n \\ etc.
+}
+
+// ECMA-262 22.2.1 (u-mode, NonemptyClassRanges): a CharacterClassEscape may not
+// be an endpoint of a `-` range — `[\d-a]`, `[a-\w]`, `[\p{Hex}-￿]` are
+// SyntaxErrors. ICU accepts them. Only valid for `u` (NOT `v`, where `--` is the
+// set-difference operator and ranges are governed by a different grammar).
+static void validateUnicodeClassRanges(const std::string& body, int line, int col) {
+    for (size_t i = 0; i < body.size(); i++) {
+        if (body[i] != '[') continue;
+        size_t j = i + 1;
+        if (j < body.size() && body[j] == '^') j++;
+        while (j < body.size() && body[j] != ']') {
+            bool lhsEsc;
+            size_t after = scanClassAtom(body, j, &lhsEsc);
+            if (after < body.size() && body[after] == '-' &&
+                after + 1 < body.size() && body[after+1] != ']') {
+                bool rhsEsc;
+                size_t rend = scanClassAtom(body, after + 1, &rhsEsc);
+                if (lhsEsc || rhsEsc) {
+                    failSyntax(line, col,
+                        "a character-class escape (\\d, \\w, \\p{...}, ...) may "
+                        "not be used as a range endpoint in a Unicode-mode "
+                        "character class");
+                }
+                j = rend;
+            } else {
+                j = after;
+            }
+        }
+        i = (j < body.size()) ? j : body.size();
+    }
+}
+
 void validateRegExpLiteral(const std::string& body, const std::string& flags,
                            int line, int col) {
     // 1. Flag early errors (ECMA-262 22.2.1.1).
@@ -506,6 +567,7 @@ void validateRegExpLiteral(const std::string& body, const std::string& flags,
 
     // 2b. UnicodeMode (`u`/`v`) identity-escape early errors.
     if (hasU || hasV) validateUnicodeModeEscapes(body, hasV, line, col);
+    if (hasU && !hasV) validateUnicodeClassRanges(body, line, col);
 
     // 3. Pattern probe via ICU with the runtime's translation. The `v` flag's
     // unicodeSets grammar is not ICU-compatible; ICU can't probe it, so run the
