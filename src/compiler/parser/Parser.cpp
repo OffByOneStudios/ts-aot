@@ -2047,7 +2047,13 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             auto headStmt = std::make_unique<ast::ExpressionStatement>();
             headStmt->expression = std::move(head);
             block->statements.push_back(std::move(headStmt));
+            // ECMA-262 14.11.1: IsLabelledFunction(Statement) of a WithStatement
+            // body is a Syntax Error — `with ({}) L: function f(){}` is rejected
+            // (mirrors the if/else-body rule).
+            bool prevLBF = labelBodyForbidsFunction_;
+            labelBodyForbidsFunction_ = true;
             auto body = parseStatementOnly();
+            labelBodyForbidsFunction_ = prevLBF;
             if (body) block->statements.push_back(std::move(body));
             result = std::move(block);
             break;
@@ -3725,6 +3731,12 @@ ast::StmtPtr Parser::parseSwitchStatement() {
             }
             node->clauses.push_back(std::move(clause));
         } else if (match(TokenKind::KW_default)) {
+            // ECMA-262 13.12.1: a CaseBlock may contain at most one DefaultClause.
+            for (auto& cl : node->clauses)
+                if (dynamic_cast<const ast::DefaultClause*>(cl.get()))
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: more than one default clause in a "
+                        "switch statement", fileName_, previous_.line));
             auto clause = std::make_unique<ast::DefaultClause>();
             expect(TokenKind::Colon, "':'");
             while (!check(TokenKind::KW_case) && !check(TokenKind::KW_default) &&
