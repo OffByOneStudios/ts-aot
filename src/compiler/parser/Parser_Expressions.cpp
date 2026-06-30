@@ -490,6 +490,18 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
         int nextMinPrec = isRightAssociative(opTok.kind) ? prec : prec + 1;
         auto right = parsePrecedenceExpression(nextMinPrec);
 
+        // An ArrowFunction is an AssignmentExpression — far below any binary
+        // operator — so an unparenthesized arrow can never be a binary operand:
+        // `#field in () => {}`, `a + b => b` etc. are SyntaxErrors (it was parsed
+        // greedily by parsePrimary). A parenthesized `(() => {})` is a primary
+        // expression and stays valid.
+        if (auto* ar = dynamic_cast<const ast::ArrowFunction*>(right.get());
+            ar && !ar->parenthesized) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: an arrow function is not a valid operand of "
+                "'{}'", fileName_, right->line, tokenToOperator(opTok.kind)));
+        }
+
         auto bin = std::make_unique<ast::BinaryExpression>();
         setLocation(bin.get(), left->line, left->column);
         bin->op = tokenToOperator(opTok.kind);
