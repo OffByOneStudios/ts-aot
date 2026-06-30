@@ -2162,12 +2162,24 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         // Per ECMA-262 14.1.1: It is a SyntaxError if ContainsUseStrict of
         // FunctionBody is true and IsSimpleParameterList of FormalParameters
         // is false.
-        if (sawUseStrictDirective_ &&
-            !isParameterListSimple(node->parameters)) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: function with non-simple parameter list may not "
-                "declare \"use strict\"",
-                current_.line, current_.column));
+        if (sawUseStrictDirective_) {
+            if (!isParameterListSimple(node->parameters)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: function with non-simple parameter list may not "
+                    "declare \"use strict\"",
+                    current_.line, current_.column));
+            }
+            // ECMA-262 15.2: a "use strict" directive retroactively forbids
+            // `eval`/`arguments` as parameter names.
+            std::vector<std::pair<std::string,int>> pnames;
+            for (auto& p : node->parameters)
+                if (p) collectBoundIdentNames(p->name.get(), pnames);
+            for (auto& pr : pnames)
+                if (pr.first == "eval" || pr.first == "arguments")
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' may not be a parameter name "
+                        "when the body declares \"use strict\"",
+                        fileName_, pr.second, pr.first));
         }
         sawUseStrictDirective_ = prevSawUseStrict;
 
@@ -3112,12 +3124,25 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         inParamDefault_ = prevInParamDefault;
         expect(TokenKind::CloseBrace, "'}'");
 
-        if (sawUseStrictDirective_ &&
-            !isParameterListSimple(method->parameters)) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: method with non-simple parameter list may not "
-                "declare \"use strict\"",
-                current_.line, current_.column));
+        if (sawUseStrictDirective_) {
+            if (!isParameterListSimple(method->parameters)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: method with non-simple parameter list may not "
+                    "declare \"use strict\"",
+                    current_.line, current_.column));
+            }
+            // ECMA-262 15.2/16.2.4: a "use strict" directive retroactively
+            // forbids `eval`/`arguments` as parameter names — `set x(eval){
+            // "use strict"; }` is a SyntaxError.
+            std::vector<std::pair<std::string,int>> pnames;
+            for (auto& p : method->parameters)
+                if (p) collectBoundIdentNames(p->name.get(), pnames);
+            for (auto& pr : pnames)
+                if (pr.first == "eval" || pr.first == "arguments")
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' may not be a parameter name "
+                        "when the body declares \"use strict\"",
+                        fileName_, pr.second, pr.first));
         }
         sawUseStrictDirective_ = prevSawUseStrict;
 
