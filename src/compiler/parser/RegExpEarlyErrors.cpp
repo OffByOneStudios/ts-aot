@@ -417,6 +417,29 @@ static void validateVModeClasses(const std::string& body, int line, int col) {
             if (i + 1 < body.size() && body[i + 1] == '^') i++;  // nested negation
             continue;
         }
+        // Set operator (`&&` intersection, `--` difference) with an empty
+        // operand: `[&&]`, `[--]`, `[a&&]`, `[&&b]` are SyntaxErrors.
+        if (i + 1 < body.size() && (c == '&' || c == '-') && body[i + 1] == c) {
+            char prev = (i > 0) ? body[i - 1] : '\0';
+            char next = (i + 2 < body.size()) ? body[i + 2] : '\0';
+            if (prev == '[' || prev == '^' || next == ']' || next == '\0') {
+                failSyntax(line, col, std::string("the '") + c + c +
+                    "' set operator has an empty operand in a 'v'-mode "
+                    "character class");
+            }
+            i++;  // consume the second operator char
+            continue;
+        }
+        // A lone `-` (neither a range operator nor part of `--`) must be
+        // escaped in a `v`-mode class: `[-]`, `[^-]` are SyntaxErrors.
+        if (c == '-') {
+            char prev = (i > 0) ? body[i - 1] : '\0';
+            char next = (i + 1 < body.size()) ? body[i + 1] : '\0';
+            if ((prev == '[' || prev == '^') && next == ']') {
+                failSyntax(line, col,
+                    "a lone '-' must be escaped in a 'v'-mode character class");
+            }
+        }
         // Reserved double punctuator (two identical reserved chars).
         if (i + 1 < body.size() && body[i + 1] == c && strchr(kReservedDouble, c)) {
             failSyntax(line, col,
@@ -430,6 +453,9 @@ static void validateVModeClasses(const std::string& body, int line, int col) {
                 "character class");
         }
     }
+    // An unbalanced nested class (`[[]`) leaves depth > 0 — unterminated.
+    if (depth > 0)
+        failSyntax(line, col, "unterminated 'v'-mode character class");
 }
 
 // ECMA-262 22.2.1 UnicodeMode (`u`/`v`) escape early errors. IdentityEscape is
