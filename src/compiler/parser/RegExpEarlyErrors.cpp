@@ -19,6 +19,8 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <unicode/regex.h>
@@ -219,19 +221,53 @@ static bool isPropertyOfStrings(const std::string& name) {
     return false;
 }
 
-// Binary Unicode properties that ICU recognizes but ECMA-262 22.2.1.10 does
-// NOT include in its allowed-binary-property set. Using them as a lone
-// `\p{...}` / `\P{...}` is a SyntaxError even though ICU would compile them.
-static bool isUnsupportedBinaryProperty(const std::string& name) {
-    static const char* kUnsupported[] = {
-        "Full_Composition_Exclusion",
-        "Grapheme_Link",
-        "Hyphen",
-        "Prepended_Concatenation_Mark",
+// ECMA-262 22.2.1.10 Table: the EXACT set of binary Unicode property names
+// (canonical names AND their aliases) valid as a lone `\p{Name}`. ECMAScript
+// does NOT loose-match (no whitespace/case/underscore folding), so `\p{Ascii}`,
+// `\p{ Lowercase }`, `\p{ANY}` are SyntaxErrors even though ICU compiles them.
+static bool isBinaryPropertyName(const std::string& n) {
+    static const std::unordered_set<std::string> kBin = {
+        "ASCII","ASCII_Hex_Digit","AHex","Alphabetic","Alpha","Any","Assigned",
+        "Bidi_Control","Bidi_C","Bidi_Mirrored","Bidi_M","Case_Ignorable","CI",
+        "Cased","Changes_When_Casefolded","CWCF","Changes_When_Casemapped","CWCM",
+        "Changes_When_Lowercased","CWL","Changes_When_NFKC_Casefolded","CWKCF",
+        "Changes_When_Titlecased","CWT","Changes_When_Uppercased","CWU","Dash",
+        "Default_Ignorable_Code_Point","DI","Deprecated","Dep","Diacritic","Dia",
+        "Emoji","Emoji_Component","EComp","Emoji_Modifier","EMod",
+        "Emoji_Modifier_Base","EBase","Emoji_Presentation","EPres",
+        "Extended_Pictographic","ExtPict","Extender","Ext","Grapheme_Base",
+        "Gr_Base","Grapheme_Extend","Gr_Ext","Hex_Digit","Hex",
+        "IDS_Binary_Operator","IDSB","IDS_Trinary_Operator","IDST","ID_Continue",
+        "IDC","ID_Start","IDS","Ideographic","Ideo","Join_Control","Join_C",
+        "Logical_Order_Exception","LOE","Lowercase","Lower","Math",
+        "Noncharacter_Code_Point","NChar","Pattern_Syntax","Pat_Syn",
+        "Pattern_White_Space","Pat_WS","Quotation_Mark","QMark","Radical",
+        "Regional_Indicator","RI","Sentence_Terminal","STerm","Soft_Dotted","SD",
+        "Terminal_Punctuation","Term","Unified_Ideograph","UIdeo","Uppercase",
+        "Upper","Variation_Selector","VS","White_Space","space","XID_Continue",
+        "XIDC","XID_Start","XIDS",
     };
-    for (const char* p : kUnsupported)
-        if (name == p) return true;
-    return false;
+    return kBin.count(n) != 0;
+}
+
+// ECMA-262 22.2.1.10 Table: EXACT General_Category value names (canonical +
+// aliases). Valid as a lone `\p{Value}` and as `\p{General_Category=Value}`.
+static bool isGeneralCategoryValue(const std::string& n) {
+    static const std::unordered_set<std::string> kGC = {
+        "Cased_Letter","LC","Close_Punctuation","Pe","Connector_Punctuation","Pc",
+        "Control","Cc","cntrl","Currency_Symbol","Sc","Dash_Punctuation","Pd",
+        "Decimal_Number","Nd","digit","Enclosing_Mark","Me","Final_Punctuation",
+        "Pf","Format","Cf","Initial_Punctuation","Pi","Letter","L","Letter_Number",
+        "Nl","Line_Separator","Zl","Lowercase_Letter","Ll","Mark","M",
+        "Combining_Mark","Math_Symbol","Sm","Modifier_Letter","Lm",
+        "Modifier_Symbol","Sk","Nonspacing_Mark","Mn","Number","N",
+        "Open_Punctuation","Ps","Other","C","Other_Letter","Lo","Other_Number",
+        "No","Other_Punctuation","Po","Other_Symbol","So","Paragraph_Separator",
+        "Zp","Private_Use","Co","Punctuation","P","punct","Separator","Z",
+        "Space_Separator","Zs","Spacing_Mark","Mc","Surrogate","Cs","Symbol","S",
+        "Titlecase_Letter","Lt","Unassigned","Cn","Uppercase_Letter","Lu",
+    };
+    return kGC.count(n) != 0;
 }
 
 // Scan the pattern for `\p{Name}` / `\P{Name}` where Name is a property of
@@ -273,32 +309,21 @@ static void validatePropertiesOfStrings(const std::string& body, bool hasU,
                                 "a Unicode property of strings may not appear "
                                 "in a negated character class");
                         }
-                    } else if (isUnsupportedBinaryProperty(name)) {
-                        // Binary properties ICU supports but ECMA-262 22.2.1.10
-                        // does not list — a lone `\p{Hyphen}` etc. is an early
-                        // error even though ICU compiles it.
-                        failSyntax(line, col,
-                            "'" + name + "' is not a valid Unicode property "
-                            "name in a regular expression");
                     } else if (name.find('=') != std::string::npos) {
                         // UnicodePropertyName=UnicodePropertyValue form
-                        // (ECMA-262 22.2.1.10). The only valid property names
-                        // are General_Category/gc, Script/sc, and
-                        // Script_Extensions/scx; the value must be non-empty.
-                        // ICU accepts many more (Line_Break=, Block=, etc.) and
-                        // an empty value — those are JS early errors.
+                        // (ECMA-262 22.2.1.10). The only valid property names are
+                        // General_Category/gc, Script/sc, Script_Extensions/scx;
+                        // the value must be non-empty. ECMAScript does NOT loose-
+                        // match, so the name must be EXACT (`gc = ...` with spaces
+                        // is invalid). ICU accepts Line_Break=, Block=, empty
+                        // values, and loose names — all JS early errors.
                         size_t eq = name.find('=');
                         std::string propName = name.substr(0, eq);
                         std::string propValue = name.substr(eq + 1);
-                        static const char* kNonBinaryNames[] = {
-                            "General_Category", "gc",
-                            "Script", "sc",
-                            "Script_Extensions", "scx",
-                        };
-                        bool nameOk = false;
-                        for (const char* n : kNonBinaryNames)
-                            if (propName == n) { nameOk = true; break; }
-                        if (!nameOk) {
+                        bool isGC = (propName == "General_Category" || propName == "gc");
+                        bool isScript = (propName == "Script" || propName == "sc" ||
+                                         propName == "Script_Extensions" || propName == "scx");
+                        if (!isGC && !isScript) {
                             failSyntax(line, col,
                                 "'" + propName + "' is not a valid Unicode "
                                 "property name in a regular expression");
@@ -307,6 +332,28 @@ static void validatePropertiesOfStrings(const std::string& body, bool hasU,
                             failSyntax(line, col,
                                 "missing Unicode property value after '" +
                                 propName + "='");
+                        }
+                        // General_Category values are a closed, exact set; reject
+                        // loose forms (`gc=uppercase`). Script/Script_Extensions
+                        // values (the open Unicode script list) are left to the
+                        // ICU compile probe below, which knows them.
+                        if (isGC && !isGeneralCategoryValue(propValue)) {
+                            failSyntax(line, col,
+                                "'" + propValue + "' is not a valid "
+                                "General_Category value");
+                        }
+                    } else {
+                        // Lone `\p{Name}` (ECMA-262 22.2.1.10
+                        // LoneUnicodePropertyNameOrValue): Name must EXACTLY be a
+                        // binary property name OR a General_Category value. This
+                        // rejects loose forms (`\p{Ascii}`, `\p{ Lowercase }`,
+                        // `\p{ANY}`) and the non-JS `In`-prefix (`\p{InAdlam}`),
+                        // all of which ICU otherwise loose-matches.
+                        if (!isBinaryPropertyName(name) &&
+                            !isGeneralCategoryValue(name)) {
+                            failSyntax(line, col,
+                                "'" + name + "' is not a valid Unicode property "
+                                "name or value in a regular expression");
                         }
                     }
                     i = close;
