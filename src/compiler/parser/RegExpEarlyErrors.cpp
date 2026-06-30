@@ -380,6 +380,57 @@ static void validatePropertiesOfStrings(const std::string& body, bool hasU,
     }
 }
 
+// ECMA-262 22.2.1 `v`-mode (unicodeSets) ClassSetExpression early errors. ICU
+// has no `v` mode, so these aren't covered by the compile probe. Inside a
+// `v`-mode character class a literal ClassSetSyntaxCharacter `( ) { } / |` must
+// be escaped, and a ClassSetReservedDoublePunctuator (`!! ## $$ %% ** ++ ,, ..
+// :: ;; << == >> ?? @@ ^^ `` ~~`) is reserved. `\p{}` / `\P{}` / `\q{}` and the
+// real set operators `&&` / `--` are intentionally left for the runtime/ICU.
+static void validateVModeClasses(const std::string& body, int line, int col) {
+    static const char* kReservedDouble = "!#$%*+,.:;<=>?@^`~";
+    int depth = 0;
+    for (size_t i = 0; i < body.size(); i++) {
+        char c = body[i];
+        if (c == '\\') {
+            // Skip `\p{...}` / `\P{...}` / `\q{...}` whole; else skip one char.
+            if (i + 2 < body.size() &&
+                (body[i + 1] == 'p' || body[i + 1] == 'P' || body[i + 1] == 'q') &&
+                body[i + 2] == '{') {
+                size_t close = body.find('}', i + 3);
+                i = (close == std::string::npos) ? body.size() : close;
+            } else {
+                i++;
+            }
+            continue;
+        }
+        if (depth == 0) {
+            if (c == '[') {
+                depth = 1;
+                if (i + 1 < body.size() && body[i + 1] == '^') i++;  // negation
+            }
+            continue;
+        }
+        if (c == ']') { depth--; continue; }
+        if (c == '[') {
+            depth++;
+            if (i + 1 < body.size() && body[i + 1] == '^') i++;  // nested negation
+            continue;
+        }
+        // Reserved double punctuator (two identical reserved chars).
+        if (i + 1 < body.size() && body[i + 1] == c && strchr(kReservedDouble, c)) {
+            failSyntax(line, col,
+                std::string("the reserved double punctuator '") + c + c +
+                "' must be escaped in a 'v'-mode character class");
+        }
+        // Literal ClassSetSyntaxCharacter that must be escaped.
+        if (strchr("(){}/|", c)) {
+            failSyntax(line, col,
+                std::string("'") + c + "' must be escaped in a 'v'-mode "
+                "character class");
+        }
+    }
+}
+
 void validateRegExpLiteral(const std::string& body, const std::string& flags,
                            int line, int col) {
     // 1. Flag early errors (ECMA-262 22.2.1.1).
@@ -412,9 +463,12 @@ void validateRegExpLiteral(const std::string& body, const std::string& flags,
     validatePropertiesOfStrings(body, hasU, hasV, line, col);
 
     // 3. Pattern probe via ICU with the runtime's translation. The `v` flag's
-    // unicodeSets grammar is not ICU-compatible; skip the probe there (flag
-    // checks above still apply).
-    if (hasV) return;
+    // unicodeSets grammar is not ICU-compatible; ICU can't probe it, so run the
+    // `v`-mode class early-error checks here instead and skip the probe.
+    if (hasV) {
+        validateVModeClasses(body, line, col);
+        return;
+    }
 
     std::string transformed = transformJsPatternForIcu(rewriteUnicodeForIcu(body));
     icu::UnicodeString icuPattern = icu::UnicodeString::fromUTF8(transformed);
