@@ -6210,6 +6210,20 @@ void* ts_get_global(void* namePtr) {
 void* ts_resolve_identifier_or_throw(void* nameStr) {
     void* builtin = ts_get_builtin_function(nameStr);
     if (builtin) return builtin;
+    // Sloppy-mode fallback (ECMA-262 9.1.1.4 GlobalEnvironmentRecord): a bare
+    // identifier that is not a lexical/var binding resolves to a property of the
+    // global object — e.g. `global.x = 1` (or `this.x = 1` at script top level)
+    // then reading bare `x`. Only resolve when the property actually EXISTS;
+    // a truly absent name still throws ReferenceError below. (test262 sm shell
+    // harnesses expose their helpers this way: `global.anyTypedArrayConstructors
+    // = ...; })(this)`.)
+    if (nameStr && globalThis) {
+        TsValue* key = ts_value_make_string(nameStr);
+        if (ts_object_has_property((void*)globalThis, (void*)key)) {
+            const char* gn = ((TsString*)nameStr)->ToUtf8();
+            return (void*)ts_object_get_property((void*)globalThis, gn);
+        }
+    }
     const char* n = nameStr ? ((TsString*)nameStr)->ToUtf8() : nullptr;
     char msg[256];
     snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "variable");
