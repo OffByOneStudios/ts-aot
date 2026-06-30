@@ -2103,13 +2103,17 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     int nameLine = current_.line;
     if (isIdentifierOrKeyword() && !check(TokenKind::OpenParen)) {
         node->name = identifierName();
-        // ECMA-262: a GeneratorExpression's BindingIdentifier is [+Yield] so it
-        // may not be `yield`; an AsyncFunction/AsyncGenerator's is [+Await] so it
-        // may not be `await`. (StringValue check covers escaped forms too.)
-        if (node->isGenerator && node->name == "yield") {
+        // ECMA-262: a FunctionExpression's BindingIdentifier is [~Yield, ~Await]
+        // — it does NOT inherit the enclosing generator/async context (so
+        // `var o = { *g(){ (function yield(){}); } }` in sloppy code is legal).
+        // `yield` is invalid as the name only when the function is itself a
+        // generator OR we're in strict-mode code (`class A { *g(){ (function
+        // yield(){}); } }` — class bodies are strict). `await` is invalid for an
+        // async function expression. (StringValue check covers escaped forms.)
+        if ((node->isGenerator || strictMode_) && node->name == "yield") {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: 'yield' is not a valid binding identifier "
-                "for a generator function", fileName_, nameLine));
+                "in this context", fileName_, nameLine));
         }
         if (node->isAsync && node->name == "await") {
             throw std::runtime_error(fmt::format(
