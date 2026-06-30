@@ -240,6 +240,12 @@ private:
     // Cleared at each prologue loop entry.
     struct PendingPrologueString { std::string raw; int line; int column; };
     std::vector<PendingPrologueString> pendingPrologueStrings_;
+    // Script goal (vs Module): when true, top-level `import`/`export`
+    // declarations and `import.meta` are SyntaxErrors (they require a Module
+    // goal). Set from the TS_SCRIPT_GOAL env var at parse() entry — the test262
+    // harness sets it for non-module tests. Default false preserves ts-aot's
+    // module-friendly behavior for real programs.
+    bool scriptGoal_ = false;
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     // Like functionDepth_ but NOT incremented by arrow functions (which inherit
     // their [[NewTarget]] from the enclosing non-arrow function). 0 means there

@@ -119,6 +119,11 @@ UNSUPPORTED_FLAGS: Set[str] = {
     "CanBlockIsTrue",
 }
 
+# Every test we actually compile is a Script (module-flagged tests are skipped
+# above), so tell ts-aot to use the Script goal — top-level import/export and
+# import.meta are then SyntaxErrors, as they must be outside a Module.
+os.environ.setdefault("TS_SCRIPT_GOAL", "1")
+
 # Tests we intentionally don't support — SpiderMonkey-staging tests that
 # contradict ECMA-262 by asserting SM-specific quirks. Path is relative to
 # the test262 BUILD_DIR (matches how paths are stored in results.jsonl).

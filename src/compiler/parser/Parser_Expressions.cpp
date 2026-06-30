@@ -1229,6 +1229,12 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
                 // ECMA-262 13.3.13 ImportMeta : import . meta — the only
                 // identifier permitted after `import.` is `meta`. Non-standard
                 // proposals (`import.defer`, etc.) are SyntaxErrors.
+                // import.meta is itself only valid in a Module goal.
+                if (scriptGoal_) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'import.meta' may only appear in a "
+                        "module", fileName_, tok.line));
+                }
                 auto meta = std::make_unique<ast::PropertyAccessExpression>();
                 setLocation(meta.get(), tok);
                 auto importId = std::make_unique<ast::Identifier>();
