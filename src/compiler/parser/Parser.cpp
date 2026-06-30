@@ -29,9 +29,17 @@ namespace {
 constexpr int FIELD_INIT_OK = 0;
 constexpr int FIELD_INIT_ARGUMENTS = 1;
 constexpr int FIELD_INIT_SUPER_CALL = 2;
+constexpr int FIELD_INIT_AWAIT = 3;
+// When true, the walk ALSO reports a directly-contained AwaitExpression and
+// treats arrow functions as boundaries (an async arrow has its own [+Await]).
+// Used by the class static block (ECMA-262 15.7.1 ContainsAwait). Single-
+// threaded parser, so a file-static toggle is fine.
+bool g_walkAwaitMode = false;
 
 int containsArgumentsOrSuperCall(const ast::Node* node) {
     if (!node) return FIELD_INIT_OK;
+    if (g_walkAwaitMode && dynamic_cast<const ast::AwaitExpression*>(node))
+        return FIELD_INIT_AWAIT;
 
     // IdentifierReference "arguments"
     if (auto* ident = dynamic_cast<const ast::Identifier*>(node)) {
@@ -84,8 +92,11 @@ int containsArgumentsOrSuperCall(const ast::Node* node) {
     if (auto* ce = dynamic_cast<const ast::ClassExpression*>(node))
         return scanClassComputedKeys(ce->members);
 
-    // Arrow functions: do recurse (no own arguments/super)
+    // Arrow functions: recurse for arguments/super (arrows have none of their
+    // own), but in await mode an arrow is a boundary — an async arrow owns its
+    // [+Await], so `static { (async () => await x)() }` is allowed.
     if (auto* arrow = dynamic_cast<const ast::ArrowFunction*>(node)) {
+        if (g_walkAwaitMode) return FIELD_INIT_OK;
         return containsArgumentsOrSuperCall(arrow->body.get());
     }
 
@@ -2727,9 +2738,11 @@ ast::NodePtr Parser::parseClassMember() {
             }
             popLexicalScope();
             // ECMA-262 15.7.1: ClassStaticBlockStatementList may not Contain
-            // `arguments` (no arguments object) or a SuperCall (no
-            // [[ConstructorKind]]). Nested non-arrow functions/methods have
-            // their own bindings and are skipped by the walk; arrows inherit.
+            // `arguments` (no arguments object), a SuperCall (no
+            // [[ConstructorKind]]), or an AwaitExpression. Nested non-arrow
+            // functions/methods have their own bindings and are skipped by the
+            // walk; for arguments/super an arrow inherits (recurse), for await
+            // an arrow is a boundary (await-mode pass below).
             for (auto& s : block->body) {
                 int v = containsArgumentsOrSuperCall(s.get());
                 if (v == FIELD_INIT_ARGUMENTS) {
@@ -2741,6 +2754,14 @@ ast::NodePtr Parser::parseClassMember() {
                     throw std::runtime_error(fmt::format(
                         "{}:{}: SyntaxError: a super() call is not allowed in a "
                         "class static initialization block", fileName_, block->line));
+                }
+                g_walkAwaitMode = true;
+                int aw = containsArgumentsOrSuperCall(s.get());
+                g_walkAwaitMode = false;
+                if (aw == FIELD_INIT_AWAIT) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: an await expression is not allowed in "
+                        "a class static initialization block", fileName_, block->line));
                 }
             }
             activeLabels_.swap(savedLabels);
