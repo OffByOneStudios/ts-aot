@@ -641,8 +641,15 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     while (!isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (!stmt) continue;
-        if (inPrologue && !processPrologueDirective(stmt)) {
-            inPrologue = false;
+        if (inPrologue) {
+            if (processPrologueDirective(stmt)) {
+                // Stamp file-level strictness on the Program node -- the
+                // Monomorphizer moves body statements into function specs
+                // before ASTToHIR runs, so the prologue can't be re-scanned.
+                if (strictMode_) program->isStrict = true;
+            } else {
+                inPrologue = false;
+            }
         }
         program->body.push_back(std::move(stmt));
     }

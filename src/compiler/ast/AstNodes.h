@@ -221,6 +221,10 @@ struct TripleSlashReference {
 struct Program : Node {
     std::vector<StmtPtr> body;
     std::vector<TripleSlashReference> tripleSlashReferences;
+    // "use strict" appeared in the top-level directive prologue. Stamped by
+    // the parser (the Monomorphizer moves body statements into function
+    // specs before ASTToHIR runs, so the prologue can't be re-scanned later).
+    bool isStrict = false;
     std::string getKind() const override { return "Program"; }
     void accept(Visitor* visitor) override { visitor->visitProgram(this); }
 };

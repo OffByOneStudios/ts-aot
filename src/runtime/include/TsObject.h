@@ -280,6 +280,8 @@ extern "C" {
     void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);  // Handles both arrays and maps
     void ts_object_set_property(void* obj, void* key, void* value);  // HIR-friendly wrapper for ts_object_set_dynamic
+    void ts_object_set_property_strict(void* obj, void* key, void* value);  // ES PutValue throw=true: blocked write -> TypeError
+    TsValue ts_object_set_prop_v_ex(TsValue obj, TsValue key, TsValue value, int strict, int* violated);
     void ts_object_set_method(TsValue* obj, TsValue* key, TsValue* value);   // Class method/accessor install: writable+configurable, NOT enumerable
     void ts_class_install_computed_getter(TsValue* recv, TsValue* key, TsValue* closure);  // Computed-name class getter install
     void ts_class_install_computed_setter(TsValue* recv, TsValue* key, TsValue* closure);  // Computed-name class setter install
