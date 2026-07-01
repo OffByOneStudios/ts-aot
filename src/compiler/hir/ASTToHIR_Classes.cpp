@@ -748,6 +748,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         ? "__anon_class_" + std::to_string(classExprCounter_++)
         : node->name;
 
+    // Pre-register the binding->class mapping BEFORE method bodies lower:
+    // `var C = class { static m() { return C.#x; } }` — the method references
+    // the enclosing binding by name, and identifier resolution serves it via
+    // variableToClassName_ -> resolveClassByName (the same path a class
+    // DECLARATION's name uses). visitVariableDeclaration only records the
+    // mapping after the initializer returns — too late for the method bodies,
+    // which read `C` as undefined (the rs-static-privatename by-classname
+    // test262 family). pendingClosureDisplayName_ carries the binding name.
+    if (!pendingClosureDisplayName_.empty()) {
+        variableToClassName_[pendingClosureDisplayName_] = className;
+    }
+
     // Create HIR class
     auto* hirClass = builder_.createClass(className);
     if (!hirClass) {
