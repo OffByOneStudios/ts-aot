@@ -1655,20 +1655,38 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     } else if (op == "!") {
         lastValue_ = builder_.createLogicalNot(operand);
     } else if (op == "~") {
-        lastValue_ = builder_.createNotI64(operand);
+        // ES 13.5.6: ToNumeric then bitwise NOT. Statically numeric operands
+        // keep the raw i64 form; everything else (bool, string, Any, object,
+        // BigInt) goes through the coercing runtime dispatcher — NotI64 on a
+        // raw i1/pointer is garbage (`~true` must be -2, `~"1"` must be -2,
+        // `~1n` must be the BigInt NOT).
+        {
+            bool isNumeric = operand && operand->type &&
+                (operand->type->kind == HIRTypeKind::Int64 ||
+                 operand->type->kind == HIRTypeKind::Float64);
+            if (isNumeric) {
+                lastValue_ = builder_.createNotI64(operand);
+            } else {
+                lastValue_ = builder_.createCall("ts_value_bitnot",
+                    {boxValueIfNeeded(operand)}, HIRType::makeAny());
+            }
+        }
     } else if (op == "+") {
-        // Unary plus: no-op for numeric types, ToNumber for others (Any/String)
+        // Unary plus (ES 13.5.4): no-op for statically numeric operands,
+        // full ToNumber for everything else. A Bool operand must NOT pass
+        // through unchanged (`+false` must be the NUMBER 0, not `false`) —
+        // route it with string/Any/object through ts_value_pos, which also
+        // throws the spec TypeError for a BigInt operand.
         bool isNumeric = false;
         if (operand && operand->type) {
             auto k = operand->type->kind;
-            isNumeric = (k == HIRTypeKind::Int64 || k == HIRTypeKind::Float64 ||
-                         k == HIRTypeKind::Bool);
+            isNumeric = (k == HIRTypeKind::Int64 || k == HIRTypeKind::Float64);
         }
         if (isNumeric) {
             lastValue_ = operand;
         } else {
-            // Double negation forces ToNumber conversion (NegF64 handles ptr→double)
-            lastValue_ = builder_.createNegF64(builder_.createNegF64(operand));
+            lastValue_ = builder_.createCall("ts_value_pos",
+                {boxValueIfNeeded(operand)}, HIRType::makeAny());
         }
     } else if (op == "typeof") {
         lastValue_ = builder_.createTypeOf(operand);
