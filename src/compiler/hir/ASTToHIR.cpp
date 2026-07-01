@@ -1411,6 +1411,25 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
+            // Pre-declare hoisted `var` names so a nested function declaration
+            // (lowered in the first pass below, BEFORE the var initializers run
+            // in the second pass) can capture the method's locals. Without this
+            // the hoisted nested function is lowered when the slot doesn't exist
+            // yet, so it captures nothing (make_closure with no captures) and
+            // reads undefined — the `var self = this; function inner(){ self.#x }`
+            // idiom then crashes. Mirrors the spec-function body lowering.
+            {
+                std::vector<std::string> methodHoistedVars;
+                for (auto& stmt : methodNode->body)
+                    collectHoistedVarNames(stmt.get(), methodHoistedVars);
+                for (auto& name : methodHoistedVars) {
+                    if (lookupVariableInfoInCurrentFunction(name)) continue;
+                    auto a = builder_.createAlloca(HIRType::makeAny(), name);
+                    builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
+                    defineVariableAlloca(name, a, HIRType::makeAny());
+                }
+            }
+
             // Two-pass for function hoisting: FIRST process FunctionDeclarations
             for (auto& stmt : methodNode->body) {
                 if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
