@@ -950,18 +950,29 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
-                // A coercing compound assign can change the variable's runtime
-                // type (`var x = "x"; x ^= "1"` leaves x holding the NUMBER 1).
-                // Widen the slot's static type to Any so later reads unbox the
-                // stored value instead of trusting the stale declared type
-                // (a String-typed load of the boxed 1 corrupts, and `x === 1`
-                // would constant-fold false on the string/number mismatch).
+                // A coercing compound assign returns a boxed Any. NUMERIC
+                // slots must keep their declared type: loads inside a loop
+                // body were emitted with the old type, so widening the slot
+                // mid-body corrupts iteration 2 (`for (const x of [1,2,3])
+                // s += x` read the boxed ptr as raw i64 -> 6.375). Unbox the
+                // result back to the slot type instead. Non-numeric slots
+                // (String etc.) genuinely change VALUE type (`var x = "x";
+                // x ^= "1"` leaves x holding the NUMBER 1) — widen those to
+                // Any so later reads unbox instead of trusting the stale
+                // declared type (`x === 1` would constant-fold false).
+                auto storeVal = result;
                 if (result->type && result->type->kind == HIRTypeKind::Any &&
                     info->elemType && info->elemType->kind != HIRTypeKind::Any) {
-                    info->elemType = HIRType::makeAny();
+                    if (info->elemType->kind == HIRTypeKind::Int64) {
+                        storeVal = builder_.createUnboxInt(result);
+                    } else if (info->elemType->kind == HIRTypeKind::Float64) {
+                        storeVal = builder_.createUnboxFloat(result);
+                    } else {
+                        info->elemType = HIRType::makeAny();
+                    }
                 }
-                builder_.createStore(result, info->value, info->elemType);
-                broadcastCaptureWrite(info, result);
+                builder_.createStore(storeVal, info->value, info->elemType);
+                broadcastCaptureWrite(info, storeVal);
             } else if (info) {
                 // Direct value - promote to alloca for mutability
                 auto allocaPtr = builder_.createAlloca(result->type, ident->name);

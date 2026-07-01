@@ -422,9 +422,9 @@ static inline double nanbox_extract_double(TsValue* v) {
         void* ptr = nanbox_to_ptr(nb);
         uint32_t magic = *(uint32_t*)ptr;
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) { // TsString or TsConsString
-            TsString* s = ts_ensure_flat(ptr);
-            try { return std::stod(s->ToUtf8()); }
-            catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
+            // ES 7.1.4.1 StringToNumber via ts_to_number: "" and whitespace-only
+            // are 0 (std::stod threw -> NaN, so `"" == false` compared NaN==0).
+            return ts_to_number(v);
         }
         // Per ES spec: ToNumber(symbol) throws TypeError.
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
