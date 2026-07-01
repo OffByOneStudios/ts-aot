@@ -13,6 +13,10 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     module_ = std::make_unique<HIRModule>(moduleName);
     module_->sourcePath = program->sourceFile;
     builder_ = HIRBuilder(module_.get());
+    // File-level "use strict": stamped by the parser (the Monomorphizer moves
+    // body statements into function specs before this runs, so the directive
+    // prologue is no longer visible in program->body here).
+    strictCode_ = program->isStrict;
 
     valueCounter_ = 0;
     blockCounter_ = 0;
@@ -66,6 +70,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     module_ = std::make_unique<HIRModule>(moduleName);
     module_->sourcePath = program->sourceFile;
     builder_ = HIRBuilder(module_.get());
+    strictCode_ = program->isStrict;  // stamped by the parser (see above)
 
     // Store specializations for lookup during call generation
     specializations_ = &specializations;

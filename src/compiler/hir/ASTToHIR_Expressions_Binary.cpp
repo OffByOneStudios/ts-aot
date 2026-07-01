@@ -112,7 +112,9 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
             auto obj = lowerExpression(propAccess->expression.get());
             auto propName = builder_.createConstString(propAccess->name);
-            builder_.createCall("ts_object_set_property",
+            // Strict code: a blocked write throws TypeError (PutValue throw=true).
+            builder_.createCall(strictCode_ ? "ts_object_set_property_strict"
+                                            : "ts_object_set_property",
                 {obj, propName, boxedRhs}, HIRType::makeVoid());
         } else if (auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
             auto arr = lowerExpression(elemAccess->expression.get());
@@ -1033,7 +1035,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             auto propName = builder_.createConstString(
                 (!n.empty() && n[0] == '#') ? privateStorageKey(n) : n);
             std::vector<std::shared_ptr<HIRValue>> args = {obj, propName, boxValueIfNeeded(result)};
-            builder_.createCall("ts_object_set_property", args, HIRType::makeVoid());
+            // Strict code: a blocked write throws TypeError (PutValue throw=true).
+            builder_.createCall(strictCode_ ? "ts_object_set_property_strict"
+                                            : "ts_object_set_property",
+                args, HIRType::makeVoid());
             lastValue_ = result;
             return;
         }
@@ -1288,6 +1293,21 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             && obj->type && obj->type->kind == HIRTypeKind::Any) {
             auto keyStr = builder_.createConstString(propAccess->name);
             builder_.createCall("ts_object_set_private",
+                {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
+            lastValue_ = rhs;
+            return;
+        }
+        // Strict code with a DYNAMIC (Any) or plain-Object receiver (object
+        // literals are typed Object): route through the strict runtime entry
+        // so a blocked write throws TypeError (PutValue throw=true). Typed
+        // CLASS receivers keep the SetPropStatic fast path (their shape slots
+        // are plain writable data properties).
+        if (strictCode_ && obj->type &&
+            (obj->type->kind == HIRTypeKind::Any ||
+             obj->type->kind == HIRTypeKind::Object) &&
+            (propAccess->name.empty() || propAccess->name[0] != '#')) {
+            auto keyStr = builder_.createConstString(propAccess->name);
+            builder_.createCall("ts_object_set_property_strict",
                 {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
             lastValue_ = rhs;
             return;

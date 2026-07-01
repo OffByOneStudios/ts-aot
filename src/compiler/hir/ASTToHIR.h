@@ -244,6 +244,12 @@ private:
     // 13.5.1.1) and must NOT throw the ReferenceError that a normal read would.
     bool inTypeofOperand_ = false;
 
+    // File-level "use strict" (leading directive prologue of the Program).
+    // Property assignments in strict code lower to the *_strict runtime
+    // entries, which throw TypeError on a blocked write (ES 13.15.2 PutValue
+    // with throw = true) instead of silently no-oping.
+    bool strictCode_ = false;
+
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;
 

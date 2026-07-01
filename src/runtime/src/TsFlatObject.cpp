@@ -251,13 +251,28 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     return (void*)(uintptr_t)NANBOX_UNDEFINED;
 }
 
+extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
+                                               void* value, int strict,
+                                               int* violated);
+
 extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* value) {
+    int dummy = 0;
+    ts_flat_object_set_property_ex(obj, key, value, 0, &dummy);
+}
+
+// ECMA-262 9.1.9 [[Set]]: a blocked write (frozen receiver, or a sealed
+// receiver gaining a NEW property) silently no-ops in sloppy mode; in strict
+// mode *violated is raised and the CALLER (ts_object_set_dynamic — a clean
+// frame per the longjmp-stdstring rule) throws TypeError.
+extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
+                                               void* value, int strict,
+                                               int* violated) {
     if (!obj || !key) return;
 
-    // ECMA-262 9.1.9 [[Set]]: a frozen object silently ignores writes in
-    // non-strict mode (or throws in strict). For now, silently no-op writes
-    // to existing slots and reject new properties when frozen/sealed.
-    if (flat_object_is_frozen(obj)) return;
+    if (flat_object_is_frozen(obj)) {
+        if (strict) *violated = 1;
+        return;
+    }
 
     uint32_t shapeId = flat_object_shape_id(obj);
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
@@ -272,10 +287,11 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
         return;
     }
 
-    // Sealed/non-extensible objects can update existing inline slots but
-    // can't add new overflow properties. Bail out before reaching the
-    // overflow-map allocation below.
-    if (flat_object_is_sealed(obj)) return;
+    // Sealed/non-extensible objects can update existing properties (seal
+    // leaves [[Writable]] intact) but can't ADD new ones. Existing overflow
+    // properties are handled below (the overflow store honors seal via
+    // sealedRecv); only bail here when there is no overflow map at all.
+    bool sealedRecv = flat_object_is_sealed(obj);
 
     // Check the vtable for a `__setter_<key>` entry. Class accessor
     // declarations register their setters under this prefixed key in the
@@ -337,6 +353,11 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
     void** overflowPtr = (void**)((char*)obj + 16 + desc->numSlots * 8);
     TsMap* overflow = (TsMap*)*overflowPtr;
     if (!overflow) {
+        // A sealed object cannot gain its first overflow property.
+        if (sealedRecv) {
+            if (strict) *violated = 1;
+            return;
+        }
         overflow = TsMap::Create();
         *overflowPtr = overflow;
         ts_gc_write_barrier(overflowPtr, overflow);
@@ -344,6 +365,25 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
 
     // Convert NaN-boxed value to TaggedValue for TsMap storage
     TsString* keyStr = TsString::Create(key);
+    {
+        TsValue kv(keyStr);
+        bool exists = overflow->Has(kv);
+        // Sealed: existing properties stay writable, NEW ones are rejected.
+        if (sealedRecv && !exists) {
+            if (strict) *violated = 1;
+            return;
+        }
+        // OrdinarySet: honor writable:false on an existing overflow property
+        // (defineProperty on a flat object stores its descriptor here).
+        if (exists) {
+            constexpr uint8_t ATTR_WRITABLE = 0x02;
+            uint8_t a = overflow->GetPropertyAttrs(kv);
+            if (!(a & ATTR_WRITABLE)) {
+                if (strict) *violated = 1;
+                return;  // silent fail (non-strict)
+            }
+        }
+    }
     TsValue tv = nanbox_to_tagged((TsValue*)value);
     overflow->Set(TsValue(keyStr), tv);
 }

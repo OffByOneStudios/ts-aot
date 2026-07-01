@@ -4792,7 +4792,29 @@ void* ts_create_arguments_from_params(
 
     extern "C" void RegExp_set_lastIndex(void* re, int64_t index);
 
+    // ---- Strict-mode write protocol (ES 13.15.2 PutValue, throw = true) ----
+    // The compiler emits ts_object_set_property_strict for property
+    // assignments in strict code. The pending flag is CONSUMED once at
+    // ts_object_set_dynamic entry (before any user code can run) and passed
+    // down explicitly; a blocked write is reported through an out-param and
+    // thrown from set_dynamic's clean frame — never from inside
+    // ts_object_set_prop_v, whose std::string temporaries corrupt the MSVC
+    // longjmp unwind (see the longjmp-stdstring-frame rule).
+    static thread_local bool g_strictWritePending = false;
+
+    [[noreturn]] static void throw_strict_readonly() {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot assign to read only property of object"));
+        abort();  // unreachable — ts_throw longjmps
+    }
+
+    // Defined below; forward declarations for the strict-aware delegates.
+    TsValue ts_object_set_prop_v_ex(TsValue obj, TsValue key, TsValue value,
+                                    int strict, int* violated);
+
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
+        bool strictW = g_strictWritePending;
+        g_strictWritePending = false;
         if (!obj || !key || !value) return;
 
         uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
@@ -4882,7 +4904,13 @@ void* ts_create_arguments_from_params(
                 if (keyPtr && ts_is_any_string(keyPtr)) {
                     const char* keyCStr = ts_ensure_flat(keyPtr)->ToUtf8();
                     if (keyCStr) {
-                        ts_flat_object_set_property(rawObj, keyCStr, value);
+                        extern void ts_flat_object_set_property_ex(
+                            void* obj, const char* key, void* value,
+                            int strict, int* violated);
+                        int viol = 0;
+                        ts_flat_object_set_property_ex(rawObj, keyCStr, value,
+                                                       strictW ? 1 : 0, &viol);
+                        if (viol) throw_strict_readonly();
                         return;
                     }
                 }
@@ -4917,13 +4945,26 @@ void* ts_create_arguments_from_params(
         TsValue objVal = nanbox_to_tagged(obj);
         TsValue keyVal = nanbox_to_tagged(key);
         TsValue valVal = nanbox_to_tagged(value);
-        ts_object_set_prop_v(objVal, keyVal, valVal);
+        int viol = 0;
+        ts_object_set_prop_v_ex(objVal, keyVal, valVal, strictW ? 1 : 0, &viol);
+        // Throw from THIS clean frame (no std::string locals) per the
+        // longjmp-stdstring-frame rule.
+        if (viol) throw_strict_readonly();
     }
 
     // HIR-friendly wrapper for setting object properties
     // Takes void* args that may be TsValue* or raw pointers
     void ts_object_set_property(void* obj, void* key, void* value) {
         // Forward to ts_object_set_dynamic after casting
+        ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
+    }
+
+    // Strict-mode property assignment (ES 13.15.2 PutValue with throw = true):
+    // a write blocked by a non-writable data property, an accessor without a
+    // setter, or a frozen/sealed object throws TypeError instead of silently
+    // no-oping. The pending flag is consumed at ts_object_set_dynamic entry.
+    void ts_object_set_property_strict(void* obj, void* key, void* value) {
+        g_strictWritePending = true;
         ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
     }
 
@@ -5126,7 +5167,19 @@ void* ts_create_arguments_from_params(
         return nanbox_to_tagged(result);
     }
 
+    // Back-compat entry: sloppy-mode write (blocked writes silently ignored).
     TsValue ts_object_set_prop_v(TsValue obj, TsValue key, TsValue value) {
+        int dummy = 0;
+        return ts_object_set_prop_v_ex(obj, key, value, 0, &dummy);
+    }
+
+    // Full write path. `strict` + `violated`: when a write is blocked (data
+    // property with [[Writable]]:false, accessor without a setter, frozen
+    // receiver) and strict is set, *violated is raised and the CALLER throws
+    // TypeError from a clean frame (this function holds std::string
+    // temporaries — never ts_throw from here).
+    TsValue ts_object_set_prop_v_ex(TsValue obj, TsValue key, TsValue value,
+                                    int strict, int* violated) {
         // Direct field access — obj is a TsValue struct, not a NaN-boxed pointer
         void* rawObj = obj.ptr_val;
         if (!rawObj) return value;
@@ -5296,7 +5349,10 @@ void* ts_create_arguments_from_params(
             if (func->properties->Has(key)) {
                 uint8_t a = func->properties->GetPropertyAttrs(key);
                 constexpr uint8_t ATTR_WRITABLE = 0x02;
-                if (!(a & ATTR_WRITABLE)) return value;  // silent fail (non-strict)
+                if (!(a & ATTR_WRITABLE)) {
+                    if (strict) *violated = 1;  // strict: caller throws TypeError
+                    return value;
+                }
             }
             func->properties->Set(key, value);
             return value;
@@ -5362,14 +5418,20 @@ void* ts_create_arguments_from_params(
                     }
                     TsValue gk; gk.type = ValueType::STRING_PTR;
                     gk.ptr_val = TsString::GetInterned((std::string("__getter_") + kc2).c_str());
-                    if (arr->properties->Has(gk)) return value; // accessor, no setter -> no-op
+                    if (arr->properties->Has(gk)) {
+                        if (strict) *violated = 1;  // accessor, no setter
+                        return value;
+                    }
                 }
             }
             // OrdinarySet: honor writable:false on the side-map.
             if (arr->properties->Has(key)) {
                 uint8_t a = arr->properties->GetPropertyAttrs(key);
                 constexpr uint8_t ATTR_WRITABLE = 0x02;
-                if (!(a & ATTR_WRITABLE)) return value;
+                if (!(a & ATTR_WRITABLE)) {
+                    if (strict) *violated = 1;
+                    return value;
+                }
             }
             arr->properties->Set(key, value);
             return value;
@@ -5405,7 +5467,10 @@ void* ts_create_arguments_from_params(
             if (closure->properties->Has(key)) {
                 uint8_t a = closure->properties->GetPropertyAttrs(key);
                 constexpr uint8_t ATTR_WRITABLE = 0x02;
-                if (!(a & ATTR_WRITABLE)) return value;
+                if (!(a & ATTR_WRITABLE)) {
+                    if (strict) *violated = 1;
+                    return value;
+                }
             }
             closure->properties->Set(key, value);
             return value;
@@ -5473,12 +5538,21 @@ void* ts_create_arguments_from_params(
                     if (chain->Has(key)) {
                         uint8_t attrs = chain->GetPropertyAttrs(key);
                         if (!(attrs & ATTR_WRITABLE)) {
+                            if (strict) *violated = 1;  // strict: caller throws
                             return value;  // silent fail (non-strict)
                         }
                         break;  // writable: fall through to set
                     }
                     chain = chain->GetPrototype();
                 }
+            }
+
+            // ES 10.1.10.2 / 9.1.9: a non-extensible (sealed/preventExtensions)
+            // receiver cannot GAIN a property. Existing own props (writable
+            // ones — checked above) may still be updated.
+            if (!map->IsExtensible() && !map->Has(key)) {
+                if (strict) *violated = 1;
+                return value;  // silent fail (non-strict)
             }
 
             // No setter - set property directly
