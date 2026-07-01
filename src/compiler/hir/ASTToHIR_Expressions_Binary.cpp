@@ -470,7 +470,44 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     bool rhsIsBigInt = hirIsBigInt(rhs) || isBigInt(node->right.get());
     bool useBigInt = lhsIsBigInt && rhsIsBigInt;
 
+    // Coercion-routing categories (ECMA-262 13.15.3
+    // ApplyStringOrNumericBinaryOperator). The typed fast paths only handle
+    // statically numeric (and matching bool/bool) operands; everything else
+    // must reach the coercing ts_value_* runtime dispatchers or wrong results
+    // appear: true + 1 -> 0 (bool fed to raw i64 math), new Boolean(true) +
+    // true -> 1 (valueOf never invoked), anyStr + 1 -> NaN instead of "x1".
+    //   0 = numeric (Int64/Float64)  1 = string  2 = Any  3 = bool
+    //   4 = other (object/class, null/undefined, BigInt-typed, function...)
+    auto typeCat = [&](const std::shared_ptr<HIRValue>& v, ast::Expression* a) -> int {
+        if (isNumber(v, a)) return 0;
+        if (isString(v, a)) return 1;
+        if (isAnyOrNullish(v, a)) return 2;
+        if (isBoolean(v, a)) return 3;
+        return 4;
+    };
+    int lcat = typeCat(lhs, node->left.get());
+    int rcat = typeCat(rhs, node->right.get());
+    // An object/wrapper/null-ish operand always needs the runtime path.
+    bool eitherOther = (lcat == 4 || rcat == 4);
+    // A bool mixed with a non-bool corrupts the raw i64 fast path; a
+    // bool/bool pair is handled correctly by the existing typed lowering.
+    bool boolMix = (lcat == 3) != (rcat == 3);
+    // Any mixed with a statically-typed number: the generic opcode wrongly
+    // specializes to numeric math (probe: any "x" + 1 -> NaN, not "x1").
+    bool anyNumMix = (lcat == 2 && rcat == 0) || (lcat == 0 && rcat == 2);
+    // Combined predicate for the binary arithmetic/comparison forms.
+    bool needsCoercion = eitherOther || boolMix || anyNumMix;
+
     if (op == "+") {
+        // Coercing runtime path — but keep the string-concat fast path
+        // (either side statically String) which already handles dynamic
+        // operands via SpecializationPass.
+        if (!useBigInt && lcat != 1 && rcat != 1 && needsCoercion) {
+            auto lb = boxValueIfNeeded(lhs);
+            auto rb = boxValueIfNeeded(rhs);
+            lastValue_ = builder_.createCall("ts_value_add", {lb, rb}, HIRType::makeAny());
+            return;
+        }
         // Strategy B Phase 3: emit generic Add. SpecializationPass (which
         // runs after TypePropagationPass) will rewrite this into the
         // appropriate type-specific instruction (StringConcat, AddF64,
@@ -509,7 +546,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // StringConcat. ECMA-262 13.7: multiplicative operators are IEEE-754.
         bool eitherString = isString(lhs, node->left.get()) ||
                             isString(rhs, node->right.get());
-        if (!useBigInt && eitherString) {
+        // Coercion routing (see typeCat above): booleans/objects/wrappers and
+        // an Any/typed-number mix must also reach the coercing helpers — the
+        // raw i64/f64 ops corrupt them (true - 1, new Number(2) * 3, ...).
+        if (!useBigInt && (eitherString || needsCoercion)) {
             // Box both operands and call the coercing runtime helper directly.
             // The generic Sub/Div/Mod opcodes specialize on OPERAND types, and
             // String operands have no typed arithmetic form — they fell to the
@@ -548,6 +588,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // ts_math_pow which will coerce the BigInt to NaN (approximate).
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_pow", {lhs, rhs}, HIRType::makeBigInt());
+        } else if (lcat != 0 || rcat != 0) {
+            // Non-numeric operand(s): ts_value_pow implements the full
+            // ApplyStringOrNumericBinaryOperator (ToPrimitive/ToNumber, BigInt
+            // pair -> ts_bigint_pow, BigInt/other mix -> TypeError).
+            auto lb = boxValueIfNeeded(lhs);
+            auto rb = boxValueIfNeeded(rhs);
+            lastValue_ = builder_.createCall("ts_value_pow", {lb, rb}, HIRType::makeAny());
         } else {
             // Ensure both operands are Float64 for ts_math_pow.
             auto castToF64 = [this](std::shared_ptr<HIRValue> v) {
@@ -555,7 +602,6 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                     if (v->type->kind == HIRTypeKind::Int64) return builder_.createCastI64ToF64(v);
                     if (v->type->kind == HIRTypeKind::Float64) return v;
                 }
-                // Any / object: let the runtime coerce via ts_value_get_double on the call site.
                 return v;
             };
             auto lhsF = castToF64(lhs);
@@ -578,6 +624,20 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                            : (op == ">")  ? "ts_bigint_gt"
                            :                "ts_bigint_ge";
             lastValue_ = builder_.createCall(fn, {lhs, rhs}, HIRType::makeBool());
+        } else if (eitherOther || boolMix || (lcat == 1 && rcat == 1)) {
+            // Mixed booleans, wrapper objects (ToPrimitive/valueOf), and mixed
+            // BigInt/Number (allowed by ES 7.2.12, handled in the runtime
+            // comparators) — the typed CmpLt forms corrupt these operands.
+            // Statically-String pairs route too: the generic CmpLt compared
+            // raw pointers ("a" < "b" was false BOTH ways); ts_value_lt does
+            // the spec lexicographic comparison.
+            const char* fn = (op == "<")  ? "ts_value_lt"
+                           : (op == "<=") ? "ts_value_lte"
+                           : (op == ">")  ? "ts_value_gt"
+                           :                "ts_value_gte";
+            auto lb = boxValueIfNeeded(lhs);
+            auto rb = boxValueIfNeeded(rhs);
+            lastValue_ = builder_.createCall(fn, {lb, rb}, HIRType::makeAny());
         } else {
             std::shared_ptr<HIRValue> v;
             if      (op == "<")  v = builder_.createCmpLt(lhs, rhs);
@@ -595,8 +655,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             // handles BigInt↔Number/String value comparison per spec.
             // Emitting CmpEqF64 here would unbox the BigInt ptr as double → garbage.
             lastValue_ = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            lastValue_ = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get()) ||
+                   eitherOther || boolMix) {
+            // eitherOther/boolMix: objects and mixed booleans need the
+            // coercing comparison too (`new Number(1) == 1`, `"1" == true`) —
+            // CmpEqI64 on a pointer or raw i1 is garbage. Box for the call.
+            lastValue_ = builder_.createCall("ts_value_eq",
+                {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
         }
@@ -645,9 +710,11 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             // Mixed: route through ts_value_eq + negate (same reasoning as ==).
             auto eq = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
             lastValue_ = builder_.createLogicalNot(eq);
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            // Use ts_value_eq and negate for != with any operands
-            auto eq = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get()) ||
+                   eitherOther || boolMix) {
+            // Use ts_value_eq and negate; eitherOther/boolMix mirrors `==`.
+            auto eq = builder_.createCall("ts_value_eq",
+                {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             lastValue_ = builder_.createLogicalNot(eq);
         } else {
             lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
@@ -696,18 +763,37 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         lastValue_ = builder_.createLogicalAnd(lhs, rhs);
     } else if (op == "||") {
         lastValue_ = builder_.createLogicalOr(lhs, rhs);
-    } else if (op == "&") {
-        lastValue_ = builder_.createAndI64(lhs, rhs);
-    } else if (op == "|") {
-        lastValue_ = builder_.createOrI64(lhs, rhs);
-    } else if (op == "^") {
-        lastValue_ = builder_.createXorI64(lhs, rhs);
-    } else if (op == "<<") {
-        lastValue_ = builder_.createShlI64(lhs, rhs);
-    } else if (op == ">>") {
-        lastValue_ = builder_.createShrI64(lhs, rhs);
-    } else if (op == ">>>") {
-        lastValue_ = builder_.createUShrI64(lhs, rhs);
+    } else if (op == "&" || op == "|" || op == "^" ||
+               op == "<<" || op == ">>" || op == ">>>") {
+        // Bitwise / shift. The raw *I64 forms are only valid for statically
+        // numeric operands — strings/bools/objects/Any/BigInt must go through
+        // the coercing runtime dispatchers (ES ToInt32/ToUint32; both-BigInt
+        // uses the BigInt variants; a BigInt/other mix throws TypeError).
+        // Previously these ALWAYS emitted the raw i64 op, so `"x" ^ "1"`,
+        // `new Number(3) & 1`, and `1n << 1n` were corrupted.
+        if (lcat != 0 || rcat != 0) {
+            const char* fn = (op == "&")  ? "ts_value_and"
+                           : (op == "|")  ? "ts_value_or"
+                           : (op == "^")  ? "ts_value_xor"
+                           : (op == "<<") ? "ts_value_shl"
+                           : (op == ">>") ? "ts_value_sar"
+                           :                "ts_value_ushr";
+            auto lb = boxValueIfNeeded(lhs);
+            auto rb = boxValueIfNeeded(rhs);
+            lastValue_ = builder_.createCall(fn, {lb, rb}, HIRType::makeAny());
+        } else if (op == "&") {
+            lastValue_ = builder_.createAndI64(lhs, rhs);
+        } else if (op == "|") {
+            lastValue_ = builder_.createOrI64(lhs, rhs);
+        } else if (op == "^") {
+            lastValue_ = builder_.createXorI64(lhs, rhs);
+        } else if (op == "<<") {
+            lastValue_ = builder_.createShlI64(lhs, rhs);
+        } else if (op == ">>") {
+            lastValue_ = builder_.createShrI64(lhs, rhs);
+        } else {
+            lastValue_ = builder_.createUShrI64(lhs, rhs);
+        }
     } else if (op == ",") {
         // Comma operator: evaluate both sides for side effects, return right
         // lhs is already evaluated above, rhs is already evaluated above
@@ -724,8 +810,12 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
         std::shared_ptr<HIRValue> result;
 
-        // Compute the operation
-        bool eitherAny = isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get());
+        // Compute the operation. eitherAny routes to the coercing runtime
+        // helpers; needsCoercion (see typeCat above) extends that to mixed
+        // booleans, objects/wrappers, and Any/number mixes, mirroring the
+        // binary operator forms (`x op= y` must lower like `x = x op y`).
+        bool eitherAny = isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())
+                         || needsCoercion;
         if (op == "+=") {
             // Mirror the binary `+` path exactly so that `x += y` lowers
             // identically to `x = x + y`. Emitting a low-level StringConcat
@@ -736,23 +826,30 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             // SpecializationPass, which routes Any+String through the runtime
             // coercing add (ts_value_add) just like the binary `+` operator.
             std::shared_ptr<HIRType> resultType;
-            if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
-                resultType = HIRType::makeString();
-            } else if (useBigInt) {
-                resultType = HIRType::makeBigInt();
-            } else if (isAnyOrNullish(lhs, node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
-                resultType = HIRType::makeAny();
-            } else if (useFloat) {
-                resultType = HIRType::makeFloat64();
+            if (!useBigInt && lcat != 1 && rcat != 1 && needsCoercion) {
+                // Coercing runtime path — mirrors the binary `+` routing.
+                result = builder_.createCall("ts_value_add",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             } else {
-                resultType = HIRType::makeInt64();
+                if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
+                    resultType = HIRType::makeString();
+                } else if (useBigInt) {
+                    resultType = HIRType::makeBigInt();
+                } else if (isAnyOrNullish(lhs, node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+                    resultType = HIRType::makeAny();
+                } else if (useFloat) {
+                    resultType = HIRType::makeFloat64();
+                } else {
+                    resultType = HIRType::makeInt64();
+                }
+                result = builder_.createAdd(lhs, rhs, resultType);
             }
-            result = builder_.createAdd(lhs, rhs, resultType);
         } else if (op == "-=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
             } else if (eitherAny) {
-                result = builder_.createCall("ts_value_sub", {lhs, rhs}, HIRType::makeAny());
+                result = builder_.createCall("ts_value_sub",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createSubF64(lhs, rhs);
             } else {
@@ -762,7 +859,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_mul", {lhs, rhs}, HIRType::makeObject());
             } else if (eitherAny) {
-                result = builder_.createCall("ts_value_mul", {lhs, rhs}, HIRType::makeAny());
+                result = builder_.createCall("ts_value_mul",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createMulF64(lhs, rhs);
             } else {
@@ -772,7 +870,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_div", {lhs, rhs}, HIRType::makeObject());
             } else if (eitherAny) {
-                result = builder_.createCall("ts_value_div", {lhs, rhs}, HIRType::makeAny());
+                result = builder_.createCall("ts_value_div",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createDivF64(lhs, rhs);
             } else {
@@ -782,24 +881,40 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_mod", {lhs, rhs}, HIRType::makeObject());
             } else if (eitherAny) {
-                result = builder_.createCall("ts_value_mod", {lhs, rhs}, HIRType::makeAny());
+                result = builder_.createCall("ts_value_mod",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createModF64(lhs, rhs);
             } else {
                 result = builder_.createModI64(lhs, rhs);
             }
-        } else if (op == "&=") {
-            result = builder_.createAndI64(lhs, rhs);
-        } else if (op == "|=") {
-            result = builder_.createOrI64(lhs, rhs);
-        } else if (op == "^=") {
-            result = builder_.createXorI64(lhs, rhs);
-        } else if (op == "<<=") {
-            result = builder_.createShlI64(lhs, rhs);
-        } else if (op == ">>=") {
-            result = builder_.createShrI64(lhs, rhs);
-        } else if (op == ">>>=") {
-            result = builder_.createUShrI64(lhs, rhs);
+        } else if (op == "&=" || op == "|=" || op == "^=" ||
+                   op == "<<=" || op == ">>=" || op == ">>>=") {
+            // Mirror the binary bitwise/shift routing: non-numeric operands
+            // (string/bool/object/Any/BigInt) go through the coercing runtime
+            // dispatchers; numeric pairs keep the raw i64 fast path.
+            if (lcat != 0 || rcat != 0) {
+                const char* fn = (op == "&=")  ? "ts_value_and"
+                               : (op == "|=")  ? "ts_value_or"
+                               : (op == "^=")  ? "ts_value_xor"
+                               : (op == "<<=") ? "ts_value_shl"
+                               : (op == ">>=") ? "ts_value_sar"
+                               :                 "ts_value_ushr";
+                result = builder_.createCall(fn,
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
+            } else if (op == "&=") {
+                result = builder_.createAndI64(lhs, rhs);
+            } else if (op == "|=") {
+                result = builder_.createOrI64(lhs, rhs);
+            } else if (op == "^=") {
+                result = builder_.createXorI64(lhs, rhs);
+            } else if (op == "<<=") {
+                result = builder_.createShlI64(lhs, rhs);
+            } else if (op == ">>=") {
+                result = builder_.createShrI64(lhs, rhs);
+            } else {
+                result = builder_.createUShrI64(lhs, rhs);
+            }
         }
 
         // Now store the result back to the LHS
@@ -835,6 +950,16 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
+                // A coercing compound assign can change the variable's runtime
+                // type (`var x = "x"; x ^= "1"` leaves x holding the NUMBER 1).
+                // Widen the slot's static type to Any so later reads unbox the
+                // stored value instead of trusting the stale declared type
+                // (a String-typed load of the boxed 1 corrupts, and `x === 1`
+                // would constant-fold false on the string/number mismatch).
+                if (result->type && result->type->kind == HIRTypeKind::Any &&
+                    info->elemType && info->elemType->kind != HIRTypeKind::Any) {
+                    info->elemType = HIRType::makeAny();
+                }
                 builder_.createStore(result, info->value, info->elemType);
                 broadcastCaptureWrite(info, result);
             } else if (info) {
