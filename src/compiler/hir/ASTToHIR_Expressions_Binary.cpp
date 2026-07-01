@@ -504,7 +504,11 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Coercing runtime path — but keep the string-concat fast path
         // (either side statically String) which already handles dynamic
         // operands via SpecializationPass.
-        if (!useBigInt && lcat != 1 && rcat != 1 && needsCoercion) {
+        // A mixed BigInt operand routes even when the other side is a string:
+        // StringConcat cannot stringify a raw TsBigInt ("" + 1n crashed), while
+        // ts_value_add handles ToString(BigInt) concat and the mix TypeError.
+        if (!useBigInt && ((lcat != 1 && rcat != 1 && needsCoercion) ||
+                           lhsIsBigInt || rhsIsBigInt)) {
             auto lb = boxValueIfNeeded(lhs);
             auto rb = boxValueIfNeeded(rhs);
             lastValue_ = builder_.createCall("ts_value_add", {lb, rb}, HIRType::makeAny());

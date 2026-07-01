@@ -426,6 +426,11 @@ static inline double nanbox_extract_double(TsValue* v) {
             // are 0 (std::stod threw -> NaN, so `"" == false` compared NaN==0).
             return ts_to_number(v);
         }
+        // Raw TsBigInt: numeric value via the truncated i64 (see ts_to_number
+        // in Primitives.cpp for the compat rationale).
+        if (magic == 0x42494749) {  // "BIGI"
+            return (double)ts_bigint_to_i64(ptr);
+        }
         // Per ES spec: ToNumber(symbol) throws TypeError.
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
         if (magic16 == 0x53594D42) {  // "SYMB"
@@ -3179,6 +3184,16 @@ void* ts_create_arguments_from_params(
             TsString* s = d->ToString();
             return ts_value_make_string(s ? s : TsString::Create(""));
         }
+        // BigInt IS a primitive (TsBigInt::magic lives at OFFSET 0 — the
+        // magic16 check below reads mp_int internals for a real TsBigInt and
+        // garbage-misses, sending it into the generic valueOf/toString lookup
+        // whose toString made ToPrimitive(1n) return the STRING "1", so
+        // `1n + 1` concatenated to "11" instead of throwing the mix TypeError).
+        // (ts_string_from_value stringifies a raw TsBigInt via
+        // ts_bigint_to_string, so returning the primitive here is safe for the
+        // string hint too — String(1n), `${1n}`, and the BigInt-TA formatting
+        // paths all render the digits.)
+        if (magic0 == 0x42494749) return val;  // TsBigInt (magic at offset 0)
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
         // Closure/function (offset 16): not skipped — see note above; the
         // generic toString/valueOf block handles overridden `toString`.
@@ -3192,7 +3207,15 @@ void* ts_create_arguments_from_params(
             if (nanbox_is_undefined(rnb) || nanbox_is_null(rnb) ||
                 nanbox_is_int32(rnb) || nanbox_is_double(rnb) ||
                 nanbox_is_bool(rnb)) return true;
-            if (nanbox_is_ptr(rnb) && nanbox_is_string_ptr(rnb)) return true;
+            if (nanbox_is_ptr(rnb)) {
+                if (nanbox_is_string_ptr(rnb)) return true;
+                // BigInt is a primitive: Object(2n).valueOf() returns the
+                // wrapped TsBigInt and MUST be accepted here (magic at
+                // offset 0), or ToPrimitive falls through to toString and
+                // yields a string.
+                void* rp = nanbox_to_ptr(rnb);
+                if (rp && *(uint32_t*)rp == 0x42494749) return true;
+            }
             return false;
         };
 
@@ -3281,10 +3304,18 @@ void* ts_create_arguments_from_params(
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
 
-        // String concatenation if either is a string
+        // String concatenation if either is a string. A BigInt operand is
+        // LEGAL here (ES: "" + 1n -> "1" via ToString(BigInt)) — stringify it
+        // explicitly; ts_value_get_string on a raw TsBigInt crashes.
         if (nanbox_is_string_ptr(nba) || nanbox_is_string_ptr(nbb)) {
-            TsString* s1 = (TsString*)ts_value_get_string(a);
-            TsString* s2 = (TsString*)ts_value_get_string(b);
+            auto toStr = [](TsValue* v, uint64_t nb) -> TsString* {
+                if (TsBigInt* bi = try_as_bigint(nb))
+                    return (TsString*)ts_bigint_to_string(bi, 10);
+                TsString* s = (TsString*)ts_value_get_string(v);
+                return s ? s : TsString::Create("");
+            };
+            TsString* s1 = toStr(a, nba);
+            TsString* s2 = toStr(b, nbb);
             if (!s1) s1 = TsString::Create("");
             if (!s2) s2 = TsString::Create("");
             return ts_value_make_string(TsString::Concat(s1, s2));
@@ -3753,6 +3784,10 @@ void* ts_create_arguments_from_params(
 
             uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
             if (magic16 == 0x4D415053) return TsString::Create("object");
+            // TsBigInt's magic lives at OFFSET 0 (the magic16 form below only
+            // matches legacy wrapped forms) — without this, typeof of a real
+            // TsBigInt reaching here dynamically reported "object".
+            if (magic0 == 0x42494749) return TsString::Create("bigint");
             if (magic16 == 0x46554E43) return TsString::Create("function");
             if (magic16 == 0x434C5352) return TsString::Create("function"); // TsClosure
             if (magic16 == 0x42494749) return TsString::Create("bigint");

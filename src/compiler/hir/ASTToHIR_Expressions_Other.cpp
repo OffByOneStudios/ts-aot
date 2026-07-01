@@ -1627,6 +1627,15 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         if (isBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_neg", {operand},
                 HIRType::makeBigInt());
+        } else if (operand && operand->type &&
+                   (operand->type->kind == HIRTypeKind::Any ||
+                    operand->type->kind == HIRTypeKind::Object ||
+                    operand->type->kind == HIRTypeKind::String)) {
+            // Dynamic operand: ts_value_neg implements ES 13.5.5 ToNumeric --
+            // a runtime BigInt negates as a BigInt (NegF64's get_double read
+            // a dynamic BigInt as 0), everything else as -ToNumber.
+            lastValue_ = builder_.createCall("ts_value_neg",
+                {boxValueIfNeeded(operand)}, HIRType::makeAny());
         } else {
             // Strategy B Phase 3: emit generic Neg. SpecializationPass will
             // rewrite to NegF64 or NegI64 based on the result type. Keeps the

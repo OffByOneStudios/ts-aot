@@ -2400,8 +2400,9 @@ extern "C" {
                 return out;
             }
             if (magic == 0x42494749) { // TsBigInt
-                // BigInt toString would need special handling
-                return TsString::GetInterned("[object BigInt]");
+                // ES ToString(BigInt): the decimal digits (no "n" suffix).
+                extern void* ts_bigint_to_string(void* bi, int32_t radix);
+                return ts_bigint_to_string(ptr, 10);
             }
             // ECMA-262: ToString(Symbol) throws TypeError. Without this
             // guard, Symbol receivers fell through to "[object Object]"
