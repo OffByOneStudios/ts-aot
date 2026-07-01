@@ -1193,6 +1193,16 @@ double ts_value_get_double(TsValue* v) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
+        // Raw TsBigInt (magic at offset 0): numeric value via the truncated
+        // i64. ToPrimitive now returns BigInts unchanged (they ARE
+        // primitives), so this unboxing helper must handle them directly —
+        // it previously received the stringified form and parsed it. The
+        // BigInt-TA store paths (BigInt64Array ctor/fill/element writes)
+        // unbox through here.
+        if (*(uint32_t*)ptr == 0x42494749) {
+            extern int64_t ts_bigint_to_i64(void* bi);
+            return (double)ts_bigint_to_i64(ptr);
+        }
         if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             // ECMA-262 §7.1.4.1 StringToNumber: empty or whitespace-only
             // strings convert to +0, not NaN. std::stod throws on empty
@@ -1287,6 +1297,15 @@ double ts_to_number(TsValue* v) {
         if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             // ECMA-262 7.1.4.1 StringToNumber (shared with ts_value_get_double).
             return js_string_to_number(ts_ensure_flat(ptr)->ToUtf8());
+        }
+        // Raw TsBigInt: numeric value via the truncated i64 (legacy-compat;
+        // spec ToNumber(BigInt) is a TypeError, but the pre-primitive
+        // behavior was numeric-via-string-parse and internal callers rely
+        // on it). Operator sites throw the mix TypeError BEFORE reaching
+        // ToNumber, so spec-visible arithmetic is unaffected.
+        if (magic == 0x42494749) {  // "BIGI"
+            extern int64_t ts_bigint_to_i64(void* bi);
+            return (double)ts_bigint_to_i64(ptr);
         }
         // Per ES spec: ToNumber(symbol) throws TypeError.
         // TsSymbol has MAGIC=0x53594D42 at offset 0 (see TsSymbol.h).

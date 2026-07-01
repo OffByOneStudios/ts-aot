@@ -1175,6 +1175,23 @@ extern "C" {
         TsTypedArray* ta = asTypedArray(arr);
         if (ta) {
             if (index < 0 || (size_t)index >= ta->GetLength()) return;
+            // A real TsBigInt value (ToPrimitive now returns BigInts unchanged
+            // -- they ARE primitives): write the raw 64-bit slot for a BigInt
+            // typed array (mirrors ts_ta_get_boxed's read side), or the
+            // truncated numeric value for a numeric one. Previously the
+            // untyped fall-through stored 0.
+            if (value.type == ValueType::BIGINT_PTR && value.ptr_val) {
+                extern int64_t ts_bigint_to_i64(void* bi);
+                int64_t iv = ts_bigint_to_i64(value.ptr_val);
+                TypedArrayType t = ta->GetType();
+                if (t == TypedArrayType::BigInt64 || t == TypedArrayType::BigUint64) {
+                    uint8_t* data = ta->GetData();
+                    if (data) ((int64_t*)data)[index] = iv;
+                } else {
+                    ta->Set((size_t)index, (double)iv);
+                }
+                return;
+            }
             double dval = 0;
             if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
             else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
@@ -2293,7 +2310,10 @@ extern "C" {
                         TsTypedArray* ta = (TsTypedArray*)resRaw;
                         size_t copyN = std::min(n, ta->GetLength());
                         for (size_t i = 0; i < copyN; i++) {
-                            ta->Set(i, resultArr->GetElementDouble(i));
+                            // ts_array_set_v is BigInt-aware (a BigInt element
+                            // stored via GetElementDouble became 0).
+                            ts_array_set_v((void*)ta, (int64_t)i,
+                                           ts_array_get_v((void*)resultArr, (int64_t)i));
                         }
                         return (void*)ta;
                     }
@@ -2312,7 +2332,9 @@ extern "C" {
         TsTypedArray* ta = TsTypedArray::Create(n,
             receiver->GetElementSize(), receiver->IsClamped(), receiver->GetType());
         for (size_t i = 0; i < n; i++) {
-            ta->Set(i, resultArr->GetElementDouble(i));
+            // BigInt-aware element copy (see above).
+            ts_array_set_v((void*)ta, (int64_t)i,
+                           ts_array_get_v((void*)resultArr, (int64_t)i));
         }
         return (void*)ta;
     }
