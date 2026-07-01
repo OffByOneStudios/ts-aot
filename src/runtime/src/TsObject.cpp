@@ -3259,6 +3259,20 @@ void* ts_create_arguments_from_params(
         return val;
     }
 
+    // Defined below; needed by the arithmetic dispatchers for the
+    // ES2020 BigInt branches of ApplyStringOrNumericBinaryOperator.
+    static TsBigInt* try_as_bigint(uint64_t nb);
+
+    // ECMA-262 13.15.3 ApplyStringOrNumericBinaryOperator step 5: after
+    // ToPrimitive/ToNumeric, if exactly one operand is a BigInt the operation
+    // throws TypeError; if both are BigInts, the BigInt variant runs.
+    // Returns true (and sets *out) when the BigInt path handled the op.
+    [[noreturn]] static void throw_bigint_mix() {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot mix BigInt and other types, use explicit conversions"));
+        abort();  // unreachable — ts_throw longjmps
+    }
+
     TsValue* ts_value_add(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         // ES5.1 §11.6.1: ToPrimitive both operands with hint "default"
@@ -3274,6 +3288,14 @@ void* ts_create_arguments_from_params(
             if (!s1) s1 = TsString::Create("");
             if (!s2) s2 = TsString::Create("");
             return ts_value_make_string(TsString::Concat(s1, s2));
+        }
+
+        // ES2020: both BigInt -> BigInt addition; mixed BigInt/other -> TypeError.
+        {
+            TsBigInt* abi = try_as_bigint(nba);
+            TsBigInt* bbi = try_as_bigint(nbb);
+            if (abi && bbi) return (TsValue*)ts_bigint_add(abi, bbi);
+            if (abi || bbi) throw_bigint_mix();
         }
 
         // Fast path: both int32
@@ -3305,6 +3327,12 @@ void* ts_create_arguments_from_params(
         b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
+        {
+            TsBigInt* abi = try_as_bigint(nba);
+            TsBigInt* bbi = try_as_bigint(nbb);
+            if (abi && bbi) return (TsValue*)ts_bigint_sub(abi, bbi);
+            if (abi || bbi) throw_bigint_mix();
+        }
         if (nanbox_is_int32(nba) && nanbox_is_int32(nbb)) {
             int64_t result = (int64_t)nanbox_to_int32(nba) - (int64_t)nanbox_to_int32(nbb);
             return ts_value_make_int(result);
@@ -3320,6 +3348,12 @@ void* ts_create_arguments_from_params(
         b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
+        {
+            TsBigInt* abi = try_as_bigint(nba);
+            TsBigInt* bbi = try_as_bigint(nbb);
+            if (abi && bbi) return (TsValue*)ts_bigint_mul(abi, bbi);
+            if (abi || bbi) throw_bigint_mix();
+        }
         if (nanbox_is_int32(nba) && nanbox_is_int32(nbb)) {
             int64_t result = (int64_t)nanbox_to_int32(nba) * (int64_t)nanbox_to_int32(nbb);
             return ts_value_make_int(result);
@@ -3331,6 +3365,12 @@ void* ts_create_arguments_from_params(
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
         b = ts_to_primitive(b, 1);
+        {
+            TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+            TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+            if (abi && bbi) return (TsValue*)ts_bigint_div(abi, bbi);
+            if (abi || bbi) throw_bigint_mix();
+        }
         double d1 = ts_to_number(a);
         double d2 = ts_to_number(b);
         // Per ES spec, IEEE 754 division: 1/+0 = +Inf, 1/-0 = -Inf, 0/0 = NaN.
@@ -3342,10 +3382,134 @@ void* ts_create_arguments_from_params(
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
         b = ts_to_primitive(b, 1);
+        {
+            TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+            TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+            if (abi && bbi) return (TsValue*)ts_bigint_mod(abi, bbi);
+            if (abi || bbi) throw_bigint_mix();
+        }
         double d1 = ts_to_number(a);
         double d2 = ts_to_number(b);
         if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         return ts_value_make_double(std::fmod(d1, d2));
+    }
+
+    // ---- ES2020 numeric-binary-operator dispatchers (bitwise / shift / pow /
+    // unary) for operands whose static type forces the runtime path. These
+    // implement ECMA-262 13.15.3 ApplyStringOrNumericBinaryOperator for the
+    // operators that previously had NO runtime dispatcher (the compiler emitted
+    // raw i64 ops): ToPrimitive(number) -> both-BigInt uses the BigInt variant,
+    // a BigInt/other mix throws TypeError, otherwise ToInt32/ToUint32 math.
+
+    // ES 7.1.6 ToInt32 / 7.1.7 ToUint32 on an already-ToPrimitive'd value.
+    static uint32_t to_uint32_from_prim(TsValue* v) {
+        double d = ts_to_number(v);
+        if (!std::isfinite(d) || d == 0.0) return 0;
+        double t = std::trunc(d);
+        double m = std::fmod(t, 4294967296.0);  // 2^32
+        if (m < 0) m += 4294967296.0;
+        return (uint32_t)m;
+    }
+    static int32_t to_int32_from_prim(TsValue* v) {
+        return (int32_t)to_uint32_from_prim(v);
+    }
+
+    // Shared & | ^ implementation (op: 0 = and, 1 = or, 2 = xor).
+    static TsValue* value_bitwise(TsValue* a, TsValue* b, int op) {
+        if (!a) a = ts_value_make_undefined();
+        if (!b) b = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+        if (abi && bbi) {
+            void* r = (op == 0) ? ts_bigint_and(abi, bbi)
+                    : (op == 1) ? ts_bigint_or(abi, bbi)
+                                : ts_bigint_xor(abi, bbi);
+            return (TsValue*)r;
+        }
+        if (abi || bbi) throw_bigint_mix();
+        int32_t x = to_int32_from_prim(a);
+        int32_t y = to_int32_from_prim(b);
+        int32_t r = (op == 0) ? (x & y) : (op == 1) ? (x | y) : (x ^ y);
+        return ts_value_make_int((int64_t)r);
+    }
+    TsValue* ts_value_and(TsValue* a, TsValue* b) { return value_bitwise(a, b, 0); }
+    TsValue* ts_value_or(TsValue* a, TsValue* b)  { return value_bitwise(a, b, 1); }
+    TsValue* ts_value_xor(TsValue* a, TsValue* b) { return value_bitwise(a, b, 2); }
+
+    // Shared shift implementation (op: 0 = <<, 1 = >> arithmetic, 2 = >>> unsigned).
+    static TsValue* value_shift(TsValue* a, TsValue* b, int op) {
+        if (!a) a = ts_value_make_undefined();
+        if (!b) b = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+        if (abi && bbi) {
+            if (op == 2) {  // ES: BigInts have no unsigned right shift
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "BigInts have no unsigned right shift, use >> instead"));
+            }
+            int64_t bits = ts_bigint_to_i64(bbi);
+            void* r = (op == 0) ? ts_bigint_shl(abi, bits) : ts_bigint_shr(abi, bits);
+            return (TsValue*)r;
+        }
+        if (abi || bbi) throw_bigint_mix();
+        uint32_t shift = to_uint32_from_prim(b) & 31;
+        if (op == 2) {
+            uint32_t x = to_uint32_from_prim(a);
+            return ts_value_make_double((double)(x >> shift));
+        }
+        int32_t x = to_int32_from_prim(a);
+        int32_t r = (op == 0) ? (int32_t)((uint32_t)x << shift) : (x >> shift);
+        return ts_value_make_int((int64_t)r);
+    }
+    TsValue* ts_value_shl(TsValue* a, TsValue* b)  { return value_shift(a, b, 0); }
+    TsValue* ts_value_sar(TsValue* a, TsValue* b)  { return value_shift(a, b, 1); }
+    TsValue* ts_value_ushr(TsValue* a, TsValue* b) { return value_shift(a, b, 2); }
+
+    // `**` with runtime coercion (the compiler's typed path uses ts_math_pow).
+    TsValue* ts_value_pow(TsValue* a, TsValue* b) {
+        if (!a) a = ts_value_make_undefined();
+        if (!b) b = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+        if (abi && bbi) return (TsValue*)ts_bigint_pow(abi, bbi);
+        if (abi || bbi) throw_bigint_mix();
+        return ts_value_make_double(std::pow(ts_to_number(a), ts_to_number(b)));
+    }
+
+    // Unary `~` (ES 13.5.6): ToNumeric; BigInt -> BigInt NOT, else ~ToInt32.
+    TsValue* ts_value_bitnot(TsValue* a) {
+        if (!a) a = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        if (abi) return (TsValue*)ts_bigint_not(abi);
+        return ts_value_make_int((int64_t)(int32_t)~to_int32_from_prim(a));
+    }
+
+    // Unary `-` (ES 13.5.5): ToNumeric; BigInt -> negate, else -ToNumber.
+    TsValue* ts_value_neg(TsValue* a) {
+        if (!a) a = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        if (abi) return (TsValue*)ts_bigint_neg(abi);
+        return ts_value_make_double(-ts_to_number(a));
+    }
+
+    // Unary `+` (ES 13.5.4): ToNumber — a BigInt operand throws TypeError.
+    TsValue* ts_value_pos(TsValue* a) {
+        if (!a) a = ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        if (abi) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a BigInt value to a number"));
+        }
+        return ts_value_make_double(ts_to_number(a));
     }
 
     // Helper: extract TsBigInt* if value is a BigInt, else nullptr.
@@ -3477,6 +3641,27 @@ void* ts_create_arguments_from_params(
         return ts_value_make_bool(nanbox_extract_double(a) == nanbox_extract_double(b));
     }
 
+    // ES 7.2.12 Abstract Relational Comparison allows BigInt vs
+    // Number/String mixing (numeric value comparison, no TypeError).
+    // Approximate the mixed case via ts_bigint_from_value like ts_value_eq.
+    // Returns 0/1 for a resolved BigInt comparison, -1 when not BigInt-related.
+    static int bigint_relational(TsValue* a, TsValue* b, int op /*0 < 1 > 2 <= 3 >=*/) {
+        TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
+        TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
+        if (!abi && !bbi) return -1;
+        void* x = abi ? (void*)abi : ts_bigint_from_value(a);
+        void* y = bbi ? (void*)bbi : ts_bigint_from_value(b);
+        // NaN relational comparisons are always false; ts_bigint_from_value of
+        // a NaN/non-numeric operand yields null — treat as false.
+        if (!x || !y) return 0;
+        switch (op) {
+            case 0: return ts_bigint_lt(x, y) ? 1 : 0;
+            case 1: return ts_bigint_gt(x, y) ? 1 : 0;
+            case 2: return ts_bigint_le(x, y) ? 1 : 0;
+            default: return ts_bigint_ge(x, y) ? 1 : 0;
+        }
+    }
+
     TsValue* ts_value_lt(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_bool(false);
         // ES5.1 §11.8.5: Abstract Relational Comparison uses ToPrimitive
@@ -3490,6 +3675,8 @@ void* ts_create_arguments_from_params(
             TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
             return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) < 0);
         }
+        int bi = bigint_relational(a, b, 0);
+        if (bi >= 0) return ts_value_make_bool(bi == 1);
         return ts_value_make_bool(nanbox_extract_double(a) < nanbox_extract_double(b));
     }
 
@@ -3504,6 +3691,8 @@ void* ts_create_arguments_from_params(
             TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
             return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) > 0);
         }
+        int bi = bigint_relational(a, b, 1);
+        if (bi >= 0) return ts_value_make_bool(bi == 1);
         return ts_value_make_bool(nanbox_extract_double(a) > nanbox_extract_double(b));
     }
 
@@ -3518,6 +3707,8 @@ void* ts_create_arguments_from_params(
             TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
             return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) <= 0);
         }
+        int bi = bigint_relational(a, b, 2);
+        if (bi >= 0) return ts_value_make_bool(bi == 1);
         return ts_value_make_bool(nanbox_extract_double(a) <= nanbox_extract_double(b));
     }
 
@@ -3532,6 +3723,8 @@ void* ts_create_arguments_from_params(
             TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
             return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) >= 0);
         }
+        int bi = bigint_relational(a, b, 3);
+        if (bi >= 0) return ts_value_make_bool(bi == 1);
         return ts_value_make_bool(nanbox_extract_double(a) >= nanbox_extract_double(b));
     }
 

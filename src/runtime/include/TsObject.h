@@ -253,7 +253,20 @@ extern "C" {
     TsValue* ts_value_mul(TsValue* a, TsValue* b);
     TsValue* ts_value_div(TsValue* a, TsValue* b);
     TsValue* ts_value_mod(TsValue* a, TsValue* b);
-    
+    // Slow-path bitwise / shift / pow / unary numeric operators
+    // (ECMA-262 13.15.3 ApplyStringOrNumericBinaryOperator: ToPrimitive ->
+    // BigInt variants or TypeError on mix -> ToInt32/ToUint32 math).
+    TsValue* ts_value_and(TsValue* a, TsValue* b);
+    TsValue* ts_value_or(TsValue* a, TsValue* b);
+    TsValue* ts_value_xor(TsValue* a, TsValue* b);
+    TsValue* ts_value_shl(TsValue* a, TsValue* b);   // <<
+    TsValue* ts_value_sar(TsValue* a, TsValue* b);   // >> (sign-propagating)
+    TsValue* ts_value_ushr(TsValue* a, TsValue* b);  // >>>
+    TsValue* ts_value_pow(TsValue* a, TsValue* b);   // **
+    TsValue* ts_value_bitnot(TsValue* a);            // ~
+    TsValue* ts_value_neg(TsValue* a);               // unary -
+    TsValue* ts_value_pos(TsValue* a);               // unary + (BigInt -> TypeError)
+
     // Slow path comparison
     TsValue* ts_value_eq(TsValue* a, TsValue* b);
     TsValue* ts_value_lt(TsValue* a, TsValue* b);
