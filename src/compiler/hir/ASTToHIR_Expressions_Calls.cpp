@@ -2433,6 +2433,21 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     }
 
     // The result is the new object (or the constructor's return value)
+    // `class Err extends TypeError {}` with a DEFAULT constructor: the
+    // implicit super(...args) must run the builtin base's constructor steps
+    // on the instance (Error family: own non-enumerable `message`).
+    // User-defined constructors handle their own super(); builtin bases with
+    // no HIR base class otherwise skip initialization entirely.
+    if (hirClass && !hirClass->baseBuiltinName.empty() && newObj &&
+        (!hirClass->constructor || hirClass->hasSyntheticCtor)) {
+        auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
+        auto argcC = builder_.createConstInt((int64_t)args.size());
+        std::shared_ptr<HIRValue> a0 = args.empty()
+            ? builder_.createConstUndefined() : boxValueIfNeeded(args[0]);
+        builder_.createCall("ts_super_builtin_call",
+            {newObj, baseNameC, argcC, a0}, HIRType::makeVoid());
+    }
+
     lastValue_ = newObj;
 }
 

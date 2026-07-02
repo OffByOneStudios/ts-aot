@@ -170,6 +170,26 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // ts_super_builtin_call(this, nameStr, argc:i64, a0) -> void. Mixed
+    // i64 param — the generic lowering would declare all-ptr and mislink.
+    if (funcName == "ts_super_builtin_call") {
+        llvm::Value* a1 = getOperandValue(inst->operands[1]);
+        llvm::Value* a2 = getOperandValue(inst->operands[2]);
+        llvm::Value* a3 = getOperandValue(inst->operands[3]);
+        llvm::Value* a4 = getOperandValue(inst->operands[4]);
+        if (a3->getType()->isPointerTy())
+            a3 = builder_->CreatePtrToInt(a3, builder_->getInt64Ty());
+        else if (a3->getType()->isDoubleTy())
+            a3 = builder_->CreateFPToSI(a3, builder_->getInt64Ty());
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { getGCPtrTy(), getGCPtrTy(), builder_->getInt64Ty(), getGCPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_super_builtin_call", ft);
+        builder_->CreateCall(ft, fn.getCallee(), { a1, a2, a3, a4 });
+        return;
+    }
+
     // Handle ts_instanceof_array - returns bool (i1), not ptr. Same shape
     // as ts_array_is_array but also walks the prototype chain for
     // `class C extends Array` instances.

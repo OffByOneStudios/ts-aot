@@ -708,6 +708,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Register the default constructor
             hirClass->constructor = defaultCtor.get();
+            hirClass->hasSyntheticCtor = true;
             module_->functions.push_back(std::move(defaultCtor));
         }
     }
@@ -1428,6 +1429,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Register the default constructor
             hirClass->constructor = defaultCtor.get();
+            hirClass->hasSyntheticCtor = true;
             module_->functions.push_back(std::move(defaultCtor));
         }
     }
