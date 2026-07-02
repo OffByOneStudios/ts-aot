@@ -1,5 +1,6 @@
 #include "TsRuntime.h"
 #include "TsObject.h"
+#include "TsBoundFunction.h"
 #include "TsString.h"
 #include "TsConsString.h"
 #include "TsBigInt.h"
@@ -790,6 +791,98 @@ static const BuiltinInstanceCheck g_builtin_checks[] = {
 };
 } // namespace
 
+// The ordinary prototype-chain walk shared by InstanceofOperator and
+// OrdinaryHasInstance: does `rawObj`'s [[Prototype]] chain contain
+// `targetProto`? Handles flat class instances, TsMap objects, builtin
+// instances (Date/Set/...), typed arrays, and callables.
+static bool ts_proto_chain_has(void* rawObj, void* targetProto);
+
+extern "C" TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv);
+bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor);  // defined below (same extern "C" region)
+extern "C" TsValue* ts_fn_hasInstance_native(void* ctx, int argc, TsValue** argv);
+
+// 7.3.19 OrdinaryHasInstance(C, O) — the InstanceofOperator semantics WITHOUT
+// the @@hasInstance dispatch (this IS the default @@hasInstance behavior).
+// Abrupt Get(C, "prototype") propagates via ts_throw.
+extern "C" bool ts_ordinary_has_instance(TsValue* C, TsValue* O) {
+    if (!C) return false;
+    extern bool ts_is_callable(void* val);
+    if (!ts_is_callable((void*)C)) return false;
+    // Step 2: bound function -> InstanceofOperator(O, [[BoundTargetFunction]]).
+    {
+        void* rawC0 = ts_value_get_object(C);
+        if (rawC0) {
+            uint32_t m16 = *(uint32_t*)((char*)rawC0 + 16);
+            if (m16 == 0x46554E43 /*FUNC*/) {
+                TsFunction* f = (TsFunction*)rawC0;
+                if (f->funcPtr == (void*)ts_bound_function_call && f->context) {
+                    TsBoundFunction* b = (TsBoundFunction*)f->context;
+                    if (b->targetFunction)
+                        return ts_instanceof_dynamic(O, b->targetFunction);
+                }
+            }
+        }
+    }
+    // Step 3: if O is not an object, return false.
+    if (!O) return false;
+    uint64_t oNb = nanbox_from_tsvalue_ptr(O);
+    if (!nanbox_is_ptr(oNb)) return false;
+    void* rawObj = nanbox_to_ptr(oNb);
+    if (!rawObj) return false;
+    {
+        uint32_t m0 = *(uint32_t*)rawObj;
+        if (m0 == 0x53545247 /*STRG*/ || m0 == 0x53594D42 /*SYMB*/ ||
+            m0 == 0x42494749 /*BIGI*/) return false;  // primitives
+    }
+    // Step 4: P = Get(C, "prototype") — abrupt completions PROPAGATE.
+    void* rawC = ts_value_get_object(C);
+    if (!rawC) rawC = (void*)C;
+    TsValue* protoVal = ts_object_get_property(rawC, "prototype");
+    // Step 5: if Type(P) is not Object, throw TypeError.
+    void* targetProto = nullptr;
+    if (protoVal && !ts_value_is_undefined(protoVal)) {
+        uint64_t pNb = nanbox_from_tsvalue_ptr(protoVal);
+        if (nanbox_is_ptr(pNb)) {
+            void* p = nanbox_to_ptr(pNb);
+            if (p) {
+                uint32_t pm0 = *(uint32_t*)p;
+                uint32_t pm16 = *(uint32_t*)((char*)p + 16);
+                // Object-ish: map/flat/array/function/builtin — reject
+                // string/symbol/bigint primitives.
+                if (pm0 != 0x53545247 && pm0 != 0x53594D42 && pm0 != 0x42494749)
+                    targetProto = p;
+                (void)pm16;
+            }
+        }
+    }
+    if (!targetProto) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Function has non-object prototype in instanceof check"));
+        return false;  // unreachable
+    }
+    return ts_proto_chain_has(rawObj, targetProto);
+}
+
+// The DEFAULT Function.prototype[@@hasInstance] (ES 20.2.3.6): returns
+// OrdinaryHasInstance(this, V). Installed on Function.prototype by
+// ts_get_global_Function; ts_instanceof_dynamic recognizes it by funcPtr and
+// skips the dispatch (its behavior IS the ordinary walk).
+extern "C" TsValue* ts_fn_hasInstance_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* C = (TsValue*)ctx;
+    // ctx pointing back at this wrapper itself means "no explicit receiver".
+    if (C) {
+        void* raw = ts_value_get_object(C);
+        if (raw) {
+            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+            if (m16 == 0x46554E43 &&
+                ((TsFunction*)raw)->funcPtr == (void*)ts_fn_hasInstance_native)
+                C = nullptr;
+        }
+    }
+    TsValue* V = (argc > 0 && argv) ? argv[0] : nullptr;
+    return ts_value_make_bool(C && ts_ordinary_has_instance(C, V));
+}
+
 bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
     if (!obj || !constructor) return false;
 
@@ -816,8 +909,18 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
                 void* hiPtr = nanbox_to_ptr(hiNb);
                 if (hiPtr) {
                     uint32_t hm = *(uint32_t*)((char*)hiPtr + 16);
-                    if (hm == 0x434C5352 /*TsClosure 'CLSR'*/ ||
-                        hm == 0x46554E43 /*TsFunction 'FUNC'*/) {
+                    // Skip the DEFAULT Function.prototype[@@hasInstance]
+                    // (installed on the shared prototype, so every function
+                    // "has" it): its behavior IS the ordinary walk below, and
+                    // dispatching would recurse.
+                    bool isDefault = false;
+                    if (hm == 0x46554E43) {
+                        TsFunction* hf = (TsFunction*)hiPtr;
+                        if (hf->funcPtr == (void*)ts_fn_hasInstance_native) isDefault = true;
+                    }
+                    if (!isDefault &&
+                        (hm == 0x434C5352 /*TsClosure 'CLSR'*/ ||
+                         hm == 0x46554E43 /*TsFunction 'FUNC'*/)) {
                         TsValue* hiArgs[1] = { obj };
                         TsValue* r = ts_function_call_with_this(hiVal, constructor, 1, hiArgs);
                         return ts_value_to_bool(r);
@@ -840,6 +943,11 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
     if (!nanbox_is_ptr(objNb)) return false;
     void* rawObj = nanbox_to_ptr(objNb);
     if (!rawObj) return false;
+
+    return ts_proto_chain_has(rawObj, targetProto);
+}
+
+static bool ts_proto_chain_has(void* rawObj, void* targetProto) {
 
     // Check magic to find prototype chain
     uint32_t magic0 = *(uint32_t*)rawObj;
@@ -994,7 +1102,6 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
 
     return false;
 }
-
 bool ts_instanceof(void* obj, void* targetVTable) {
     if (!obj || !targetVTable) return false;
 

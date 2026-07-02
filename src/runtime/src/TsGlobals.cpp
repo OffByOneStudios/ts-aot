@@ -141,6 +141,7 @@ TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
 bool ts_object_has_property(void* objArg, void* keyArg);
 extern "C" TsFunction* ts_extract_function(TsValue* boxedFunc);
+extern "C" TsValue* ts_fn_hasInstance_native(void* ctx, int argc, TsValue** argv);
 extern "C" TsClosure* ts_extract_closure(TsValue* boxedFunc);
 
 // Helper: install an accessor-getter on a prototype TsMap, where reading
@@ -1822,6 +1823,29 @@ void* ts_get_global_Function() {
         addMethod(proto, "apply", (void*)ts_function_apply_native);
         addMethod(proto, "bind", (void*)ts_function_bind_native);
         addMethod(proto, "toString", (void*)ts_function_toString_native);
+        // ES 20.2.3.6 Function.prototype[@@hasInstance]: the default
+        // OrdinaryHasInstance as a first-class function value. Descriptor is
+        // {writable:false, enumerable:false, configurable:false}; name is
+        // "[Symbol.hasInstance]" per spec.
+        {
+            TsValue* hi = ts_value_make_native_function((void*)ts_fn_hasInstance_native, nullptr);
+            TsFunction* hif = (TsFunction*)ts_value_get_object(hi);
+            if (!hif) hif = (TsFunction*)hi;
+            hif->name = TsString::Create("[Symbol.hasInstance]");
+            hif->arity = 1;
+            hif->is_constructor = false;
+            if (!hif->properties) hif->properties = TsMap::Create();
+            TsValue lk; lk.type = ValueType::STRING_PTR; lk.ptr_val = TsString::GetInterned("length");
+            TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 1;
+            hif->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+            TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("name");
+            TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = hif->name;
+            hif->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+            TsValue hk; hk.type = ValueType::STRING_PTR;
+            hk.ptr_val = TsString::GetInterned("[Symbol.hasInstance]");
+            TsValue hv = nanbox_to_tagged(hi);
+            proto->SetWithAttrs(hk, hv, 0);
+        }
 
         // Set ctor.prototype = proto
         TsValue protoKey;
