@@ -549,12 +549,17 @@ extern "C" {
     // Object.getPrototypeOf(obj) - returns the prototype of an object
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
-        // Proxy: route through the getPrototypeOf trap (ES 10.5.1).
+        // Proxy: route through the getPrototypeOf trap (ES 10.5.1). Only
+        // divert when a trap is present or the proxy is revoked — a
+        // trap-less proxy keeps the legacy behavior below, which several
+        // Array species tests depend on.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
-                    return px->getPrototypeOfTrap();
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (px->revoked || px->getTrap("getPrototypeOf"))
+                        return px->getPrototypeOfTrap();
+                }
             }
         }
         // Per spec 19.1.2.12: ToObject(O) is performed first, which
@@ -830,13 +835,16 @@ extern "C" {
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
-        // Proxy: route through the setPrototypeOf trap (ES 10.5.2).
+        // Proxy: route through the setPrototypeOf trap (ES 10.5.2) when
+        // present (or revoked); trap-less proxies keep legacy behavior.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    px->setPrototypeOfTrap(proto);
-                    return obj;
+                    if (px->revoked || px->getTrap("setPrototypeOf")) {
+                        px->setPrototypeOfTrap(proto);
+                        return obj;
+                    }
                 }
             }
         }
@@ -1106,16 +1114,19 @@ extern "C" {
 
     // Object.preventExtensions(obj) - prevents new properties from being added
     TsValue* ts_object_preventExtensions(TsValue* obj) {
-        // Proxy: route through the preventExtensions trap (ES 10.5.4).
+        // Proxy: route through the preventExtensions trap (ES 10.5.4) when
+        // present (or revoked); trap-less proxies keep legacy behavior.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (!px->preventExtensionsTrap()) {
-                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                            "'preventExtensions' on proxy: trap returned falsish"));
+                    if (px->revoked || px->getTrap("preventExtensions")) {
+                        if (!px->preventExtensionsTrap()) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "'preventExtensions' on proxy: trap returned falsish"));
+                        }
+                        return obj;
                     }
-                    return obj;
                 }
             }
         }
@@ -1203,12 +1214,15 @@ extern "C" {
 
     // Object.isExtensible(obj) - returns true if object is extensible
     TsValue* ts_object_isExtensible(TsValue* obj) {
-        // Proxy: route through the isExtensible trap (ES 10.5.3).
+        // Proxy: route through the isExtensible trap (ES 10.5.3) when
+        // present (or revoked); trap-less proxies keep legacy behavior.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
-                    return ts_value_make_bool(px->isExtensibleTrap());
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (px->revoked || px->getTrap("isExtensible"))
+                        return ts_value_make_bool(px->isExtensibleTrap());
+                }
             }
         }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
@@ -1293,16 +1307,22 @@ extern "C" {
     extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
-        // Proxy: route through the defineProperty trap (ES 10.5.6).
+        // Proxy: route through the defineProperty trap (ES 10.5.6) when
+        // present (or revoked). A trap-less proxy keeps the legacy define-
+        // on-the-proxy behavior (our ordinary define can't reach an Array
+        // target; the concat/filter/map species tests define accessors on a
+        // trap-less array-target proxy).
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (!px->definePropertyTrap(prop, descriptor)) {
-                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                            "'defineProperty' on proxy: trap returned falsish"));
+                    if (px->revoked || px->getTrap("defineProperty")) {
+                        if (!px->definePropertyTrap(prop, descriptor)) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "'defineProperty' on proxy: trap returned falsish"));
+                        }
+                        return obj;
                     }
-                    return obj;
                 }
             }
         }
@@ -2344,12 +2364,15 @@ extern "C" {
     }
 
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
-        // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5).
+        // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5)
+        // when present (or revoked); trap-less proxies keep legacy behavior.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
-                    return px->getOwnPropertyDescriptorTrap(prop);
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (px->revoked || px->getTrap("getOwnPropertyDescriptor"))
+                        return px->getOwnPropertyDescriptorTrap(prop);
+                }
             }
         }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError

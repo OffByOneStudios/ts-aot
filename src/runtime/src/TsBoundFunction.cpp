@@ -1,4 +1,5 @@
 #include "TsBoundFunction.h"
+#include "TsClosure.h"
 #include "TsMap.h"
 #include "TsString.h"
 #include "TsHashTable.h"
@@ -105,13 +106,39 @@ TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv) {
         void* rawT = ts_value_get_object(targetFunc);
         if (!rawT) rawT = (void*)targetFunc;
 
+        // ES 20.2.3.2 step 5: only an OWN "length" counts (an inherited
+        // one from a mutated prototype chain gives the 0 default). Resolve
+        // from the own-properties map, else the synthetic arity — never the
+        // prototype chain (which ts_object_get_property would walk).
         double lenD = 0;
         bool lenIsNum = false;
-        TsValue* tl = ts_object_get_property(rawT, "length");
-        if (tl) {
-            TsValue tv = nanbox_to_tagged(tl);
-            if (tv.type == ValueType::NUMBER_INT) { lenD = (double)tv.i_val; lenIsNum = true; }
-            else if (tv.type == ValueType::NUMBER_DBL) { lenD = tv.d_val; lenIsNum = true; }
+        {
+            uint32_t m16t = *(uint32_t*)((char*)rawT + 16);
+            TsMap* ownProps = nullptr;
+            int synthArity = -1;
+            if (m16t == 0x434C5352 /*CLSR*/) {
+                TsClosure* tc = (TsClosure*)rawT;
+                ownProps = tc->properties;
+                synthArity = tc->arity >= 0 ? tc->arity
+                            : (tc->num_params > 0 ? tc->num_params : 0);
+            } else if (m16t == 0x46554E43 /*FUNC*/) {
+                TsFunction* tf = (TsFunction*)rawT;
+                ownProps = tf->properties;
+                synthArity = tf->arity >= 0 ? tf->arity : 0;
+            }
+            bool foundOwn = false;
+            if (ownProps) {
+                TsValue lk2; lk2.type = ValueType::STRING_PTR;
+                lk2.ptr_val = TsString::GetInterned("length");
+                TsValue ov = ownProps->Get(lk2);
+                if (ov.type != ValueType::UNDEFINED) {
+                    foundOwn = true;
+                    if (ov.type == ValueType::NUMBER_INT) { lenD = (double)ov.i_val; lenIsNum = true; }
+                    else if (ov.type == ValueType::NUMBER_DBL) { lenD = ov.d_val; lenIsNum = true; }
+                    // non-number own length (Symbol/Number object): default 0
+                }
+            }
+            if (!foundOwn && synthArity >= 0) { lenD = synthArity; lenIsNum = true; }
         }
         double outLen = 0;
         if (lenIsNum) {

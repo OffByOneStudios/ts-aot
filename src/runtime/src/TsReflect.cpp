@@ -201,6 +201,27 @@ extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
         "Reflect.setPrototypeOf called on non-object");
     if (TsProxy* px = reflect_as_proxy(targetArg))
         return px->setPrototypeOfTrap((TsValue*)protoArg) ? 1 : 0;
+    // OrdinarySetPrototypeOf (ES 10.1.2): SameValue(V, current) -> true;
+    // non-extensible target -> false; V's prototype chain containing the
+    // target (cycle) -> false; else set and return true.
+    TsValue* cur = ts_object_getPrototypeOf((TsValue*)targetArg);
+    uint64_t vNb = protoArg ? nanbox_from_tsvalue_ptr((TsValue*)protoArg) : 0;
+    uint64_t cNb = cur ? nanbox_from_tsvalue_ptr(cur) : 0;
+    void* vRaw = (protoArg && nanbox_is_ptr(vNb)) ? nanbox_to_ptr(vNb) : nullptr;
+    void* cRaw = (cur && nanbox_is_ptr(cNb)) ? nanbox_to_ptr(cNb) : nullptr;
+    bool vNull = !protoArg || nanbox_is_null(vNb) || nanbox_is_undefined(vNb);
+    bool cNull = !cur || nanbox_is_null(cNb) || nanbox_is_undefined(cNb);
+    if ((vNull && cNull) || (vRaw && vRaw == cRaw)) return 1;
+    if (!ts_reflect_isExtensible(targetArg)) return 0;
+    // Cycle check: walk V's [[Prototype]] chain looking for target.
+    void* tRaw = ts_nanbox_safe_unbox(targetArg);
+    void* walk = vRaw;
+    for (int depth = 0; walk && depth < 1000; depth++) {
+        if (walk == tRaw) return 0;
+        uint32_t wm16 = *(uint32_t*)((char*)walk + 16);
+        if (wm16 != 0x4D415053 /*MAPS*/) break;
+        walk = ((TsMap*)walk)->GetPrototype();
+    }
     ts_object_setPrototypeOf((TsValue*)targetArg, (TsValue*)protoArg);
     return 1;
 }
