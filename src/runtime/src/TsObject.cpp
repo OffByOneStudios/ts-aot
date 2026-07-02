@@ -2689,6 +2689,15 @@ void* ts_create_arguments_from_params(
                 return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)func, "toString", 0);
             }
 
+            // ES 20.2.4: `caller` / `arguments` on functions resolve to the
+            // %ThrowTypeError% accessor pair on Function.prototype — reading
+            // them throws (own properties, checked above, take precedence).
+            if (strcmp(keyStr, "caller") == 0 || strcmp(keyStr, "arguments") == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'caller' and 'arguments' are restricted function properties"));
+                return ts_value_make_undefined();
+            }
+
             // Function.prototype.call / apply
             // Needed for patterns like: (function(){ ... }.call(this));
             if (strcmp(keyStr, "call") == 0) {
@@ -2760,6 +2769,12 @@ void* ts_create_arguments_from_params(
                     currentMap = currentMap->GetPrototype();
                     __clsr_iter++;
                 }
+            }
+            // ES 20.2.4 restricted properties (see the TsFunction branch).
+            if (strcmp(keyStr, "caller") == 0 || strcmp(keyStr, "arguments") == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'caller' and 'arguments' are restricted function properties"));
+                return ts_value_make_undefined();
             }
             // Handle .prototype - lazily create like TsFunction
             if (strcmp(keyStr, "prototype") == 0) {
@@ -4378,6 +4393,12 @@ void* ts_create_arguments_from_params(
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
+                    // ES 20.2.4: caller/arguments -> %ThrowTypeError%.
+                    if (strcmp(k, "caller") == 0 || strcmp(k, "arguments") == 0) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'caller' and 'arguments' are restricted function properties"));
+                        return ts_value_make_undefined();
+                    }
                     if (strcmp(k, "bind") == 0) {
                         return makeNamedNativeFunction((void*)ts_function_bind_native, (void*)func, "bind", 1);
                     }
@@ -4461,6 +4482,13 @@ void* ts_create_arguments_from_params(
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
+                    // ES 20.2.4: caller/arguments resolve to %ThrowTypeError%
+                    // (own properties, checked above, take precedence).
+                    if (strcmp(k, "caller") == 0 || strcmp(k, "arguments") == 0) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'caller' and 'arguments' are restricted function properties"));
+                        return ts_value_make_undefined();
+                    }
                     if (strcmp(k, "name") == 0) {
                         if (closure->name) return ts_value_make_string(closure->name);
                         return ts_value_make_string(TsString::Create(""));
