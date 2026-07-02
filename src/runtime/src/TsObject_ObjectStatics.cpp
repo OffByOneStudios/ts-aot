@@ -1306,6 +1306,60 @@ extern "C" {
     extern "C" bool ts_array_is_prototype_map(void* maybeMap);
     extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
 
+    // ES 6.2.5.5 ToPropertyDescriptor: descriptor fields are read with
+    // [[Get]]/HasProperty — the PROTOTYPE CHAIN counts, field getters are
+    // invoked, and ANY object kind qualifies (array, function, class
+    // instance, object with inherited fields). The legacy paths below read
+    // descriptor fields as OWN TsMap entries only, so normalize any
+    // descriptor object into a plain own-fields TsMap first. A non-object
+    // descriptor throws TypeError.
+    extern "C" bool ts_object_has_property(void* objArg, void* keyArg);
+    static TsValue* ts_descriptor_normalize(TsValue* descriptor) {
+        uint64_t nb = descriptor ? nanbox_from_tsvalue_ptr(descriptor) : 0;
+        void* raw = (descriptor && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
+        bool isObj = false;
+        if (raw && (uintptr_t)raw >= 4096) {
+            uint32_t m0 = *(uint32_t*)raw;
+            if (m0 != 0x53545247 /*STRG*/ && m0 != 0x434F4E53 /*CONS*/ &&
+                m0 != 0x53594D42 /*SYMB*/ && m0 != 0x42494749 /*BIGI*/)
+                isObj = true;
+        }
+        if (!isObj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Property description must be an object"));
+            return descriptor;  // unreachable
+        }
+        // Fast path: a plain TsMap with no prototype and no ACCESSOR fields
+        // already behaves as own-fields — keep its identity (the
+        // overwhelmingly common case). A `{ get value() {...} }` descriptor
+        // stores __getter_value and must go through the [[Get]] path.
+        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+        if (m16 == 0x4D415053 /*MAPS*/ && !((TsMap*)raw)->GetPrototype()) {
+            static const char* accessorKeys[6] = {
+                "__getter_value", "__getter_writable", "__getter_get",
+                "__getter_set", "__getter_enumerable", "__getter_configurable" };
+            bool hasAccessorField = false;
+            for (int i = 0; i < 6; i++) {
+                TsValue ak; ak.type = ValueType::STRING_PTR;
+                ak.ptr_val = TsString::GetInterned(accessorKeys[i]);
+                if (((TsMap*)raw)->Has(ak)) { hasAccessorField = true; break; }
+            }
+            if (!hasAccessorField) return descriptor;
+        }
+        TsMap* norm = TsMap::Create();
+        static const char* fields[6] =
+            { "value", "writable", "get", "set", "enumerable", "configurable" };
+        for (int i = 0; i < 6; i++) {
+            TsValue key; key.type = ValueType::STRING_PTR;
+            key.ptr_val = TsString::GetInterned(fields[i]);
+            TsValue* boxedKey = nanbox_from_tagged(key);
+            if (!ts_object_has_property(raw, (void*)boxedKey)) continue;
+            TsValue* v = ts_object_get_property(raw, fields[i]);
+            norm->Set(key, v ? nanbox_to_tagged(v) : TsValue());
+        }
+        return ts_value_make_object(norm);
+    }
+
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // Proxy: route through the defineProperty trap (ES 10.5.6) when
         // present (or revoked). A trap-less proxy keeps the legacy define-
@@ -1355,6 +1409,7 @@ extern "C" {
                 }
             }
         }
+        descriptor = ts_descriptor_normalize(descriptor);
         if (!prop) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Object.defineProperty: property key required"));
@@ -2324,6 +2379,15 @@ extern "C" {
 
         for (int64_t i = 0; i < len; i++) {
             TsValue* key = (TsValue*)keys->Get(i);
+            // ES 20.1.2.3.1 step 3: only ENUMERABLE own properties of the
+            // Properties bag contribute descriptors. A defineProperty'd
+            // non-enumerable entry (default enumerable:false) must be
+            // skipped — Object.create(p, props) tests hide stale numeric
+            // values under non-enumerable keys.
+            {
+                uint8_t attrs = descMap->GetPropertyAttrs(nanbox_to_tagged(key));
+                if (!(attrs & TsHashTable::ATTR_ENUMERABLE)) continue;
+            }
             TsValue desc = descMap->Get(nanbox_to_tagged(key));
 
             // Skip slots whose descriptor came back UNDEFINED. This happens

@@ -5939,8 +5939,30 @@ void* ts_create_arguments_from_params(
             }
 
             TsMap* currentMap = map;
+            // Accessor-backed properties are stored under __getter_/__setter_
+            // storage keys; HasProperty must see them (`"value" in
+            // { get value(){} }` was false, breaking `in` and every
+            // ToPropertyDescriptor-style probe over accessor fields).
+            TsValue gkAcc; gkAcc.type = ValueType::UNDEFINED;
+            TsValue skAcc; skAcc.type = ValueType::UNDEFINED;
+            if (keyVal.type == ValueType::STRING_PTR && keyVal.ptr_val) {
+                const char* kc = ((TsString*)keyVal.ptr_val)->ToUtf8();
+                if (kc && kc[0] != '') {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "__getter_%s", kc);
+                    gkAcc.type = ValueType::STRING_PTR;
+                    gkAcc.ptr_val = TsString::GetInterned(buf);
+                    snprintf(buf, sizeof(buf), "__setter_%s", kc);
+                    skAcc.type = ValueType::STRING_PTR;
+                    skAcc.ptr_val = TsString::GetInterned(buf);
+                }
+            }
             while (currentMap != nullptr) {
                 if (currentMap->Has(keyVal)) {
+                    return true;
+                }
+                if (gkAcc.type == ValueType::STRING_PTR &&
+                    (currentMap->Has(gkAcc) || currentMap->Has(skAcc))) {
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
