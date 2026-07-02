@@ -6560,6 +6560,7 @@ static void* ts_global_ctor_by_name(const char* n) {
         {"BigInt64Array", ts_get_global_BigInt64Array},
         {"BigUint64Array", ts_get_global_BigUint64Array},
         {"WeakRef", ts_get_global_WeakRef},
+        {"Iterator", ts_get_global_Iterator},
         {"FinalizationRegistry", ts_get_global_FinalizationRegistry},
     };
     for (const auto& e : table)
