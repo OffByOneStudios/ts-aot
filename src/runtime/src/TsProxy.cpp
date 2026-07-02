@@ -242,6 +242,127 @@ TsValue* TsProxy::ownKeys() {
     return ts_object_keys(ts_value_box_any(target));
 }
 
+// ---- ES 10.5.1-10.5.6: remaining internal-method traps (stage A5) ----
+extern "C" TsValue* ts_object_getPrototypeOf(TsValue* obj);
+extern "C" TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
+extern "C" int64_t ts_reflect_isExtensible(void* targetArg);
+extern "C" int64_t ts_reflect_preventExtensions(void* targetArg);
+extern "C" int64_t ts_reflect_defineProperty(void* t, void* p, void* d);
+extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* t, void* p);
+extern "C" TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+extern "C" TsValue* ts_object_get_property2(void* o, const char* k);
+
+static TsValue* proxy_call_trap(TsProxy* px, TsValue* trap, int argc, TsValue** argv) {
+    TsValue* handlerVal = px->handler ? ts_value_box_any(px->handler) : ts_value_make_undefined();
+    return ts_function_call_with_this(trap, handlerVal, argc, argv);
+}
+
+TsValue* TsProxy::getPrototypeOfTrap() {
+    if (revoked) { throw_revoked("getPrototypeOf"); return ts_value_make_undefined(); }
+    TsValue* trap = getTrap("getPrototypeOf");
+    if (trap) {
+        TsValue* argv[1] = { ts_value_box_any(target) };
+        TsValue* r = proxy_call_trap(this, trap, 1, argv);
+        // ES 10.5.1 step 8: trap result must be Object or null.
+        uint64_t nb = r ? nanbox_from_tsvalue_ptr(r) : 0;
+        bool isNull = r && nanbox_is_null(nb);
+        bool isObj = r && nanbox_is_ptr(nb) && nanbox_to_ptr(nb);
+        if (!isNull && !isObj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "'getPrototypeOf' on proxy: trap returned neither object nor null"));
+        }
+        return r;
+    }
+    if (!target) return ts_value_make_null();
+    return ts_object_getPrototypeOf(ts_value_box_any(target));
+}
+
+bool TsProxy::setPrototypeOfTrap(TsValue* proto) {
+    if (revoked) { throw_revoked("setPrototypeOf"); return false; }
+    TsValue* trap = getTrap("setPrototypeOf");
+    if (trap) {
+        TsValue* argv[2] = { ts_value_box_any(target),
+                             proto ? proto : ts_value_make_null() };
+        TsValue* r = proxy_call_trap(this, trap, 2, argv);
+        return r && ts_value_get_bool(r);
+    }
+    if (!target) return false;
+    ts_object_setPrototypeOf(ts_value_box_any(target), proto);
+    return true;
+}
+
+bool TsProxy::isExtensibleTrap() {
+    if (revoked) { throw_revoked("isExtensible"); return false; }
+    TsValue* trap = getTrap("isExtensible");
+    if (trap) {
+        TsValue* argv[1] = { ts_value_box_any(target) };
+        TsValue* r = proxy_call_trap(this, trap, 1, argv);
+        bool booleanTrapResult = r && ts_value_get_bool(r);
+        // ES 10.5.3 step 8: must match IsExtensible(target).
+        bool targetResult = target &&
+            ts_reflect_isExtensible(ts_value_box_any(target)) != 0;
+        if (booleanTrapResult != targetResult) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "'isExtensible' on proxy: trap result does not reflect extensibility of proxy target"));
+        }
+        return booleanTrapResult;
+    }
+    return target && ts_reflect_isExtensible(ts_value_box_any(target)) != 0;
+}
+
+bool TsProxy::preventExtensionsTrap() {
+    if (revoked) { throw_revoked("preventExtensions"); return false; }
+    TsValue* trap = getTrap("preventExtensions");
+    if (trap) {
+        TsValue* argv[1] = { ts_value_box_any(target) };
+        TsValue* r = proxy_call_trap(this, trap, 1, argv);
+        bool booleanTrapResult = r && ts_value_get_bool(r);
+        // ES 10.5.4 step 7: if trap returned true, target must be non-extensible.
+        if (booleanTrapResult && target) {
+                if (ts_reflect_isExtensible(ts_value_box_any(target)) != 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'preventExtensions' on proxy: trap returned truthy but the proxy target is extensible"));
+            }
+        }
+        return booleanTrapResult;
+    }
+    if (!target) return false;
+    return ts_reflect_preventExtensions(ts_value_box_any(target)) != 0;
+}
+
+bool TsProxy::definePropertyTrap(TsValue* prop, TsValue* descriptor) {
+    if (revoked) { throw_revoked("defineProperty"); return false; }
+    TsValue* trap = getTrap("defineProperty");
+    if (trap) {
+        TsValue* argv[3] = { ts_value_box_any(target), prop, descriptor };
+        TsValue* r = proxy_call_trap(this, trap, 3, argv);
+        return r && ts_value_get_bool(r);
+    }
+    if (!target) return false;
+    return ts_reflect_defineProperty(ts_value_box_any(target), (void*)prop, (void*)descriptor) != 0;
+}
+
+TsValue* TsProxy::getOwnPropertyDescriptorTrap(TsValue* prop) {
+    if (revoked) { throw_revoked("getOwnPropertyDescriptor"); return ts_value_make_undefined(); }
+    TsValue* trap = getTrap("getOwnPropertyDescriptor");
+    if (trap) {
+        TsValue* argv[2] = { ts_value_box_any(target), prop };
+        TsValue* r = proxy_call_trap(this, trap, 2, argv);
+        // ES 10.5.5 step 9: result must be Object or undefined.
+        uint64_t nb = r ? nanbox_from_tsvalue_ptr(r) : 0;
+        bool isUndef = !r || nanbox_is_undefined(nb);
+        bool isObj = r && nanbox_is_ptr(nb) && nanbox_to_ptr(nb);
+        if (!isUndef && !isObj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "'getOwnPropertyDescriptor' on proxy: trap returned neither object nor undefined"));
+        }
+        return r ? r : ts_value_make_undefined();
+    }
+    if (!target) return ts_value_make_undefined();
+    return ts_reflect_getOwnPropertyDescriptor(ts_value_box_any(target), (void*)prop);
+}
+
+
 // C API implementations
 
 extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
