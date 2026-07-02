@@ -349,6 +349,24 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 func->params.push_back({paramName, paramType});
             }
 
+            // If the method body uses `arguments`, pad with hidden __argN__
+            // params so call args beyond the declared count physically reach
+            // ts_create_arguments_from_params (mirrors the
+            // FunctionDeclaration path; without this arguments[N] beyond the
+            // declared params read as undefined).
+            {
+                bool mBodyUsesArgs = false;
+                for (auto& stmt : methodDef->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
+                }
+                if (mBodyUsesArgs) {
+                    while (func->params.size() < 10) {
+                        std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                        func->params.push_back({argName, HIRType::makeAny()});
+                    }
+                }
+            }
+
             // Set return type
             // Setters always return void, regardless of explicit type annotation
             if (methodDef->isSetter) {
@@ -507,6 +525,39 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                             }
                         }
                     }
+                }
+            }
+
+            // 'arguments' object for METHOD bodies (mirrors the
+            // FunctionDeclaration prologue): class-expression methods lower
+            // here without the Monomorphizer spec path, so `arguments` was
+            // never synthesized — every trailing-comma/args test over
+            // class-expr (async-)generator methods threw ReferenceError.
+            {
+                bool mUsesArguments = false;
+                for (auto& stmt : methodDef->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { mUsesArguments = true; break; }
+                }
+                if (mUsesArguments && !lookupVariableInfoInCurrentFunction("arguments")) {
+                    std::vector<std::shared_ptr<HIRValue>> callArgs;
+                    size_t userIdx = 0;
+                    for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+                        if (func->params[i].first == "__closure__" ||
+                            func->params[i].first == "this") continue;
+                        auto paramVal = lookupVariable(func->params[i].first);
+                        if (!paramVal) paramVal = builder_.createConstUndefined();
+                        callArgs.push_back(paramVal);
+                        userIdx++;
+                    }
+                    while (userIdx < 10) {
+                        callArgs.push_back(builder_.createConstUndefined());
+                        userIdx++;
+                    }
+                    auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+                        callArgs, HIRType::makeAny());
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+                    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+                    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
                 }
             }
 
@@ -1083,6 +1134,24 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 func->params.push_back({paramName, paramType});
             }
 
+            // If the method body uses `arguments`, pad with hidden __argN__
+            // params so call args beyond the declared count physically reach
+            // ts_create_arguments_from_params (mirrors the
+            // FunctionDeclaration path; without this arguments[N] beyond the
+            // declared params read as undefined).
+            {
+                bool mBodyUsesArgs = false;
+                for (auto& stmt : methodDef->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
+                }
+                if (mBodyUsesArgs) {
+                    while (func->params.size() < 10) {
+                        std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                        func->params.push_back({argName, HIRType::makeAny()});
+                    }
+                }
+            }
+
             // Set return type
             // Setters always return void, regardless of explicit type annotation
             if (methodDef->isSetter) {
@@ -1241,6 +1310,39 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                             }
                         }
                     }
+                }
+            }
+
+            // 'arguments' object for METHOD bodies (mirrors the
+            // FunctionDeclaration prologue): class-expression methods lower
+            // here without the Monomorphizer spec path, so `arguments` was
+            // never synthesized — every trailing-comma/args test over
+            // class-expr (async-)generator methods threw ReferenceError.
+            {
+                bool mUsesArguments = false;
+                for (auto& stmt : methodDef->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { mUsesArguments = true; break; }
+                }
+                if (mUsesArguments && !lookupVariableInfoInCurrentFunction("arguments")) {
+                    std::vector<std::shared_ptr<HIRValue>> callArgs;
+                    size_t userIdx = 0;
+                    for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+                        if (func->params[i].first == "__closure__" ||
+                            func->params[i].first == "this") continue;
+                        auto paramVal = lookupVariable(func->params[i].first);
+                        if (!paramVal) paramVal = builder_.createConstUndefined();
+                        callArgs.push_back(paramVal);
+                        userIdx++;
+                    }
+                    while (userIdx < 10) {
+                        callArgs.push_back(builder_.createConstUndefined());
+                        userIdx++;
+                    }
+                    auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+                        callArgs, HIRType::makeAny());
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+                    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+                    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
                 }
             }
 
