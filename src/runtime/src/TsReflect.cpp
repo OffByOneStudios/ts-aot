@@ -247,7 +247,7 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
     if (TsProxy* px = reflect_as_proxy(targetArg))
         return px->isExtensibleTrap() ? 1 : 0;
 
-    if (is_flat_object(target)) return 1;  // Flat objects are extensible (via overflow)
+    if (is_flat_object(target)) return flat_object_is_extensible(target) ? 1 : 0;
 
     TsMap* obj = ts_cast<TsMap>(target);
     if (obj) {
@@ -262,7 +262,10 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
     if (TsProxy* px = reflect_as_proxy(targetArg))
         return px->preventExtensionsTrap() ? 1 : 0;
 
-    if (is_flat_object(target)) return 0;  // Can't prevent extensions on flat objects
+    if (is_flat_object(target)) {
+        flat_object_set_non_extensible(target);
+        return 1;
+    }
 
     TsMap* obj = ts_cast<TsMap>(target);
     if (obj) {
@@ -359,6 +362,8 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
 }
 
 extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->ownKeys();
     void* target = reflect_require_object(targetArg,
         "Reflect.ownKeys called on non-object");
 
