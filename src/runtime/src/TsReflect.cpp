@@ -172,20 +172,37 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     return result;
 }
 
+extern "C" TsValue* ts_object_getPrototypeOf(TsValue* obj);
+extern "C" TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
+
+// Proxy detection for the object-operation dispatch below: unbox and
+// dynamic_cast only when the offset-16 magic says TsMap-family (see
+// runtime-safety rules — dynamic_cast on magic-at-0 types is UB).
+static TsProxy* reflect_as_proxy(void* arg) {
+    void* raw = ts_nanbox_safe_unbox(arg);
+    if (!raw) return nullptr;
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 != 0x4D415053 /*MAPS*/) return nullptr;
+    return dynamic_cast<TsProxy*>((TsMap*)raw);
+}
+
 extern "C" TsValue* ts_reflect_getPrototypeOf(void* targetArg) {
     // ECMA-262 step 1: Type(target) must be Object.
     reflect_require_object(targetArg,
         "Reflect.getPrototypeOf called on non-object");
-    // ts-aot doesn't have a prototype chain currently
-    return ts_value_make_undefined();
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->getPrototypeOfTrap();
+    return ts_object_getPrototypeOf((TsValue*)targetArg);
 }
 
 extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
     // ECMA-262 step 1: Type(target) must be Object.
     reflect_require_object(targetArg,
         "Reflect.setPrototypeOf called on non-object");
-    // ts-aot doesn't support prototype chain modification
-    return 0;
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->setPrototypeOfTrap((TsValue*)protoArg) ? 1 : 0;
+    ts_object_setPrototypeOf((TsValue*)targetArg, (TsValue*)protoArg);
+    return 1;
 }
 
 // ECMA-262: Reflect.{isExtensible,preventExtensions,getOwnPropertyDescriptor,
@@ -206,6 +223,8 @@ static void* reflect_require_object(void* targetArg, const char* msg) {
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.isExtensible called on non-object");
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->isExtensibleTrap() ? 1 : 0;
 
     if (is_flat_object(target)) return 1;  // Flat objects are extensible (via overflow)
 
@@ -219,6 +238,8 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
 extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.preventExtensions called on non-object");
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->preventExtensionsTrap() ? 1 : 0;
 
     if (is_flat_object(target)) return 0;  // Can't prevent extensions on flat objects
 
@@ -233,6 +254,8 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
 extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.getOwnPropertyDescriptor called on non-object");
+    if (TsProxy* px = reflect_as_proxy(targetArg))
+        return px->getOwnPropertyDescriptorTrap((TsValue*)propArg);
 
     // Convert flat objects for interop
     if (is_flat_object(target)) {
@@ -274,6 +297,10 @@ extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* p
 }
 
 extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, void* descriptorArg) {
+    {
+        TsProxy* px = reflect_as_proxy(targetArg);
+        if (px) return px->definePropertyTrap((TsValue*)propArg, (TsValue*)descriptorArg) ? 1 : 0;
+    }
     void* target = reflect_require_object(targetArg,
         "Reflect.defineProperty called on non-object");
 

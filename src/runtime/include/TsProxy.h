@@ -25,6 +25,15 @@ public:
     TsValue* apply(void* thisArg, TsValue* args, int argCount);
     TsValue* construct(TsValue* args, int argCount, void* newTarget = nullptr);
     TsValue* ownKeys();
+    // ES 10.5.1-10.5.6: the remaining internal-method traps. Each checks
+    // revocation, dispatches to the handler trap when present (this=handler),
+    // and otherwise forwards to the target's ordinary behavior.
+    TsValue* getPrototypeOfTrap();               // returns proto value or null-boxed
+    bool setPrototypeOfTrap(TsValue* proto);
+    bool isExtensibleTrap();
+    bool preventExtensionsTrap();
+    bool definePropertyTrap(TsValue* prop, TsValue* descriptor);
+    TsValue* getOwnPropertyDescriptorTrap(TsValue* prop);
 
     // Check if a trap exists in handler; returns the boxed callable (function or
     // closure) or nullptr.

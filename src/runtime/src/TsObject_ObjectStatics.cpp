@@ -1,4 +1,5 @@
 #include "TsObject_Internal.h"
+#include "TsProxy.h"
 
 // Object.* static methods + property-descriptor machinery extracted from
 // TsObject.cpp: keys/values/entries/assign/is/getOwnPropertyNames/getPrototypeOf/
@@ -548,6 +549,14 @@ extern "C" {
     // Object.getPrototypeOf(obj) - returns the prototype of an object
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
+        // Proxy: route through the getPrototypeOf trap (ES 10.5.1).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return px->getPrototypeOfTrap();
+            }
+        }
         // Per spec 19.1.2.12: ToObject(O) is performed first, which
         // throws TypeError on null/undefined. Without this guard, the
         // magic-check below dereferences a tagged primitive and crashes.
@@ -821,6 +830,16 @@ extern "C" {
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
+        // Proxy: route through the setPrototypeOf trap (ES 10.5.2).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    px->setPrototypeOfTrap(proto);
+                    return obj;
+                }
+            }
+        }
         if (!obj) return ts_value_make_undefined();
 
         // ECMA-262 20.1.2.22: RequireObjectCoercible(O) -> TypeError on
@@ -1087,6 +1106,19 @@ extern "C" {
 
     // Object.preventExtensions(obj) - prevents new properties from being added
     TsValue* ts_object_preventExtensions(TsValue* obj) {
+        // Proxy: route through the preventExtensions trap (ES 10.5.4).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (!px->preventExtensionsTrap()) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'preventExtensions' on proxy: trap returned falsish"));
+                    }
+                    return obj;
+                }
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return obj;
 
@@ -1171,6 +1203,14 @@ extern "C" {
 
     // Object.isExtensible(obj) - returns true if object is extensible
     TsValue* ts_object_isExtensible(TsValue* obj) {
+        // Proxy: route through the isExtensible trap (ES 10.5.3).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return ts_value_make_bool(px->isExtensibleTrap());
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_bool(false);  // null/undefined not extensible
         // Per ES2015+ spec: non-object arguments return false (don't throw).
@@ -1253,6 +1293,19 @@ extern "C" {
     extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
+        // Proxy: route through the defineProperty trap (ES 10.5.6).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (!px->definePropertyTrap(prop, descriptor)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'defineProperty' on proxy: trap returned falsish"));
+                    }
+                    return obj;
+                }
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Spec step 1: If Type(O) is not Object, throw a TypeError exception.
         // Throws on null/undefined/number/bool/string/symbol — anything
@@ -2291,6 +2344,14 @@ extern "C" {
     }
 
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
+        // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return px->getOwnPropertyDescriptorTrap(prop);
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Per ECMA-262 19.1.2.6: returns undefined when the property does
         // not exist (or the receiver isn't an object). Previously returned
