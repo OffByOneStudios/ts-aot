@@ -1857,6 +1857,14 @@ void* ts_get_global_Function() {
         ctor->SetWithAttrs(protoKey, protoVal, 0);
 
         cached = wrapAsCallable(ctor, "Function", 1);
+        // ES 20.2.3.1: Function.prototype.constructor === Function
+        // ({writable:true, enumerable:false, configurable:true}).
+        {
+            TsValue ck; ck.type = ValueType::STRING_PTR;
+            ck.ptr_val = TsString::GetInterned("constructor");
+            TsValue cv = nanbox_to_tagged((TsValue*)cached);
+            proto->SetWithAttrs(ck, cv, 0x02 | 0x04);
+        }
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
