@@ -549,17 +549,13 @@ extern "C" {
     // Object.getPrototypeOf(obj) - returns the prototype of an object
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
-        // Proxy: route through the getPrototypeOf trap (ES 10.5.1). Only
-        // divert when a trap is present or the proxy is revoked — a
-        // trap-less proxy keeps the legacy behavior below, which several
-        // Array species tests depend on.
+        // Proxy: route through the getPrototypeOf trap (ES 10.5.1); a
+        // trap-less proxy forwards to the TARGET's ordinary behavior.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("getPrototypeOf"))
-                        return px->getPrototypeOfTrap();
-                }
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return px->getPrototypeOfTrap();
             }
         }
         // Per spec 19.1.2.12: ToObject(O) is performed first, which
@@ -835,16 +831,14 @@ extern "C" {
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
-        // Proxy: route through the setPrototypeOf trap (ES 10.5.2) when
-        // present (or revoked); trap-less proxies keep legacy behavior.
+        // Proxy: route through the setPrototypeOf trap (ES 10.5.2); a
+        // trap-less proxy forwards to the target.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("setPrototypeOf")) {
-                        px->setPrototypeOfTrap(proto);
-                        return obj;
-                    }
+                    px->setPrototypeOfTrap(proto);
+                    return obj;
                 }
             }
         }
@@ -1114,19 +1108,17 @@ extern "C" {
 
     // Object.preventExtensions(obj) - prevents new properties from being added
     TsValue* ts_object_preventExtensions(TsValue* obj) {
-        // Proxy: route through the preventExtensions trap (ES 10.5.4) when
-        // present (or revoked); trap-less proxies keep legacy behavior.
+        // Proxy: route through the preventExtensions trap (ES 10.5.4); a
+        // trap-less proxy forwards to the target.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("preventExtensions")) {
-                        if (!px->preventExtensionsTrap()) {
-                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                                "'preventExtensions' on proxy: trap returned falsish"));
-                        }
-                        return obj;
+                    if (!px->preventExtensionsTrap()) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'preventExtensions' on proxy: trap returned falsish"));
                     }
+                    return obj;
                 }
             }
         }
@@ -1214,15 +1206,13 @@ extern "C" {
 
     // Object.isExtensible(obj) - returns true if object is extensible
     TsValue* ts_object_isExtensible(TsValue* obj) {
-        // Proxy: route through the isExtensible trap (ES 10.5.3) when
-        // present (or revoked); trap-less proxies keep legacy behavior.
+        // Proxy: route through the isExtensible trap (ES 10.5.3); a
+        // trap-less proxy forwards to the target.
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("isExtensible"))
-                        return ts_value_make_bool(px->isExtensibleTrap());
-                }
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return ts_value_make_bool(px->isExtensibleTrap());
             }
         }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
@@ -1517,7 +1507,48 @@ extern "C" {
                         }
                         if (dMag == 0x4D415053) {  // TsMap
                             TsMap* dm = (TsMap*)dRaw;
-                            // ES 10.4.2.4 / 10.1.6.3 invariants for the
+                            TsValue vk; vk.type = ValueType::STRING_PTR;
+                            vk.ptr_val = TsString::GetInterned("value");
+                            // Value-LESS length descriptors run the ES 10.4.2.4
+                            // invariants directly (the value-present branch runs
+                            // them after ToUint32 so a throwing valueOf wins).
+                            if (!dm->Has(vk)) {
+                                TsValue ckA; ckA.type = ValueType::STRING_PTR;
+                                ckA.ptr_val = TsString::GetInterned("configurable");
+                                if (dm->Has(ckA) &&
+                                    ts_value_to_bool(nanbox_from_tagged(dm->Get(ckA)))) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as configurable"));
+                                    return ts_value_make_undefined();
+                                }
+                                TsValue ekA; ekA.type = ValueType::STRING_PTR;
+                                ekA.ptr_val = TsString::GetInterned("enumerable");
+                                if (dm->Has(ekA) &&
+                                    ts_value_to_bool(nanbox_from_tagged(dm->Get(ekA)))) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as enumerable"));
+                                    return ts_value_make_undefined();
+                                }
+                                TsValue gkA; gkA.type = ValueType::STRING_PTR;
+                                gkA.ptr_val = TsString::GetInterned("get");
+                                TsValue skA; skA.type = ValueType::STRING_PTR;
+                                skA.ptr_val = TsString::GetInterned("set");
+                                if (dm->Has(gkA) || dm->Has(skA)) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as an accessor"));
+                                    return ts_value_make_undefined();
+                                }
+                            }
+                            if (dm->Has(vk)) {
+                                double num = ts_to_number(nanbox_from_tagged(dm->Get(vk)));
+                                uint32_t u = ts_double_to_uint32(num);
+                                if ((double)u != num) {
+                                    ts_throw((TsValue*)ts_error_create_typed(
+                                        "RangeError", "Invalid array length"));
+                                    return ts_value_make_undefined();
+                                }
+                            // ES 10.4.2.4: ToUint32(Desc.[[Value]]) ran FIRST (step 3 —
+                                // a throwing valueOf wins); now the invariants for the
                             // non-configurable, non-enumerable "length":
                             // configurable:true / enumerable:true -> TypeError;
                             // an accessor redefinition of length -> TypeError.
@@ -1548,16 +1579,6 @@ extern "C" {
                                     return ts_value_make_undefined();
                                 }
                             }
-                            TsValue vk; vk.type = ValueType::STRING_PTR;
-                            vk.ptr_val = TsString::GetInterned("value");
-                            if (dm->Has(vk)) {
-                                double num = ts_to_number(nanbox_from_tagged(dm->Get(vk)));
-                                uint32_t u = ts_double_to_uint32(num);
-                                if ((double)u != num) {
-                                    ts_throw((TsValue*)ts_error_create_typed(
-                                        "RangeError", "Invalid array length"));
-                                    return ts_value_make_undefined();
-                                }
                                 // Honor a non-writable length set by a prior
                                 // defineProperty(arr,"length",{writable:false})
                                 // — recorded in the props map (ATTR_WRITABLE=0x02).
@@ -2432,6 +2453,12 @@ extern "C" {
                 logicalKey.type = ValueType::STRING_PTR;
                 logicalKey.ptr_val = TsString::GetInterned(kc + 9);
             }
+
+            // Internal storage keys (boxed-primitive slots, array-index
+            // side-maps, brands) are not user properties — a String-wrapper
+            // Properties bag leaked its primitive slot into the iteration
+            // and the slot's string value hit the descriptor TypeError.
+            if (!isAccessor && kc && kc[0] == '_' && kc[1] == '_') continue;
 
             // Dedupe (a get+set pair yields two storage keys; a plain key
             // could coexist with stale accessor storage).

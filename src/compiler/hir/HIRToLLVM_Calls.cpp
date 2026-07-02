@@ -170,6 +170,29 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // with-write strict variants: trailing i64 strict flag (mixed
+    // signatures mislink through the generic all-ptr lowering).
+    if (funcName == "ts_with_set_ref_s" || funcName == "ts_with_set_ref_or_global_s" ||
+        funcName == "ts_with_unref_fallback_set") {
+        llvm::Value* a1 = getOperandValue(inst->operands[1]);
+        llvm::Value* a2 = getOperandValue(inst->operands[2]);
+        llvm::Value* a3 = getOperandValue(inst->operands[3]);
+        llvm::Value* a4 = getOperandValue(inst->operands[4]);
+        if (a4->getType()->isPointerTy())
+            a4 = builder_->CreatePtrToInt(a4, builder_->getInt64Ty());
+        else if (a4->getType()->isDoubleTy())
+            a4 = builder_->CreateFPToSI(a4, builder_->getInt64Ty());
+        bool returnsPtr = (funcName == "ts_with_set_ref_s");
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            returnsPtr ? (llvm::Type*)getGCPtrTy() : (llvm::Type*)builder_->getVoidTy(),
+            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), builder_->getInt64Ty() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a1, a2, a3, a4 });
+        if (returnsPtr && inst->result) setValue(inst->result, result);
+        return;
+    }
+
     // ts_super_builtin_call(this, nameStr, argc:i64, a0) -> void. Mixed
     // i64 param — the generic lowering would declare all-ptr and mislink.
     if (funcName == "ts_super_builtin_call") {

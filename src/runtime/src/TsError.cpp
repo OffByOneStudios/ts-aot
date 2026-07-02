@@ -33,8 +33,13 @@ static void errSetProto(TsMap* err, const char* name);
 // Helper to build stack trace and create error object
 static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     TsMap* err = TsMap::Create();
-    err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
-    err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create("Error"))));
+    // ES 20.5.3: message/name/stack on Error instances are NON-ENUMERABLE
+    // ({writable:true, configurable:true}). Enumerable ones leaked into
+    // for-in / Object.keys / defineProperties-Properties-bag iteration.
+    err->SetWithAttrs(TsValue(TsString::Create("message")),
+        nanbox_to_tagged(ts_value_make_string(msgStr)), 0x02 | 0x04);
+    err->SetWithAttrs(TsValue(TsString::Create("name")),
+        nanbox_to_tagged(ts_value_make_string(TsString::Create("Error"))), 0x02 | 0x04);
     // Brand as Error per [[ErrorData]] internal slot via @@toStringTag own
     // property (string-key convention). Spec says Object.prototype.toString
     // returns "[object Error]" for instances with [[ErrorData]].
@@ -168,7 +173,8 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     ss << "    at <stack trace not supported on this platform>\n";
 #endif
 
-    err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
+    err->SetWithAttrs(TsValue(TsString::Create("stack")),
+        nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))), 0x02 | 0x04);
 
     // Link to Error.prototype for `e instanceof Error`.
     errSetProto(err, "Error");
@@ -180,8 +186,11 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
 // Build error object with a specific name (TypeError, RangeError, etc.)
 static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     TsMap* err = TsMap::Create();
-    err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
-    err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
+    // See buildErrorObject: non-enumerable per ES 20.5.3.
+    err->SetWithAttrs(TsValue(TsString::Create("message")),
+        nanbox_to_tagged(ts_value_make_string(msgStr)), 0x02 | 0x04);
+    err->SetWithAttrs(TsValue(TsString::Create("name")),
+        nanbox_to_tagged(ts_value_make_string(TsString::Create(name))), 0x02 | 0x04);
     // Brand as Error per [[ErrorData]] internal slot.
     {
         TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
@@ -231,7 +240,8 @@ static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     }
 #endif
 
-    err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
+    err->SetWithAttrs(TsValue(TsString::Create("stack")),
+        nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))), 0x02 | 0x04);
 
     // Link to <name>.prototype for `e instanceof TypeError` etc.
     errSetProto(err, name);

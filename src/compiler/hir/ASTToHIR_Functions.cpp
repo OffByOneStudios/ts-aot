@@ -1047,6 +1047,18 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    // Per-function "use strict" directive (ECMA-262 directive prologue):
+    // strictCode_ drives the strict-mode with-write ReferenceError path
+    // (SetMutableBinding re-validation). Program::isStrict only covers the
+    // top level; a strict IIFE inside sloppy `with` needs this scan.
+    bool savedStrict_fn = strictCode_;
+    for (auto& st : node->body) {
+        auto* es = dynamic_cast<ast::ExpressionStatement*>(st.get());
+        if (!es) break;
+        auto* sl = dynamic_cast<ast::StringLiteral*>(es->expression.get());
+        if (!sl) break;
+        if (sl->value == "use strict") { strictCode_ = true; break; }
+    }
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -1267,6 +1279,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    strictCode_ = savedStrict_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
