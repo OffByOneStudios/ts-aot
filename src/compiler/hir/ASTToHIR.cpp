@@ -492,6 +492,8 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -521,6 +523,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             popScope();
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
 
             hirClass->constructor = defaultCtor.get();
             module_->functions.push_back(std::move(defaultCtor));
@@ -1794,6 +1797,8 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
     currentFunction_ = initFunc.get();
 
     // Create entry block
@@ -1979,6 +1984,7 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
     // Restore saved function
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
     if (savedFunc) {
         auto* savedBlock = savedFunc->getEntryBlock();
         if (savedBlock) {
@@ -2110,7 +2116,7 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             // with-object has `x`, the write lands there and the hoisted var
             // stays untouched. ts_with_try_set reports whether a with-object
             // took the value; the static store runs only on the false branch.
-            if (withDepth_ > 0 && node->varKind == ast::VarKind::Var && initValue) {
+            if (withScopeActive() && node->varKind == ast::VarKind::Var && initValue) {
                 auto nameC = builder_.createConstString(ident->name);
                 auto wrote = builder_.createCall("ts_with_try_set",
                     {nameC, boxValueIfNeeded(initValue)}, HIRType::makeAny());

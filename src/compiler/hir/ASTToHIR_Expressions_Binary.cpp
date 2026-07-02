@@ -1115,7 +1115,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // with-object — S11.13.1_A6_T3). ts_with_ref snapshots which with-object
     // (if any) holds the binding; the store below honors that snapshot.
     std::shared_ptr<HIRValue> withRef = nullptr;
-    if (withDepth_ > 0) {
+    if (withScopeActive()) {
         if (auto* lhsIdent = dynamic_cast<ast::Identifier*>(node->left.get())) {
             auto nameC = builder_.createConstString(lhsIdent->name);
             withRef = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
@@ -1160,7 +1160,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // Inside a `with` body a write to a statically-resolved name must
             // still consult the with-scope chain (ES 14.11) — using the
             // reference SNAPSHOT taken before RHS evaluation (withRef).
-            if (withDepth_ > 0 && withRef) {
+            if (withScopeActive() && withRef) {
                 auto nameC = builder_.createConstString(ident->name);
                 auto wrote = builder_.createCall("ts_with_set_ref",
                     {withRef, nameC, boxValueIfNeeded(rhs)}, HIRType::makeAny());
@@ -1190,7 +1190,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             info->value = allocaPtr;
             info->elemType = rhs->type;
             info->isAlloca = true;
-        } else if (withDepth_ > 0 && withRef) {
+        } else if (withScopeActive() && withRef) {
             // Inside a `with` body, an assignment to a name with no static
             // binding writes the SNAPSHOTTED with-object (reference taken
             // before RHS evaluation) or falls back to a sloppy implicit

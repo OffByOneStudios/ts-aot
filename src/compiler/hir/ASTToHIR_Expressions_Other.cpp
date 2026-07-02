@@ -1145,7 +1145,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // shortcuts below (builtins, extension registry, NaN/Infinity): the
     // with-object can shadow them (`with({NaN:'x', parseInt(){}}) { NaN }`).
     // typeof keeps its unresolved-yields-undefined semantics.
-    if (withDepth_ > 0 && !inTypeofOperand_ && node->name != "undefined") {
+    if (withScopeActive() && !inTypeofOperand_ && node->name != "undefined") {
         auto nameStr = builder_.createConstString(node->name);
         lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
                                          {nameStr}, HIRType::makeAny());
@@ -1372,7 +1372,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // terminator, so it is valid mid-expression.
     // Inside a `with` body every statically-unresolved name must consult the
     // with-scope stack at runtime (the resolver walks it before globalThis).
-    if ((node->isUnresolvedReference || withDepth_ > 0) && !inTypeofOperand_) {
+    if ((node->isUnresolvedReference || withScopeActive()) && !inTypeofOperand_) {
         auto nameStr = builder_.createConstString(node->name);
         lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
                                          {nameStr}, HIRType::makeAny());
@@ -1898,7 +1898,7 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
     // binding from the innermost with-object that has it (ES 13.5.1 -> the
     // object Environment Record's DeleteBinding); otherwise sloppy-mode
     // semantics (delete of an unresolvable reference yields true).
-    if (withDepth_ > 0) {
+    if (withScopeActive()) {
         if (auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get())) {
             auto nameStr = builder_.createConstString(ident->name);
             lastValue_ = builder_.createCall("ts_with_delete", {nameStr},

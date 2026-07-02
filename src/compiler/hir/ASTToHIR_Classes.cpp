@@ -369,6 +369,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -558,6 +560,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // Restore saved function
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -649,6 +652,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -694,6 +699,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             popScope();
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1096,6 +1102,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -1285,6 +1293,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Restore saved function
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1369,6 +1378,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -1408,6 +1419,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             popScope();
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);

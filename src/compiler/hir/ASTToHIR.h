@@ -278,6 +278,14 @@ private:
     // runtime with-stack by the with-block lowering; return/break/continue
     // emit ts_with_pop_n to unwind (mirrors tryDepth_).
     int withDepth_ = 0;
+    // True when lowering code LEXICALLY inside a `with` body — including
+    // nested function bodies (a closure defined inside `with` carries the
+    // object environment in its scope chain; the runtime with-stack is
+    // still live when it's called synchronously). withDepth_ itself resets
+    // per function (it drives pop_n unwinding, which must stay
+    // function-local); this flag drives the identifier read/write routing.
+    bool withLexical_ = false;
+    bool withScopeActive() const { return withDepth_ > 0 || withLexical_; }
 
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;
