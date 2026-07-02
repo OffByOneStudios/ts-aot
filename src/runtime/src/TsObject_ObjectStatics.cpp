@@ -13,6 +13,41 @@ extern "C" {
     // revoked-proxy receiver in the Object.* operations below.
     extern "C" void ts_proxy_throw_if_revoked(void* boxed);
     TsValue* ts_object_keys(TsValue* obj) {
+        // Proxy: route through the ownKeys trap (ES 10.5.11), then apply
+        // Object.keys' EnumerableOwnPropertyNames filtering: STRING keys
+        // whose [[GetOwnProperty]] (the gOPD trap — observable) reports
+        // enumerable. Only divert when the trap exists or revoked.
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && (uintptr_t)raw0 > 0x1000 &&
+                *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (px->revoked || px->getTrap("ownKeys")) {
+                        TsValue* all = px->ownKeys();
+                        void* aRaw = all ? ts_value_get_object(all) : nullptr;
+                        TsArray* aKeys = (aRaw && *(uint32_t*)aRaw == 0x41525259)
+                            ? (TsArray*)aRaw : nullptr;
+                        if (!aKeys) return all;
+                        TsArray* outArr = TsArray::Create();
+                        int64_t an = aKeys->Length();
+                        for (int64_t i = 0; i < an; i++) {
+                            TsValue* k = (TsValue*)aKeys->Get(i);
+                            uint64_t knb = k ? nanbox_from_tsvalue_ptr(k) : 0;
+                            void* kp = (k && nanbox_is_ptr(knb)) ? nanbox_to_ptr(knb) : nullptr;
+                            if (!kp || *(uint32_t*)kp != 0x53545247 /*STRG*/) continue;
+                            TsValue* d = px->getOwnPropertyDescriptorTrap(k);
+                            if (!d || ts_value_is_undefined(d)) continue;
+                            void* dRaw2 = ts_value_get_object(d);
+                            if (!dRaw2) continue;
+                            TsValue* ev = ts_object_get_property(dRaw2, "enumerable");
+                            if (ev && ts_value_to_bool(ev))
+                                outArr->Push((int64_t)k);
+                        }
+                        return ts_value_make_array(outArr);
+                    }
+                }
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
@@ -454,6 +489,17 @@ extern "C" {
     // In our runtime, this is the same as Object.keys() since we don't have
     // non-enumerable properties
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj) {
+        // Proxy: ownKeys trap (string keys; see ts_object_keys).
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && (uintptr_t)raw0 > 0x1000 &&
+                *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (px->revoked || px->getTrap("ownKeys"))
+                        return px->ownKeys();
+                }
+            }
+        }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
@@ -1140,9 +1186,17 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) return obj;
 
-        // Convert flat objects to TsMap first
+        // Flat objects: set the non-extensible flag IN PLACE. The old
+        // demote-to-TsMap approach marked a detached copy — the caller's
+        // pointer (and any proxy target) stayed extensible.
         if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
+            flat_object_set_non_extensible(rawPtr);
+            uint32_t sid = flat_object_shape_id(rawPtr);
+            if (ShapeDescriptor* desc = ts_shape_lookup(sid)) {
+                void* overflow = *(void**)((char*)rawPtr + 16 + desc->numSlots * 8);
+                if (overflow) ((TsMap*)overflow)->PreventExtensions();
+            }
+            return obj;
         }
 
         // Check if it's a TsMap
@@ -1235,9 +1289,9 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
-        // Flat objects are always extensible (via overflow map)
+        // Flat objects honor the in-place non-extensible/sealed/frozen flags
         if (is_flat_object(rawPtr)) {
-            return ts_value_make_bool(true);
+            return ts_value_make_bool(flat_object_is_extensible(rawPtr));
         }
 
         // Check if it's a TsMap
