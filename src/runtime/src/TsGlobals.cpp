@@ -6579,6 +6579,46 @@ bool ts_instanceof_array(TsValue* v) {
     return ts_instanceof_dynamic(v, (TsValue*)g);
 }
 
+// Default-constructor super() into a BUILTIN Error-family base:
+// `class Err extends TypeError {}` + `new Err("msg")` must run the Error
+// constructor steps on the instance — an own non-enumerable `message`
+// (ES 20.5.1.1 step 4). Emitted by visitNewExpression when the class has
+// baseBuiltinName and no user constructor. No std::string locals (the
+// ToString of a Symbol message ts_throws).
+extern "C" TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor);
+void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0) {
+    if (!thisVal || !nameStr) return;
+    const char* n = ((TsString*)nameStr)->ToUtf8();
+    if (!n) return;
+    static const char* errNames[8] = { "Error", "EvalError", "RangeError",
+        "ReferenceError", "SyntaxError", "TypeError", "URIError",
+        "AggregateError" };
+    bool isErr = false;
+    for (int i = 0; i < 8; i++) if (strcmp(n, errNames[i]) == 0) { isErr = true; break; }
+    if (!isErr) return;
+    if (argc >= 1 && a0 && !ts_value_is_undefined((TsValue*)a0)) {
+        void* msgStr = ts_string_from_value((TsValue*)a0);  // ToString (may throw)
+        if (!msgStr) return;
+        TsMap* desc = TsMap::Create();
+        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+        TsValue vv; vv.type = ValueType::STRING_PTR; vv.ptr_val = (TsString*)msgStr;
+        desc->Set(vk, vv);
+        TsValue wk; wk.type = ValueType::STRING_PTR; wk.ptr_val = TsString::GetInterned("writable");
+        TsValue wv; wv.type = ValueType::BOOLEAN; wv.i_val = 1;
+        desc->Set(wk, wv);
+        TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("enumerable");
+        TsValue ev; ev.type = ValueType::BOOLEAN; ev.i_val = 0;
+        desc->Set(ek, ev);
+        TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("configurable");
+        TsValue cv; cv.type = ValueType::BOOLEAN; cv.i_val = 1;
+        desc->Set(ck, cv);
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned("message");
+        ts_object_defineProperty((TsValue*)thisVal, nanbox_from_tagged(key),
+                                 ts_value_make_object(desc));
+    }
+}
+
 // `class C extends <builtin>` (ES 15.7.14 ClassDefinitionEvaluation): the
 // heritage is not a compiler-known class, so emitDeferredStaticInits records
 // the heritage NAME and calls this at class-flush time to link

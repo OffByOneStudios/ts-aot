@@ -551,6 +551,11 @@ struct HIRClass {
     // Base class
     HIRClass* baseClass = nullptr;
 
+    // True when `constructor` was SYNTHESIZED (no user-written ctor). A
+    // builtin-heritage class with a synthetic ctor needs the implicit
+    // super(...args) into the builtin base emitted at `new` sites.
+    bool hasSyntheticCtor = false;
+
     // `extends <builtin>` (Set, Error, Uint8Array, ...): heritage name that
     // did NOT resolve to a compiler-known class. emitDeferredStaticInits
     // links C.prototype -> Builtin.prototype at runtime via
