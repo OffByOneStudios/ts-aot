@@ -1128,7 +1128,8 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // Also skip if this is a CJS module namespace import (stored in moduleGlobalVars_).
     if (node->inferredType && node->inferredType->kind == ts::TypeKind::Namespace) {
         auto& extReg = ext::ExtensionRegistry::instance();
-        if (!extReg.isRegisteredGlobalOrModule(node->name) && !isModuleGlobalVar(node->name)) {
+        if (!extReg.isRegisteredGlobalOrModule(node->name) && !isModuleGlobalVar(node->name) &&
+            uniqueModuleGlobalName(node->name).empty()) {
             lastValue_ = builder_.createConstUndefined();
             return;
         }
@@ -1282,7 +1283,12 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                     if (spec.specializedName == ctorName) { hasFn = true; break; }
                 }
             }
-            if (hasFn) {
+            // The class currently BEING lowered: its ctor function is
+            // emitted after the method bodies, so hasFn is still false while
+            // a method references the class's own binding (`var C = class {
+            // static m() { return C.#x; } }`). LoadFunction is by-name and
+            // resolves at LLVM lowering, so a forward reference is fine.
+            if (hasFn || (currentClass_ && currentClass_->name == className)) {
                 lastValue_ = builder_.createLoadFunction(ctorName);
                 return true;
             }
@@ -1294,6 +1300,34 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     auto vtcIt = variableToClassName_.find(node->name);
     if (vtcIt != variableToClassName_.end()) {
         if (resolveClassByName(vtcIt->second)) return;
+    }
+
+    // A module-level binding read from a spec-lowered function whose defining
+    // scope isn't visible here (class-expression method bodies reference the
+    // assigned variable: `var C = class { static m() { return C.#x; } }`).
+    // Route through the __modvar_ global, which the module-init assignment
+    // stores unconditionally — the previous const-undefined fallback made the
+    // method read `C` as undefined (the rs-static-privatename by-classname
+    // test262 family).
+    if (isModuleGlobalVar(node->name)) {
+        moduleGlobalsUsedByInnerByModule_[node->name].insert(currentModulePath_);
+        std::string globalName = modVarName(node->name);
+        auto gtype = module_->globals.count(globalName)
+            ? module_->globals[globalName] : HIRType::makeAny();
+        lastValue_ = builder_.createLoadGlobalTyped(globalName, gtype);
+        return;
+    }
+    // Owner-module lookup: a spec-lowered method body's currentModulePath_ may
+    // differ from the module that owns the binding. Unambiguous (single-owner)
+    // module globals resolve to that module's __modvar_ global.
+    {
+        std::string uniqueName = uniqueModuleGlobalName(node->name);
+        if (!uniqueName.empty()) {
+            auto gtype = module_->globals.count(uniqueName)
+                ? module_->globals[uniqueName] : HIRType::makeAny();
+            lastValue_ = builder_.createLoadGlobalTyped(uniqueName, gtype);
+            return;
+        }
     }
 
     // Unresolvable identifier. Throw ReferenceError (ECMA-262 9.4.2 GetValue

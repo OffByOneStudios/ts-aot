@@ -200,6 +200,23 @@ private:
         if (it == moduleGlobalVarsByModule_.end()) return false;
         return it->second.count(currentModulePath_) > 0;
     }
+    // Helper: when `name` is a module global of exactly ONE module, return its
+    // __modvar_ global name (empty string otherwise). Used by identifier
+    // resolution from spec-lowered function bodies whose currentModulePath_
+    // differs from the owning module (anonymous class-expression methods
+    // referencing the assigned binding: `var C = class { static m() { C.#x } }`).
+    // The single-owner requirement keeps the documented per-module isolation
+    // (a same-named var in another module must not be redirected).
+    std::string uniqueModuleGlobalName(const std::string& name) const {
+        auto it = moduleGlobalVarsByModule_.find(name);
+        if (it == moduleGlobalVarsByModule_.end() || it->second.size() != 1)
+            return std::string();
+        const std::string& ownerPath = *it->second.begin();
+        if (ownerPath.empty()) return "__modvar_" + name;
+        std::hash<std::string> hasher;
+        auto hash = hasher(ownerPath) % 999999;
+        return "__modvar_" + name + "_m" + std::to_string(hash);
+    }
     // Helper: check if name is used by an inner function in the current module
     bool isModuleGlobalUsedByInner(const std::string& name) const {
         auto it = moduleGlobalsUsedByInnerByModule_.find(name);
