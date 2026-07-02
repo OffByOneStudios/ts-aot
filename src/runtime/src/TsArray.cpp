@@ -1168,8 +1168,21 @@ extern "C" {
     }
 
     // Value-based set - takes TsValue by value
+    extern uint8_t ts_integrity_get(void* raw);
+
     void ts_array_set_v(void* arr, int64_t index, TsValue value) {
         if (!arr) return;
+
+        // Integrity levels (weak side-table; empty in the common case):
+        // frozen (3) blocks every element write; sealed/non-extensible
+        // (>=1) blocks ADDING elements past the current length.
+        {
+            uint8_t lvl = ts_integrity_get(arr);
+            if (lvl >= 3) return;
+            if (lvl >= 1 && *(uint32_t*)arr == 0x41525259 /*ARRY*/ &&
+                (index < 0 || index >= ((TsArray*)arr)->Length()))
+                return;
+        }
 
         // Check for TsTypedArray (magic at offset 16)
         TsTypedArray* ta = asTypedArray(arr);

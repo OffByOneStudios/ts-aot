@@ -1468,6 +1468,24 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         func->params.push_back({paramName, paramType});
     }
 
+    // If the method body uses `arguments`, pad with hidden __argN__ params so
+    // extra call args physically reach ts_create_arguments_from_params.
+    // Object-literal (generator) methods route here; without the pad,
+    // arguments.length was right (ts_last_call_argc) but arguments[N] read
+    // undefined.
+    {
+        bool mdBodyUsesArgs = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) { mdBodyUsesArgs = true; break; }
+        }
+        if (mdBodyUsesArgs) {
+            while (func->params.size() < 10) {
+                std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                func->params.push_back({argName, HIRType::makeAny()});
+            }
+        }
+    }
+
     // Determine return type - always Any for method definitions since they are called
     // through dynamic dispatch (ts_call_N) which expects ptr (NaN-boxed TsValue*) returns
     func->returnType = HIRType::makeAny();

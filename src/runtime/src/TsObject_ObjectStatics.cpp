@@ -1,6 +1,50 @@
 #include "TsObject_Internal.h"
 #include "TsProxy.h"
 
+// Integrity levels for EXOTIC objects (functions, Dates, RegExps, TsArrays,
+// arguments objects...) that are neither flat objects nor TsMaps and so have
+// no header flag bits to record seal/freeze/preventExtensions. Weak side-
+// table keyed by object pointer: 1 = non-extensible, 2 = sealed, 3 = frozen.
+// GC rule (runtime-safety): keys are weak (never marked — marking would pin
+// dead objects), but promoted keys MUST be re-pointed via the minor fixup or
+// a stale nursery address aliases a reused slot -> type confusion.
+static std::unordered_map<void*, uint8_t> g_obj_integrity;
+static struct ObjIntegrityFixup {
+    ObjIntegrityFixup() {
+        ts_gc_register_minor_fixup([](void*) {
+            std::vector<std::pair<void*, uint8_t>> reinserts;
+            for (auto it = g_obj_integrity.begin(); it != g_obj_integrity.end(); ) {
+                void* fixed = ts_gc_minor_lookup_forward(it->first);
+                if (fixed && fixed != it->first) {
+                    reinserts.emplace_back(fixed, it->second);
+                    it = g_obj_integrity.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            for (auto& kv : reinserts) {
+                uint8_t& lvl = g_obj_integrity[kv.first];
+                if (kv.second > lvl) lvl = kv.second;
+            }
+        }, nullptr);
+    }
+} g_obj_integrity_fixup;
+
+static bool integrity_plausible_ptr(void* p) {
+    uintptr_t u = (uintptr_t)p;
+    return u > 0x1000 && u < 0x0000800000000000ULL;
+}
+static void integrity_set(void* raw, uint8_t lvl) {
+    if (!integrity_plausible_ptr(raw)) return;
+    uint8_t& cur = g_obj_integrity[raw];
+    if (lvl > cur) cur = lvl;
+}
+extern "C" uint8_t ts_integrity_get(void* raw) {
+    if (g_obj_integrity.empty() || !integrity_plausible_ptr(raw)) return 0;
+    auto it = g_obj_integrity.find(raw);
+    return it != g_obj_integrity.end() ? it->second : 0;
+}
+
 // Object.* static methods + property-descriptor machinery extracted from
 // TsObject.cpp: keys/values/entries/assign/is/getOwnPropertyNames/getPrototypeOf/
 // create/setPrototypeOf/freeze/seal/preventExtensions/isFrozen/isSealed/
@@ -1108,6 +1152,10 @@ extern "C" {
             }
             map->Freeze();
             map->PreventExtensions();
+        } else {
+            // Exotic object (function/Date/RegExp/array/arguments): record
+            // the integrity level in the weak side-table.
+            integrity_set(rawPtr, 3);
         }
 
         return obj;  // Return the same object (frozen)
@@ -1161,6 +1209,8 @@ extern "C" {
             }
             map->Seal();
             map->PreventExtensions();
+        } else {
+            integrity_set(rawPtr, 2);
         }
 
         return obj;  // Return the same object (sealed)
@@ -1211,6 +1261,8 @@ extern "C" {
         if (magic == 0x4D415053) {  // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
             map->PreventExtensions();
+        } else {
+            integrity_set(rawPtr, 1);
         }
 
         return obj;
@@ -1241,7 +1293,7 @@ extern "C" {
             return ts_value_make_bool(map->IsFrozen());
         }
 
-        return ts_value_make_bool(false);
+        return ts_value_make_bool(ts_integrity_get(rawPtr) >= 3);
     }
 
     // Object.isSealed(obj) - returns true if object is sealed
@@ -1269,7 +1321,7 @@ extern "C" {
             return ts_value_make_bool(map->IsSealed() || map->IsFrozen());
         }
 
-        return ts_value_make_bool(false);
+        return ts_value_make_bool(ts_integrity_get(rawPtr) >= 2);
     }
 
     // Object.isExtensible(obj) - returns true if object is extensible
@@ -1308,7 +1360,7 @@ extern "C" {
             return ts_value_make_bool(map->IsExtensible());
         }
 
-        return ts_value_make_bool(true);
+        return ts_value_make_bool(ts_integrity_get(rawPtr) == 0);
     }
 
     // ---- Per-array-index property descriptor attributes ----
