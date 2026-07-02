@@ -5020,6 +5020,37 @@ void* ts_create_arguments_from_params(
         ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
     }
 
+    // ECMA-262 7.4.8 IteratorClose: on abrupt loop completion (break / early
+    // exit) call iterator.return() when present. Errors from return()
+    // propagate (spec: for a break completion, IteratorClose rethrows).
+    void ts_iterator_close(TsValue* iter) {
+        if (!iter) return;
+        uint64_t inb = nanbox_from_tsvalue_ptr(iter);
+        if (!nanbox_is_ptr(inb) || nanbox_is_string_ptr(inb)) return;
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        TsValue* retFn = ts_object_get_property((void*)iter, "return");
+        if (!retFn) return;
+        uint64_t nb = nanbox_from_tsvalue_ptr(retFn);
+        if (nb == NANBOX_UNDEFINED || nb == NANBOX_NULL) return;
+        if (!ts_is_callable(retFn)) return;
+        ts_function_call_with_this(retFn, iter, 0, nullptr);
+    }
+
+    // ECMA-262 7.4.3 IteratorStep: the result of iterator.next() must be an
+    // Object; a primitive is a TypeError. Also breaks the infinite loop a
+    // primitive result previously caused (`.done` of a primitive was falsy
+    // forever).
+    void ts_iterator_step_require_object(TsValue* res) {
+        if (res) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(res);
+            if (nanbox_is_ptr(nb) && !nanbox_is_string_ptr(nb) && nanbox_to_ptr(nb)) {
+                return;
+            }
+        }
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator method returned a non-object"));
+    }
+
     // Strict-mode property assignment (ES 13.15.2 PutValue with throw = true):
     // a write blocked by a non-writable data property, an accessor without a
     // setter, or a frozen/sealed object throws TypeError instead of silently
