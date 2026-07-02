@@ -149,8 +149,11 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     TsValue* argv[1024];
     for (int i = 0; i < argc && argsArray; i++)
         argv[i] = (TsValue*)argsArray->Get(i);
-    extern TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
-    TsValue* result = ts_new_from_constructor((TsValue*)targetArg, argc, argc ? argv : nullptr);
+    // ES 28.1.2 step 6: the constructor runs with [[newTarget]] = newTarget
+    // (defaults to target).
+    extern TsValue* ts_new_from_constructor_with_target(TsValue*, TsValue*, int, TsValue**);
+    TsValue* result = ts_new_from_constructor_with_target((TsValue*)targetArg,
+        (TsValue*)(newTargetArg ? newTargetArg : targetArg), argc, argc ? argv : nullptr);
 
     // ECMA-262 OrdinaryCreateFromConstructor: the new object's [[Prototype]]
     // comes from newTarget.prototype, not target.prototype. Re-link when a

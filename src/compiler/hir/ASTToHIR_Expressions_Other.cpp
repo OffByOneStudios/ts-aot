@@ -188,6 +188,17 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 
 void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
     setSourceLine(node);
+    // `new.target` meta-property (ES 13.3.12): the parser encodes it as a
+    // PropertyAccess with base Identifier "new" (a keyword, so no user
+    // variable can collide). Reads the ambient construct-target register —
+    // set by the construct paths, undefined during a plain [[Call]].
+    if (node->name == "target") {
+        if (auto* baseId = dynamic_cast<ast::Identifier*>(node->expression.get());
+            baseId && baseId->name == "new") {
+            lastValue_ = builder_.createCall("ts_get_new_target", {}, HIRType::makeAny());
+            return;
+        }
+    }
     // `super.prop` READ (not a call): dispatch a base-class getter with `this`,
     // or load a base-class method. (super.method() calls are handled in the call
     // path; this covers `super.getter` and `super.method` without invocation.)
@@ -1897,6 +1908,16 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
     }
     // Handle delete obj.prop or delete obj["prop"]
     if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
+        // `delete new.target` (possibly parenthesized): not a Reference —
+        // per ES 13.5.1 delete of a non-reference evaluates the operand and
+        // returns true.
+        if (propAccess->name == "target") {
+            if (auto* baseId = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+                baseId && baseId->name == "new") {
+                lastValue_ = builder_.createConstBool(true);
+                return;
+            }
+        }
         // delete obj.prop — use DeleteProp HIR opcode so the lowering goes
         // through lowerDeleteProp → getTsObjectDeleteProperty (correct i32
         // return type). The generic createCall path declared the function

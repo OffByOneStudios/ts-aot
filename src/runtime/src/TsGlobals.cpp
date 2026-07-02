@@ -6395,6 +6395,33 @@ void* ts_tdz_check(void* v, void* nameStr) {
     return v;
 }
 
+// ----- new.target (ES 13.3.12 NewTarget meta-property) -----
+// A single ambient register holding the active [[Construct]] target. The
+// construct paths (compiler-inlined class construction, the unified
+// ts_new_from_constructor, Reflect.construct) SWAP the register in around the
+// constructor invocation and restore the previous value after, so nested
+// `new` works. A plain [[Call]] never touches it, so `new.target` inside a
+// normally-called function reads the cleared register -> undefined.
+static TsValue* g_newTarget = nullptr;
+static bool g_newTargetRootRegistered = false;
+
+// Swap: set the register, return the PREVIOUS value (for restore).
+void* ts_set_new_target(void* v) {
+    if (!g_newTargetRootRegistered) {
+        ts_gc_register_root((void**)&g_newTarget);
+        g_newTargetRootRegistered = true;
+    }
+    TsValue* prev = g_newTarget;
+    // Store undefined as null so a cleared register needs no GC root value.
+    g_newTarget = (v && !ts_value_is_undefined((TsValue*)v)) ? (TsValue*)v : nullptr;
+    return prev ? (void*)prev : (void*)ts_value_make_undefined();
+}
+
+// Read (non-destructive): the current construct target or undefined.
+void* ts_get_new_target() {
+    return g_newTarget ? (void*)g_newTarget : (void*)ts_value_make_undefined();
+}
+
 // Resolve a BUILTIN global constructor by name (the same set the compiler
 // maps via ts_get_global_* in HIRToLLVM). Returns null for unknown names.
 // Used by ts_class_link_builtin_base for `class C extends <builtin>`.
