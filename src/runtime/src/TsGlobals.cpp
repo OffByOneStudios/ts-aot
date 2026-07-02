@@ -4,9 +4,12 @@
 // modules can access built-in globals (Object.keys, String.prototype, etc.)
 // via dynamic property lookup.
 
+#include <vector>
 #include "GC.h"
+#include "TsGC.h"  // with-stack GC rooting (scanner + minor fixup)
 #include "TsRuntime.h"
 #include "TsObject.h"
+#include "TsClosure.h"
 #include "TsMap.h"
 #include "TsHashTable.h"
 #include "TsString.h"
@@ -137,6 +140,8 @@ void* ts_value_get_object(TsValue* val);
 TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
 bool ts_object_has_property(void* objArg, void* keyArg);
+extern "C" TsFunction* ts_extract_function(TsValue* boxedFunc);
+extern "C" TsClosure* ts_extract_closure(TsValue* boxedFunc);
 
 // Helper: install an accessor-getter on a prototype TsMap, where reading
 // the property `propName` invokes `getterFn(this)`. Uses the existing
@@ -1997,27 +2002,50 @@ extern "C" {
     TsValue* ts_promise_any(TsValue* iterable);
 }
 
+// NewPromiseCapability step 1 (ES 27.2.1.5): the combinators throw TypeError
+// when the receiver C is not a constructor. Only rejects a receiver that is a
+// plain function VALUE with [[Construct]] absent (is_constructor=false: the
+// eval stub, builtin prototype methods) — object receivers (the Promise
+// constructor map, subclasses) and user closures keep the lenient behavior.
+static bool promise_receiver_is_non_ctor() {
+    TsValue* t = (TsValue*)ts_get_call_this();
+    if (!t) return false;
+    if (ts_extract_closure(t)) return false;
+    TsFunction* f = ts_extract_function(t);
+    return f && !f->is_constructor;
+}
+static void promise_throw_non_ctor() {
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "Promise combinator called on a non-constructor"));
+}
+
 static TsValue* promise_resolve_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_resolve(nullptr, v);
 }
 static TsValue* promise_reject_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_reject(nullptr, v);
 }
 static TsValue* promise_all_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_all(v);
 }
 static TsValue* promise_race_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_race(v);
 }
 static TsValue* promise_allSettled_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_allSettled(v);
 }
 static TsValue* promise_any_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_any(v);
 }
@@ -6207,6 +6235,147 @@ void* ts_get_global(void* namePtr) {
 // name throws. nameStr is a TsString*. Throws via a CALL (not an IR
 // terminator), so it is valid mid-expression like `null.foo`. Returns undefined
 // on the unreachable fallthrough after ts_throw longjmps.
+// ---- `with` statement (ES 14.11 object Environment Record) ----------------
+// The compiler pushes ToObject(head) around a with-body; the identifier
+// resolver walks this stack (innermost first) before globalThis, and
+// ts_with_set routes bare-identifier assignments. GC ROOTING (mandatory):
+// the vector's malloc backing is invisible to the collector — register a
+// mark scanner AND a minor-GC fixup over the entries.
+static std::vector<void*> g_withStack;
+
+static inline bool with_ptr_plausible(void* p) {
+    return (uintptr_t)p >= 4096 && (uintptr_t)p <= 0x00007FFFFFFFFFFFULL;
+}
+static void with_stack_gc_scan(void*) {
+    for (auto& e : g_withStack)
+        if (with_ptr_plausible(e)) ts_gc_mark_object(e);
+}
+static void with_stack_gc_fixup(void*) {
+    for (auto& e : g_withStack) {
+        if (!with_ptr_plausible(e)) continue;
+        void* f = ts_gc_minor_lookup_forward(e);
+        if (f) e = f;
+    }
+}
+static bool g_withGcRegistered = false;
+
+void ts_with_push(void* obj) {
+    if (!g_withGcRegistered) {
+        ts_gc_register_scanner(with_stack_gc_scan, nullptr);
+        ts_gc_register_minor_fixup(with_stack_gc_fixup, nullptr);
+        g_withGcRegistered = true;
+    }
+    g_withStack.push_back(obj);
+}
+
+void ts_with_pop() {
+    if (!g_withStack.empty()) g_withStack.pop_back();
+}
+
+void ts_with_pop_n(int64_t n) {
+    while (n-- > 0 && !g_withStack.empty()) g_withStack.pop_back();
+}
+
+// Reference snapshot for identifier assignment inside a with-body
+// (ES 13.15.2: the LHS reference resolves BEFORE the RHS evaluates).
+// Returns the 1-based innermost with-stack index holding the name, else 0.
+void* ts_with_ref(void* nameStr) {
+    if (nameStr && !g_withStack.empty()) {
+        TsValue* key = ts_value_make_string(nameStr);
+        for (size_t i = g_withStack.size(); i > 0; --i) {
+            void* o = g_withStack[i - 1];
+            if (o && ts_object_has_property(o, (void*)key))
+                return ts_value_make_int((int64_t)i);
+        }
+    }
+    return ts_value_make_int(0);
+}
+
+// Store through a snapshot from ts_with_ref. Returns true when the snapshot
+// named a with-object (the caller's static store is skipped).
+void* ts_with_set_ref(void* refVal, void* nameStr, void* value) {
+    int64_t idx = ts_value_get_int((TsValue*)refVal);
+    if (idx > 0 && (size_t)idx <= g_withStack.size() && nameStr) {
+        TsValue* key = ts_value_make_string(nameStr);
+        ts_object_set_property(g_withStack[(size_t)idx - 1], (void*)key, value);
+        return ts_value_make_bool(true);
+    }
+    return ts_value_make_bool(false);
+}
+
+// Snapshot store with sloppy-global fallback (statically-unresolved LHS).
+void ts_with_set_ref_or_global(void* refVal, void* nameStr, void* value) {
+    int64_t idx = ts_value_get_int((TsValue*)refVal);
+    if (!nameStr) return;
+    TsValue* key = ts_value_make_string(nameStr);
+    if (idx > 0 && (size_t)idx <= g_withStack.size()) {
+        ts_object_set_property(g_withStack[(size_t)idx - 1], (void*)key, value);
+        return;
+    }
+    if (globalThis) ts_object_set_property((void*)globalThis, (void*)key, value);
+}
+
+// Write through the with-scope chain WITHOUT a fallback: returns true when
+// an innermost with-object had the name and received the value. The compiler
+// emits the static store on the false branch (`var value = 'v'` inside
+// `with(o)` writes o.value when o has it, else the hoisted var).
+void* ts_with_try_set(void* nameStr, void* value) {
+    if (nameStr) {
+        TsValue* key = ts_value_make_string(nameStr);
+        for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
+            if (*it && ts_object_has_property(*it, (void*)key)) {
+                ts_object_set_property(*it, (void*)key, value);
+                return ts_value_make_bool(true);
+            }
+        }
+    }
+    return ts_value_make_bool(false);
+}
+
+// `delete name` on a bare identifier inside a with-body (ES 13.5.1 /
+// object Environment Record DeleteBinding): delete from the innermost
+// with-object that HAS the name; else try the global object; an
+// unresolvable reference deletes to true in sloppy mode.
+void* ts_with_delete(void* nameStr) {
+    if (!nameStr) return ts_value_make_bool(true);
+    TsValue* key = ts_value_make_string(nameStr);
+    extern int ts_object_delete_property(void* objArg, void* keyArg);
+    for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
+        if (*it && ts_object_has_property(*it, (void*)key)) {
+            int ok = ts_object_delete_property(*it, (void*)key);
+            return ts_value_make_bool(ok != 0);
+        }
+    }
+    if (globalThis && ts_object_has_property((void*)globalThis, (void*)key)) {
+        int ok = ts_object_delete_property((void*)globalThis, (void*)key);
+        return ts_value_make_bool(ok != 0);
+    }
+    return ts_value_make_bool(true);
+}
+
+// Exception-unwind support: ts_push_exception_handler snapshots the depth;
+// ts_throw truncates back before longjmp (a throw through a with-body must
+// restore the scope chain — ES 14.11 "the scope chain is always restored").
+size_t ts_with_stack_size() { return g_withStack.size(); }
+void ts_with_truncate(size_t depth) {
+    if (g_withStack.size() > depth) g_withStack.resize(depth);
+}
+
+// Assignment to a bare identifier with no static binding inside a with-body:
+// the innermost with-object that HAS the name receives the write; otherwise
+// it is a sloppy-mode implicit global (ES 14.11 / 9.1.1.4).
+void ts_with_set(void* nameStr, void* value) {
+    if (!nameStr) return;
+    TsValue* key = ts_value_make_string(nameStr);
+    for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
+        if (*it && ts_object_has_property(*it, (void*)key)) {
+            ts_object_set_property(*it, (void*)key, value);
+            return;
+        }
+    }
+    if (globalThis) ts_object_set_property((void*)globalThis, (void*)key, value);
+}
+
 // ES temporal dead zone. The compiler pre-declares function-level `let`/
 // `const` slots to NANBOX_TDZ and wraps reads of those bindings in this
 // check; the declaration's own store replaces the sentinel with the real
@@ -6227,6 +6396,19 @@ void* ts_tdz_check(void* v, void* nameStr) {
 }
 
 void* ts_resolve_identifier_or_throw(void* nameStr) {
+    // `with` object environments shadow EVERYTHING outer — including
+    // builtins (`with({parseInt(){}}) { parseInt }` must yield the
+    // with-object's property) — so the with-stack walk comes FIRST
+    // (ES 14.11), innermost entry first.
+    if (nameStr && !g_withStack.empty()) {
+        TsValue* key = ts_value_make_string(nameStr);
+        for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
+            if (*it && ts_object_has_property(*it, (void*)key)) {
+                const char* wn = ((TsString*)nameStr)->ToUtf8();
+                return (void*)ts_object_get_property(*it, wn);
+            }
+        }
+    }
     void* builtin = ts_get_builtin_function(nameStr);
     if (builtin) return builtin;
     // Sloppy-mode fallback (ECMA-262 9.1.1.4 GlobalEnvironmentRecord): a bare

@@ -129,6 +129,9 @@ private:
     struct LoopContext {
         HIRBlock* continueTarget;
         HIRBlock* breakTarget;
+        // with-scope depth at loop creation: break/continue pop the runtime
+        // with-stack down to this level (mirrors tryDepth_/PopHandler).
+        int withDepth = 0;
     };
     std::stack<LoopContext> loopStack_;
 
@@ -270,6 +273,11 @@ private:
     // entries, which throw TypeError on a blocked write (ES 13.15.2 PutValue
     // with throw = true) instead of silently no-oping.
     bool strictCode_ = false;
+
+    // Lexical `with` nesting depth (ES 14.11). Entries are pushed on the
+    // runtime with-stack by the with-block lowering; return/break/continue
+    // emit ts_with_pop_n to unwind (mirrors tryDepth_).
+    int withDepth_ = 0;
 
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;

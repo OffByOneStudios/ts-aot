@@ -12,6 +12,18 @@ void ASTToHIR::visitExpressionStatement(ast::ExpressionStatement* node) {
 
 void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
     setSourceLine(node);
+    // `with (head) body` desugars to a synthetic block carrying the head:
+    // push ToObject(head) on the runtime with-scope stack; the identifier
+    // resolver consults it (ES 14.11 object Environment Record). Popped on
+    // normal fall-through here and by return/break/continue via
+    // ts_with_pop_n (mirrors tryDepth_/PopHandler unwinding).
+    bool isWith = node->withHead != nullptr;
+    if (isWith) {
+        auto headVal = lowerExpression(node->withHead.get());
+        builder_.createCall("ts_with_push", {boxValueIfNeeded(headVal)},
+                            HIRType::makeVoid());
+        withDepth_++;
+    }
     // Synthetic blocks (from multi-var declarations like "var a = 1, b = 2;")
     // should NOT create a new scope - variables need to be visible in the
     // enclosing scope, just like individual var declarations would be.
@@ -28,6 +40,12 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
     }
     if (!node->isSynthetic) {
         popScope();
+    }
+    if (isWith) {
+        withDepth_--;
+        if (!builder_.isBlockTerminated()) {
+            builder_.createCall("ts_with_pop", {}, HIRType::makeVoid());
+        }
     }
 }
 
@@ -46,10 +64,18 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
         for (int i = 0; i < tryDepth_; i++) {
             builder_.createPopHandler();
         }
+        if (withDepth_ > 0) {
+            builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(withDepth_)}, HIRType::makeVoid());
+        }
         builder_.createReturn(retVal);
     } else {
         for (int i = 0; i < tryDepth_; i++) {
             builder_.createPopHandler();
+        }
+        if (withDepth_ > 0) {
+            builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(withDepth_)}, HIRType::makeVoid());
         }
         builder_.createReturnVoid();
     }
@@ -91,7 +117,7 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     auto* endBlock = createBlock("while.end");
 
     // Push loop context for break/continue
-    LoopContext ctx = {condBlock, endBlock};
+    LoopContext ctx = {condBlock, endBlock, withDepth_};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
 
@@ -138,7 +164,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     auto* endBlock = createBlock("for.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
 
@@ -234,7 +260,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     // for the indexed-array path) and falls through to endBlock. Normal
     // exhaustion (done === true) jumps straight to endBlock — an exhausted
     // iterator is NOT closed.
-    LoopContext ctx = {updateBlock, closeBlock};
+    LoopContext ctx = {updateBlock, closeBlock, withDepth_};
     loopStack_.push(ctx);
     breakTargetStack_.push(closeBlock);
     // Set by the iterator-protocol path; closeBlock calls iterator.return().
@@ -776,7 +802,7 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     auto* endBlock = createBlock("forin.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
 
@@ -866,12 +892,22 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
     for (int i = 0; i < tryDepth_; i++) {
         builder_.createPopHandler();
     }
+    // Unwind with-scopes entered INSIDE the target construct (ES 14.11).
+    auto emitWithUnwind = [&](int targetDepth) {
+        int n = withDepth_ - targetDepth;
+        if (n > 0) {
+            builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(n)}, HIRType::makeVoid());
+        }
+    };
     if (!node->label.empty()) {
         auto it = labeledLoops_.find(node->label);
         if (it != labeledLoops_.end()) {
+            emitWithUnwind(it->second.withDepth);
             builder_.createBranch(it->second.breakTarget);
         }
     } else if (!breakTargetStack_.empty()) {
+        emitWithUnwind(loopStack_.empty() ? withDepth_ : loopStack_.top().withDepth);
         builder_.createBranch(breakTargetStack_.top());
     }
 }
@@ -881,12 +917,21 @@ void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
     for (int i = 0; i < tryDepth_; i++) {
         builder_.createPopHandler();
     }
+    auto emitWithUnwind = [&](int targetDepth) {
+        int n = withDepth_ - targetDepth;
+        if (n > 0) {
+            builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(n)}, HIRType::makeVoid());
+        }
+    };
     if (!node->label.empty()) {
         auto it = labeledLoops_.find(node->label);
         if (it != labeledLoops_.end()) {
+            emitWithUnwind(it->second.withDepth);
             builder_.createBranch(it->second.continueTarget);
         }
     } else if (!loopStack_.empty()) {
+        emitWithUnwind(loopStack_.top().withDepth);
         builder_.createBranch(loopStack_.top().continueTarget);
     }
 }

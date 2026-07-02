@@ -59,6 +59,7 @@ struct ExceptionContext {
     jmp_buf env;
     void*   saved_call_this_value;
     int64_t saved_last_call_argc;
+    size_t  saved_with_depth;   // `with` scope-stack depth (ES 14.11 restore)
 };
 
 // Forward declarations of the runtime accessors we snapshot/restore.
@@ -67,6 +68,8 @@ extern "C" void*   ts_get_call_this();
 extern "C" void    ts_set_call_this(void* thisArg);
 extern "C" int64_t ts_get_last_call_argc();
 extern "C" void    ts_set_last_call_argc(int64_t argc);
+extern "C" size_t  ts_with_stack_size();
+extern "C" void    ts_with_truncate(size_t depth);
 
 // Node.js init hook - set by nodecore (TsCluster.cpp) via static initializer
 TsNodeInitHook ts_node_init_hook = nullptr;
@@ -1383,6 +1386,7 @@ void* ts_push_exception_handler() {
     // restore these before longjmp so the catch landing pad sees correct state.
     ctx->saved_call_this_value = ts_get_call_this();
     ctx->saved_last_call_argc  = ts_get_last_call_argc();
+    ctx->saved_with_depth      = ts_with_stack_size();
     exceptionStack.push_back(ctx);
     return (void*)ctx->env;
 }
@@ -1437,6 +1441,7 @@ void ts_throw(TsValue* exception) {
     // block would see whatever `this` / argc the aborted call last set.
     ts_set_call_this(ctx->saved_call_this_value);
     ts_set_last_call_argc(ctx->saved_last_call_argc);
+    ts_with_truncate(ctx->saved_with_depth);
 
     // Copy jmp_buf to stack before freeing, since longjmp never returns
     jmp_buf env;

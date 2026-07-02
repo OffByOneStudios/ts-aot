@@ -2077,6 +2077,31 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             if (it != scopes_.back().variables.end()) existingInfo = &it->second;
         }
         if (existingInfo && existingInfo->isAlloca) {
+            // Inside a `with` body, `var x = init` initializes THROUGH the
+            // scope chain (ES 14.3.2 -> PutValue): when the innermost
+            // with-object has `x`, the write lands there and the hoisted var
+            // stays untouched. ts_with_try_set reports whether a with-object
+            // took the value; the static store runs only on the false branch.
+            if (withDepth_ > 0 && node->varKind == ast::VarKind::Var && initValue) {
+                auto nameC = builder_.createConstString(ident->name);
+                auto wrote = builder_.createCall("ts_with_try_set",
+                    {nameC, boxValueIfNeeded(initValue)}, HIRType::makeAny());
+                int bid = blockCounter_++;
+                auto* storeBB = createBlock("withvar.store" + std::to_string(bid));
+                auto* contBB = createBlock("withvar.cont" + std::to_string(bid));
+                builder_.createCondBranch(wrote, contBB, storeBB);
+                builder_.setInsertPoint(storeBB);
+                currentBlock_ = storeBB;
+                builder_.createStore(initValue, existingInfo->value, varType);
+                broadcastCaptureWrite(existingInfo, initValue);
+                builder_.createBranch(contBB);
+                builder_.setInsertPoint(contBB);
+                currentBlock_ = contBB;
+                if (varType->kind != HIRTypeKind::Any) {
+                    existingInfo->elemType = varType;
+                }
+                return;
+            }
             // Variable was pre-hoisted: just store the init value into the existing alloca
             builder_.createStore(initValue, existingInfo->value, varType);
             // Update the type info if we have a more specific type now

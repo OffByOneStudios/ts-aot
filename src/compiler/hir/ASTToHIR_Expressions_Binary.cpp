@@ -1107,6 +1107,18 @@ void ASTToHIR::visitConditionalExpression(ast::ConditionalExpression* node) {
 
 void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     setSourceLine(node);
+    // Inside a `with` body, an identifier LHS resolves its reference BEFORE
+    // the RHS evaluates (ES 13.15.2: lref first, then rval; PutValue uses the
+    // INITIAL reference even if RHS side effects later add the name to the
+    // with-object — S11.13.1_A6_T3). ts_with_ref snapshots which with-object
+    // (if any) holds the binding; the store below honors that snapshot.
+    std::shared_ptr<HIRValue> withRef = nullptr;
+    if (withDepth_ > 0) {
+        if (auto* lhsIdent = dynamic_cast<ast::Identifier*>(node->left.get())) {
+            auto nameC = builder_.createConstString(lhsIdent->name);
+            withRef = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+        }
+    }
     auto rhs = lowerExpression(node->right.get());
 
     // Handle simple identifier assignment
@@ -1143,6 +1155,27 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Look up variable info to see if it's an alloca
         auto* info = lookupVariableInfo(ident->name);
         if (info && info->isAlloca) {
+            // Inside a `with` body a write to a statically-resolved name must
+            // still consult the with-scope chain (ES 14.11) — using the
+            // reference SNAPSHOT taken before RHS evaluation (withRef).
+            if (withDepth_ > 0 && withRef) {
+                auto nameC = builder_.createConstString(ident->name);
+                auto wrote = builder_.createCall("ts_with_set_ref",
+                    {withRef, nameC, boxValueIfNeeded(rhs)}, HIRType::makeAny());
+                int bid = blockCounter_++;
+                auto* storeBB = createBlock("withasn.store" + std::to_string(bid));
+                auto* contBB = createBlock("withasn.cont" + std::to_string(bid));
+                builder_.createCondBranch(wrote, contBB, storeBB);
+                builder_.setInsertPoint(storeBB);
+                currentBlock_ = storeBB;
+                builder_.createStore(rhs, info->value, info->elemType);
+                broadcastCaptureWrite(info, rhs);
+                builder_.createBranch(contBB);
+                builder_.setInsertPoint(contBB);
+                currentBlock_ = contBB;
+                lastValue_ = rhs;
+                return;
+            }
             // Emit store to the alloca, with type info for coercion
             builder_.createStore(rhs, info->value, info->elemType);
             broadcastCaptureWrite(info, rhs);
@@ -1155,6 +1188,14 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             info->value = allocaPtr;
             info->elemType = rhs->type;
             info->isAlloca = true;
+        } else if (withDepth_ > 0 && withRef) {
+            // Inside a `with` body, an assignment to a name with no static
+            // binding writes the SNAPSHOTTED with-object (reference taken
+            // before RHS evaluation) or falls back to a sloppy implicit
+            // global. ES 14.11 / 13.15.2.
+            auto nameStr = builder_.createConstString(ident->name);
+            builder_.createCall("ts_with_set_ref_or_global",
+                {withRef, nameStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
         } else if (!ident->isUnresolvedReference) {
             // Untyped-JS implicit global: a bare assignment to a name the analyzer
             // resolved (NOT the TS "Undefined variable"/isUnresolvedReference case)

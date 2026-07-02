@@ -2051,11 +2051,11 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             auto block = std::make_unique<ast::BlockStatement>();
             setLocation(block.get(), current_);
             block->isSynthetic = true;
-            // Wrap head as an ExpressionStatement so any side-effecting
-            // expression in the head still executes.
-            auto headStmt = std::make_unique<ast::ExpressionStatement>();
-            headStmt->expression = std::move(head);
-            block->statements.push_back(std::move(headStmt));
+            // Preserve the head: ASTToHIR pushes ToObject(head) on the
+            // runtime with-scope stack around the body (real `with`
+            // semantics — the resolver consults the stack for otherwise
+            // unresolved identifiers).
+            block->withHead = std::move(head);
             // ECMA-262 14.11.1: IsLabelledFunction(Statement) of a WithStatement
             // body is a Syntax Error — `with ({}) L: function f(){}` is rejected
             // (mirrors the if/else-body rule).

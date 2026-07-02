@@ -1129,6 +1129,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // Inside a `with` body, any name that did NOT resolve to a local above
+    // must consult the with-scope stack at runtime — including the static
+    // shortcuts below (builtins, extension registry, NaN/Infinity): the
+    // with-object can shadow them (`with({NaN:'x', parseInt(){}}) { NaN }`).
+    // typeof keeps its unresolved-yields-undefined semantics.
+    if (withDepth_ > 0 && !inTypeofOperand_ && node->name != "undefined") {
+        auto nameStr = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
+                                         {nameStr}, HIRType::makeAny());
+        return;
+    }
+
     // Handle namespace identifiers standalone - these are compile-time constructs
     // with no runtime representation (used only as prefixes for ns.member access).
     // Skip if the name is a registered extension module (path, fs, etc.) - those
@@ -1347,7 +1359,9 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // resolution still emit undefined (unchanged). `typeof` is exempt
     // (yields "undefined"). The runtime helper throws via a call, not an IR
     // terminator, so it is valid mid-expression.
-    if (node->isUnresolvedReference && !inTypeofOperand_) {
+    // Inside a `with` body every statically-unresolved name must consult the
+    // with-scope stack at runtime (the resolver walks it before globalThis).
+    if ((node->isUnresolvedReference || withDepth_ > 0) && !inTypeofOperand_) {
         auto nameStr = builder_.createConstString(node->name);
         lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
                                          {nameStr}, HIRType::makeAny());
@@ -1869,6 +1883,18 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
 void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
     setSourceLine(node);
+    // Inside a `with` body, `delete name` on a bare identifier deletes the
+    // binding from the innermost with-object that has it (ES 13.5.1 -> the
+    // object Environment Record's DeleteBinding); otherwise sloppy-mode
+    // semantics (delete of an unresolvable reference yields true).
+    if (withDepth_ > 0) {
+        if (auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+            auto nameStr = builder_.createConstString(ident->name);
+            lastValue_ = builder_.createCall("ts_with_delete", {nameStr},
+                                             HIRType::makeAny());
+            return;
+        }
+    }
     // Handle delete obj.prop or delete obj["prop"]
     if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
         // delete obj.prop — use DeleteProp HIR opcode so the lowering goes
