@@ -2373,36 +2373,62 @@ extern "C" {
 
         TsMap* descMap = (TsMap*)descRaw;
 
-        // Iterate over descriptor properties
+        // Iterate the Properties bag per ES 20.1.2.3.1: for each ENUMERABLE
+        // own key, the descriptor is obtained with [[Get]] — an ACCESSOR
+        // entry's getter is invoked (stored under __getter_<name>), and its
+        // logical name (not the storage key) is defined on the target.
+        // NO std::string locals here: ts_object_defineProperty below can
+        // ts_throw, and the longjmp corrupts when unwinding a frame that
+        // holds a heap-backed std::string.
         TsArray* keys = (TsArray*)descMap->GetKeys();
         int64_t len = keys->Length();
+        TsMap* seen = TsMap::Create();  // logical keys already processed
 
         for (int64_t i = 0; i < len; i++) {
             TsValue* key = (TsValue*)keys->Get(i);
-            // ES 20.1.2.3.1 step 3: only ENUMERABLE own properties of the
-            // Properties bag contribute descriptors. A defineProperty'd
-            // non-enumerable entry (default enumerable:false) must be
-            // skipped — Object.create(p, props) tests hide stale numeric
-            // values under non-enumerable keys.
+            TsValue keyTag = nanbox_to_tagged(key);
+            const char* kc = (keyTag.type == ValueType::STRING_PTR && keyTag.ptr_val)
+                ? ((TsString*)keyTag.ptr_val)->ToUtf8() : nullptr;
+            if (kc && kc[0] == '') continue;  // private storage keys
+
+            // Map accessor STORAGE keys to the logical property name; the
+            // enumerable attribute lives on the storage key that exists.
+            TsValue logicalKey = keyTag;
+            bool isAccessor = false;
+            if (kc && (strncmp(kc, "__getter_", 9) == 0 ||
+                       strncmp(kc, "__setter_", 9) == 0)) {
+                isAccessor = true;
+                logicalKey.type = ValueType::STRING_PTR;
+                logicalKey.ptr_val = TsString::GetInterned(kc + 9);
+            }
+
+            // Dedupe (a get+set pair yields two storage keys; a plain key
+            // could coexist with stale accessor storage).
+            if (seen->Has(logicalKey)) continue;
+            TsValue seenVal; seenVal.type = ValueType::BOOLEAN; seenVal.i_val = 1;
+            seen->Set(logicalKey, seenVal);
+
             {
-                uint8_t attrs = descMap->GetPropertyAttrs(nanbox_to_tagged(key));
+                // Attributes live on the LOGICAL key (the accessor define
+                // stores a plain marker entry alongside __getter_<name>).
+                uint8_t attrs = descMap->GetPropertyAttrs(logicalKey);
                 if (!(attrs & TsHashTable::ATTR_ENUMERABLE)) continue;
             }
-            TsValue desc = descMap->Get(nanbox_to_tagged(key));
 
-            // Skip slots whose descriptor came back UNDEFINED. This happens
-            // when descMap's key encoding doesn't round-trip through
-            // nanbox_to_tagged here (a separate, pre-existing bug). Without
-            // this skip, defineProperty would now throw TypeError where it
-            // used to silently no-op, regressing tests that exercise the
-            // broken extraction path. The downstream defineProperty TypeError
-            // for genuinely-non-object descriptors (test262 cases) is still
-            // active for direct callers.
-            if (desc.type == ValueType::UNDEFINED) continue;
-
-            // Convert tagged TsValue to NaN-boxed TsValue* for ts_object_defineProperty
-            TsValue* descNb = nanbox_from_tagged(desc);
-            ts_object_defineProperty(obj, key, descNb);
+            // [[Get]] on the LOGICAL name — invokes accessor getters and
+            // resolves plain entries alike.
+            TsValue* descNb;
+            if (isAccessor) {
+                const char* ln = ((TsString*)logicalKey.ptr_val)->ToUtf8();
+                descNb = ts_object_get_property(descRaw, ln);
+            } else {
+                TsValue desc = descMap->Get(keyTag);
+                if (desc.type == ValueType::UNDEFINED) continue;  // key-encoding
+                descNb = nanbox_from_tagged(desc);
+            }
+            if (!descNb) continue;
+            TsValue* logicalKeyNb = nanbox_from_tagged(logicalKey);
+            ts_object_defineProperty(obj, logicalKeyNb, descNb);
         }
 
         return obj;
