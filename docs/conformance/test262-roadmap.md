@@ -15,8 +15,8 @@ let/const closure capture. See `docs/conformance/*.md` and the git log.
 | ~~`with` statement~~ **LANDED 2026-07-02** (`1c8c6656`) | ~100 | with-cluster 20→31/146; reads/writes(two-phase lref)/delete/throw-unwind all in; plus eval identity stub + Promise combinator IsConstructor. Residue: with-resolved method-call `this` |
 | ~~NewTarget / subclass-builtins~~ **LANDED 2026-07-02** (`1fc1c182`, `35f14091`) | ~150 | subclass-builtins 0→68/70; new.target 2→11/14 (ambient swap-register); **class-expression prototype install fixed** (`const A = class {}` had no A.prototype). Residue: NativeError message/super families, AggregateError drill (~17), WeakRef getter |
 | ~~Promise cluster~~ **LANDED 2026-07-02** (`eac1c4d0`, `f1a05daa`) | ~150/334 | 339 cluster fails → 180 pass. Roots: GENERIC deferred-callee bug (`var f; closure sets f; f()` called undefined), GENERIC nested-fn tryDepth leak (closure return popped caller's handler), NewPromiseCapability receiver protocol (streaming + IteratorClose), resolve-function spec steps |
-| Function cluster | ~120/267 | `.name`/`.length` descriptors, bind edges |
-| Proxy trap completion | ~120/243 | Missing traps (defineProperty, getPrototypeOf, construct…) — mechanical trap-by-trap |
+| ~~Function cluster~~ **LANDED 2026-07-02** (`6b32cdf4`, `cebcd5ca`) | ~120/267 | Winnable subset 221 (79 are dynamic-Function structural): 17→98. @@hasInstance, bound-fn name/length, caller/arguments %ThrowTypeError%, constructor backrefs |
+| Proxy trap completion **slice 1 landed** (`3f39b8b4`) | ~120/243 | 6 missing internal-method traps wired at Reflect + Object layers: 274 fails → 51 pass. Remaining: ownKeys/set/construct invariants |
 | Small roots | ~50 | close-on-throw, strict residue, enum order, Temporal Group B edges |
 
 ## Stage B → 85% (+3,406 total) — volume families
