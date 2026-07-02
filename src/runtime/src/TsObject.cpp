@@ -770,6 +770,15 @@ void* ts_create_arguments_from_params(
     // ECMA-262 Annex B.2.1: escape(string). Unescaped set is
     // A-Za-z0-9 and @ * _ + - . / ; code units < 256 -> %XX, else -> %uXXXX
     // (uppercase hex). Output is pure ASCII.
+    // AOT `eval` stub: exists as a global function VALUE (identity reads,
+    // `typeof eval`, comparisons work) but throws when actually invoked —
+    // an AOT compiler cannot evaluate source text at runtime.
+    static TsValue* builtin_eval_native(void* /*ctx*/, int /*argc*/, TsValue** /*argv*/) {
+        ts_throw((TsValue*)ts_error_create_typed("EvalError",
+            "eval is not supported in AOT-compiled code"));
+        return ts_value_make_undefined();
+    }
+
     static TsValue* builtin_escape_native(void* ctx, int argc, TsValue** argv) {
         extern void* ts_string_from_value(TsValue* val);
         TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
@@ -8101,6 +8110,8 @@ void* ts_create_arguments_from_params(
         globalMap->SetWithAttrs(makeKey("decodeURIComponent"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_decodeURIComponent_native, nullptr, "decodeURIComponent", 1)), BUILTIN_ATTRS);
         // ECMA-262 Annex B.2.1/B.2.2: legacy escape() / unescape().
         globalMap->SetWithAttrs(makeKey("escape"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_escape_native, nullptr, "escape", 1)), BUILTIN_ATTRS);
+        // `eval` exists as a value (identity/typeof); calling it throws (AOT).
+        globalMap->SetWithAttrs(makeKey("eval"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_eval_native, nullptr, "eval", 1)), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("unescape"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_unescape_native, nullptr, "unescape", 1)), BUILTIN_ATTRS);
         // Test262 host hook: produces a TsFunction with [[IsHTMLDDA]] slot
         // for the harness $262.IsHTMLDDA construction. See HOST_262_SETUP

@@ -311,6 +311,10 @@ struct ExpressionStatement : Statement {
 struct BlockStatement : Statement {
     std::vector<StmtPtr> statements;
     bool isSynthetic = false;  // True when wrapping multiple var declarations (no new scope)
+    // Non-null when this synthetic block desugars `with (head) body`: the
+    // evaluated head object is pushed on the runtime with-scope stack around
+    // the statements (ES 14.11 object Environment Record).
+    ExprPtr withHead;
     std::string getKind() const override { return "BlockStatement"; }
     void accept(Visitor* visitor) override { visitor->visitBlockStatement(this); }
 };
