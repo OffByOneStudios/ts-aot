@@ -1768,13 +1768,30 @@ TsValue* ts_promise_reject_internal_helper(void* context, TsValue* reason) {
 TsValue* ts_promise_resolve_wrapper(void* context, int argc, TsValue** argv) {
     TsValue* value = (argc > 0) ? argv[0] : nullptr;
     ts_promise_resolve_internal((TsPromise*)context, value);
-    return nullptr;
+    // ES 27.2.1.3.2 step 8: a resolve function returns undefined.
+    return ts_value_make_undefined();
 }
 
 TsValue* ts_promise_reject_wrapper(void* context, int argc, TsValue** argv) {
     TsValue* reason = (argc > 0) ? argv[0] : nullptr;
     ts_promise_reject_internal((TsPromise*)context, reason);
-    return nullptr;
+    return ts_value_make_undefined();
+}
+
+// Make a resolve/reject function whose context (the [[Promise]] internal
+// slot) SURVIVES bare calls. Without keep_context, maybe_override_context
+// replaces the context with the ambient `this` on every plain invocation —
+// so a resolve function captured OUT of the executor (`let r; new
+// Promise(res => r = res); r(v)`) resolved globalThis instead of the
+// promise and the settlement was silently lost.
+static TsValue* make_promise_settle_fn(void* fnPtr, TsPromise* promise) {
+    TsValue* fn = ts_value_make_native_function(fnPtr, promise);
+    void* raw = ts_value_get_object(fn);
+    if (raw) {
+        TsFunction* f = ts_cast<TsFunction>(raw);
+        if (f) f->keep_context = true;
+    }
+    return fn;
 }
 
 // ES 27.2.1.3.2 + 27.2.2.2 PromiseResolveThenableJob: when a promise is
@@ -1792,9 +1809,9 @@ struct PromiseThenableJob {
 
 static void ts_promise_thenable_microtask(void* data) {
     auto job = static_cast<PromiseThenableJob*>(data);
-    TsValue* resolveFn = ts_value_make_native_function(
+    TsValue* resolveFn = make_promise_settle_fn(
         (void*)ts_promise_resolve_wrapper, job->promise);
-    TsValue* rejectFn = ts_value_make_native_function(
+    TsValue* rejectFn = make_promise_settle_fn(
         (void*)ts_promise_reject_wrapper, job->promise);
     void* hbuf = ts_push_exception_handler();
     jmp_buf* env = (jmp_buf*)hbuf;
@@ -1829,6 +1846,14 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
 
     if (val.type == ValueType::PROMISE_PTR && val.ptr_val) {
         TsPromise* other = (TsPromise*)val.ptr_val;
+        // ES 27.2.1.3.2 step 6: SameValue(resolution, promise) -> reject with
+        // TypeError (self-resolution chain cycle).
+        if (other == promise) {
+            ts_promise_reject_internal(promise,
+                (TsValue*)ts_error_create_typed("TypeError",
+                    "Chaining cycle detected for promise"));
+            return;
+        }
         TsValue onFulfilled;
         onFulfilled.type = ValueType::OBJECT_PTR;
         TsFunction* f1 = new (ts_alloc(sizeof(TsFunction))) TsFunction(
@@ -1857,7 +1882,27 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
         uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
         if (magic0 == 0x464C4154 /* FLAT */ || magic16 == TsMap::MAGIC) {
             extern TsValue* ts_object_get_property(void* o, const char* k);
-            TsValue* thenFn = ts_object_get_property(raw, "then");
+            // ES 27.2.1.3.2 step 9: Get(resolution, "then") is inside the
+            // resolve function — an abrupt GET (poisoned accessor) REJECTS
+            // the promise with the thrown value, it must not propagate.
+            TsValue* thenFn = nullptr;
+            {
+                void* hbuf = ts_push_exception_handler();
+                jmp_buf* env = (jmp_buf*)hbuf;
+                if (setjmp(*env) == 0) {
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+                    thenFn = ts_object_get_property(raw, "then");
+                    ts_pop_exception_handler();
+                } else {
+                    TsValue* exc = ts_get_exception();
+                    ts_set_exception(nullptr);
+                    ts_promise_reject_internal(promise,
+                        exc ? exc : ts_value_make_undefined());
+                    return;
+                }
+            }
             if (thenFn && agen_is_callable(thenFn)) {
                 auto job = static_cast<PromiseThenableJob*>(
                     ts_alloc(sizeof(PromiseThenableJob)));
@@ -1944,15 +1989,11 @@ TsValue* ts_promise_new(TsValue* executor) {
     TsPromise* promise = ts_promise_create();
 
     // Create resolve and reject functions using the variadic wrappers
-    TsValue* resolveArg = ts_value_make_native_function(
-        (void*)ts_promise_resolve_wrapper,
-        promise
-    );
+    TsValue* resolveArg = make_promise_settle_fn(
+        (void*)ts_promise_resolve_wrapper, promise);
 
-    TsValue* rejectArg = ts_value_make_native_function(
-        (void*)ts_promise_reject_wrapper,
-        promise
-    );
+    TsValue* rejectArg = make_promise_settle_fn(
+        (void*)ts_promise_reject_wrapper, promise);
 
     // Call the executor with (resolve, reject). ES 27.2.3.1 step 10: an
     // executor throw rejects the promise (no-op if already settled —
@@ -2351,15 +2392,11 @@ extern "C" TsValue* ts_promise_withResolvers() {
     TsPromise* promise = ts_promise_create();
 
     // Create resolve and reject functions using the variadic wrappers
-    TsValue* resolveFunc = ts_value_make_native_function(
-        (void*)ts_promise_resolve_wrapper,
-        promise
-    );
+    TsValue* resolveFunc = make_promise_settle_fn(
+        (void*)ts_promise_resolve_wrapper, promise);
 
-    TsValue* rejectFunc = ts_value_make_native_function(
-        (void*)ts_promise_reject_wrapper,
-        promise
-    );
+    TsValue* rejectFunc = make_promise_settle_fn(
+        (void*)ts_promise_reject_wrapper, promise);
 
     // Create the result object with { promise, resolve, reject }
     TsMap* result = TsMap::Create();

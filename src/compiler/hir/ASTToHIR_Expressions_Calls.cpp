@@ -1096,6 +1096,21 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
+        // Mirror visitIdentifier's module-global rule: inside __module_init_*,
+        // a module-level var that inner functions WRITE must be CALLED through
+        // the __modvar_ global — the local alloca is a stale snapshot. The
+        // classic victim: `var resolve; new Promise(r => resolve = r);
+        // resolve(42)` silently called undefined (deferred-Promise pattern,
+        // ~60 test262 Promise tests).
+        if (isModuleGlobalVar(ident->name) && isModuleGlobalUsedByInner(ident->name) &&
+            currentFunction_ &&
+            currentFunction_->name.find("__module_init_") == 0) {
+            std::string globalName = modVarName(ident->name);
+            auto funcPtr = builder_.createLoadGlobalTyped(globalName, HIRType::makeAny());
+            lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
+            return;
+        }
+
         // Check if this is a local variable (might be a closure)
         auto* info = lookupVariableInfo(ident->name);
         if (info) {
