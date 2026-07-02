@@ -1187,6 +1187,25 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->params.push_back({paramName, paramType});
             }
 
+            // If the method body uses `arguments`, pad with hidden __argN__
+            // params so extra call args physically reach
+            // ts_create_arguments_from_params (class-DECL static methods
+            // compile through this spec branch and read arguments[N] as
+            // undefined without the pad; length was already right via
+            // ts_last_call_argc).
+            {
+                bool mBodyUsesArgs = false;
+                for (auto& stmt : methodNode->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
+                }
+                if (mBodyUsesArgs) {
+                    while (func->params.size() < 10) {
+                        std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                        func->params.push_back({argName, HIRType::makeAny()});
+                    }
+                }
+            }
+
             // Set return type
             if (spec.returnType) {
                 func->returnType = convertType(spec.returnType);
