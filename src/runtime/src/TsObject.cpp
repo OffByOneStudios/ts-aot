@@ -6291,6 +6291,25 @@ void* ts_create_arguments_from_params(
             }
         }
 
+        // Accessor-backed properties: also remove the __getter_/__setter_
+        // storage entries — deleting only the plain marker left the accessor
+        // alive (HasProperty stayed true, gets kept invoking the getter).
+        if (keyVal.type == ValueType::STRING_PTR && keyVal.ptr_val) {
+            const char* kc = ((TsString*)keyVal.ptr_val)->ToUtf8();
+            if (kc && kc[0] != '' && strncmp(kc, "__getter_", 9) != 0 &&
+                strncmp(kc, "__setter_", 9) != 0) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "__getter_%s", kc);
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(buf);
+                if (map->Has(gk)) map->Delete(gk);
+                snprintf(buf, sizeof(buf), "__setter_%s", kc);
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(buf);
+                if (map->Has(sk)) map->Delete(sk);
+            }
+        }
+
         return map->Delete(keyVal) ? 1 : 0;
     }
 

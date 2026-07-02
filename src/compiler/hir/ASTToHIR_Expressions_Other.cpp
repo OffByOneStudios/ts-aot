@@ -1804,6 +1804,22 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
+            // Inside `with` scope: the write consults the runtime with-stack
+            // with the strict SetMutableBinding re-validation (mirrors the
+            // plain/compound assignment paths).
+            if (withScopeActive() && !lookupVariableInfo(ident->name) &&
+                !isModuleGlobalVar(ident->name)) {
+                auto nameC = builder_.createConstString(ident->name);
+                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
+                auto wrote = builder_.createCall("ts_with_set_ref_s",
+                    {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());
+                builder_.createCall("ts_with_unref_fallback_set",
+                    {wrote, nameC, boxValueIfNeeded(result), strictC},
+                    HIRType::makeVoid());
+                lastValue_ = result;
+                return;
+            }
             // For module-scoped variables from inner functions, use __modvar_ globals
             bool handledAsModGlobal = false;
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {
@@ -1986,6 +2002,22 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
+            // Inside `with` scope: the write consults the runtime with-stack
+            // with the strict SetMutableBinding re-validation (mirrors the
+            // plain/compound assignment paths).
+            if (withScopeActive() && !lookupVariableInfo(ident->name) &&
+                !isModuleGlobalVar(ident->name)) {
+                auto nameC = builder_.createConstString(ident->name);
+                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
+                auto wrote = builder_.createCall("ts_with_set_ref_s",
+                    {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());
+                builder_.createCall("ts_with_unref_fallback_set",
+                    {wrote, nameC, boxValueIfNeeded(result), strictC},
+                    HIRType::makeVoid());
+                lastValue_ = oldValue;
+                return;
+            }
             // For module-scoped variables from inner functions, use __modvar_ globals
             bool handledAsModGlobal = false;
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {

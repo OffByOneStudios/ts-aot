@@ -929,6 +929,56 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Handle identifier LHS
         auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
         if (ident) {
+            // Inside a `with` scope: the write consults the runtime
+            // with-stack (ES 9.1.1.2.5 SetMutableBinding, incl. the strict
+            // re-validation ReferenceError). ts_with_ref snapshots which
+            // with-object holds the binding NOW (post-read; the compound
+            // read already went through the with-aware resolver).
+            if (withScopeActive()) {
+                auto nameC = builder_.createConstString(ident->name);
+                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
+                auto wrote = builder_.createCall("ts_with_set_ref_s",
+                    {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());
+                auto* info0 = lookupVariableInfo(ident->name);
+                if (!info0 && !isModuleGlobalVar(ident->name)) {
+                    // No static binding at all: with-object or (strict ->
+                    // ReferenceError / sloppy -> implicit global).
+                    builder_.createCall("ts_with_unref_fallback_set",
+                        {wrote, nameC, boxValueIfNeeded(result), strictC},
+                        HIRType::makeVoid());
+                    lastValue_ = result;
+                    return;
+                }
+                // Static binding exists: if a with-object took the write,
+                // skip the static store; else fall through to it.
+                int bid = blockCounter_++;
+                auto* storeBB = createBlock("withcmp.store" + std::to_string(bid));
+                auto* contBB = createBlock("withcmp.cont" + std::to_string(bid));
+                builder_.createCondBranch(wrote, contBB, storeBB);
+                builder_.setInsertPoint(storeBB);
+                currentBlock_ = storeBB;
+                // (fall through to the normal store paths below, then jump)
+                // Emit the static store inline: reuse the alloca path.
+                auto* infoS = lookupVariableInfo(ident->name);
+                if (infoS && infoS->isAlloca) {
+                    auto sv = result;
+                    if (result->type && result->type->kind == HIRTypeKind::Any &&
+                        infoS->elemType && infoS->elemType->kind != HIRTypeKind::Any) {
+                        infoS->elemType = HIRType::makeAny();
+                    }
+                    builder_.createStore(sv, infoS->value, infoS->elemType);
+                    broadcastCaptureWrite(infoS, sv);
+                }
+                if (isModuleGlobalVar(ident->name)) {
+                    builder_.createStoreGlobal(modVarName(ident->name), result);
+                }
+                builder_.createBranch(contBB);
+                builder_.setInsertPoint(contBB);
+                currentBlock_ = contBB;
+                lastValue_ = result;
+                return;
+            }
             // For module-scoped variables from inner functions, use __modvar_ globals
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {
                 size_t scopeIdx = 0;
@@ -1162,8 +1212,9 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // reference SNAPSHOT taken before RHS evaluation (withRef).
             if (withScopeActive() && withRef) {
                 auto nameC = builder_.createConstString(ident->name);
-                auto wrote = builder_.createCall("ts_with_set_ref",
-                    {withRef, nameC, boxValueIfNeeded(rhs)}, HIRType::makeAny());
+                auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
+                auto wrote = builder_.createCall("ts_with_set_ref_s",
+                    {withRef, nameC, boxValueIfNeeded(rhs), strictC}, HIRType::makeAny());
                 int bid = blockCounter_++;
                 auto* storeBB = createBlock("withasn.store" + std::to_string(bid));
                 auto* contBB = createBlock("withasn.cont" + std::to_string(bid));
@@ -1196,8 +1247,9 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // before RHS evaluation) or falls back to a sloppy implicit
             // global. ES 14.11 / 13.15.2.
             auto nameStr = builder_.createConstString(ident->name);
-            builder_.createCall("ts_with_set_ref_or_global",
-                {withRef, nameStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
+            auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
+            builder_.createCall("ts_with_set_ref_or_global_s",
+                {withRef, nameStr, boxValueIfNeeded(rhs), strictC}, HIRType::makeVoid());
         } else if (!ident->isUnresolvedReference) {
             // Untyped-JS implicit global: a bare assignment to a name the analyzer
             // resolved (NOT the TS "Undefined variable"/isUnresolvedReference case)

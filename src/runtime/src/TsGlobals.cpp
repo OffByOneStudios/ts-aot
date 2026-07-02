@@ -6377,26 +6377,77 @@ void* ts_with_ref(void* nameStr) {
 
 // Store through a snapshot from ts_with_ref. Returns true when the snapshot
 // named a with-object (the caller's static store is skipped).
-void* ts_with_set_ref(void* refVal, void* nameStr, void* value) {
+// ES 9.1.1.2.5 SetMutableBinding (object env): the binding is RE-CHECKED at
+// PutValue — a getter that deleted the property mid-expression makes a
+// STRICT write throw ReferenceError; a sloppy write re-creates it.
+void* ts_with_set_ref_s(void* refVal, void* nameStr, void* value, int64_t isStrict) {
     int64_t idx = ts_value_get_int((TsValue*)refVal);
     if (idx > 0 && (size_t)idx <= g_withStack.size() && nameStr) {
+        void* obj = g_withStack[(size_t)idx - 1];
         TsValue* key = ts_value_make_string(nameStr);
-        ts_object_set_property(g_withStack[(size_t)idx - 1], (void*)key, value);
+        if (isStrict && !ts_object_has_property(obj, (void*)key)) {
+            const char* n = ((TsString*)nameStr)->ToUtf8();
+            char msg[256];
+            snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "binding");
+            ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+            return ts_value_make_bool(false);
+        }
+        ts_object_set_property(obj, (void*)key, value);
         return ts_value_make_bool(true);
     }
     return ts_value_make_bool(false);
 }
+void* ts_with_set_ref(void* refVal, void* nameStr, void* value) {
+    return ts_with_set_ref_s(refVal, nameStr, value, 0);
+}
 
 // Snapshot store with sloppy-global fallback (statically-unresolved LHS).
-void ts_with_set_ref_or_global(void* refVal, void* nameStr, void* value) {
+// Strict variant: a vanished with-binding OR an unresolvable name throws
+// ReferenceError instead of the sloppy implicit-global write.
+void ts_with_set_ref_or_global_s(void* refVal, void* nameStr, void* value, int64_t isStrict) {
     int64_t idx = ts_value_get_int((TsValue*)refVal);
     if (!nameStr) return;
     TsValue* key = ts_value_make_string(nameStr);
     if (idx > 0 && (size_t)idx <= g_withStack.size()) {
-        ts_object_set_property(g_withStack[(size_t)idx - 1], (void*)key, value);
+        void* obj = g_withStack[(size_t)idx - 1];
+        if (isStrict && !ts_object_has_property(obj, (void*)key)) {
+            const char* n = ((TsString*)nameStr)->ToUtf8();
+            char msg[256];
+            snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "binding");
+            ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+            return;
+        }
+        ts_object_set_property(obj, (void*)key, value);
+        return;
+    }
+    if (isStrict) {
+        const char* n = ((TsString*)nameStr)->ToUtf8();
+        char msg[256];
+        snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "binding");
+        ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
         return;
     }
     if (globalThis) ts_object_set_property((void*)globalThis, (void*)key, value);
+}
+// Compound-assign tail for an unresolved LHS: when the with-write reported
+// NOT-written (binding vanished or never existed), strict throws
+// ReferenceError and sloppy writes the implicit global.
+void ts_with_unref_fallback_set(void* wroteVal, void* nameStr, void* value, int64_t isStrict) {
+    if (wroteVal && ts_value_get_bool((TsValue*)wroteVal)) return;
+    if (!nameStr) return;
+    if (isStrict) {
+        const char* n = ((TsString*)nameStr)->ToUtf8();
+        char msg[256];
+        snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "binding");
+        ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+        return;
+    }
+    TsValue* key = ts_value_make_string(nameStr);
+    if (globalThis) ts_object_set_property((void*)globalThis, (void*)key, value);
+}
+
+void ts_with_set_ref_or_global(void* refVal, void* nameStr, void* value) {
+    ts_with_set_ref_or_global_s(refVal, nameStr, value, 0);
 }
 
 // Write through the with-scope chain WITHOUT a fallback: returns true when
