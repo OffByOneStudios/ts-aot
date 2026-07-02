@@ -2200,6 +2200,19 @@ static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
 extern "C" TsValue* ts_call_with_this_0(TsValue*, TsValue*);
 extern "C" TsValue* ts_call_with_this_1(TsValue*, TsValue*, TsValue*);
 extern "C" TsValue* ts_call_with_this_2(TsValue*, TsValue*, TsValue*, TsValue*);
+extern "C" TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+// Rest-param-aware invocation helpers: the ts_call_with_this_N family does
+// NOT pack rest params (a patched `Promise.resolve = (...args) => ...`
+// observed args.length undefined). ts_function_call_with_this routes
+// closures through the packing dispatch.
+static TsValue* spec_invoke1(TsValue* fn, TsValue* thisArg, TsValue* a0) {
+    TsValue* argv[1] = { a0 };
+    return ts_function_call_with_this(fn, thisArg, 1, argv);
+}
+static TsValue* spec_invoke2(TsValue* fn, TsValue* thisArg, TsValue* a0, TsValue* a1) {
+    TsValue* argv[2] = { a0, a1 };
+    return ts_function_call_with_this(fn, thisArg, 2, argv);
+}
 extern "C" bool ts_is_callable(void* val);
 extern "C" TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
 extern "C" TsValue* ts_object_get_property(void* o, const char* k);
@@ -2276,14 +2289,14 @@ struct SpecElemCtx {
 
 static void spec_state_finish_fulfill(SpecAllState* st) {
     TsValue* arr = ts_value_make_array(st->results);
-    ts_call_with_this_1(st->cap->resolveFn, ts_value_make_undefined(), arr);
+    spec_invoke1(st->cap->resolveFn, ts_value_make_undefined(), arr);
 }
 static void spec_state_finish_any_reject(SpecAllState* st) {
     extern TsValue* ts_error_create_aggregate(TsValue* errors, TsValue* message);
     TsValue* agg = ts_error_create_aggregate(
         ts_value_make_array(st->results),
         ts_value_make_string(TsString::Create("All promises were rejected")));
-    ts_call_with_this_1(st->cap->rejectFn, ts_value_make_undefined(), agg);
+    spec_invoke1(st->cap->rejectFn, ts_value_make_undefined(), agg);
 }
 
 static TsValue* spec_all_elem_resolve(void* ctx, int argc, TsValue** argv) {
@@ -2350,8 +2363,8 @@ extern "C" TsValue* ts_promise_combinator_spec(int64_t kind, TsValue* C,
     if (setjmp(*env) != 0) {
         TsValue* exc = ts_get_exception();
         ts_set_exception(nullptr);
-        ts_call_with_this_1(cap->rejectFn, ts_value_make_undefined(),
-                            exc ? exc : ts_value_make_undefined());
+        spec_invoke1(cap->rejectFn, ts_value_make_undefined(),
+                     exc ? exc : ts_value_make_undefined());
         return cap->promiseObj;
     }
 #ifdef _WIN64
@@ -2415,7 +2428,7 @@ extern "C" TsValue* ts_promise_combinator_spec(int64_t kind, TsValue* C,
     // iterator loop. Throws on abrupt completions (handled by the caller).
     auto processElement = [&](TsValue* item, int64_t i) {
         // r = Call(C.resolve, C, item)
-        TsValue* r = ts_call_with_this_1(resolveMethod, C, item);
+        TsValue* r = spec_invoke1(resolveMethod, C, item);
         void* rRaw = r ? ts_value_get_object(r) : nullptr;
         TsValue* thenM = rRaw ? ts_object_get_property(rRaw, "then") : nullptr;
         if (!thenM || !ts_is_callable((void*)thenM)) {
@@ -2445,7 +2458,7 @@ extern "C" TsValue* ts_promise_combinator_spec(int64_t kind, TsValue* C,
                 onRej = spec_make_native1((void*)spec_any_elem_reject, ec, 1);
             }
         }
-        ts_call_with_this_2(thenM, r, onFul, onRej);
+        spec_invoke2(thenM, r, onFul, onRej);
     };
 
     if (items) {
@@ -2546,15 +2559,15 @@ extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x) {
     }
     SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
     spec_new_capability(C, cap);
-    ts_call_with_this_1(cap->resolveFn, ts_value_make_undefined(),
-                        x ? x : ts_value_make_undefined());
+    spec_invoke1(cap->resolveFn, ts_value_make_undefined(),
+                 x ? x : ts_value_make_undefined());
     return cap->promiseObj;
 }
 extern "C" TsValue* ts_promise_static_reject_spec(TsValue* C, TsValue* r) {
     SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
     spec_new_capability(C, cap);
-    ts_call_with_this_1(cap->rejectFn, ts_value_make_undefined(),
-                        r ? r : ts_value_make_undefined());
+    spec_invoke1(cap->rejectFn, ts_value_make_undefined(),
+                 r ? r : ts_value_make_undefined());
     return cap->promiseObj;
 }
 

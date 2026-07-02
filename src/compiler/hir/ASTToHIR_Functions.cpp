@@ -138,6 +138,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -380,6 +382,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Restore saved function and block
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -645,6 +648,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -786,6 +791,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Restore saved context
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -973,6 +979,18 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             paramName = "param" + std::to_string(func->params.size());
         }
 
+        // Rest parameter (...args): mirror the FunctionDeclaration path —
+        // without this a function EXPRESSION's rest array never packed
+        // (args read as undefined; exposed by Promise combinator tests that
+        // patch Promise.resolve with a (...args) function).
+        if (param->isRest) {
+            func->hasRestParam = true;
+            func->restParamIndex = func->params.size();
+            if (paramType->kind != HIRTypeKind::Array) {
+                paramType = HIRType::makeArray(paramType, false);
+            }
+        }
+
         // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
         if (func->firstNonSimpleParamIndex == SIZE_MAX) {
             bool isDestructured =
@@ -1027,6 +1045,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -1246,6 +1266,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // Restore saved context
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -1448,6 +1469,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // combinator spec-path whose reject-handler vanished).
     int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
+    bool savedWithLexical_fn = withLexical_;
+    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
@@ -1560,6 +1583,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // Restore saved context
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
+    withLexical_ = savedWithLexical_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;
     loopStack_ = savedLoopStack;

@@ -353,6 +353,16 @@ extern "C" {
         if (closure) {
             void* fp = closure->func_ptr;
             if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
+            // A non-method rest-param closure needs argument PACKING — the
+            // padded10 call below passes raw args and the rest array never
+            // materializes (`obj.m = (...args) => {}; obj.m(1)` saw args
+            // undefined). ts_rest_pack_and_call builds the rest array;
+            // thisArg propagates via ts_call_this_value (set above).
+            if (!closure->is_method && closure->rest_param_index >= 0) {
+                TsValue* result = ts_rest_pack_and_call(closure, argc, argv);
+                ts_call_this_value = savedThis;
+                return result;
+            }
             TsValue* result;
             if (closure->is_method) {
                 if ((closure->num_params > 0 ? closure->num_params : closure->arity) >= 11 && (closure->num_params > 0 ? closure->num_params : closure->arity) <= 16)
@@ -1067,6 +1077,17 @@ extern "C" {
         // In this case, call the inner closure's function with thisArg directly
         TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
         if (innerClosure) {
+            // A rest-param closure needs argument PACKING — the raw arity
+            // switch below passes thisArg in the closure slot and drops the
+            // rest array entirely (`Promise.resolve = (...args) => ...`
+            // observed args === undefined). ts_function_call routes through
+            // ts_call_N which honors rest_param_index; thisArg propagates
+            // via ts_call_this_value (set above).
+            if (innerClosure->rest_param_index >= 0) {
+                TsValue* result = ts_function_call(boxedFunc, argc, argv);
+                ts_call_this_value = savedThis;
+                return result;
+            }
             TsValue* result;
             switch (argc) {
                 case 0: {
