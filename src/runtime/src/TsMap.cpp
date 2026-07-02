@@ -1392,7 +1392,13 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     if (kind == 0) { // map
         TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
-        TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(cnt + 1);
+        // Abrupt mapper -> IteratorClose(underlying) + done + rethrow
+        // (iterhelper_call_or_close performs the close-and-rethrow); the
+        // done flag must be set FIRST so a catch-then-next sees exhaustion.
+        setDone();
+        TsValue* mapped = iterhelper_call_or_close(fn, ih_res_value(res), (int64_t)cnt, src);
+        { TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 0; ih_set(it, "__ihdone", d); }
+        setCnt(cnt + 1);
         return ih_make_result(mapped, false);
     }
     if (kind == 1) { // filter
@@ -1400,12 +1406,19 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
             TsValue* res = ih_iter_next(src, srcNext);
             if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
             TsValue* v = ih_res_value(res);
-            bool keep = ts_value_to_bool(iterhelper_call(fn, v, (int64_t)cnt)); setCnt(++cnt);
+            setDone();  // pre-set so an abrupt predicate leaves the helper done
+            bool keep = ts_value_to_bool(iterhelper_call_or_close(fn, v, (int64_t)cnt, src));
+            { TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 0; ih_set(it, "__ihdone", d); }
+            setCnt(++cnt);
             if (keep) return ih_make_result(v, false);
         }
     }
     if (kind == 2) { // take(n)
-        if (cnt >= n) { setDone(); return ih_make_result(nullptr, true); }
+        if (cnt >= n) {
+            setDone();
+            ih_close(src);  // ES 27.1.4.1: limit reached -> IteratorClose
+            return ih_make_result(nullptr, true);
+        }
         TsValue* res = ih_iter_next(src, srcNext);
         if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
         setCnt(cnt + 1);
@@ -1475,11 +1488,26 @@ extern "C" void* ts_iterator_from(void* argRaw) {
     return (void*)make_iter_helper(5, iter, nullptr, 0);
 }
 static TsMap* g_iter_helper_prototype = nullptr;
+// %IteratorHelperPrototype%.return (ES 27.1.4.3.2): mark the helper done and
+// IteratorClose the underlying iterator; returns {value: undefined, done: true}.
+static TsValue* iter_helper_proto_return(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+    TsMap* it = (TsMap*)raw;
+    if (!ih_get(it, "__ihdone").i_val) {
+        TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 1; ih_set(it, "__ihdone", d);
+        TsValue srcT = ih_get(it, "__ihs");
+        if (srcT.type != ValueType::UNDEFINED) ih_close(nanbox_from_tagged(srcT));
+    }
+    return ih_make_result(nullptr, true);
+}
+
 static TsMap* getIterHelperPrototype() {
     if (!g_iter_helper_prototype) {
         ts_gc_push_tenure();
         TsMap* p = TsMap::Create();
         ts_map_addMethod_local(p, "next", (void*)iter_helper_proto_next, 0);
+        ts_map_addMethod_local(p, "return", (void*)iter_helper_proto_return, 0);
         p->SetPrototype(getIteratorPrototype());
         TsValue tk; tk.type = ValueType::STRING_PTR; tk.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
         TsValue tv; tv.type = ValueType::STRING_PTR; tv.ptr_val = TsString::Create("Iterator Helper");
