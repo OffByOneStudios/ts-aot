@@ -3931,6 +3931,19 @@ void* ts_create_arguments_from_params(
             return;
         }
         std::string fieldKey = std::string("\x01") + key;
+        // A primitive/special receiver (undefined = 0xA, null = 0x2, bools,
+        // int32/double nanboxes) is not a heap object — dereferencing +16
+        // below AVs (private-setter-access-on-inner-function crashed with a
+        // captured-undefined receiver). Brand-throw like any receiver that
+        // does not carry the private member.
+        if ((uintptr_t)rawObj < 0x1000 ||
+            (uintptr_t)rawObj > 0x00007FFFFFFFFFFFULL) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Cannot write private member %s to an object whose class did not declare it", key);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return;
+        }
         // A class constructor (TsClosure/TsFunction) is the receiver for STATIC
         // private members (`C.#x = v`) whose hidden-field storage the presence
         // check below can't see — never brand-throw on a constructor; fall through
@@ -3945,9 +3958,22 @@ void* ts_create_arguments_from_params(
         bool hasField = false, hasSetter = false;
         if (rawObj) {
             TsValue* fk = ts_value_make_string(TsString::Create(fieldKey.c_str()));
-            TsValue* sk = ts_value_make_string(TsString::Create((std::string("__setter_") + key).c_str()));
+            std::string setterKey = std::string("__setter_") + key;
+            TsValue* sk = ts_value_make_string(TsString::Create(setterKey.c_str()));
             hasField = ts_object_has_property(rawObj, fk);
             hasSetter = ts_object_has_property(rawObj, sk);
+            if (!hasSetter) {
+                // has_property can't see vtable-installed accessors on flat
+                // class instances; the GET path walks the vtable and the
+                // class prototype (constructorSlot). Without this, a private
+                // SETTER write through a captured receiver brand-threw
+                // ("private-setter-access-on-inner-function"): the field
+                // check missed (accessors have no hidden field) and so did
+                // the has_property setter check.
+                extern TsValue* ts_object_get_property(void* o, const char* k);
+                TsValue* sv = ts_object_get_property(rawObj, setterKey.c_str());
+                if (sv && nanbox_from_tsvalue_ptr(sv) != NANBOX_UNDEFINED) hasSetter = true;
+            }
         }
         if (hasField) {  // write the hidden field slot directly
             ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(fieldKey.c_str())), value);
