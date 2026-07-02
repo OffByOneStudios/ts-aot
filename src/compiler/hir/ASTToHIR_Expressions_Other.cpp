@@ -952,7 +952,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "process", "global", "globalThis", "Symbol", "Map", "Set",
             "WeakMap", "WeakSet", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
-            "TypeError", "URIError", "Function", "console",
+            "TypeError", "URIError", "AggregateError", "Function", "console",
             "parseInt", "parseFloat", "isNaN", "isFinite",
             "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
             "setInterval", "clearInterval", "setTimeout", "clearTimeout",
@@ -1166,7 +1166,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "process", "global", "globalThis", "Symbol", "Map", "Set",
             "WeakMap", "WeakSet", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
-            "TypeError", "URIError", "Function", "Temporal",
+            "TypeError", "URIError", "AggregateError", "Function", "Temporal",
         };
         if (builtinObjects.count(node->name)) {
             lastValue_ = builder_.createLoadGlobal(node->name);

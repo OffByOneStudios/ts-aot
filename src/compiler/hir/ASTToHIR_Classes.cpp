@@ -124,6 +124,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 break;
             }
         }
+        // Heritage that isn't a user class (extends Set / Error / ...):
+        // remember the NAME so the class flush can link the prototype
+        // chain to the builtin at runtime.
+        if (!hirClass->baseClass) hirClass->baseBuiltinName = node->baseClass;
     }
 
     // Create class shape (layout of instance properties)
@@ -756,7 +760,9 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             lastValue_ = builder_.createLoadFunction(hirClass->name + "_constructor");
         }
         // Set up prototype object with instance methods for dynamic dispatch.
-        if (!hirClass->methods.empty() || !hirClass->computedAccessors.empty()) {
+        // Always build (even for an empty class body) so `A.prototype`, the
+        // constructor backref, and instanceof via the prototype walk hold.
+        {
             auto ctorVal = lastValue_;
             auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
@@ -767,6 +773,27 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
             installClassMember(proto, "constructor", ctorVal);
             emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+            // `extends` linkage (ES 15.7.14): C.prototype.[[Proto]] =
+            // Base.prototype (user class or builtin). Mirrors
+            // emitDeferredStaticInits — the trailer rebuild would otherwise
+            // drop the chain for in-function class expressions.
+            if (hirClass->baseClass) {
+                std::string baseCtorName = hirClass->baseClass->constructor
+                    ? hirClass->baseClass->constructor->name
+                    : hirClass->baseClass->name + "_constructor";
+                auto baseCtorVal = builder_.createLoadFunction(baseCtorName);
+                auto basePropName = builder_.createConstString("prototype");
+                auto baseProtoVal = builder_.createCall("ts_object_get_dynamic",
+                    {baseCtorVal, basePropName}, HIRType::makeAny());
+                builder_.createCall("ts_object_setPrototypeOf",
+                    {proto, baseProtoVal}, HIRType::makeVoid());
+                builder_.createCall("ts_object_setPrototypeOf",
+                    {ctorVal, baseCtorVal}, HIRType::makeVoid());
+            } else if (!hirClass->baseBuiltinName.empty()) {
+                auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
+                builder_.createCall("ts_class_link_builtin_base",
+                    {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+            }
         }
         // Install static methods on the constructor for dynamic access.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
@@ -817,6 +844,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 break;
             }
         }
+        // Heritage that isn't a user class (extends Set / Error / ...):
+        // remember the NAME so the class flush can link the prototype
+        // chain to the builtin at runtime.
+        if (!hirClass->baseClass) hirClass->baseBuiltinName = node->baseClass;
     }
 
     // Create class shape (layout of instance properties)
@@ -1374,12 +1405,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // from the spec body when they have a class-expression initializer,
     // so the cache-fast-path's IR emission never happens.
     if (!currentFunction_) {
-        if (!hirClass->methods.empty() || !hirClass->staticMethods.empty() ||
-            !hirClass->computedAccessors.empty()) {
-            bool already = false;
-            for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
-            if (!already) deferredClassPrototypes_.push_back(hirClass);
-        }
+        // Every class-expression needs the deferred prototype init — even an
+        // empty body (`const A = class {}`) needs A.prototype, the
+        // constructor backref, and `extends` linkage for instanceof.
+        bool already = false;
+        for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
+        if (!already) deferredClassPrototypes_.push_back(hirClass);
         return;
     }
 
@@ -1398,10 +1429,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // calls go through ts_object_get_property -> prototype chain lookup.
     // Build the prototype when there are instance methods OR computed-name
     // accessors (the latter aren't in the static `methods` map).
-    if (!hirClass->methods.empty() || !hirClass->computedAccessors.empty()) {
+    {
         auto ctorVal = lastValue_;
 
-        // Create prototype TsMap
+        // Create prototype TsMap — always, even for an empty class body, so
+        // `A.prototype` / constructor backref / instanceof-walk all hold.
         auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
 
         // Populate prototype with instance methods
@@ -1427,6 +1459,27 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         // Computed-name accessors install inline here (the prototype is rebuilt
         // at this point, which would clobber a deferred install).
         emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+        // `extends` linkage (ES 15.7.14): C.prototype.[[Proto]] =
+        // Base.prototype (user class or builtin). Mirrors
+        // emitDeferredStaticInits — the trailer rebuild would otherwise
+        // drop the chain for in-function class expressions.
+        if (hirClass->baseClass) {
+            std::string baseCtorName = hirClass->baseClass->constructor
+                ? hirClass->baseClass->constructor->name
+                : hirClass->baseClass->name + "_constructor";
+            auto baseCtorVal = builder_.createLoadFunction(baseCtorName);
+            auto basePropName = builder_.createConstString("prototype");
+            auto baseProtoVal = builder_.createCall("ts_object_get_dynamic",
+                {baseCtorVal, basePropName}, HIRType::makeAny());
+            builder_.createCall("ts_object_setPrototypeOf",
+                {proto, baseProtoVal}, HIRType::makeVoid());
+            builder_.createCall("ts_object_setPrototypeOf",
+                {ctorVal, baseCtorVal}, HIRType::makeVoid());
+        } else if (!hirClass->baseBuiltinName.empty()) {
+            auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
+            builder_.createCall("ts_class_link_builtin_base",
+                {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+        }
     }
     // Install static methods on the constructor itself so dynamic-dispatch
     // access like `F.method()` resolves correctly when `F` is a class-

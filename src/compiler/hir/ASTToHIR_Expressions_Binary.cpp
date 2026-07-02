@@ -185,8 +185,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         if (ident) {
             // Check for built-in types like Array
             if (ident->name == "Array") {
-                // Arrays have a specific check using ts_array_is_array
-                lastValue_ = builder_.createCall("ts_array_is_array", {lhs}, HIRType::makeBool());
+                // Real arrays match by magic; a `class C extends Array`
+                // instance matches via the prototype-chain walk.
+                lastValue_ = builder_.createCall("ts_instanceof_array",
+                    {boxValueIfNeeded(lhs)}, HIRType::makeBool());
                 return;
             }
 

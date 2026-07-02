@@ -1038,6 +1038,8 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_SyntaxError";
     } else if (globalName == "URIError") {
         funcName = "ts_get_global_URIError";
+    } else if (globalName == "AggregateError") {
+        funcName = "ts_get_global_AggregateError";
     } else if (globalName == "EvalError") {
         funcName = "ts_get_global_EvalError";
     } else if (globalName == "ArrayBuffer") {
