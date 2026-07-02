@@ -6207,6 +6207,25 @@ void* ts_get_global(void* namePtr) {
 // name throws. nameStr is a TsString*. Throws via a CALL (not an IR
 // terminator), so it is valid mid-expression like `null.foo`. Returns undefined
 // on the unreachable fallthrough after ts_throw longjmps.
+// ES temporal dead zone. The compiler pre-declares function-level `let`/
+// `const` slots to NANBOX_TDZ and wraps reads of those bindings in this
+// check; the declaration's own store replaces the sentinel with the real
+// value (or undefined for `let x;`), after which the check is a no-op.
+void* ts_tdz_sentinel() {
+    return (void*)(uintptr_t)NANBOX_TDZ;
+}
+
+void* ts_tdz_check(void* v, void* nameStr) {
+    if ((uint64_t)(uintptr_t)v == NANBOX_TDZ) {
+        const char* n = nameStr ? ((TsString*)nameStr)->ToUtf8() : nullptr;
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Cannot access '%s' before initialization",
+                 n ? n : "variable");
+        ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+    }
+    return v;
+}
+
 void* ts_resolve_identifier_or_throw(void* nameStr) {
     void* builtin = ts_get_builtin_function(nameStr);
     if (builtin) return builtin;

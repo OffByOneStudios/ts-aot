@@ -173,12 +173,27 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
         } else if (info->value) {
             fallback = info->value;
         }
-        return builder_.createLoadCaptureFromClosure(closureVal, info->captureIndex, type, fallback);
+        auto cellVal = builder_.createLoadCaptureFromClosure(closureVal, info->captureIndex, type, fallback);
+        if (info->isTDZ && type->kind == HIRTypeKind::Any) {
+            auto nameC = builder_.createConstString(name);
+            cellVal = builder_.createCall("ts_tdz_check", {cellVal, nameC}, HIRType::makeAny());
+        }
+        return cellVal;
     }
 
     if (info->isAlloca && info->elemType) {
         // Emit a load for alloca-stored variables
-        return builder_.createLoad(info->elemType, info->value);
+        auto loaded = builder_.createLoad(info->elemType, info->value);
+        // TDZ: a pre-declared let/const read before its declaration holds the
+        // sentinel; ts_tdz_check throws ReferenceError (no-op afterwards).
+        // Any-typed slots only: once the declaration narrows elemType to a
+        // typed form the value is provably initialized, and wrapping a typed
+        // load in the Any-returning check corrupted typed code (golden-ir).
+        if (info->isTDZ && info->elemType->kind == HIRTypeKind::Any) {
+            auto nameC = builder_.createConstString(name);
+            loaded = builder_.createCall("ts_tdz_check", {loaded, nameC}, HIRType::makeAny());
+        }
+        return loaded;
     }
     return info->value;
 }

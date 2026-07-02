@@ -496,9 +496,44 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
 
-            // Lower method body
-            for (auto& stmt : methodDef->body) {
-                lowerStatement(stmt.get());
+            // Lower method body with JavaScript hoisting: var pre-declaration,
+            // let/const TDZ pre-declaration, nested function-name hoist, and a
+            // two-pass walk (function declarations first) — mirrors the
+            // spec-function body lowering in ASTToHIR.cpp. Without this a
+            // nested function declaration captured nothing (`let self = this;
+            // function inner(){ self.#m = v; }` read `self` as undefined).
+            {
+                std::vector<std::string> mHoisted;
+                for (auto& stmt : methodDef->body)
+                    collectHoistedVarNames(stmt.get(), mHoisted);
+                for (auto& nm : mHoisted) {
+                    if (lookupVariableInfoInCurrentFunction(nm)) continue;
+                    auto a = builder_.createAlloca(HIRType::makeAny(), nm);
+                    builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
+                    defineVariableAlloca(nm, a, HIRType::makeAny());
+                }
+                for (auto& stmt : methodDef->body) {
+                    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+                        auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get());
+                        if (!idn) continue;
+                        if (lookupVariableInfoInCurrentFunction(idn->name)) continue;
+                        auto a = builder_.createAlloca(HIRType::makeAny(), idn->name);
+                        auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+                        builder_.createStore(tdz, a, HIRType::makeAny());
+                        defineVariableAlloca(idn->name, a, HIRType::makeAny());
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(idn->name)) vi->isTDZ = true;
+                    }
+                }
+                for (auto& stmt : methodDef->body)
+                    if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get()))
+                        lowerStatement(stmt.get());
+                emitMutualRecursionFixup();
+                for (auto& stmt : methodDef->body) {
+                    if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) continue;
+                    lowerStatement(stmt.get());
+                    if (builder_.isBlockTerminated()) break;
+                }
             }
 
             // Add implicit return if no terminator
@@ -1143,9 +1178,44 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 }
             }
 
-            // Lower method body
-            for (auto& stmt : methodDef->body) {
-                lowerStatement(stmt.get());
+            // Lower method body with JavaScript hoisting: var pre-declaration,
+            // let/const TDZ pre-declaration, nested function-name hoist, and a
+            // two-pass walk (function declarations first) — mirrors the
+            // spec-function body lowering in ASTToHIR.cpp. Without this a
+            // nested function declaration captured nothing (`let self = this;
+            // function inner(){ self.#m = v; }` read `self` as undefined).
+            {
+                std::vector<std::string> mHoisted;
+                for (auto& stmt : methodDef->body)
+                    collectHoistedVarNames(stmt.get(), mHoisted);
+                for (auto& nm : mHoisted) {
+                    if (lookupVariableInfoInCurrentFunction(nm)) continue;
+                    auto a = builder_.createAlloca(HIRType::makeAny(), nm);
+                    builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
+                    defineVariableAlloca(nm, a, HIRType::makeAny());
+                }
+                for (auto& stmt : methodDef->body) {
+                    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+                        auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get());
+                        if (!idn) continue;
+                        if (lookupVariableInfoInCurrentFunction(idn->name)) continue;
+                        auto a = builder_.createAlloca(HIRType::makeAny(), idn->name);
+                        auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+                        builder_.createStore(tdz, a, HIRType::makeAny());
+                        defineVariableAlloca(idn->name, a, HIRType::makeAny());
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(idn->name)) vi->isTDZ = true;
+                    }
+                }
+                for (auto& stmt : methodDef->body)
+                    if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get()))
+                        lowerStatement(stmt.get());
+                emitMutualRecursionFixup();
+                for (auto& stmt : methodDef->body) {
+                    if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) continue;
+                    lowerStatement(stmt.get());
+                    if (builder_.isBlockTerminated()) break;
+                }
             }
 
             // Add implicit return if no terminator

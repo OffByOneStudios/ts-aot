@@ -1111,6 +1111,14 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             currentFunction_->hasClosure = true;
             // Use LoadCapture for captured variables
             lastValue_ = builder_.createLoadCapture(node->name, type);
+            // TDZ: a captured let/const read before its declaration initializes
+            // (`function f(){ return x; } f(); let x;`) throws ReferenceError.
+            // Any-typed only (see lookupVariable).
+            if (info->isTDZ && type->kind == HIRTypeKind::Any) {
+                auto nameC = builder_.createConstString(node->name);
+                lastValue_ = builder_.createCall("ts_tdz_check",
+                    {lastValue_, nameC}, HIRType::makeAny());
+            }
             return;
         }
     }

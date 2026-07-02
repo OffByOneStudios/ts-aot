@@ -1006,8 +1006,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     if (!ident) continue;
                     if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
                     auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                    builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+                    // TDZ sentinel: read-before-declaration throws (ts_tdz_check).
+                    auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+                    builder_.createStore(tdz, allocaVal, HIRType::makeAny());
                     defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+                    if (auto* vi = lookupVariableInfoInCurrentFunction(ident->name)) vi->isTDZ = true;
                 }
             }
 
@@ -1432,6 +1435,23 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     auto a = builder_.createAlloca(HIRType::makeAny(), name);
                     builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
                     defineVariableAlloca(name, a, HIRType::makeAny());
+                }
+                // Top-level let/const: TDZ sentinel pre-declaration so nested
+                // function declarations capture them (mirrors the function
+                // paths; `let self = this; function inner(){ self.#m = v; }`
+                // in a class-expression method read `self` as undefined).
+                for (auto& stmt : methodNode->body) {
+                    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+                        auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+                        if (!ident) continue;
+                        if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
+                        auto a = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                        auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+                        builder_.createStore(tdz, a, HIRType::makeAny());
+                        defineVariableAlloca(ident->name, a, HIRType::makeAny());
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(ident->name)) vi->isTDZ = true;
+                    }
                 }
             }
 

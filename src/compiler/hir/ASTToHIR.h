@@ -89,6 +89,10 @@ private:
         // Closure capture tracking: when a variable is captured by a nested function,
         // we need to also access it via the closure's cell in the outer function.
         bool isCapturedByNested = false;
+        // Pre-declared `let`/`const` slot holding the TDZ sentinel until its
+        // declaration runs; reads are wrapped in ts_tdz_check (ReferenceError
+        // on read-before-initialization).
+        bool isTDZ = false;
         // The closure that owns the cell. Kept as a single ptr for the
         // primary capturer (used by READ sites — any cell is fine since all
         // copies are kept in sync by writes). The full list of all closures
