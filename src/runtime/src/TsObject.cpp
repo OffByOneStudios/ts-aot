@@ -606,6 +606,8 @@ bool parse_canonical_array_index(const char* s, int64_t* out);
 // data prop on a nearer prototype must win over an inherited getter), so the
 // two lookups stay interleaved exactly as the originals had them.
 static TsValue* invoke_accessor_getter(TsValue* getterFunc, TsValue* thisObj);
+static TsValue* ts_array_proto_delegate_get(void* arrNode, const char* keyStr,
+                                            void* receiver);
 static bool resolve_map_chain_get(TsMap* start, const char* key,
                                   TsValue* thisArg, TsValue** out) {
     if (!start || !key) return false;
@@ -627,6 +629,15 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
             return true;
         }
         pm = pm->GetPrototype();
+        if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto*/) {
+            // ARRAY as [[Prototype]]: delegate to the array's lookup with
+            // methods rebound to the original receiver (thisArg).
+            void* recv = thisArg ? ts_value_get_object(thisArg) : nullptr;
+            if (!recv) recv = (void*)thisArg;
+            TsValue* dvv = ts_array_proto_delegate_get((void*)pm, key, recv);
+            if (dvv && !ts_value_is_undefined(dvv)) { *out = dvv; return true; }
+            return false;
+        }
     }
     return false;
 }
@@ -651,6 +662,7 @@ static bool dispatch_map_chain_set(TsMap* start, const char* key,
             return true;
         }
         pm = pm->GetPrototype();
+        if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto: stop*/) pm = nullptr;
     }
     return false;
 }
@@ -676,6 +688,7 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
             return true;
         }
         pm = pm->GetPrototype();
+        if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto: stop*/) pm = nullptr;
     }
     return false;
 }
@@ -1639,6 +1652,37 @@ void* ts_create_arguments_from_params(
             }
         }
         return ts_object_get_property(protoRaw, keyStr);  // method / data property
+    }
+
+    // ARRAY-as-[[Prototype]] delegation: resolve `key` through the array's
+    // own lookup (indices, length, Array.prototype methods), but REBIND any
+    // method whose context got baked to the prototype array — `this` must be
+    // the ORIGINAL receiver (`f.reduce(...)` with `foo.prototype = [1,2,3]`
+    // otherwise reduced the prototype array).
+    static TsValue* ts_array_proto_delegate_get(void* arrNode, const char* keyStr,
+                                                void* receiver) {
+        TsValue* dv = ts_object_get_property(arrNode, keyStr);
+        if (dv && receiver) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(dv);
+            if (nanbox_is_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                if (raw && (uintptr_t)raw > 0x1000 &&
+                    *(uint32_t*)((char*)raw + 16) == 0x46554E43 /*FUNC*/) {
+                    TsFunction* f = (TsFunction*)raw;
+                    if (f->context == arrNode) {
+                        TsValue* re = ts_value_make_native_function(f->funcPtr, receiver);
+                        TsFunction* rf = (TsFunction*)ts_value_get_object(re);
+                        if (!rf) rf = (TsFunction*)re;
+                        rf->name = f->name;
+                        rf->arity = f->arity;
+                        rf->is_constructor = f->is_constructor;
+                        rf->keep_context = true;  // receiver IS the context
+                        return re;
+                    }
+                }
+            }
+        }
+        return dv;
     }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
@@ -2774,6 +2818,12 @@ void* ts_create_arguments_from_params(
                         return nanbox_from_tagged(val);
                     }
                     currentMap = currentMap->GetPrototype();
+                    if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
+                        // A real ARRAY as [[Prototype]] (subclassed-Array
+                        // pattern): delegate to the array's resolution with
+                        // methods REBOUND to the original receiver.
+                        return ts_array_proto_delegate_get((void*)currentMap, keyStr, obj);
+                    }
                     __clsr_iter++;
                 }
             }
@@ -2907,6 +2957,12 @@ void* ts_create_arguments_from_params(
                         return nanbox_from_tagged(val);
                     }
                     currentMap = currentMap->GetPrototype();
+                    if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
+                        // A real ARRAY as [[Prototype]] (subclassed-Array
+                        // pattern): delegate to the array's resolution with
+                        // methods REBOUND to the original receiver.
+                        return ts_array_proto_delegate_get((void*)currentMap, keyStr, obj);
+                    }
                 }
             }
         }
@@ -4817,6 +4873,18 @@ void* ts_create_arguments_from_params(
                 break;  // Found the property
             }
             currentMap = currentMap->GetPrototype();
+            if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
+                // ARRAY as [[Prototype]]: delegate with method rebinding.
+                const char* dk = nullptr;
+                if (keyVal.type == ValueType::STRING_PTR && keyVal.ptr_val)
+                    dk = ((TsString*)keyVal.ptr_val)->ToUtf8();
+                TsValue* dv = dk
+                    ? ts_array_proto_delegate_get((void*)currentMap, dk, rawObj)
+                    : ts_object_get_dynamic((TsValue*)currentMap,
+                                            nanbox_from_tagged(keyVal));
+                if (dv) result = nanbox_to_tagged(dv);
+                break;
+            }
         }
 
         if (result.type == ValueType::UNDEFINED) {
@@ -5708,6 +5776,7 @@ void* ts_create_arguments_from_params(
                         break;  // writable: fall through to set
                     }
                     chain = chain->GetPrototype();
+                    if (chain && *(uint32_t*)chain == 0x41525259 /*ARRY: stop*/) chain = nullptr;
                 }
             }
 
@@ -5966,6 +6035,11 @@ void* ts_create_arguments_from_params(
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
+                if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
+                    // ARRAY as [[Prototype]]: delegate.
+                    return ts_object_has_property((void*)currentMap,
+                                                  (void*)nanbox_from_tagged(keyVal));
+                }
             }
             // Inherited from Object.prototype if the chain didn't already
             // include it (plain `{}`-style TsMaps don't link to a materialized
@@ -7483,6 +7557,7 @@ void* ts_create_arguments_from_params(
                     return ts_value_make_string(TsString::Create(out.c_str()));
                 }
                 cur = cur->GetPrototype();
+                if (cur && *(uint32_t*)cur == 0x41525259 /*ARRY: stop*/) cur = nullptr;
             }
         }
 

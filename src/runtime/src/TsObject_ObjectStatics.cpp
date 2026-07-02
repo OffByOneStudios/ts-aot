@@ -993,6 +993,13 @@ extern "C" {
             }
 
             objMap->SetPrototype(protoMap);
+        } else if (*(uint32_t*)protoRaw == 0x41525259 /*ARRY*/) {
+            // A real ARRAY as [[Prototype]] (`Foo.prototype = new Array(...)`,
+            // the test262 subclassed-Array pattern). Store the array pointer
+            // in the prototype slot; the property-get/has walks detect the
+            // ARRY magic and delegate to the array's own lookup (indices,
+            // length, Array.prototype methods).
+            objMap->SetPrototype((TsMap*)protoRaw);
         }
 
         return obj;
