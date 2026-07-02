@@ -241,6 +241,8 @@ static void* reflect_require_object(void* targetArg, const char* msg) {
     return t;
 }
 
+extern "C" uint8_t ts_integrity_get(void* raw);
+
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.isExtensible called on non-object");
@@ -253,7 +255,8 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
     if (obj) {
         return obj->IsExtensible() ? 1 : 0;
     }
-    return 1;  // Default: objects are extensible
+    // Exotic objects: consult the weak integrity side-table.
+    return ts_integrity_get(target) == 0 ? 1 : 0;
 }
 
 extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
