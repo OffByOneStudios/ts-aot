@@ -2007,46 +2007,98 @@ extern "C" {
 // plain function VALUE with [[Construct]] absent (is_constructor=false: the
 // eval stub, builtin prototype methods) — object receivers (the Promise
 // constructor map, subclasses) and user closures keep the lenient behavior.
-static bool promise_receiver_is_non_ctor() {
-    TsValue* t = (TsValue*)ts_get_call_this();
+// Receiver discrimination for the combinator wrappers. The CONTEXT param is
+// per-dispatch: a with-this call (method call, .call/.apply) carries the
+// actual receiver via maybe_override_context; some plain dispatches carry the
+// wrapper FUNCTION OBJECT itself. The ambient ts_get_call_this() register is
+// NOT usable (stale values from unrelated calls leak through plain calls).
+// `selfFnPtr` is the wrapper's own native entry — ctx pointing back at self
+// means "no explicit receiver" -> builtin fast path.
+static TsFunction* promise_receiver_fn(void* ctx, void* selfFnPtr) {
+    TsValue* t = (TsValue*)ctx;
+    if (!t) return nullptr;
+    void* raw = ts_value_get_object(t);
+    if (!raw) return nullptr;
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 != 0x46554E43 /*FUNC*/) return nullptr;
+    TsFunction* f = (TsFunction*)raw;
+    if (f->funcPtr == selfFnPtr) return nullptr;  // self: plain method call
+    return f;
+}
+// NewPromiseCapability step 1: a receiver that is a function VALUE without
+// [[Construct]] (eval stub, builtin prototype methods) throws TypeError.
+static bool promise_receiver_is_non_ctor(void* ctx, void* selfFnPtr) {
+    TsValue* t = (TsValue*)ctx;
     if (!t) return false;
     if (ts_extract_closure(t)) return false;
-    TsFunction* f = ts_extract_function(t);
+    TsFunction* f = promise_receiver_fn(ctx, selfFnPtr);
     return f && !f->is_constructor;
 }
 static void promise_throw_non_ctor() {
     ts_throw((TsValue*)ts_error_create_typed("TypeError",
         "Promise combinator called on a non-constructor"));
 }
+extern "C" TsValue* ts_promise_combinator_spec(int64_t kind, TsValue* C, TsValue* iterable);
+extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x);
+extern "C" TsValue* ts_promise_static_reject_spec(TsValue* C, TsValue* r);
+extern "C" bool ts_is_callable(void* val);
+void* ts_get_global_Promise();
+static TsValue* promise_custom_receiver(void* ctx, void* selfFnPtr) {
+    TsValue* t = (TsValue*)ctx;
+    if (!t) return nullptr;
+    if (!ts_is_callable((void*)t)) return nullptr;
+    if (ts_extract_closure(t)) return t;             // user function / class ctor
+    TsFunction* f = promise_receiver_fn(ctx, selfFnPtr);
+    if (!f) return nullptr;                          // self or non-function
+    return t;
+}
 
 static TsValue* promise_resolve_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_resolve_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_resolve_native)) {
+        return ts_promise_static_resolve_spec(C, v);
+    }
     return ts_promise_resolve(nullptr, v);
 }
 static TsValue* promise_reject_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_reject_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_reject_native)) {
+        return ts_promise_static_reject_spec(C, v);
+    }
     return ts_promise_reject(nullptr, v);
 }
 static TsValue* promise_all_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_all_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_all_native)) {
+        return ts_promise_combinator_spec(0, C, v);
+    }
     return ts_promise_all(v);
 }
 static TsValue* promise_race_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_race_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_race_native)) {
+        return ts_promise_combinator_spec(2, C, v);
+    }
     return ts_promise_race(v);
 }
 static TsValue* promise_allSettled_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_allSettled_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_allSettled_native)) {
+        return ts_promise_combinator_spec(1, C, v);
+    }
     return ts_promise_allSettled(v);
 }
 static TsValue* promise_any_native(void* ctx, int argc, TsValue** argv) {
-    if (promise_receiver_is_non_ctor()) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_any_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_any_native)) {
+        return ts_promise_combinator_spec(3, C, v);
+    }
     return ts_promise_any(v);
 }
 

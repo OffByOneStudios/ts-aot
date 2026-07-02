@@ -130,6 +130,14 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Save current function AND current block (needed for nested functions in try/catch)
     HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -371,6 +379,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Restore saved function and block
     currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -628,6 +637,14 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -768,6 +785,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
     // Restore saved context
     currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -1001,6 +1019,14 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -1219,6 +1245,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
 
     // Restore saved context
     currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -1413,6 +1440,14 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
@@ -1524,6 +1559,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 
     // Restore saved context
     currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;
     loopStack_ = savedLoopStack;

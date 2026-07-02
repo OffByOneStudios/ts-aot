@@ -361,6 +361,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Save current function and create entry block
             HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -549,6 +557,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Restore saved function
             currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -632,6 +641,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // Create entry block
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
             HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -676,6 +693,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             popScope();
             currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1070,6 +1088,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Save current function and create entry block
             HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -1258,6 +1284,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Restore saved function
             currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1334,6 +1361,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Create entry block
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
             HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -1372,6 +1407,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             popScope();
             currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);

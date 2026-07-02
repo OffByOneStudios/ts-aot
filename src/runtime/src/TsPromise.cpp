@@ -2138,7 +2138,10 @@ static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
         iterSave = iter;
         TsValue* nextFn = ts_object_get_property(iterRaw, "next");
         for (int64_t guard = 0; ; guard++) {
-            if (guard >= 100000) {
+            // 10k (was 100k): a runaway iterator (the invoke-then-*-close
+            // tests loop `done:false` forever) must fail FAST — at 100k the
+            // drain plus per-item processing blew past the suite timeout.
+            if (guard >= 10000) {
                 ts_pop_exception_handler();
                 ts_promise_reject_internal(mainPromise,
                     (TsValue*)ts_error_create_typed("TypeError",
@@ -2184,6 +2187,375 @@ static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
         ts_promise_reject_internal(mainPromise, exc);
         return false;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Stage A3: spec-shaped combinator path for CUSTOM receivers.
+// `Promise.all.call(C, iterable)` / `SubPromise.race(...)` must honor the
+// full receiver protocol: NewPromiseCapability(C) constructs C(executor);
+// each element goes through Call(Get(C,"resolve"), C, item) and then
+// Call(Get(r,"then"), r, onFulfilled, onRejected). The builtin receiver
+// keeps the existing fast native path (TsGlobals wrappers dispatch).
+// ---------------------------------------------------------------------------
+extern "C" TsValue* ts_call_with_this_0(TsValue*, TsValue*);
+extern "C" TsValue* ts_call_with_this_1(TsValue*, TsValue*, TsValue*);
+extern "C" TsValue* ts_call_with_this_2(TsValue*, TsValue*, TsValue*, TsValue*);
+extern "C" bool ts_is_callable(void* val);
+extern "C" TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
+extern "C" TsValue* ts_object_get_property(void* o, const char* k);
+extern "C" bool ts_value_is_nullish(TsValue* v);
+extern "C" bool ts_value_to_bool(TsValue* v);
+extern "C" void* ts_value_get_string(TsValue* v);  // returns flattened TsString*
+
+struct SpecCapability {
+    TsValue* promiseObj;
+    TsValue* resolveFn;
+    TsValue* rejectFn;
+};
+struct SpecCapExecCtx { SpecCapability* cap; };
+
+static TsValue* spec_make_native1(void* fnPtr, void* ctx, int arity) {
+    TsValue* fn = ts_value_make_native_function(fnPtr, ctx);
+    void* raw = ts_value_get_object(fn);
+    if (raw) {
+        TsFunction* f = ts_cast<TsFunction>(raw);
+        if (f) {
+            f->keep_context = true;
+            f->is_constructor = false;
+            f->arity = arity;
+        }
+    }
+    return fn;
+}
+
+// 27.2.1.5.1 GetCapabilitiesExecutor: stores (resolve, reject) once; a second
+// invocation (either slot already set) throws TypeError.
+static TsValue* spec_capability_executor(void* ctx, int argc, TsValue** argv) {
+    SpecCapExecCtx* c = (SpecCapExecCtx*)ctx;
+    if (!c || !c->cap) return ts_value_make_undefined();
+    if (c->cap->resolveFn || c->cap->rejectFn) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise executor has already been invoked"));
+    }
+    c->cap->resolveFn = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
+    c->cap->rejectFn  = (argc > 1 && argv) ? argv[1] : ts_value_make_undefined();
+    return ts_value_make_undefined();
+}
+
+// 27.2.1.5 NewPromiseCapability(C). Throws (propagates) on a non-conforming
+// receiver — matching the spec's synchronous TypeErrors.
+static void spec_new_capability(TsValue* C, SpecCapability* cap) {
+    cap->promiseObj = nullptr;
+    cap->resolveFn = nullptr;
+    cap->rejectFn = nullptr;
+    SpecCapExecCtx* ec = (SpecCapExecCtx*)ts_alloc(sizeof(SpecCapExecCtx));
+    ec->cap = cap;
+    TsValue* execFn = spec_make_native1((void*)spec_capability_executor, ec, 2);
+    TsValue* args[1] = { execFn };
+    cap->promiseObj = ts_new_from_constructor(C, 1, args);
+    if (!cap->resolveFn || !ts_is_callable((void*)cap->resolveFn) ||
+        !cap->rejectFn || !ts_is_callable((void*)cap->rejectFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise capability resolve or reject is not callable"));
+    }
+}
+
+enum SpecCombKind { SPEC_ALL = 0, SPEC_ALLSETTLED = 1, SPEC_RACE = 2, SPEC_ANY = 3 };
+
+struct SpecAllState {
+    SpecCapability* cap;
+    TsArray* results;   // all: values; allSettled: status objects; any: errors
+    int64_t remaining;
+    int64_t kind;
+};
+struct SpecElemCtx {
+    SpecAllState* st;
+    int64_t index;
+    bool called;
+};
+
+static void spec_state_finish_fulfill(SpecAllState* st) {
+    TsValue* arr = ts_value_make_array(st->results);
+    ts_call_with_this_1(st->cap->resolveFn, ts_value_make_undefined(), arr);
+}
+static void spec_state_finish_any_reject(SpecAllState* st) {
+    extern TsValue* ts_error_create_aggregate(TsValue* errors, TsValue* message);
+    TsValue* agg = ts_error_create_aggregate(
+        ts_value_make_array(st->results),
+        ts_value_make_string(TsString::Create("All promises were rejected")));
+    ts_call_with_this_1(st->cap->rejectFn, ts_value_make_undefined(), agg);
+}
+
+static TsValue* spec_all_elem_resolve(void* ctx, int argc, TsValue** argv) {
+    SpecElemCtx* e = (SpecElemCtx*)ctx;
+    if (!e || e->called) return ts_value_make_undefined();
+    e->called = true;
+    TsValue* v = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
+    e->st->results->Set(e->index, (int64_t)(v ? v : ts_value_make_undefined()));
+    if (--e->st->remaining == 0) spec_state_finish_fulfill(e->st);
+    return ts_value_make_undefined();
+}
+
+static TsValue* spec_settled_make_status(bool fulfilled, TsValue* v) {
+    TsMap* obj = TsMap::Create();
+    TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned("status");
+    TsValue sv; sv.type = ValueType::STRING_PTR;
+    sv.ptr_val = TsString::Create(fulfilled ? "fulfilled" : "rejected");
+    obj->Set(sk, sv);
+    TsValue vk; vk.type = ValueType::STRING_PTR;
+    vk.ptr_val = TsString::GetInterned(fulfilled ? "value" : "reason");
+    obj->Set(vk, v ? nanbox_to_tagged(v) : TsValue());
+    return ts_value_make_object(obj);
+}
+
+static TsValue* spec_settled_elem_resolve(void* ctx, int argc, TsValue** argv) {
+    SpecElemCtx* e = (SpecElemCtx*)ctx;
+    if (!e || e->called) return ts_value_make_undefined();
+    e->called = true;
+    TsValue* v = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
+    e->st->results->Set(e->index, (int64_t)spec_settled_make_status(true, v));
+    if (--e->st->remaining == 0) spec_state_finish_fulfill(e->st);
+    return ts_value_make_undefined();
+}
+static TsValue* spec_settled_elem_reject(void* ctx, int argc, TsValue** argv) {
+    SpecElemCtx* e = (SpecElemCtx*)ctx;
+    if (!e || e->called) return ts_value_make_undefined();
+    e->called = true;
+    TsValue* v = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
+    e->st->results->Set(e->index, (int64_t)spec_settled_make_status(false, v));
+    if (--e->st->remaining == 0) spec_state_finish_fulfill(e->st);
+    return ts_value_make_undefined();
+}
+
+static TsValue* spec_any_elem_reject(void* ctx, int argc, TsValue** argv) {
+    SpecElemCtx* e = (SpecElemCtx*)ctx;
+    if (!e || e->called) return ts_value_make_undefined();
+    e->called = true;
+    TsValue* v = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
+    e->st->results->Set(e->index, (int64_t)(v ? v : ts_value_make_undefined()));
+    if (--e->st->remaining == 0) spec_state_finish_any_reject(e->st);
+    return ts_value_make_undefined();
+}
+
+extern "C" TsValue* ts_promise_combinator_spec(int64_t kind, TsValue* C,
+                                               TsValue* iterableVal) {
+    SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
+    // Synchronous per spec: NewPromiseCapability throws OUT of the combinator.
+    spec_new_capability(C, cap);
+
+    // From here every abrupt completion rejects through the capability
+    // (IfAbruptRejectPromise) and returns cap->promiseObj.
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ts_call_with_this_1(cap->rejectFn, ts_value_make_undefined(),
+                            exc ? exc : ts_value_make_undefined());
+        return cap->promiseObj;
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+
+    // GetPromiseResolve(C) — fetched ONCE before iteration (the
+    // invoke-resolve-get-once tests observe the property read count).
+    void* rawC = ts_value_get_object(C);
+    if (!rawC) rawC = (void*)C;
+    TsValue* resolveMethod = ts_object_get_property(rawC, "resolve");
+    if (!resolveMethod || !ts_is_callable((void*)resolveMethod)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise resolve is not a function"));
+    }
+
+    // Streaming iteration per spec: each iterator step is followed by the
+    // element protocol (C.resolve -> then). An abrupt completion during
+    // ELEMENT processing performs IteratorClose (calls the iterator's
+    // `return` method) before rejecting — the invoke-then-*-close tests
+    // observe the return() call count.
+    TsValue iterTagged = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
+    void* rawIt = (iterTagged.type == ValueType::OBJECT_PTR ||
+                   iterTagged.type == ValueType::ARRAY_PTR) ? iterTagged.ptr_val : nullptr;
+
+    SpecAllState* st = (SpecAllState*)ts_alloc(sizeof(SpecAllState));
+    st->cap = cap;
+    st->results = TsArray::Create();
+    st->remaining = 1;  // spec counter starts at 1
+    st->kind = kind;
+
+    // Fast paths that need no iterator-close semantics: a plain TsArray, or
+    // a STRING (ES string iteration: one element per code point).
+    TsArray* items = nullptr;
+    if (rawIt && ts_is_unchecked<TsArray>(rawIt)) {
+        items = (TsArray*)rawIt;
+    } else if (iterTagged.type == ValueType::STRING_PTR && iterTagged.ptr_val) {
+        TsString* str = (TsString*)ts_value_get_string(iterableVal);
+        items = TsArray::Create();
+        if (str) {
+            int64_t len = str->Length();
+            for (int64_t ci = 0; ci < len; ) {
+                // Code-point step: surrogate pair consumes two units.
+                int64_t step = 1;
+                uint16_t u = (uint16_t)str->CharCodeAt(ci);
+                if (u >= 0xD800 && u <= 0xDBFF && ci + 1 < len) {
+                    uint16_t lo = (uint16_t)str->CharCodeAt(ci + 1);
+                    if (lo >= 0xDC00 && lo <= 0xDFFF) step = 2;
+                }
+                TsString* ch = str->Substring(ci, ci + step);
+                items->Push((int64_t)ts_value_make_string(ch));
+                ci += step;
+            }
+        }
+    } else if (!rawIt) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "argument is not iterable"));
+    }
+
+    // The element protocol, shared by the array fast path and the streaming
+    // iterator loop. Throws on abrupt completions (handled by the caller).
+    auto processElement = [&](TsValue* item, int64_t i) {
+        // r = Call(C.resolve, C, item)
+        TsValue* r = ts_call_with_this_1(resolveMethod, C, item);
+        void* rRaw = r ? ts_value_get_object(r) : nullptr;
+        TsValue* thenM = rRaw ? ts_object_get_property(rRaw, "then") : nullptr;
+        if (!thenM || !ts_is_callable((void*)thenM)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "resolved value has no callable then"));
+        }
+        TsValue* onFul;
+        TsValue* onRej;
+        if (kind == SPEC_RACE) {
+            onFul = cap->resolveFn;
+            onRej = cap->rejectFn;
+        } else {
+            SpecElemCtx* ec = (SpecElemCtx*)ts_alloc(sizeof(SpecElemCtx));
+            ec->st = st; ec->index = i; ec->called = false;
+            st->remaining++;
+            // Pre-grow results so Set(index) is in range.
+            while ((int64_t)st->results->Length() <= i)
+                st->results->Push((int64_t)ts_value_make_undefined());
+            if (kind == SPEC_ALL) {
+                onFul = spec_make_native1((void*)spec_all_elem_resolve, ec, 1);
+                onRej = cap->rejectFn;
+            } else if (kind == SPEC_ALLSETTLED) {
+                onFul = spec_make_native1((void*)spec_settled_elem_resolve, ec, 1);
+                onRej = spec_make_native1((void*)spec_settled_elem_reject, ec, 1);
+            } else {  // SPEC_ANY
+                onFul = cap->resolveFn;
+                onRej = spec_make_native1((void*)spec_any_elem_reject, ec, 1);
+            }
+        }
+        ts_call_with_this_2(thenM, r, onFul, onRej);
+    };
+
+    if (items) {
+        int64_t n = items->Length();
+        for (int64_t i = 0; i < n; i++)
+            processElement((TsValue*)items->Get(i), i);
+    } else {
+        // Streaming: GetIterator, then per-step { next(); processElement }.
+        TsValue* method = ts_object_get_property(rawIt, "[Symbol.iterator]");
+        if (!method || ts_value_is_nullish(method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "argument is not iterable"));
+        }
+        TsValue* iter = ts_call_with_this_0(method, iterableVal);
+        void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+        if (!iterRaw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator is not an object"));
+        }
+        TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+        // Inner handler: an abrupt ELEMENT completion (not an abrupt next())
+        // triggers IteratorClose before rethrowing to the outer handler.
+        volatile bool inNext = false;
+        void* hbuf2 = ts_push_exception_handler();
+        jmp_buf* env2 = (jmp_buf*)hbuf2;
+        if (setjmp(*env2) != 0) {
+            TsValue* exc2 = ts_get_exception();
+            if (!inNext) {
+                // IteratorClose: call return() and swallow ITS failures.
+                void* hbuf3 = ts_push_exception_handler();
+                jmp_buf* env3 = (jmp_buf*)hbuf3;
+                if (setjmp(*env3) == 0) {
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env3)->Frame = 0;
+#endif
+                    TsValue* retM = ts_object_get_property(iterRaw, "return");
+                    if (retM && ts_is_callable((void*)retM))
+                        ts_call_with_this_0(retM, iter);
+                    ts_pop_exception_handler();
+                } else {
+                    ts_set_exception(nullptr);
+                }
+            }
+            ts_throw(exc2 ? exc2 : ts_value_make_undefined());  // -> outer handler
+        }
+#ifdef _WIN64
+        ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
+        for (int64_t i = 0; ; i++) {
+            if (i >= 10000) {  // runaway-iterator guard (close per spec)
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "iterator did not complete"));
+            }
+            inNext = true;
+            TsValue* res = ts_call_with_this_0(nextFn, iter);
+            void* resRaw = res ? ts_value_get_object(res) : nullptr;
+            if (!resRaw) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "iterator result is not an object"));
+            }
+            TsValue* doneV = ts_object_get_property(resRaw, "done");
+            if (doneV && ts_value_to_bool(doneV)) break;
+            TsValue* itemV = ts_object_get_property(resRaw, "value");
+            inNext = false;
+            processElement(itemV ? itemV : ts_value_make_undefined(), i);
+        }
+        ts_pop_exception_handler();
+    }
+
+    if (kind != SPEC_RACE) {
+        if (--st->remaining == 0) {
+            if (kind == SPEC_ANY) spec_state_finish_any_reject(st);
+            else spec_state_finish_fulfill(st);
+        }
+    }
+    ts_pop_exception_handler();
+    return cap->promiseObj;
+}
+
+// Promise.resolve / Promise.reject with a custom receiver (27.2.4.7/27.2.4.6):
+// route through NewPromiseCapability(C) so the receiver observes the protocol.
+extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x) {
+    // ES 27.2.4.7 step 2: if IsPromise(x) and x.constructor is C, return x
+    // AS-IS (identity — no extra wrapping tick). Our promises don't track a
+    // per-instance constructor, so apply the identity when C is the builtin
+    // Promise (the common case the S25.4.4.5 ordering tests exercise).
+    if (x) {
+        TsValue xt = nanbox_to_tagged(x);
+        if (xt.type == ValueType::PROMISE_PTR && xt.ptr_val) {
+            extern void* ts_get_global_Promise();
+            void* g = ts_get_global_Promise();
+            void* rawC = ts_value_get_object(C);
+            if (g && (rawC == g || rawC == ts_value_get_object((TsValue*)g) ||
+                      (void*)C == g)) {
+                return x;
+            }
+        }
+    }
+    SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
+    spec_new_capability(C, cap);
+    ts_call_with_this_1(cap->resolveFn, ts_value_make_undefined(),
+                        x ? x : ts_value_make_undefined());
+    return cap->promiseObj;
+}
+extern "C" TsValue* ts_promise_static_reject_spec(TsValue* C, TsValue* r) {
+    SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
+    spec_new_capability(C, cap);
+    ts_call_with_this_1(cap->rejectFn, ts_value_make_undefined(),
+                        r ? r : ts_value_make_undefined());
+    return cap->promiseObj;
 }
 
 TsValue* ts_promise_all(TsValue* iterableVal) {
