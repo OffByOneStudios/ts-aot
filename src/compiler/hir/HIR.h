@@ -550,6 +550,12 @@ struct HIRClass {
 
     // Base class
     HIRClass* baseClass = nullptr;
+
+    // `extends <builtin>` (Set, Error, Uint8Array, ...): heritage name that
+    // did NOT resolve to a compiler-known class. emitDeferredStaticInits
+    // links C.prototype -> Builtin.prototype at runtime via
+    // ts_class_link_builtin_base so `new C() instanceof Builtin` holds.
+    std::string baseBuiltinName;
 };
 
 //==============================================================================

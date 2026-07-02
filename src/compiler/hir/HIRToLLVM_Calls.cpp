@@ -170,6 +170,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle ts_instanceof_array - returns bool (i1), not ptr. Same shape
+    // as ts_array_is_array but also walks the prototype chain for
+    // `class C extends Array` instances.
+    if (funcName == "ts_instanceof_array") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { getGCPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_instanceof_array", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Handle ts_array_is_array - returns bool (i1), not ptr
     if (funcName == "ts_array_is_array") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);

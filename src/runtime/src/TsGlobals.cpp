@@ -6395,6 +6395,78 @@ void* ts_tdz_check(void* v, void* nameStr) {
     return v;
 }
 
+// Resolve a BUILTIN global constructor by name (the same set the compiler
+// maps via ts_get_global_* in HIRToLLVM). Returns null for unknown names.
+// Used by ts_class_link_builtin_base for `class C extends <builtin>`.
+static void* ts_global_ctor_by_name(const char* n) {
+    struct Entry { const char* name; void* (*get)(); };
+    static const Entry table[] = {
+        {"Object", ts_get_global_Object}, {"Function", ts_get_global_Function},
+        {"Array", ts_get_global_Array}, {"String", ts_get_global_String},
+        {"Number", ts_get_global_Number}, {"Boolean", ts_get_global_Boolean},
+        {"Date", ts_get_global_Date}, {"RegExp", ts_get_global_RegExp},
+        {"Error", ts_get_global_Error}, {"TypeError", ts_get_global_TypeError},
+        {"RangeError", ts_get_global_RangeError},
+        {"ReferenceError", ts_get_global_ReferenceError},
+        {"SyntaxError", ts_get_global_SyntaxError},
+        {"URIError", ts_get_global_URIError}, {"EvalError", ts_get_global_EvalError},
+        {"AggregateError", ts_get_global_AggregateError},
+        {"Map", ts_get_global_Map}, {"Set", ts_get_global_Set},
+        {"WeakMap", ts_get_global_WeakMap}, {"WeakSet", ts_get_global_WeakSet},
+        {"Promise", ts_get_global_Promise}, {"Symbol", ts_get_global_Symbol},
+        {"ArrayBuffer", ts_get_global_ArrayBuffer},
+        {"SharedArrayBuffer", ts_get_global_SharedArrayBuffer},
+        {"DataView", ts_get_global_DataView},
+        {"Int8Array", ts_get_global_Int8Array}, {"Uint8Array", ts_get_global_Uint8Array},
+        {"Uint8ClampedArray", ts_get_global_Uint8ClampedArray},
+        {"Int16Array", ts_get_global_Int16Array}, {"Uint16Array", ts_get_global_Uint16Array},
+        {"Int32Array", ts_get_global_Int32Array}, {"Uint32Array", ts_get_global_Uint32Array},
+        {"Float32Array", ts_get_global_Float32Array}, {"Float64Array", ts_get_global_Float64Array},
+        {"BigInt64Array", ts_get_global_BigInt64Array},
+        {"BigUint64Array", ts_get_global_BigUint64Array},
+    };
+    for (const auto& e : table)
+        if (strcmp(n, e.name) == 0) return e.get();
+    return nullptr;
+}
+
+// `x instanceof Array`: a real TsArray matches by magic (fast path); a
+// `class C extends Array` instance (flat object) matches via the ordinary
+// prototype-chain walk against Array.prototype.
+bool ts_instanceof_array(TsValue* v) {
+    extern bool ts_array_is_array(void*);
+    extern bool ts_instanceof_dynamic(TsValue*, TsValue*);
+    if (ts_array_is_array((void*)v)) return true;
+    void* g = ts_get_global_Array();
+    if (!g) return false;
+    return ts_instanceof_dynamic(v, (TsValue*)g);
+}
+
+// `class C extends <builtin>` (ES 15.7.14 ClassDefinitionEvaluation): the
+// heritage is not a compiler-known class, so emitDeferredStaticInits records
+// the heritage NAME and calls this at class-flush time to link
+// C.prototype.[[Prototype]] = Base.prototype and C.[[Prototype]] = Base.
+// This makes `new C() instanceof Base` true via the flat-object prototype
+// walk in ts_instanceof_dynamic. No-ops when the name doesn't resolve.
+void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
+    if (!ctorVal || !protoVal || !nameStr) return;
+    TsString* name = ts_ensure_flat(nameStr);
+    const char* n = name ? name->ToUtf8() : nullptr;
+    if (!n) return;
+    void* base = ts_global_ctor_by_name(n);
+    if (!base) {
+        // Fall back to a globalThis property (host-defined constructors).
+        TsValue* key = ts_value_make_string(nameStr);
+        if (globalThis && ts_object_has_property((void*)globalThis, (void*)key))
+            base = (void*)ts_object_get_property((void*)globalThis, n);
+    }
+    if (!base) return;
+    TsValue* baseProto = ts_object_get_property(base, "prototype");
+    if (baseProto && !ts_value_is_undefined(baseProto))
+        ts_object_setPrototypeOf((TsValue*)protoVal, baseProto);
+    ts_object_setPrototypeOf((TsValue*)ctorVal, (TsValue*)base);
+}
+
 void* ts_resolve_identifier_or_throw(void* nameStr) {
     // `with` object environments shadow EVERYTHING outer — including
     // builtins (`with({parseInt(){}}) { parseInt }` must yield the

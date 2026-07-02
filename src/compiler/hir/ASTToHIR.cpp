@@ -1688,6 +1688,16 @@ void ASTToHIR::emitDeferredStaticInits() {
         // §15.7.14 constructor-proto link below.)
         builder_.createSetPropStatic(ctorVal, "prototype", proto);
 
+        // `class C extends <builtin>`: link C.prototype.[[Proto]] =
+        // Builtin.prototype and C.[[Proto]] = Builtin at runtime
+        // (ts_class_link_builtin_base no-ops on unknown names). Runs after
+        // the prototype install so the ctor's properties map exists.
+        if (!hirClass->baseClass && !hirClass->baseBuiltinName.empty()) {
+            auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
+            builder_.createCall("ts_class_link_builtin_base",
+                {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+        }
+
         // ECMA-262 §15.7.14: set the derived CONSTRUCTOR's [[Prototype]] to
         // the base constructor, so static members (fields + methods, now own
         // properties of the ctor closure) are inherited via the constructor
