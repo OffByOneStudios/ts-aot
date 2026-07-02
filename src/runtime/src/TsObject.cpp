@@ -3680,16 +3680,27 @@ void* ts_create_arguments_from_params(
         TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
         TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
         if (!abi && !bbi) return -1;
-        void* x = abi ? (void*)abi : ts_bigint_from_value(a);
-        void* y = bbi ? (void*)bbi : ts_bigint_from_value(b);
-        // NaN relational comparisons are always false; ts_bigint_from_value of
-        // a NaN/non-numeric operand yields null — treat as false.
-        if (!x || !y) return 0;
+        if (abi && bbi) {
+            switch (op) {
+                case 0: return ts_bigint_lt(abi, bbi) ? 1 : 0;
+                case 1: return ts_bigint_gt(abi, bbi) ? 1 : 0;
+                case 2: return ts_bigint_le(abi, bbi) ? 1 : 0;
+                default: return ts_bigint_ge(abi, bbi) ? 1 : 0;
+            }
+        }
+        // Mixed BigInt/Number (ES 7.2.12 allows it): compare NUMERICALLY.
+        // Routing the Number side through ts_bigint_from_value threw
+        // "not a safe integer" for non-integers/Infinity and mis-read
+        // booleans; the double comparison handles NaN (false), infinities,
+        // booleans, and fractions. Lossy above 2^53 (documented limitation).
+        double da = abi ? (double)ts_bigint_to_i64(abi) : ts_to_number(a);
+        double db = bbi ? (double)ts_bigint_to_i64(bbi) : ts_to_number(b);
+        if (da != da || db != db) return 0;  // NaN -> false
         switch (op) {
-            case 0: return ts_bigint_lt(x, y) ? 1 : 0;
-            case 1: return ts_bigint_gt(x, y) ? 1 : 0;
-            case 2: return ts_bigint_le(x, y) ? 1 : 0;
-            default: return ts_bigint_ge(x, y) ? 1 : 0;
+            case 0: return (da <  db) ? 1 : 0;
+            case 1: return (da >  db) ? 1 : 0;
+            case 2: return (da <= db) ? 1 : 0;
+            default: return (da >= db) ? 1 : 0;
         }
     }
 
@@ -3962,14 +3973,14 @@ void* ts_create_arguments_from_params(
             TsValue* sk = ts_value_make_string(TsString::Create(setterKey.c_str()));
             hasField = ts_object_has_property(rawObj, fk);
             hasSetter = ts_object_has_property(rawObj, sk);
-            if (!hasSetter) {
-                // has_property can't see vtable-installed accessors on flat
+            if (!hasSetter && *(uint32_t*)rawObj == 0x464C4154 /*FLAT*/) {
+                // has_property can't see vtable-installed accessors on FLAT
                 // class instances; the GET path walks the vtable and the
-                // class prototype (constructorSlot). Without this, a private
-                // SETTER write through a captured receiver brand-threw
-                // ("private-setter-access-on-inner-function"): the field
-                // check missed (accessors have no hidden field) and so did
-                // the has_property setter check.
+                // class prototype (constructorSlot). Restricted to flat
+                // receivers: on TsMap receivers the prototype-chain get can
+                // find an INNER class's same-named setter and defeat the
+                // nested-class shadowing brand check
+                // (private-setter-shadowed-by-* regressed unrestricted).
                 extern TsValue* ts_object_get_property(void* o, const char* k);
                 TsValue* sv = ts_object_get_property(rawObj, setterKey.c_str());
                 if (sv && nanbox_from_tsvalue_ptr(sv) != NANBOX_UNDEFINED) hasSetter = true;
