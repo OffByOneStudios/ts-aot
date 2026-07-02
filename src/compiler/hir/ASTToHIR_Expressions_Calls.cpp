@@ -2235,7 +2235,9 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                               || dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())
                               || dynamic_cast<ast::ElementAccessExpression*>(node->expression.get())
                               || dynamic_cast<ast::BinaryExpression*>(node->expression.get())
-                              || dynamic_cast<ast::ParenthesizedExpression*>(node->expression.get()))) {
+                              || dynamic_cast<ast::ParenthesizedExpression*>(node->expression.get())
+                              || dynamic_cast<ast::FunctionExpression*>(node->expression.get())
+                              || dynamic_cast<ast::CallExpression*>(node->expression.get()))) {
         // Unknown class — treat as a constructor function call. Examples:
         //   - `new Foo()` where Foo is `function Foo() {...}` from imported JS
         //   - `new Array.prototype.concat([])` (property-access into a built-in
@@ -2316,6 +2318,12 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         // void; widening that convention regressed other tests).
         bool ctorIsJs = ctor->sourceFile.size() >= 3 &&
                         ctor->sourceFile.substr(ctor->sourceFile.size() - 3) == ".js";
+        // ES NewTarget: the compiler-inlined construct path must also set the
+        // ambient register (ts_new_from_constructor does it for the dynamic
+        // path). Swap in the class constructor, restore after the ctor call.
+        auto ntCtorVal = builder_.createLoadFunction(ctor->name);
+        auto prevNT = builder_.createCall("ts_set_new_target",
+            {ntCtorVal}, HIRType::makeAny());
         if (hirClass->baseClass && ctorIsJs) {
             auto ctorResult = builder_.createCall(ctor->name, ctorArgs, HIRType::makeAny());
             if (ctorResult)
@@ -2323,6 +2331,7 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         } else {
             builder_.createCall(ctor->name, ctorArgs, HIRType::makeVoid());
         }
+        builder_.createCall("ts_set_new_target", {prevNT}, HIRType::makeAny());
     } else if (hirClass && !hirClass->constructor && specializations_) {
         // The HIRClass was created (e.g., by pre-pass for imported classes) but the
         // constructor function hasn't been generated yet. Look through specializations

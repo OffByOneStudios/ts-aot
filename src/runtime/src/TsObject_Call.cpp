@@ -978,7 +978,25 @@ extern "C" {
     // instead of the per-arity ts_new_from_constructor_N forwarders, so `new
     // F(...)` no longer caps/drops arguments past 8.
     TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv) {
-        return ts_new_from_constructor_impl(constructorFn, argc, argv);
+        // ES NewTarget: the ambient register holds the construct target for
+        // the duration of the constructor body (swap/restore for nesting).
+        extern void* ts_set_new_target(void* v);
+        void* prevNT = ts_set_new_target((void*)constructorFn);
+        TsValue* r = ts_new_from_constructor_impl(constructorFn, argc, argv);
+        ts_set_new_target(prevNT);
+        return r;
+    }
+
+    // Reflect.construct(target, args, newTarget): same construct path but the
+    // ambient new.target register carries the EXPLICIT newTarget.
+    TsValue* ts_new_from_constructor_with_target(TsValue* constructorFn,
+                                                 TsValue* newTarget,
+                                                 int argc, TsValue** argv) {
+        extern void* ts_set_new_target(void* v);
+        void* prevNT = ts_set_new_target((void*)(newTarget ? newTarget : constructorFn));
+        TsValue* r = ts_new_from_constructor_impl(constructorFn, argc, argv);
+        ts_set_new_target(prevNT);
+        return r;
     }
 
     // Construct `new constructorFn(...argsArray)` — the spread-in-new analogue of
