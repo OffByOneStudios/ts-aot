@@ -1194,6 +1194,53 @@ static TsValue* iterhelper_call(TsValue* fn, TsValue* v, int64_t i) {
     return ts_function_call_with_this(fn, ts_value_make_undefined(), 2, a);
 }
 
+// IteratorClose (ES 7.4.9): call the iterator's `return` method; failures
+// during close are swallowed when we're already unwinding an abrupt
+// completion (the original error wins).
+extern "C" void* ts_push_exception_handler();
+extern "C" void ts_pop_exception_handler();
+extern "C" TsValue* ts_get_exception();
+extern "C" void ts_set_exception(TsValue* exc);
+static void ih_close(TsValue* iter) {
+    if (!iter) return;
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+        void* raw = ts_value_get_object(iter); if (!raw) raw = iter;
+        TsValue* retM = ts_object_get_property(raw, "return");
+        if (retM && ts_is_callable((void*)retM))
+            ts_function_call_with_this(retM, iter, 0, nullptr);
+        ts_pop_exception_handler();
+    } else {
+        ts_set_exception(nullptr);  // swallow close failure
+    }
+}
+
+// Call the user predicate/callback with abrupt-completion handling: on a
+// throw, IteratorClose the underlying iterator, then rethrow (ES: every/
+// some/find/forEach/reduce step "IfAbruptCloseIterator").
+static TsValue* iterhelper_call_or_close(TsValue* fn, TsValue* v, int64_t i,
+                                         TsValue* iter) {
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ih_close(iter);
+        ts_throw(exc ? exc : ts_value_make_undefined());
+        return nullptr;  // unreachable
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    TsValue* r = iterhelper_call(fn, v, i);
+    ts_pop_exception_handler();
+    return r;
+}
+
 static TsValue* iter_toArray_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsArray* out = (TsArray*)ts_array_create();
@@ -1215,7 +1262,7 @@ static TsValue* iter_forEach_native(void* ctx, int argc, TsValue** argv) {
     while (true) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
-        iterhelper_call(fn, ih_res_value(res), i++);
+        iterhelper_call_or_close(fn, ih_res_value(res), i++, it);
     }
     return ts_value_make_undefined();
 }
@@ -1228,8 +1275,10 @@ static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
     while (true) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
-        if (ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
+        if (ts_value_to_bool(iterhelper_call_or_close(fn, ih_res_value(res), i++, it))) {
+            ih_close(it);  // early exit -> IteratorClose
             return ts_value_make_bool(true);
+        }
     }
     return ts_value_make_bool(false);
 }
@@ -1242,8 +1291,10 @@ static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
     while (true) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
-        if (!ts_value_to_bool(iterhelper_call(fn, ih_res_value(res), i++)))
+        if (!ts_value_to_bool(iterhelper_call_or_close(fn, ih_res_value(res), i++, it))) {
+            ih_close(it);  // early exit -> IteratorClose (ES 27.1.4.5 step 6.e)
             return ts_value_make_bool(false);
+        }
     }
     return ts_value_make_bool(true);
 }
@@ -1257,7 +1308,10 @@ static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         TsValue* v = ih_res_value(res);
-        if (ts_value_to_bool(iterhelper_call(fn, v, i++))) return v;
+        if (ts_value_to_bool(iterhelper_call_or_close(fn, v, i++, it))) {
+            ih_close(it);  // early exit -> IteratorClose
+            return v;
+        }
     }
     return ts_value_make_undefined();
 }
