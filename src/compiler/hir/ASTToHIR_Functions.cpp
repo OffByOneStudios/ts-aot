@@ -306,8 +306,12 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             if (!ident) continue;
             if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-            builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+            // TDZ sentinel (not undefined): a read before the declaration
+            // initializes the slot throws ReferenceError via ts_tdz_check.
+            auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+            builder_.createStore(tdz, allocaVal, HIRType::makeAny());
             defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+            if (auto* vi = lookupVariableInfoInCurrentFunction(ident->name)) vi->isTDZ = true;
         }
     }
 
@@ -683,6 +687,22 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Lower function body
     // The body can be either a BlockStatement or an Expression (implicit return)
     if (auto* blockStmt = dynamic_cast<ast::BlockStatement*>(node->body.get())) {
+        // Pre-declare top-level `let`/`const` with the TDZ sentinel (mirrors
+        // visitFunctionDeclaration; see visitFunctionExpression note).
+        for (auto& stmt : blockStmt->statements) {
+            if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+                auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+                if (!ident) continue;
+                if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
+                auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+                builder_.createStore(tdz, allocaVal, HIRType::makeAny());
+                defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+                if (auto* vi = lookupVariableInfoInCurrentFunction(ident->name)) vi->isTDZ = true;
+            }
+        }
+
         // JavaScript function hoisting: pre-declare nested function names as variables
         // This allows functions to be called before they appear in source order.
         for (auto& stmt : blockStmt->statements) {
@@ -1110,6 +1130,26 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
             builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
             defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+        }
+    }
+
+    // Pre-declare top-level `let`/`const` with the TDZ sentinel so nested
+    // FunctionDeclaration bodies (pass 1 below) can resolve outer-scope
+    // captures — mirrors visitFunctionDeclaration. Without this, an IIFE
+    // whose nested function declaration captures an outer `const` read it as
+    // undefined; with a plain undefined pre-store the accidental-TDZ tests
+    // regressed (the earlier revert) — the sentinel keeps both correct.
+    for (auto& stmt : node->body) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+            auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+            if (!ident) continue;
+            if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+            auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+            builder_.createStore(tdz, allocaVal, HIRType::makeAny());
+            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+            if (auto* vi = lookupVariableInfoInCurrentFunction(ident->name)) vi->isTDZ = true;
         }
     }
 

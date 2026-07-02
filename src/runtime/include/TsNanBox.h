@@ -45,6 +45,12 @@ static constexpr uint64_t NANBOX_HOLE          = 0x0000000000000008ULL;
 // slots; Get returns undefined; subsequent Set overwrites with the new
 // value (un-deleting the slot).
 static constexpr uint64_t NANBOX_DELETED       = 0x0000000000000004ULL;
+// TDZ is the temporal-dead-zone sentinel for pre-declared `let`/`const`
+// slots (ES: reading a lexical binding before its declaration initializes it
+// throws ReferenceError). Below NANBOX_UNDEFINED (is_special true, is_ptr
+// false); reads of TDZ-flagged bindings pass through ts_tdz_check, which
+// throws when it sees this value.
+static constexpr uint64_t NANBOX_TDZ           = 0x0000000000000009ULL;
 
 // === Encoding functions ===
 
