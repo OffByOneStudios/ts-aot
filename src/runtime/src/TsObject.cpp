@@ -2689,6 +2689,13 @@ void* ts_create_arguments_from_params(
                 return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)func, "toString", 0);
             }
 
+            if (strcmp(keyStr, "constructor") == 0) {
+                // ES 20.2.3: functions inherit Function.prototype.constructor
+                // === Function (own/prototype-chain props checked above win).
+                extern void* ts_get_global_Function();
+                void* g = ts_get_global_Function();
+                if (g) return (TsValue*)g;
+            }
             // ES 20.2.4: `caller` / `arguments` on functions resolve to the
             // %ThrowTypeError% accessor pair on Function.prototype — reading
             // them throws (own properties, checked above, take precedence).
@@ -2769,6 +2776,13 @@ void* ts_create_arguments_from_params(
                     currentMap = currentMap->GetPrototype();
                     __clsr_iter++;
                 }
+            }
+            if (strcmp(keyStr, "constructor") == 0) {
+                // ES 20.2.3: functions inherit Function.prototype.constructor
+                // === Function (own/prototype-chain props checked above win).
+                extern void* ts_get_global_Function();
+                void* g = ts_get_global_Function();
+                if (g) return (TsValue*)g;
             }
             // ES 20.2.4 restricted properties (see the TsFunction branch).
             if (strcmp(keyStr, "caller") == 0 || strcmp(keyStr, "arguments") == 0) {
@@ -4393,6 +4407,11 @@ void* ts_create_arguments_from_params(
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
+                    if (strcmp(k, "constructor") == 0) {
+                        extern void* ts_get_global_Function();
+                        void* g = ts_get_global_Function();
+                        if (g) return (TsValue*)g;
+                    }
                     // ES 20.2.4: caller/arguments -> %ThrowTypeError%.
                     if (strcmp(k, "caller") == 0 || strcmp(k, "arguments") == 0) {
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -4482,6 +4501,11 @@ void* ts_create_arguments_from_params(
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
+                    if (strcmp(k, "constructor") == 0) {
+                        extern void* ts_get_global_Function();
+                        void* g = ts_get_global_Function();
+                        if (g) return (TsValue*)g;
+                    }
                     // ES 20.2.4: caller/arguments resolve to %ThrowTypeError%
                     // (own properties, checked above, take precedence).
                     if (strcmp(k, "caller") == 0 || strcmp(k, "arguments") == 0) {
