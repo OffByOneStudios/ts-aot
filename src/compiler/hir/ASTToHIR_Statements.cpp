@@ -225,12 +225,20 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     auto* condBlock = createBlock("forof.cond");
     auto* bodyBlock = createBlock("forof.body");
     auto* updateBlock = createBlock("forof.update");
+    auto* closeBlock = createBlock("forof.close");
     auto* endBlock = createBlock("forof.end");
 
-    // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock};
+    // Push loop context (continue -> update, break -> CLOSE). ECMA-262 7.4.8
+    // IteratorClose: an abrupt loop completion (break) must call
+    // iterator.return() before leaving; closeBlock does that (a no-op branch
+    // for the indexed-array path) and falls through to endBlock. Normal
+    // exhaustion (done === true) jumps straight to endBlock — an exhausted
+    // iterator is NOT closed.
+    LoopContext ctx = {updateBlock, closeBlock};
     loopStack_.push(ctx);
-    breakTargetStack_.push(endBlock);
+    breakTargetStack_.push(closeBlock);
+    // Set by the iterator-protocol path; closeBlock calls iterator.return().
+    std::shared_ptr<HIRValue> forofCloseIterAlloca = nullptr;
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -335,6 +343,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         // function entry, so the stored value is visible from every block.
         auto iterAlloca = builder_.createAlloca(HIRType::makeObject(), "forof.iter");
         builder_.createStore(iterable, iterAlloca);
+        forofCloseIterAlloca = iterAlloca;  // closeBlock reads it (break path)
 
         builder_.createBranch(condBlock);
 
@@ -351,6 +360,10 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         if (node->isAwait) {
             nextResult = builder_.createAwait(nextResult);
         }
+        // ES 7.4.3 IteratorStep: a primitive next() result is a TypeError
+        // (previously `.done` of a primitive was falsy forever -> infinite loop).
+        builder_.createCall("ts_iterator_step_require_object", {nextResult},
+                            HIRType::makeVoid());
         builder_.createStore(nextResult, resultAlloca);
         auto doneVal = builder_.createGetPropStatic(nextResult, "done", HIRType::makeAny());
         // condBranch handles boxed value -> bool conversion via ts_value_to_bool
@@ -737,6 +750,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         labeledLoops_.erase(myLabel);
     }
     popScope();
+
+    // closeBlock: break lands here. Iterator-protocol loops call
+    // iterator.return() (ES 7.4.8 IteratorClose); the indexed-array path has
+    // no iterator, so it is a plain fall-through.
+    builder_.setInsertPoint(closeBlock);
+    currentBlock_ = closeBlock;
+    if (forofCloseIterAlloca) {
+        auto closeIter = builder_.createLoad(HIRType::makeObject(), forofCloseIterAlloca);
+        builder_.createCall("ts_iterator_close", {closeIter}, HIRType::makeVoid());
+    }
+    builder_.createBranch(endBlock);
 
     builder_.setInsertPoint(endBlock);
     currentBlock_ = endBlock;
