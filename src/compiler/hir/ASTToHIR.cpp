@@ -484,6 +484,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
             HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -512,6 +520,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             builder_.createReturnVoid();
             popScope();
             currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
 
             hirClass->constructor = defaultCtor.get();
             module_->functions.push_back(std::move(defaultCtor));
@@ -1777,6 +1786,14 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
 
     // Save current function and set up for the init function
     HIRFunction* savedFunc = currentFunction_;
+    // A nested function body starts OUTSIDE any enclosing try/with:
+    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
+    // `return` in a closure defined inside a try{} otherwise emits a
+    // PopHandler for a handler the closure never pushed — at runtime it
+    // popped the CALLER's exception handler (found via the Promise
+    // combinator spec-path whose reject-handler vanished).
+    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
+    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     currentFunction_ = initFunc.get();
 
     // Create entry block
@@ -1961,6 +1978,7 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
 
     // Restore saved function
     currentFunction_ = savedFunc;
+    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     if (savedFunc) {
         auto* savedBlock = savedFunc->getEntryBlock();
         if (savedBlock) {
