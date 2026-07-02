@@ -4127,9 +4127,31 @@ TsValue* ts_temporal_duration_subtract_native(void* ctx,int argc,TsValue** argv)
     return duration_add_impl(a,b,-1);
 }
 // Duration.total({unit}) for time/day units -> a Number (no relativeTo support).
+// GetOptionsObject validation with NO std::string locals: ts_throw longjmps
+// through every frame between here and the handler, and the MSVC unwinder
+// corrupts when a frame holds a heap-backed std::string (see the
+// longjmp-stdstring rule; crash signature _Tidy_deallocate under
+// _CxxFrameHandler4). Called BEFORE any std::string is constructed in
+// total_native so the throw only crosses string-free frames.
+static void temporal_total_arg_check(TsValue* v){
+    if(!v || ts_value_is_undefined(v)) return;
+    void* raw = ts_nanbox_safe_unbox(v);
+    if(!raw){
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "options must be a string, an object, or undefined"));
+        return;
+    }
+    uint32_t m0=*(uint32_t*)raw;
+    if(m0==TAG_SYMBOL||m0==TAG_BIGINT){
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "options must be a string, an object, or undefined"));
+    }
+}
+
 TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     TsDuration* d=require_duration(ctx,"total");
     TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
+    temporal_total_arg_check(arg);
     // ToRelativeTemporalObject is observed BEFORE options.unit (order-of-operations): when
     // the argument is an options object, read+fully-coerce options.relativeTo first.
     TsPlainDate* relAnchor=nullptr;
