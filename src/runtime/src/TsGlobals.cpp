@@ -6509,6 +6509,30 @@ void* ts_get_new_target() {
 // Resolve a BUILTIN global constructor by name (the same set the compiler
 // maps via ts_get_global_* in HIRToLLVM). Returns null for unknown names.
 // Used by ts_class_link_builtin_base for `class C extends <builtin>`.
+// WeakRef / FinalizationRegistry constructor GLOBALS. `new WeakRef(x)` is
+// compiler-inlined (ts_weakref_create), so these exist for identity reads,
+// `x instanceof WeakRef`, and `class Sub extends WeakRef` prototype linkage.
+void* ts_get_global_WeakRef() {
+    TenureScope _tenure;
+    static void* cached = nullptr;
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("WeakRef");
+        cached = wrapAsCallable(ctor, "WeakRef", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
+    }
+    return cached;
+}
+void* ts_get_global_FinalizationRegistry() {
+    TenureScope _tenure;
+    static void* cached = nullptr;
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("FinalizationRegistry");
+        cached = wrapAsCallable(ctor, "FinalizationRegistry", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
+    }
+    return cached;
+}
+
 static void* ts_global_ctor_by_name(const char* n) {
     struct Entry { const char* name; void* (*get)(); };
     static const Entry table[] = {
@@ -6535,6 +6559,8 @@ static void* ts_global_ctor_by_name(const char* n) {
         {"Float32Array", ts_get_global_Float32Array}, {"Float64Array", ts_get_global_Float64Array},
         {"BigInt64Array", ts_get_global_BigInt64Array},
         {"BigUint64Array", ts_get_global_BigUint64Array},
+        {"WeakRef", ts_get_global_WeakRef},
+        {"FinalizationRegistry", ts_get_global_FinalizationRegistry},
     };
     for (const auto& e : table)
         if (strcmp(n, e.name) == 0) return e.get();

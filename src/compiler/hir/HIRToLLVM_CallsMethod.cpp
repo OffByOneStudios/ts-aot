@@ -1066,6 +1066,10 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_WeakMap";
     } else if (globalName == "WeakSet") {
         funcName = "ts_get_global_WeakSet";
+    } else if (globalName == "WeakRef") {
+        funcName = "ts_get_global_WeakRef";
+    } else if (globalName == "FinalizationRegistry") {
+        funcName = "ts_get_global_FinalizationRegistry";
     } else if (globalName == "Proxy") {
         funcName = "ts_get_global_Proxy";
     } else if (globalName == "Reflect") {
