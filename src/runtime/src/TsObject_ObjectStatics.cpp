@@ -1517,6 +1517,37 @@ extern "C" {
                         }
                         if (dMag == 0x4D415053) {  // TsMap
                             TsMap* dm = (TsMap*)dRaw;
+                            // ES 10.4.2.4 / 10.1.6.3 invariants for the
+                            // non-configurable, non-enumerable "length":
+                            // configurable:true / enumerable:true -> TypeError;
+                            // an accessor redefinition of length -> TypeError.
+                            {
+                                TsValue ck2; ck2.type = ValueType::STRING_PTR;
+                                ck2.ptr_val = TsString::GetInterned("configurable");
+                                if (dm->Has(ck2) &&
+                                    ts_value_to_bool(nanbox_from_tagged(dm->Get(ck2)))) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as configurable"));
+                                    return ts_value_make_undefined();
+                                }
+                                TsValue ek2; ek2.type = ValueType::STRING_PTR;
+                                ek2.ptr_val = TsString::GetInterned("enumerable");
+                                if (dm->Has(ek2) &&
+                                    ts_value_to_bool(nanbox_from_tagged(dm->Get(ek2)))) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as enumerable"));
+                                    return ts_value_make_undefined();
+                                }
+                                TsValue gk2; gk2.type = ValueType::STRING_PTR;
+                                gk2.ptr_val = TsString::GetInterned("get");
+                                TsValue sk2; sk2.type = ValueType::STRING_PTR;
+                                sk2.ptr_val = TsString::GetInterned("set");
+                                if (dm->Has(gk2) || dm->Has(sk2)) {
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot redefine array length as an accessor"));
+                                    return ts_value_make_undefined();
+                                }
+                            }
                             TsValue vk; vk.type = ValueType::STRING_PTR;
                             vk.ptr_val = TsString::GetInterned("value");
                             if (dm->Has(vk)) {
