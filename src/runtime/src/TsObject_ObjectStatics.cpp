@@ -1126,9 +1126,16 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) return obj;
 
-        // Convert flat objects to TsMap first
+        // Flat objects: seal IN PLACE via the shape flag bits (the demote-
+        // to-TsMap approach sealed a detached copy).
         if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
+            flat_object_set_sealed(rawPtr);
+            uint32_t sid = flat_object_shape_id(rawPtr);
+            if (ShapeDescriptor* desc = ts_shape_lookup(sid)) {
+                void* overflow = *(void**)((char*)rawPtr + 16 + desc->numSlots * 8);
+                if (overflow) ((TsMap*)overflow)->PreventExtensions();
+            }
+            return obj;
         }
 
         // Check if it's a TsMap
@@ -1250,9 +1257,9 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
-        // Flat objects are never sealed (they haven't been converted)
+        // Flat objects honor the in-place sealed/frozen flag bits
         if (is_flat_object(rawPtr)) {
-            return ts_value_make_bool(false);
+            return ts_value_make_bool(flat_object_is_sealed(rawPtr));
         }
 
         // Check if it's a TsMap

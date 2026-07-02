@@ -225,6 +225,7 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg);
 extern "C" TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
 extern "C" TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
+static TsValue* proxy_call_trap(TsProxy* px, TsValue* trap, int argc, TsValue** argv);
 
 TsValue* TsProxy::ownKeys() {
     if (revoked) {
@@ -236,7 +237,8 @@ TsValue* TsProxy::ownKeys() {
     if (trap) {
         // Call trap(target)
         TsValue* targetVal = ts_value_box_any(target);
-        TsValue* r = tsCall(trap, targetVal);
+        TsValue* trapArgs[1] = { targetVal };
+        TsValue* r = proxy_call_trap(this, trap, 1, trapArgs);
         // ES 10.5.11 invariants over the trap result:
         //  - result keys must be unique (step 9: List of String/Symbol with
         //    no duplicates -> TypeError)
