@@ -1535,6 +1535,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // so values created while applying parameter defaults / destructuring don't
     // collide with the SSA IDs reserved for params 0..N.
     func->nextValueId = static_cast<uint32_t>(func->params.size());
+    preseedParamTDZ(func.get(), node->parameters);
     for (size_t i = 0; i < func->params.size(); ++i) {
         size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
         ast::Parameter* astParam = (astParamIdx < node->parameters.size())
