@@ -995,8 +995,16 @@ void* ts_fs_readdirSync(void* path, void* options) {
         TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
         if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
             void* rawVal = optDecoded.ptr_val;
-            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
-            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)rawVal);
+            // Guard before any deref/dynamic_cast: an UNPASSED options slot
+            // can arrive as stack garbage decoding to OBJECT_PTR with a junk
+            // pointer (observed _RTDynamicCast AV). Plausible-heap-pointer +
+            // MAPS-magic check per the runtime-safety casting rules.
+            uintptr_t rpGuard = (uintptr_t)rawVal;
+            bool plausibleGuard = rpGuard > 0x1000 && rpGuard < 0x0000800000000000ULL;
+            if (plausibleGuard && is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            TsMap* optMap = (plausibleGuard &&
+                             *(uint32_t*)((char*)rawVal + 16) == 0x4D415053)
+                ? (TsMap*)rawVal : nullptr;
             if (optMap) {
                 TsValue wft = optMap->Get(TsString::Create("withFileTypes"));
                 if (wft.type == ValueType::BOOLEAN) {
@@ -2577,8 +2585,16 @@ void* ts_fs_readdir_async(void* path, void* options) {
         TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
         if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
             void* rawVal = optDecoded.ptr_val;
-            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
-            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)rawVal);
+            // Guard before any deref/dynamic_cast: an UNPASSED options slot
+            // can arrive as stack garbage decoding to OBJECT_PTR with a junk
+            // pointer (observed _RTDynamicCast AV). Plausible-heap-pointer +
+            // MAPS-magic check per the runtime-safety casting rules.
+            uintptr_t rpGuard = (uintptr_t)rawVal;
+            bool plausibleGuard = rpGuard > 0x1000 && rpGuard < 0x0000800000000000ULL;
+            if (plausibleGuard && is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            TsMap* optMap = (plausibleGuard &&
+                             *(uint32_t*)((char*)rawVal + 16) == 0x4D415053)
+                ? (TsMap*)rawVal : nullptr;
             if (optMap) {
                 TsValue withFileTypes = optMap->Get(TsString::Create("withFileTypes"));
                 if (withFileTypes.type == ValueType::BOOLEAN) {
