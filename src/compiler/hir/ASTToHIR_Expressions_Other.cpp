@@ -142,8 +142,26 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
                     return;
                 }
             }
-            // Dynamic index - need runtime lookup (TODO: generate runtime object for dynamic access)
-            // For now, fall through to dynamic access
+            // Dynamic index: emit an inline compare chain over the
+            // compile-time reverse map (`Color[val]`). Enums have no runtime
+            // object; the old fallthrough read a NULL base via get_dynamic
+            // (silent-undefined today, TypeError once null-base checking
+            // lands). Out-of-range indices yield undefined per TS semantics.
+            {
+                auto idxVal = lowerExpression(node->argumentExpression.get());
+                auto idxF = builder_.createUnboxFloat(boxValueIfNeeded(idxVal));
+                std::shared_ptr<HIRValue> result =
+                    boxValueIfNeeded(builder_.createConstUndefined());
+                for (auto& [num, memberName] : enumReverseIt->second) {
+                    auto numC = builder_.createConstFloat((double)num);
+                    auto eq = builder_.createCmpEqF64(idxF, numC);
+                    auto nameC = boxValueIfNeeded(
+                        builder_.createConstString(memberName));
+                    result = builder_.createSelect(eq, nameC, result);
+                }
+                lastValue_ = result;
+                return;
+            }
         }
     }
 
