@@ -1766,6 +1766,30 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
+    // DYNAMIC callee (`new (await X)()`, `new (f())()`, `new (c ? A : B)()`):
+    // the callee is not an Identifier/PropertyAccess/ClassExpression, so no
+    // class NAME can be derived (className above stays at its "Object"
+    // default) — construct through the runtime from the callee VALUE.
+    // Previously this fell into the generic-Object fallback, which emitted a
+    // bare map and dropped the callee's construction semantics entirely
+    // (module-code/top-level-await/new-await-parens: `new (await Map)()` was
+    // a plain object). Callee evaluates BEFORE the arguments (ES 13.3.5.1).
+    if (!dynamic_cast<ast::Identifier*>(node->expression.get()) &&
+        !dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get()) &&
+        !dynamic_cast<ast::ClassExpression*>(node->expression.get())) {
+        auto ctorVal = boxValueIfNeeded(lowerExpression(node->expression.get()));
+        auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
+        auto packed = builder_.createCall("ts_array_create", {}, anyArr);
+        for (auto& a : node->arguments) {
+            auto v = lowerExpression(a.get());
+            builder_.createCall("ts_array_push", {packed, boxValueIfNeeded(v)},
+                                HIRType::makeInt64());
+        }
+        lastValue_ = builder_.createCall("ts_construct_apply",
+            {ctorVal, packed}, HIRType::makeAny());
+        return;
+    }
+
     // Handle built-in Array class
     if (className == "Array") {
         // new Array() or new Array(length) or new Array(elem1, elem2, ...)
