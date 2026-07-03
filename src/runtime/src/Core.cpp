@@ -1,4 +1,5 @@
 #include "TsRuntime.h"
+#include <intrin.h>  // _ReturnAddress (TS_EH_TRACE diagnostics)
 #include "TsArray.h"
 #include "TsString.h"
 #include "TsMap.h"
@@ -1388,10 +1389,14 @@ void* ts_push_exception_handler() {
     ctx->saved_last_call_argc  = ts_get_last_call_argc();
     ctx->saved_with_depth      = ts_with_stack_size();
     exceptionStack.push_back(ctx);
+    if (getenv("TS_EH_TRACE"))
+        fprintf(stderr, "[eh] push depth=%zu buf=%p ret=%p\n", exceptionStack.size(), (void*)ctx->env, (void*)_ReturnAddress());
     return (void*)ctx->env;
 }
 
 void ts_pop_exception_handler() {
+    if (getenv("TS_EH_TRACE"))
+        fprintf(stderr, "[eh] pop  depth=%zu ret=%p\n", exceptionStack.size(), (void*)_ReturnAddress());
     if (!exceptionStack.empty()) {
         ExceptionContext* ctx = exceptionStack.back();
         exceptionStack.pop_back();
@@ -1434,6 +1439,9 @@ void ts_throw(TsValue* exception) {
     }
     ExceptionContext* ctx = exceptionStack.back();
     exceptionStack.pop_back();
+    if (getenv("TS_EH_TRACE"))
+        fprintf(stderr, "[eh] THROW depth=%zu buf=%p ret=%p\n",
+                exceptionStack.size() + 1, (void*)ctx->env, (void*)_ReturnAddress());
 
     // Restore calling-convention globals BEFORE longjmp tears down the stack.
     // The save/restore locals inside ts_call_with_this_N would normally do
