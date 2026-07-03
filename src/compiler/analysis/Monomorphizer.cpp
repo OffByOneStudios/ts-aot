@@ -1153,8 +1153,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         // is just as ESM — its exports were silently dropped. For true CJS
         // modules nothing here is `isExported`, so nothing is injected.
         {
-            // Collect exported names from the module body
-            auto collectExportedNames = [](const std::vector<std::unique_ptr<ast::Statement>>& stmts,
+            // Collect exported names from the module body.
+            // `export default function f(){}` / `export default class C {}`
+            // additionally export the binding under the name "default"
+            // (defaultLocals records the local each "default" aliases).
+            std::string defaultLocal;
+            auto collectExportedNames = [&defaultLocal](
+                                           const std::vector<std::unique_ptr<ast::Statement>>& stmts,
                                            std::vector<std::string>& names) {
                 for (const auto& stmt : stmts) {
                     if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
@@ -1167,9 +1172,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         if (funcDecl->isExported && !funcDecl->name.empty()) {
                             names.push_back(funcDecl->name);
                         }
+                        if (funcDecl->isDefaultExport && !funcDecl->name.empty()) {
+                            defaultLocal = funcDecl->name;
+                        }
                     } else if (auto* classDecl = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
                         if (classDecl->isExported && !classDecl->name.empty()) {
                             names.push_back(classDecl->name);
+                        }
+                        if (classDecl->isDefaultExport && !classDecl->name.empty()) {
+                            defaultLocal = classDecl->name;
                         }
                     }
                 }
@@ -1178,6 +1189,24 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             std::vector<std::string> exportedNames;
             collectExportedNames(moduleInit->body, exportedNames);
             collectExportedNames(newBody, exportedNames);
+            if (!defaultLocal.empty()) {
+                // Injected below as exports.default = <local> (the pair form).
+                auto assignExpr = std::make_unique<ast::AssignmentExpression>();
+                auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
+                auto exportsRef = std::make_unique<ast::Identifier>();
+                exportsRef->name = "exports";
+                exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                exportsAccess->expression = std::move(exportsRef);
+                exportsAccess->name = "default";
+                exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                assignExpr->left = std::move(exportsAccess);
+                auto nameRef = std::make_unique<ast::Identifier>();
+                nameRef->name = defaultLocal;
+                assignExpr->right = std::move(nameRef);
+                auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                exprStmt->expression = std::move(assignExpr);
+                moduleInit->body.push_back(std::move(exprStmt));
+            }
 
             // Also check module->exports symbol table for re-exports.
             // ONLY for resolver-flagged ESM: for bare .js modules this table

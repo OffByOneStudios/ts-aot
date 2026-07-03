@@ -281,7 +281,8 @@ void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
     activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
-std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path) {
+std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path,
+                                                        bool forceModuleGoal) {
     std::ifstream file(path);
     if (!file) return nullptr;
     std::string source((std::istreambuf_iterator<char>(file)),
@@ -289,6 +290,10 @@ std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path)
 
     try {
         parser::Parser nativeParser;
+        // Imported files are MODULES: the TS_SCRIPT_GOAL env override (test262
+        // non-module tests) must not leak into their parse — a script-goal
+        // fixture parse rejects `export`, silently dropping it from the bundle.
+        nativeParser.setForceModuleGoal(forceModuleGoal);
         return nativeParser.parse(source, path);
     } catch (const std::exception& e) {
         SPDLOG_WARN("Native parser failed for {}: {}", path, e.what());

@@ -246,6 +246,17 @@ private:
     // harness sets it for non-module tests. Default false preserves ts-aot's
     // module-friendly behavior for real programs.
     bool scriptGoal_ = false;
+
+public:
+    // Per-FILE goal override: the TS_SCRIPT_GOAL env var applies to the ENTRY
+    // file only; files discovered through import/import() are MODULES by
+    // definition and must keep the module goal (a script-goal parse of a
+    // fixture's `export default` silently failed to bundle it — the
+    // dynamic-import "not supported at runtime" cluster).
+    void setForceModuleGoal(bool v) { forceModuleGoal_ = v; }
+
+private:
+    bool forceModuleGoal_ = false;
     // True ONLY for a statement parsed directly from the module body's
     // top-level loop; consumed (reset) at parseDeclarationOrStatement entry
     // so every nested statement position sees false. import/export
