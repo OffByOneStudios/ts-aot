@@ -5222,6 +5222,17 @@ extern "C" void ts_global_bind_fn(void* nameStr, TsValue* fn) {
     ts_object_set_property((void*)globalThis, (void*)key, fn);
 }
 
+// OrdinaryCallBindThis for sloppy callees: undefined/null `this` becomes
+// globalThis. Emitted by the compiler at the ambient-this fallback of
+// non-strict functions.
+extern "C" TsValue* ts_this_coerce_sloppy(TsValue* t) {
+    uint64_t nb = t ? (uint64_t)(uintptr_t)t : 0;
+    if (!t || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+        if (globalThis) return globalThis;
+    }
+    return t;
+}
+
 void* ts_get_global_globalThis() {
     TenureScope _tenure;
     return (void*)globalThis;
