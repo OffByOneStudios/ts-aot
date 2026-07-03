@@ -38,6 +38,27 @@ void Analyzer::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
 void Analyzer::visitStringLiteral(ast::StringLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::String);
     node->inferredType = lastType;
+
+    // Closed-world dynamic-import discovery: `import(expr)` with a COMPUTED
+    // specifier can only resolve at runtime against modules bundled at
+    // compile time. Any string literal that syntactically looks like a
+    // relative module path is a bundle candidate — pre-load it so
+    // `const s = './mod.js'; import(s)` (and `import(a || './mod.js')`)
+    // find it in the runtime registry. Resolution failures are silent (the
+    // literal may be plain data); a bundled-but-never-imported module only
+    // costs its startup init.
+    const std::string& v = node->value;
+    if ((v.rfind("./", 0) == 0 || v.rfind("../", 0) == 0) && v.size() >= 4 &&
+        (v.ends_with(".js") || v.ends_with(".mjs") || v.ends_with(".cjs"))) {
+        auto resolved = resolveModule(v);
+        if (resolved.isValid() && resolved.type != ModuleType::Builtin &&
+            !modules.count(resolved.path)) {
+            AnalyzerOptions prevOptions = activeOptions;
+            activeOptions.suppressErrors = true;
+            loadModule(v);
+            activeOptions = prevOptions;
+        }
+    }
 }
 
 void Analyzer::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
