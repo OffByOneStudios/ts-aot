@@ -26,6 +26,7 @@
 // (TsObject.h, transitively included via TsRuntime.h) replaces them.
 extern "C" {
     void* ts_string_from_value(TsValue* val);
+    TsValue* ts_to_primitive(TsValue* val, int hint);  // TsObject.cpp
 }
 
 // Check if a NaN-boxed TsValue is a callable function (closure or TsFunction)
@@ -2348,6 +2349,11 @@ extern "C" {
         // Non-symbol: ts_value_get_string is the full ToString (numbers, null,
         // array-join, object toString) and throws only on symbols — handled above.
         return ts_value_get_string(val);
+    }
+
+    void* ts_to_string_spec(TsValue* val) {
+        TsValue* prim = ts_to_primitive(val, 2 /* string hint */);
+        return ts_string_from_value(prim ? prim : val);
     }
 
     void* ts_string_from_value(TsValue* val) {
