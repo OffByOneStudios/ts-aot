@@ -73,7 +73,7 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "regexp-duplicate-named-groups",
     "Array.fromAsync",
     "json-parse-with-source",
-    "RegExp.escape",
+    # "RegExp.escape",  # Stage B: implemented 2026-07-02
     "explicit-resource-management",
     # "iterator-helpers",  # CONF-P2b: implementing (eager helpers landed)
     # "set-methods",  # Stage B1: implemented 2026-07-02
