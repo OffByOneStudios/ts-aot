@@ -63,6 +63,8 @@ RESULTS_JSONL = SCRIPT_DIR / ".test262_results.jsonl"
 BUILD_DIR = SCRIPT_DIR / "build"
 
 # Features we know we DON'T support — skip tests requiring these
+_DYNAMIC_FN_RE = re.compile(r"(?:new\s+|(?<![A-Za-z0-9_.$]))Function\s*\(\s*[\"']")
+
 UNSUPPORTED_FEATURES: Set[str] = {
     # Proposals / stage-3 features we haven't implemented.
     # NOTE: Temporal is now implemented (~96% conformance) and is counted in the
@@ -129,6 +131,26 @@ os.environ.setdefault("TS_SCRIPT_GOAL", "1")
 # Tests we intentionally don't support — SpiderMonkey-staging tests that
 # contradict ECMA-262 by asserting SM-specific quirks. Path is relative to
 # the test262 BUILD_DIR (matches how paths are stored in results.jsonl).
+# Directory-level scope exclusions (2026-07-03 policy review):
+#  - staging/: test262's unreviewed incubator. Ours is almost entirely
+#    staging/sm — SpiderMonkey's donated engine suite (Firefox jstests
+#    mechanically converted), full of shell idioms, Bugzilla-regression
+#    quirks, and dynamic-code use. Not part of the reviewed conformance
+#    suite; engines report it separately.
+#  - intl402/: ECMA-402 (Internationalization API) is a SEPARATE
+#    specification from ECMA-262 and outside this project's conformance
+#    matrices. (Intl.* feature tags were already skipped; this excludes
+#    the remainder that tests base-Intl plumbing.)
+#  - language/eval-code, built-ins/eval: tests OF direct-eval semantics.
+#    AOT compilation has no interpreter tier; the body-scan below already
+#    skips tests that merely USE eval.
+SKIPPED_PREFIXES = (
+    ("staging/", "out of scope: test262 staging incubator (SpiderMonkey suite)"),
+    ("intl402/", "out of scope: ECMA-402 Internationalization API"),
+    ("language/eval-code/", "out of scope: direct-eval semantics (AOT)"),
+    ("built-ins/eval", "out of scope: direct-eval semantics (AOT)"),
+)
+
 SKIPPED_PATHS: Set[str] = {
     # SM accepts `await` as IdentifierReference inside class field initializer
     # of an async function (referring to a `var await = 1` declared in
@@ -631,6 +653,9 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
         rel = str(test_path.relative_to(TEST_DIR)).replace('\\', '/')
         if rel in SKIPPED_PATHS:
             return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)"), None
+        for pref, why in SKIPPED_PREFIXES:
+            if rel.startswith(pref):
+                return TestResult(test_path, "skip", why), None
     except ValueError:
         pass
 
@@ -638,13 +663,17 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
     if skip_reason:
         return TestResult(test_path, "skip", skip_reason), None
 
-    # Check for eval usage (we don't support eval) in the test body.
-    if 'eval(' in source and 'eval' not in [f for f in meta.features]:
-        test_body_start = source.find('---*/')
-        if test_body_start != -1:
-            test_body = source[test_body_start:]
-            if 'eval(' in test_body:
-                return TestResult(test_path, "skip", "uses eval"), None
+    # Check for dynamic-code usage in the test body — eval() and the
+    # Function("source") constructor both require an interpreter tier an
+    # AOT compiler doesn't have. (Tests merely REFERENCING Function, e.g.
+    # `x instanceof Function`, don't match: only call/construct with a
+    # leading `new ` or bare `Function(`.)
+    test_body_start = source.find('---*/')
+    test_body = source[test_body_start:] if test_body_start != -1 else source
+    if 'eval(' in test_body and 'eval' not in [f for f in meta.features]:
+        return TestResult(test_path, "skip", "uses eval"), None
+    if _DYNAMIC_FN_RE.search(test_body):
+        return TestResult(test_path, "skip", "uses Function() dynamic code"), None
 
     full_source = build_test_source(test_path, meta)
 
