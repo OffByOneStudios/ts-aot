@@ -1890,7 +1890,14 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         std::shared_ptr<HIRValue> byteLength = (node->arguments.size() > 2)
             ? lowerExpression(node->arguments[2].get())
             : builder_.createConstInt(-1);
-        auto arrType = HIRType::makeArray(HIRType::makeInt64(), true); // typed array
+        // BigInt element types carry BOXED TsBigInt values through element
+        // reads/writes (ts_array_get_unchecked returns a boxed BigInt; an
+        // Int64 element type would make the lowering unbox it as a number →
+        // INT64_MIN garbage). Any keeps the box intact end-to-end.
+        bool isBigTA = (className == "BigInt64Array" ||
+                        className == "BigUint64Array");
+        auto arrType = HIRType::makeArray(
+            isBigTA ? HIRType::makeAny() : HIRType::makeInt64(), true);
         const char* fn = nullptr;
         const char* wrapperFn = nullptr;
         if (className == "Uint8Array")             { fn = "ts_typed_array_create_u8";      wrapperFn = "ts_typed_array_new_u8"; }
@@ -1902,8 +1909,8 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         else if (className == "Uint16Array")       { fn = "ts_typed_array_create_u16";     wrapperFn = "ts_typed_array_new_u16"; }
         else if (className == "Int32Array")        { fn = "ts_typed_array_create_i32";     wrapperFn = "ts_typed_array_new_i32"; }
         else if (className == "Float32Array")      { fn = "ts_typed_array_create_f32";     wrapperFn = "ts_typed_array_new_f32"; }
-        else if (className == "BigInt64Array")     { fn = "ts_typed_array_create_i64";     wrapperFn = nullptr; }
-        else if (className == "BigUint64Array")    { fn = "ts_typed_array_create_u64";     wrapperFn = nullptr; }
+        else if (className == "BigInt64Array")     { fn = "ts_typed_array_create_i64";     wrapperFn = "ts_typed_array_new_i64"; }
+        else if (className == "BigUint64Array")    { fn = "ts_typed_array_create_u64";     wrapperFn = "ts_typed_array_new_u64"; }
         if (argIsNonInt && wrapperFn) {
             // Dispatcher: arg might be an ArrayBuffer (share buffer),
             // a TypedArray (copy), an Array (copy), or a number (length-only).

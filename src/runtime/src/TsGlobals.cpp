@@ -5844,6 +5844,34 @@ void* ts_get_global_TypedArray() {
     return cached;
 }
 
+// BigInt-element store for the constructor dispatcher: BigInt TAs hold raw
+// two's-complement int64 slots. A non-BigInt element value is a TypeError
+// per InitializeTypedArrayFromList (ToBigInt on a Number throws).
+static void ta_new_store_elem(void* taRaw, size_t i, TsValue* v) {
+    TsTypedArray* ta = (TsTypedArray*)taRaw;
+    TypedArrayType tt = ta->GetType();
+    if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        void* raw = (v && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
+        if (raw && (uintptr_t)raw >= 4096 && *(uint32_t*)raw == 0x42494749 /*BIGI*/) {
+            uint8_t* data = ta->GetData();
+            if (data && i < ta->GetLength())
+                ((int64_t*)data)[i] = ts_bigint_to_i64(raw);
+            return;
+        }
+        if (!v || ts_value_is_undefined(v)) {   // holes/undefined -> 0n
+            uint8_t* data = ta->GetData();
+            if (data && i < ta->GetLength()) ((int64_t*)data)[i] = 0;
+            return;
+        }
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot convert a non-BigInt value to a BigInt"));
+        return;
+    }
+    double d = v ? ts_to_number(v) : 0;
+    ta->Set(i, d);
+}
+
 // ts_typed_array_new_<kind>(arg, byteOffset, byteLength) — constructor
 // wrapper for `new TypedArray(arg, ...)` covering all four spec forms:
 //   - new TA(length)               — allocate fresh buffer
@@ -5912,8 +5940,8 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 int64_t n = (int64_t)srcArr->Length();                                   \
                 void* result = CreateFn(n);                                              \
                 for (int64_t i = 0; i < n; i++) {                                        \
-                    double d = srcArr->GetElementDouble((size_t)i);                      \
-                    ((TsTypedArray*)result)->Set((size_t)i, d);                          \
+                    TsValue* ev = (TsValue*)srcArr->GetElementBoxed((size_t)i);                      \
+                    ta_new_store_elem(result, (size_t)i, ev);                          \
                 }                                                                        \
                 return result;                                                           \
             }                                                                            \
@@ -5936,8 +5964,7 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 for (int64_t i = 0; i < n; i++) {                                        \
                     char key[32]; snprintf(key, sizeof(key), "%lld", (long long)i);      \
                     TsValue* v = ts_object_get_property(rawSrc, key);                    \
-                    double d = (v && !ts_value_is_undefined(v)) ? ts_to_number(v) : 0;   \
-                    ((TsTypedArray*)result)->Set((size_t)i, d);                          \
+                    ta_new_store_elem(result, (size_t)i, v);                                 \
                 }                                                                        \
                 return result;                                                           \
             }                                                                            \
