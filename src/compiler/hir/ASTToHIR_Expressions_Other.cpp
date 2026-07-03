@@ -1038,6 +1038,16 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                     auto* info = &found->second;
                     if (info->isAlloca && info->elemType) {
                         lastValue_ = builder_.createLoad(info->elemType, info->value);
+                        // TDZ: a param/let shadowing a module global read in
+                        // its dead zone (e.g. `var x; (x = x) => {}` — the
+                        // param's own default) throws ReferenceError. This
+                        // shadow path skipped the check the main local path
+                        // has. Any-typed only (phase-5 sentinel rule).
+                        if (info->isTDZ && info->elemType->kind == HIRTypeKind::Any) {
+                            auto nameC = builder_.createConstString(node->name);
+                            lastValue_ = builder_.createCall("ts_tdz_check",
+                                {lastValue_, nameC}, HIRType::makeAny());
+                        }
                     } else {
                         lastValue_ = info->value;
                     }
