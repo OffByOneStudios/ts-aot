@@ -1201,6 +1201,18 @@ extern "C" void* ts_push_exception_handler();
 extern "C" void ts_pop_exception_handler();
 extern "C" TsValue* ts_get_exception();
 extern "C" void ts_set_exception(TsValue* exc);
+// IteratorClose on a NORMAL completion (ES 7.4.9 with completion=normal):
+// errors from reading/calling `return` PROPAGATE (unlike the abrupt-path
+// ih_close below, where the original error wins and close failures are
+// swallowed). Used at early-exit and take-limit closes.
+static void ih_close_propagate(TsValue* iter) {
+    if (!iter) return;
+    void* raw = ts_value_get_object(iter); if (!raw) raw = iter;
+    TsValue* retM = ts_object_get_property(raw, "return");  // getter may throw
+    if (retM && ts_is_callable((void*)retM))
+        ts_function_call_with_this(retM, iter, 0, nullptr);  // may throw
+}
+
 static void ih_close(TsValue* iter) {
     if (!iter) return;
     void* hbuf = ts_push_exception_handler();
@@ -1290,7 +1302,7 @@ static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         if (ts_value_to_bool(iterhelper_call_or_close(fn, ih_res_value(res), i++, it))) {
-            ih_close(it);  // early exit -> IteratorClose
+            ih_close_propagate(it);  // early exit -> IteratorClose
             return ts_value_make_bool(true);
         }
     }
@@ -1313,7 +1325,7 @@ static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
         TsValue* res = ih_iter_next(it, nextFn);
         if (!res || ih_res_done(res)) break;
         if (!ts_value_to_bool(iterhelper_call_or_close(fn, ih_res_value(res), i++, it))) {
-            ih_close(it);  // early exit -> IteratorClose (ES 27.1.4.5 step 6.e)
+            ih_close_propagate(it);  // early exit -> IteratorClose (ES 27.1.4.5 step 6.e)
             return ts_value_make_bool(false);
         }
     }
@@ -1337,7 +1349,7 @@ static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
         if (!res || ih_res_done(res)) break;
         TsValue* v = ih_res_value(res);
         if (ts_value_to_bool(iterhelper_call_or_close(fn, v, i++, it))) {
-            ih_close(it);  // early exit -> IteratorClose
+            ih_close_propagate(it);  // early exit -> IteratorClose
             return v;
         }
     }
@@ -1451,7 +1463,7 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     if (kind == 2) { // take(n)
         if (cnt >= n) {
             setDone();
-            ih_close(src);  // ES 27.1.4.1: limit reached -> IteratorClose
+            ih_close_propagate(src);  // ES 27.1.4.1: limit reached -> IteratorClose
             return ih_make_result(nullptr, true);
         }
         TsValue* res = ih_iter_next(src, srcNext);
