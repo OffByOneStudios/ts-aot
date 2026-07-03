@@ -33,6 +33,49 @@ static inline bool array_search_equals(uint64_t elemNB, uint64_t searchNB) {
     return false;
 }
 
+// Spec-path search for exotic receivers (ES 23.1.3.17/23.1.3.20 steps 9-10):
+// own index accessors (__arr_getter_<i> side-map), holes inheriting indexed
+// properties from a modified Array.prototype/Object.prototype, and array-like
+// receivers materialized by require_array_or_throw. Skips absent indices
+// (kPresent false) and reads present ones through the prototype-aware Get so
+// getters run. Only reached when array_needs_spec_search() says the receiver
+// is exotic; packed plain arrays keep the raw-slot scans below.
+extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i);
+extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i);
+extern "C" uint8_t g_array_proto_has_indexed;
+bool array_generic_absent_index(const TsArray* self, size_t i);  // TsArray.cpp
+
+extern "C" bool ts_array_needs_spec_search(TsArray* arr) {
+    if (!arr) return false;
+    if (arr->properties) return true;               // may hold index accessors/attrs
+    if (arr->originalReceiver && arr->originalReceiver != (void*)arr) return true;
+    if (arr->HasHoles() && g_array_proto_has_indexed) return true;
+    return false;
+}
+
+extern "C" int64_t ts_array_search_spec(TsArray* arr, int64_t value, int64_t fromIndex,
+                                        bool fromLast) {
+    uint64_t searchNB = (uint64_t)value;
+    int64_t len = (int64_t)arr->Length();
+    int64_t k = fromLast ? fromIndex : fromIndex;
+    for (; fromLast ? (k >= 0) : (k < len); fromLast ? --k : ++k) {
+        // kPresent: own present index (accessor counts) or inherited.
+        bool present;
+        if (k >= 0 && k < len && !arr->IsHole((size_t)k)) {
+            // Array-like receiver: the materialized temp is dense, so consult
+            // the ORIGINAL object's HasProperty to skip truly absent indices.
+            present = !array_generic_absent_index(arr, (size_t)k);
+        } else {
+            present = ts_array_has_property_at_idx(arr, k);
+        }
+        if (!present) continue;
+        TsValue* elem = ts_array_get_property_at_idx(arr, k);
+        if (elem && array_search_equals(nanbox_from_tsvalue_ptr(elem), searchNB))
+            return k;
+    }
+    return -1;
+}
+
 int64_t TsArray::IndexOf(int64_t value, size_t fromIndex) {
     if (fromIndex >= length) return -1;
     // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
