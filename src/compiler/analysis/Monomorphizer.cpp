@@ -1146,9 +1146,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
-        // For ESM modules, populate module.exports with named exports
-        // so that dynamic import() can retrieve them via ts_module_get_cached()
-        if (module->isESM) {
+        // Populate module.exports with named exports so dynamic import() /
+        // ts_module_get_cached() can retrieve them. NOT gated on isESM: the
+        // resolver's flag only reflects .mjs / package.json "type":"module",
+        // but a bare .js module USING export syntax (every test262 fixture)
+        // is just as ESM — its exports were silently dropped. For true CJS
+        // modules nothing here is `isExported`, so nothing is injected.
+        {
             // Collect exported names from the module body
             auto collectExportedNames = [](const std::vector<std::unique_ptr<ast::Statement>>& stmts,
                                            std::vector<std::string>& names) {
@@ -1175,8 +1179,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             collectExportedNames(moduleInit->body, exportedNames);
             collectExportedNames(newBody, exportedNames);
 
-            // Also check module->exports symbol table for re-exports
-            if (module->exports) {
+            // Also check module->exports symbol table for re-exports.
+            // ONLY for resolver-flagged ESM: for bare .js modules this table
+            // can contain interop artifacts (a phantom "default") that must
+            // NOT become own namespace properties
+            // (dynamic-import/default-property-not-set-own).
+            if (module->isESM && module->exports) {
                 for (const auto& [name, sym] : module->exports->getGlobalSymbols()) {
                     if (std::find(exportedNames.begin(), exportedNames.end(), name) == exportedNames.end()) {
                         exportedNames.push_back(name);
