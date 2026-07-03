@@ -1,11 +1,15 @@
 #include "TsRegExp.h"
 #include <cstdio>
+#include <vector>
+#include <algorithm>
 #include "TsConsString.h"
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsRuntime.h"
 #include <unicode/unistr.h>
 #include <unicode/regex.h>
+#include <unicode/uniset.h>
+#include <unicode/usetiter.h>
 #include <regex>
 
 extern "C" void* ts_alloc(size_t size);
@@ -312,6 +316,260 @@ static std::string rewriteUnicodeForIcu(const std::string& pat) {
 // Transform a JavaScript regex pattern into an ICU-compatible pattern.
 // JS allows literal '[' inside character classes; ICU treats '[' inside a class
 // as a nested set operation. Escape unescaped '[' inside character classes.
+// /v strings-in-sets support (ES2024 unicodeSets): a class may contain
+// multi-code-point STRINGS — via \q{a|bc|...} literals or properties of
+// strings like \p{RGI_Emoji}. ICU's RegexMatcher character classes match
+// single code points only, but icu::UnicodeSet holds string elements and
+// knows the properties-of-strings. Each top-level class is evaluated here
+// as ES set algebra (union / `--` difference / `&&` intersection) over
+// icu::UnicodeSet values, then re-emitted either as a plain code-point
+// class or, when strings are present, as a non-capturing alternation:
+//   [\q{ab|c}\p{X}]  ->  (?:ab|c|[<remaining single-char set>])
+// Strings sort longest-first so the alternation prefers the longest match.
+// A NEGATED class containing strings is an ES early error (SyntaxError).
+static void vmode_escape_regex_literal(const icu::UnicodeString& s,
+                                       icu::UnicodeString& out) {
+    for (int32_t i = 0; i < s.length(); ) {
+        UChar32 c = s.char32At(i);
+        if (c == u'\\' || c == u'(' || c == u')' || c == u'[' || c == u']' ||
+            c == u'{' || c == u'}' || c == u'.' || c == u'*' || c == u'+' ||
+            c == u'?' || c == u'^' || c == u'$' || c == u'|' || c == u'/')
+            out.append(u'\\');
+        out.append(c);
+        i += U16_LENGTH(c);
+    }
+}
+
+// Translate ES \q{a|b|...} string literals into ICU UnicodeSet {a}{b} string
+// elements (in place, within one class body).
+static std::string vmode_translate_q(const std::string& cls, bool* bad) {
+    std::string out;
+    for (size_t i = 0; i < cls.size(); i++) {
+        if (cls[i] == '\\' && i + 2 < cls.size() && cls[i + 1] == 'q' &&
+            cls[i + 2] == '{') {
+            size_t j = i + 3;
+            std::string cur;
+            std::string elems;
+            int depth = 1;
+            for (; j < cls.size(); j++) {
+                char ch = cls[j];
+                if (ch == '\\' && j + 1 < cls.size()) { cur += ch; cur += cls[++j]; continue; }
+                if (ch == '{') depth++;
+                if (ch == '}') { depth--; if (depth == 0) break; }
+                if (ch == '|' && depth == 1) { elems += "{" + cur + "}"; cur.clear(); continue; }
+                cur += ch;
+            }
+            if (j >= cls.size()) { *bad = true; return cls; }
+            elems += "{" + cur + "}";
+            out += elems;
+            i = j;  // skip past }
+            continue;
+        }
+        out += cls[i];
+    }
+    return out;
+}
+
+// UnicodeSet does not know regex shorthand escapes (\d is a literal 'd' to
+// it) — expand them to explicit nested sets with ES semantics.
+static void vmode_expand_shorthand(const std::string& in, std::string& out) {
+    static const char* WS_SET =
+        "[\\u0009-\\u000D\\u0020\\u00A0\\u1680\\u2000-\\u200A"
+        "\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]";
+    static const char* WS_SET_NEG =
+        "[^\\u0009-\\u000D\\u0020\\u00A0\\u1680\\u2000-\\u200A"
+        "\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]";
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == '\\' && i + 1 < in.size()) {
+            const char* rep = nullptr;
+            switch (in[i + 1]) {
+                case 'd': rep = "[0-9]"; break;
+                case 'D': rep = "[^0-9]"; break;
+                case 'w': rep = "[0-9A-Za-z_]"; break;
+                case 'W': rep = "[^0-9A-Za-z_]"; break;
+                case 's': rep = WS_SET; break;
+                case 'S': rep = WS_SET_NEG; break;
+                default: break;
+            }
+            if (rep) out += rep;
+            else { out += in[i]; out += in[i + 1]; }
+            i++;
+            continue;
+        }
+        out += in[i];
+    }
+}
+
+// Split a class body at depth-0 `--` (difference) or `&&` (intersection).
+// ES v-mode forbids mixing the two in one class. op stays 0 for pure union.
+static bool vmode_split_operands(const std::string& body, char& op,
+                                 std::vector<std::string>& operands) {
+    op = 0;
+    std::string cur;
+    int depth = 0;
+    for (size_t i = 0; i < body.size(); i++) {
+        char c = body[i];
+        if (c == '\\' && i + 1 < body.size()) { cur += c; cur += body[i + 1]; i++; continue; }
+        if (c == '[' || c == '{') { depth++; cur += c; continue; }
+        if (c == ']' || c == '}') { depth--; cur += c; continue; }
+        if (depth == 0 && (c == '-' || c == '&') && i + 1 < body.size() &&
+            body[i + 1] == c) {
+            char newOp = (c == '-') ? '-' : '&';
+            if (op && op != newOp) return false;  // mixed set operators
+            op = newOp;
+            operands.push_back(cur);
+            cur.clear();
+            i++;
+            continue;
+        }
+        cur += c;
+    }
+    operands.push_back(cur);
+    return true;
+}
+
+// Emit a computed UnicodeSet back into ICU regex syntax. No strings ->
+// plain (possibly negated) code-point class; strings -> (?:s1|s2|[chars])
+// alternation (longest string first). Negated-with-strings is an ES early
+// error: emit an unterminated class so the ICU compile fails -> SyntaxError.
+static bool vmode_emit_set(const icu::UnicodeSet& uset, bool negated,
+                           std::string& out) {
+    if (negated && uset.hasStrings()) { out = "["; return true; }
+    std::vector<icu::UnicodeString> strings;
+    icu::UnicodeSetIterator it(uset);
+    while (it.next()) {
+        if (it.isString()) strings.push_back(it.getString());
+    }
+    icu::UnicodeSet chars(uset);
+    chars.removeAllStrings();
+    if (negated) chars.complement();
+    bool hasChars = !chars.isEmpty();
+    if (!hasChars && strings.empty()) { out = "(?!)"; return true; }
+    icu::UnicodeString ranges;
+    if (hasChars) {
+        for (int32_t r = 0; r < chars.getRangeCount(); r++) {
+            UChar32 a = chars.getRangeStart(r), b = chars.getRangeEnd(r);
+            char buf[32];
+            snprintf(buf, sizeof(buf), "\\x{%X}", (unsigned)a);
+            ranges += icu::UnicodeString::fromUTF8(buf);
+            if (b != a) {
+                snprintf(buf, sizeof(buf), "-\\x{%X}", (unsigned)b);
+                ranges += icu::UnicodeString::fromUTF8(buf);
+            }
+        }
+    }
+    if (strings.empty()) {
+        icu::UnicodeString cls;
+        cls += (UChar)u'[';
+        cls += ranges;
+        cls += (UChar)u']';
+        std::string clsU8;
+        cls.toUTF8String(clsU8);
+        out = clsU8;
+        return true;
+    }
+    std::sort(strings.begin(), strings.end(),
+              [](const icu::UnicodeString& a, const icu::UnicodeString& b) {
+                  return a.length() > b.length();
+              });
+    icu::UnicodeString alt = icu::UnicodeString::fromUTF8("(?:");
+    bool first = true;
+    for (auto& s : strings) {
+        if (!first) alt += (UChar)u'|';
+        vmode_escape_regex_literal(s, alt);
+        first = false;
+    }
+    if (hasChars) {
+        if (!first) alt += (UChar)u'|';
+        alt += (UChar)u'[';
+        alt += ranges;
+        alt += (UChar)u']';
+    }
+    alt += (UChar)u')';
+    std::string altU8;
+    alt.toUTF8String(altU8);
+    out = altU8;
+    return true;
+}
+
+// Evaluate one v-mode class body (WITHOUT the outer brackets) as ES set
+// algebra and emit ICU syntax. Returns false when the class can't be
+// evaluated (caller falls back to the untransformed pattern).
+static bool vmode_rewrite_class(const std::string& body, bool negated,
+                                std::string& out) {
+    bool bad = false;
+    std::string translated = vmode_translate_q(body, &bad);
+    if (bad) return false;
+    std::string expanded;
+    vmode_expand_shorthand(translated, expanded);
+    char op = 0;
+    std::vector<std::string> operands;
+    if (!vmode_split_operands(expanded, op, operands)) return false;
+    icu::UnicodeSet uset;
+    bool first = true;
+    for (auto& o : operands) {
+        UErrorCode st = U_ZERO_ERROR;
+        icu::UnicodeString ps =
+            icu::UnicodeString::fromUTF8(std::string("[") + o + "]");
+        icu::UnicodeSet os(ps, st);
+        if (U_FAILURE(st)) return false;
+        if (first) { uset = os; first = false; }
+        else if (op == '-') uset.removeAll(os);
+        else uset.retainAll(os);
+    }
+    return vmode_emit_set(uset, negated, out);
+}
+
+// Scan a v-mode pattern, rewriting every TOP-LEVEL class through
+// vmode_rewrite_class (nested classes are consumed via depth tracking)
+// and every bare \p{...} that names a property of STRINGS (RGI_Emoji etc.)
+// into the equivalent alternation. \p over plain code points stays as-is
+// for ICU to handle natively.
+static bool vmode_rewrite_pattern(const std::string& pat, std::string& out) {
+    out.clear();
+    for (size_t i = 0; i < pat.size(); i++) {
+        if (pat[i] == '\\' && i + 1 < pat.size()) {
+            if (pat[i + 1] == 'p' && i + 2 < pat.size() && pat[i + 2] == '{') {
+                size_t j = pat.find('}', i + 3);
+                if (j != std::string::npos) {
+                    std::string prop = pat.substr(i, j - i + 1);
+                    UErrorCode st = U_ZERO_ERROR;
+                    icu::UnicodeString ps =
+                        icu::UnicodeString::fromUTF8("[" + prop + "]");
+                    icu::UnicodeSet os(ps, st);
+                    if (U_SUCCESS(st) && os.hasStrings()) {
+                        std::string rewritten;
+                        if (!vmode_emit_set(os, false, rewritten)) return false;
+                        out += rewritten;
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            out += pat[i]; out += pat[i + 1]; i++;
+            continue;
+        }
+        if (pat[i] != '[') { out += pat[i]; continue; }
+        size_t j = i + 1;
+        bool negated = false;
+        if (j < pat.size() && pat[j] == '^') { negated = true; j++; }
+        size_t bodyStart = j;
+        int depth = 1;
+        for (; j < pat.size(); j++) {
+            if (pat[j] == '\\' && j + 1 < pat.size()) { j++; continue; }
+            if (pat[j] == '[') depth++;
+            else if (pat[j] == ']') { depth--; if (depth == 0) break; }
+        }
+        if (j >= pat.size()) return false;  // unterminated
+        std::string body = pat.substr(bodyStart, j - bodyStart);
+        std::string rewritten;
+        if (!vmode_rewrite_class(body, negated, rewritten)) return false;
+        out += rewritten;
+        i = j;
+    }
+    return true;
+}
+
 static std::string transformJsPatternForIcu(const std::string& pat,
                                              bool vMode = false) {
     std::string result;
@@ -392,6 +650,12 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
     bool vMode = flags && std::string(flags).find('v') != std::string::npos;
     std::string transformed =
         transformJsPatternForIcu(rewriteUnicodeForIcu(pattern), vMode);
+    if (vMode) {
+        std::string rewritten;
+        if (vmode_rewrite_pattern(transformed, rewritten)) {
+            transformed = rewritten;
+        }
+    }
     icu::UnicodeString icuPatternStr = icu::UnicodeString::fromUTF8(transformed);
 
     uint32_t icuFlags = 0;

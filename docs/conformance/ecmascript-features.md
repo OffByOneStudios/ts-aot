@@ -444,7 +444,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Object.groupBy()` | ✅ | Groups array elements by callback return value |
 | `Map.groupBy()` | ✅ | Groups array elements, returns Map with key type preserved |
 | `Promise.withResolvers()` | ✅ | Returns { promise, resolve, reject } |
-| RegExp `/v` flag | ⚠️ | Set operations (nested classes, --, &&, \p classes) via ICU; string-property classes and v-mode early errors pending |
+| RegExp `/v` flag | ✅ | Set algebra + strings-in-sets (\q{}, properties of strings like \p{RGI_Emoji}) via icu::UnicodeSet → alternation rewrite; emoji data limited to bundled ICU's Unicode version |
 | Resizable `ArrayBuffer` | ✅ | Constructor options, resize(), resizable, maxByteLength |
 | Growable `SharedArrayBuffer` | ❌ | |
 | `String.prototype.isWellFormed()` | ✅ | Checks for lone surrogates |
