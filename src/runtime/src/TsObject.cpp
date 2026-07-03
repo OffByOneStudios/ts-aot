@@ -4588,6 +4588,23 @@ void* ts_create_arguments_from_params(
                 }
                 return ts_value_make_undefined();
             }
+            // ES 10.4.5.4 [[Get]]: a canonical-numeric-but-INVALID key
+            // ("-0", "1.1", out-of-bounds, detached) short-circuits to
+            // undefined WITHOUT consulting the prototype chain (the
+            // OrdinaryGet-was-called tests plant poisoned proto getters).
+            {
+                extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+                int cls = ts_ta_classify_index_c(rawObj, nanbox_from_tagged(key));
+                if (cls == 2) return ts_value_make_undefined();
+                if (cls == 1) {
+                    // valid index arriving as a non-int-shaped key (e.g. "2")
+                    double kd = -1;
+                    if (keyStr) { const char* ks = keyStr->ToUtf8(); if (ks) kd = strtod(ks, nullptr); }
+                    if (kd >= 0 && (size_t)kd < ta->GetLength())
+                        return ts_ta_get_boxed(ta, (size_t)kd);
+                    return ts_value_make_undefined();
+                }
+            }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) return ts_object_get_property(rawObj, k);
@@ -6558,7 +6575,19 @@ void* ts_create_arguments_from_params(
         if (magic == 0x54415252 /* TARR */) {
             extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
             int cls = ts_ta_classify_index_c(rawMap, (TsValue*)keyArg);
-            return (cls == 1) ? 0 : 1;
+            if (cls == 1) return 0;   // valid index: not deletable
+            if (cls == 2) return 1;   // invalid canonical index: "deleted"
+            // Ordinary named key: honor the side-map's configurable attr.
+            auto it = g_native_object_props.find(rawMap);
+            if (it != g_native_object_props.end() && it->second) {
+                TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+                if (kv.type == ValueType::STRING_PTR && it->second->Has(kv)) {
+                    uint8_t attrs = it->second->GetPropertyAttrs(kv);
+                    if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                    return it->second->Delete(kv) ? 1 : 0;
+                }
+            }
+            return 1;
         }
 
         // TsFunction/TsClosure: delete from their properties TsMap,
