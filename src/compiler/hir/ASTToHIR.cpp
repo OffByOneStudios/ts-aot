@@ -873,6 +873,21 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             currentBlock_ = entryBlock;
             builder_.setInsertPoint(entryBlock);
 
+            // Per-function "use strict" (exact raw text; see
+            // bodyHasUseStrictDirective) — gates sloppy-this coercion.
+            bool savedStrict_spec = strictCode_;
+            {
+                for (auto& st : funcNode->body) {
+                    auto* es = dynamic_cast<ast::ExpressionStatement*>(st.get());
+                    if (!es) break;
+                    auto* sl = dynamic_cast<ast::StringLiteral*>(es->expression.get());
+                    if (!sl) break;
+                    if (sl->raw == "\"use strict\"" || sl->raw == "'use strict'" ||
+                        (sl->raw.empty() && sl->value == "use strict")) {
+                        strictCode_ = true; break;
+                    }
+                }
+            }
             // Push function scope and bind parameters
             pushFunctionScope(funcPtr);
             funcPtr->nextValueId = static_cast<uint32_t>(funcPtr->params.size());
@@ -1156,6 +1171,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             popScope();
+            strictCode_ = savedStrict_spec;
             // func already pushed to module_->functions before body lowering
         } else if (auto* methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
             // Handle method definitions (similar to above)
