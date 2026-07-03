@@ -751,12 +751,21 @@ llvm::GlobalVariable* HIRToLLVM::getOrCreateGlobal(const std::string& name, std:
 
     // Create the global variable
     llvm::Type* llvmType = getLLVMType(type);
+    llvm::Constant* init = llvm::Constant::getNullValue(llvmType);
+    // Module-level let/const (__modvar_*): seed with the TDZ sentinel
+    // (NANBOX_TDZ = 0x9) so reads before the declaration executes are
+    // distinguishable from undefined (ts_tdz_check throws ReferenceError).
+    if (hirModule_ && hirModule_->tdzGlobals.count(name) && llvmType->isPointerTy()) {
+        init = llvm::ConstantExpr::getIntToPtr(
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(context_), 9),
+            llvmType);
+    }
     llvm::GlobalVariable* gv = new llvm::GlobalVariable(
         *module_,
         llvmType,
         false,  // Not constant
         llvm::GlobalValue::InternalLinkage,
-        llvm::Constant::getNullValue(llvmType),
+        init,
         name
     );
 

@@ -1173,6 +1173,14 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 std::string globalName = modVarName(node->name);
                 auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
                 lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+                // Module-level let/const before initialization: TDZ throws
+                // (even under typeof — only UNRESOLVABLE names yield
+                // "undefined").
+                if (module_->tdzGlobals.count(globalName)) {
+                    auto nameC = builder_.createConstString(node->name);
+                    lastValue_ = builder_.createCall("ts_tdz_check",
+                        {lastValue_, nameC}, HIRType::makeAny());
+                }
                 return;
             }
             // Not a module-init var — fall through to the capture path below.
@@ -1187,6 +1195,11 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 std::string globalName = modVarName(node->name);
                 auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
                 lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+                if (module_->tdzGlobals.count(globalName)) {
+                    auto nameC = builder_.createConstString(node->name);
+                    lastValue_ = builder_.createCall("ts_tdz_check",
+                        {lastValue_, nameC}, HIRType::makeAny());
+                }
                 return;
             }
         }
