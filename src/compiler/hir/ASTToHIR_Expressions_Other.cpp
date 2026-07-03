@@ -776,11 +776,19 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
             if (auto* computed = dynamic_cast<ast::ComputedPropertyName*>(method->nameNode.get())) {
                 if (computed->expression && funcValue) {
                     auto keyVal = lowerExpression(computed->expression.get());
-                    // For computed getters/setters we'd need __getter_<dynamic>
-                    // which isn't supported. Fall back to a plain dynamic set —
-                    // the getter/setter semantics won't fire but the property
-                    // will at least exist on the object, preventing crashes.
-                    builder_.createSetPropDynamic(reloadObj(), keyVal, funcValue);
+                    if (method->isGetter || method->isSetter) {
+                        // Computed accessor: install under the runtime's
+                        // "__getter_<canonical-key>"/"__setter_<...>"
+                        // convention (the key canonicalization — symbols
+                        // included — lives in the runtime helper).
+                        builder_.createCall(
+                            "ts_object_install_accessor_dynamic",
+                            {reloadObj(), keyVal, funcValue,
+                             builder_.createConstInt(method->isSetter ? 1 : 0)},
+                            HIRType::makeVoid());
+                    } else {
+                        builder_.createSetPropDynamic(reloadObj(), keyVal, funcValue);
+                    }
                 }
             } else {
                 // Determine the property key from Identifier or name string

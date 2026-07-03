@@ -425,6 +425,28 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     // NOTE: Array functions (ts_array_create, ts_array_concat, ts_array_push) are now
     // handled by ArrayHandler via HandlerRegistry - dead inline code removed in HIR-004 Phase 6
 
+    if (funcName == "ts_object_install_accessor_dynamic") {
+        // (TsValue* obj, TsValue* key, TsValue* fn, i64 isSetter) -> void
+        llvm::Value* objArg = boxPrimitiveToPtr(getOperandValue(inst->operands[1]));
+        llvm::Value* keyArg = boxPrimitiveToPtr(getOperandValue(inst->operands[2]));
+        llvm::Value* fnArg  = boxPrimitiveToPtr(getOperandValue(inst->operands[3]));
+        llvm::Value* setArg = getOperandValue(inst->operands[4]);
+        if (setArg->getType()->isPointerTy()) {
+            setArg = builder_->CreatePtrToInt(setArg, builder_->getInt64Ty());
+        } else if (!setArg->getType()->isIntegerTy(64)) {
+            setArg = builder_->CreateZExt(setArg, builder_->getInt64Ty());
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), builder_->getInt64Ty() },
+            false);
+        llvm::FunctionCallee fn =
+            module_->getOrInsertFunction("ts_object_install_accessor_dynamic", ft);
+        builder_->CreateCall(ft, fn.getCallee(),
+                             { objArg, keyArg, fnArg, setArg });
+        return;
+    }
+
     if (funcName == "ts_object_assign") {
         // ts_object_assign(TsValue* target, TsValue* source) - returns TsValue*
         // Object.assign can have multiple sources: Object.assign(target, src1, src2, ...)
