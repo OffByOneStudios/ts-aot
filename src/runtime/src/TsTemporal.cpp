@@ -3032,6 +3032,50 @@ static void validate_relativeto_arg(TsValue* rt){
 // anchor PlainDate. Replaces the validate_relativeto_arg + coerce_relativeto_date
 // double-read for the bag case. Returns nullptr for undefined; throws on invalid.
 static bool option_to_string(TsValue* v, std::string* out);   // ToString (observable) — defined below
+
+// POD-frame variant of option_to_string: returns the TsString* (or nullptr).
+// Every frame between the caller and the user hook must be std::string-FREE —
+// the hook may ts_throw/longjmp and a std::string-bearing frame corrupts the
+// MSVC EH4 unwind replay (longjmp-stdstring rule; the p28 crash class was
+// coerce_relativeto_unified throwing from a field read lexically AFTER its
+// conditional std::string scopes).
+static __declspec(noinline) TsString* option_to_tsstring(TsValue* v){
+    if(!v || ts_value_is_undefined(v)) return nullptr;
+    void* raw = ts_nanbox_safe_unbox(v);
+    if(raw){
+        uint32_t m0 = *(uint32_t*)raw;
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING) return (TsString*)ts_value_get_string(v);
+        if(m0!=TAG_SYMBOL && m0!=TAG_BIGINT){
+            const char* keys[2]={"toString","valueOf"};
+            for(int k=0;k<2;k++){
+                TsValue* fn = ts_object_get_property(raw, keys[k]);
+                if(fn && !ts_value_is_undefined(fn) && ts_is_callable((void*)fn)){
+                    TsValue* res = ts_function_call_with_this(fn, v, 0, nullptr);
+                    if(res && !ts_value_is_undefined(res)){
+                        void* rraw = ts_nanbox_safe_unbox(res);
+                        bool resObj = rraw && (*(uint32_t*)rraw!=TAG_STRING && *(uint32_t*)rraw!=TAG_CONS_STRING && *(uint32_t*)rraw!=TAG_SYMBOL);
+                        if(!resObj) return (TsString*)ts_string_from_value(res);
+                    }
+                }
+            }
+            return nullptr;
+        }
+    }
+    return (TsString*)ts_string_from_value(v);
+}
+
+// monthCode parse on POD frames only. Returns 1..12 or -2 (invalid).
+static __declspec(noinline) int parse_month_code_pod(TsValue* fmc){
+    TsString* ts = option_to_tsstring(fmc);
+    const char* c = ts ? ts->ToUtf8() : nullptr;
+    if(!c) return -2;
+    size_t n = strlen(c);
+    bool fmt = (n==3||n==4) && c[0]=='M' && c[1]>='0'&&c[1]<='9' && c[2]>='0'&&c[2]<='9' && (n==3||c[3]=='L');
+    int m = fmt ? (c[1]-'0')*10+(c[2]-'0') : 0;
+    bool hasL = fmt && n==4;
+    if(!fmt||hasL||m<1||m>12) return -2;
+    return m;
+}
 static TsPlainDate* coerce_relativeto_unified(TsValue* relTo){
     if(!relTo || ts_value_is_undefined(relTo)) return nullptr;
     void* rr = ts_nanbox_safe_unbox(relTo);
@@ -3049,16 +3093,15 @@ static TsPlainDate* coerce_relativeto_unified(TsValue* relTo){
     TsValue* fmon=ts_object_get_property(rr,"month"); int fromMonth=-1; bool hM=fmon&&!ts_value_is_undefined(fmon);
     if(hM){ double d=ts_to_number(fmon); if(std::isinf(d)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); if(d==d) fromMonth=(int)std::trunc(d); }
     TsValue* fmc=ts_object_get_property(rr,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
-    if(hMC){ std::string s; bool ok=option_to_string(fmc,&s);   // ToString — fires monthCode.toString
-        bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L');
-        int m=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4;
-        if(!fmt||hasL||m<1||m>12) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode"));
-        fromCode=m; }
+    if(hMC){ int mc=parse_month_code_pod(fmc);   // ToString — fires monthCode.toString (POD frames only)
+        if(mc<0) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode"));
+        fromCode=mc; }
     if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict"));
     int bagM = fromCode>=1?fromCode:fromMonth;
     infGuard("nanosecond");
     TsValue* foff=ts_object_get_property(rr,"offset");
-    if(foff&&!ts_value_is_undefined(foff)){ std::string os; if(!option_to_string(foff,&os)||!valid_offset_field(os.c_str())) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid offset")); }
+    if(foff&&!ts_value_is_undefined(foff)){ TsString* osx=option_to_tsstring(foff); const char* oc=osx?osx->ToUtf8():nullptr;
+        if(!oc||!valid_offset_field(oc)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid offset")); }
     infGuard("second");
     TsValue* ftz=ts_object_get_property(rr,"timeZone");
     if(ftz&&!ts_value_is_undefined(ftz)){ void* tr=ts_nanbox_safe_unbox(ftz);

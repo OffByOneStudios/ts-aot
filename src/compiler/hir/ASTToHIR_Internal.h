@@ -188,6 +188,18 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
 // Check if a function body uses the 'arguments' identifier.
 // Does NOT recurse into nested FunctionDeclaration/FunctionExpression (they have own arguments).
 // DOES recurse into ArrowFunction (arrow functions inherit outer arguments).
+inline bool containsArgumentsIdentifier(ast::Node* node);
+
+// True when any parameter INITIALIZER references `arguments` — ES 10.2.11
+// creates the arguments object BEFORE IteratorBindingInitialization, so
+// `f(x = arguments[2])` must bind it even when the BODY never mentions it.
+inline bool paramsReferenceArguments(const std::vector<std::unique_ptr<ast::Parameter>>& params) {
+    for (auto& prm : params)
+        if (prm && prm->initializer && containsArgumentsIdentifier(prm->initializer.get()))
+            return true;
+    return false;
+}
+
 inline bool containsArgumentsIdentifier(ast::Node* node) {
     if (!node) return false;
     // Check if this is an Identifier named "arguments"

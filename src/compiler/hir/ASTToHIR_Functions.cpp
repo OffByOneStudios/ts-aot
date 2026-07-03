@@ -138,6 +138,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 break;
             }
         }
+        if (!bodyUsesArgs) bodyUsesArgs = paramsReferenceArguments(node->parameters);
         if (bodyUsesArgs) {
             while (func->params.size() < 10) {
                 std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -242,6 +243,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 break;
             }
         }
+        if (!usesArguments) usesArguments = paramsReferenceArguments(node->parameters);
         if (usesArguments) {
             // Build args for ts_create_arguments_from_params(p0..p9)
             // The runtime uses ts_last_call_argc to know how many were actually passed.
@@ -1040,6 +1042,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 break;
             }
         }
+        if (!bodyUsesArguments) bodyUsesArguments = paramsReferenceArguments(node->parameters);
         if (bodyUsesArguments) {
             while (func->params.size() < 10) {
                 std::string argName = "__arg" + std::to_string(func->params.size() - 1) + "__";
@@ -1158,6 +1161,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 break;
             }
         }
+        if (!usesArguments) usesArguments = paramsReferenceArguments(node->parameters);
         if (usesArguments) {
             std::vector<std::shared_ptr<HIRValue>> callArgs;
 
@@ -1498,6 +1502,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         for (auto& stmt : node->body) {
             if (containsArgumentsIdentifier(stmt.get())) { mdBodyUsesArgs = true; break; }
         }
+        if (!mdBodyUsesArgs) mdBodyUsesArgs = paramsReferenceArguments(node->parameters);
         if (mdBodyUsesArgs) {
             while (func->params.size() < 10) {
                 std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -1574,6 +1579,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         for (auto& stmt : node->body) {
             if (containsArgumentsIdentifier(stmt.get())) { usesArguments = true; break; }
         }
+        if (!usesArguments) usesArguments = paramsReferenceArguments(node->parameters);
         if (usesArguments) {
             std::vector<std::shared_ptr<HIRValue>> callArgs;
             size_t userIdx = 0;

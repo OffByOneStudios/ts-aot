@@ -359,6 +359,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 for (auto& stmt : methodDef->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
                 }
+                if (!mBodyUsesArgs) mBodyUsesArgs = paramsReferenceArguments(methodDef->parameters);
                 if (mBodyUsesArgs) {
                     while (func->params.size() < 10) {
                         std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -541,6 +542,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 for (auto& stmt : methodDef->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { mUsesArguments = true; break; }
                 }
+                if (!mUsesArguments) mUsesArguments = paramsReferenceArguments(methodDef->parameters);
                 if (mUsesArguments && !lookupVariableInfoInCurrentFunction("arguments")) {
                     std::vector<std::shared_ptr<HIRValue>> callArgs;
                     size_t userIdx = 0;
@@ -1147,6 +1149,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 for (auto& stmt : methodDef->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
                 }
+                if (!mBodyUsesArgs) mBodyUsesArgs = paramsReferenceArguments(methodDef->parameters);
                 if (mBodyUsesArgs) {
                     while (func->params.size() < 10) {
                         std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -1329,6 +1332,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 for (auto& stmt : methodDef->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { mUsesArguments = true; break; }
                 }
+                if (!mUsesArguments) mUsesArguments = paramsReferenceArguments(methodDef->parameters);
                 if (mUsesArguments && !lookupVariableInfoInCurrentFunction("arguments")) {
                     std::vector<std::shared_ptr<HIRValue>> callArgs;
                     size_t userIdx = 0;
