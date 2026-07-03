@@ -76,8 +76,11 @@ mechanical legacy semantics), staging (1,111; sm-shell harness + Float16Array),
 explicit-resource-management / Disposable*Stack (104+52), IANA tz (#33) +
 Temporal residue (137), Iterator helpers residue (119), mapped-arguments
 aliasing (written off unless an accessor-backed arguments redesign happens).
-A compile-time module linker would unlock the ~1,400 module-family tests —
-architectural decision, not a grind item.
+The compile-time module linker is now scoped as
+`docs/tickets/CONF-P3-module-linker-dynamic-import.md` (task #60): closed-world
+specifier registry + per-module lazy init → namespace/live bindings → module-goal
+execution. Realistic yield ~700–800 (405 of the dynamic-import fails are separate
+proposals: source-phase-imports/import-defer/import-attributes, out of scope).
 
 ## Operating discipline (non-negotiable)
 
