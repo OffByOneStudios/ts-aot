@@ -100,14 +100,34 @@ inline void scanConstructorBodyForProperties(
 // Used by visitFunctionDeclaration / spec lowering to pre-declare every
 // hoisted name on entry so assignments inside conditional branches bind
 // to the same function-scope slot.
-inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out) {
+// Top-level let/const names of a statement list — Annex B B.3.3 suppresses
+// the function-scope var-copy of a block-level `function f` when `f` would
+// clash with any lexical declaration in the function's scope.
+inline void collectTopLevelLexicalNames(const std::vector<ast::StmtPtr>& body,
+                                        std::set<std::string>& out) {
+    for (auto& stmt : body) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (vd->varKind == ast::VarKind::Var) continue;
+            if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                out.insert(idn->name);
+        }
+    }
+}
+
+inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out,
+                                   std::vector<std::string>* fnOut = nullptr) {
     if (!node) return;
     // Stop at nested function bodies — they have their own VariableEnvironment.
     if (dynamic_cast<ast::FunctionExpression*>(node)) return;
     if (dynamic_cast<ast::FunctionDeclaration*>(node)) {
-        // Hoist the function name itself if it's a declaration.
+        // Hoist the function name itself if it's a declaration. Callers that
+        // pass fnOut learn which hoisted names are FUNCTION names (Annex B
+        // var-copy targets) vs plain vars.
         auto* fd = static_cast<ast::FunctionDeclaration*>(node);
-        if (!fd->name.empty()) out.push_back(fd->name);
+        if (!fd->name.empty()) {
+            out.push_back(fd->name);
+            if (fnOut) fnOut->push_back(fd->name);
+        }
         return;
     }
     if (dynamic_cast<ast::ArrowFunction*>(node)) return;
@@ -118,66 +138,85 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
             }
             // (binding patterns left to existing per-statement lowering)
         }
-        if (vd->initializer) collectHoistedVarNames(vd->initializer.get(), out);
+        if (vd->initializer) collectHoistedVarNames(vd->initializer.get(), out, fnOut);
         return;
     }
     if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
-        for (auto& s : block->statements) collectHoistedVarNames(s.get(), out);
+        for (auto& s : block->statements) collectHoistedVarNames(s.get(), out, fnOut);
         return;
     }
     if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
-        collectHoistedVarNames(expr->expression.get(), out);
+        collectHoistedVarNames(expr->expression.get(), out, fnOut);
         return;
     }
     if (auto* ret = dynamic_cast<ast::ReturnStatement*>(node)) {
-        collectHoistedVarNames(ret->expression.get(), out);
+        collectHoistedVarNames(ret->expression.get(), out, fnOut);
         return;
     }
     if (auto* ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
-        collectHoistedVarNames(ifStmt->thenStatement.get(), out);
-        collectHoistedVarNames(ifStmt->elseStatement.get(), out);
+        collectHoistedVarNames(ifStmt->thenStatement.get(), out, fnOut);
+        collectHoistedVarNames(ifStmt->elseStatement.get(), out, fnOut);
         return;
     }
     if (auto* whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
-        collectHoistedVarNames(whileStmt->body.get(), out);
+        collectHoistedVarNames(whileStmt->body.get(), out, fnOut);
         return;
     }
     if (auto* forStmt = dynamic_cast<ast::ForStatement*>(node)) {
-        collectHoistedVarNames(forStmt->initializer.get(), out);
-        collectHoistedVarNames(forStmt->body.get(), out);
+        collectHoistedVarNames(forStmt->initializer.get(), out, fnOut);
+        collectHoistedVarNames(forStmt->body.get(), out, fnOut);
         return;
     }
     if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
-        collectHoistedVarNames(forOf->initializer.get(), out);
-        collectHoistedVarNames(forOf->body.get(), out);
+        collectHoistedVarNames(forOf->initializer.get(), out, fnOut);
+        collectHoistedVarNames(forOf->body.get(), out, fnOut);
+        // Annex B B.3.3.1: the var-copy of a block-level `function f` is
+        // SKIPPED when it would clash with a lexical binding — here, the
+        // loop's own let/const binding. Strip it back out of both lists.
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(forOf->initializer.get())) {
+            if (vd->varKind != ast::VarKind::Var) {
+                if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                    out.erase(std::remove(out.begin(), out.end(), idn->name), out.end());
+                    if (fnOut) fnOut->erase(std::remove(fnOut->begin(), fnOut->end(), idn->name), fnOut->end());
+                }
+            }
+        }
         return;
     }
     if (auto* forIn = dynamic_cast<ast::ForInStatement*>(node)) {
-        collectHoistedVarNames(forIn->initializer.get(), out);
-        collectHoistedVarNames(forIn->body.get(), out);
+        collectHoistedVarNames(forIn->initializer.get(), out, fnOut);
+        collectHoistedVarNames(forIn->body.get(), out, fnOut);
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(forIn->initializer.get())) {
+            if (vd->varKind != ast::VarKind::Var) {
+                if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                    out.erase(std::remove(out.begin(), out.end(), idn->name), out.end());
+                    if (fnOut) fnOut->erase(std::remove(fnOut->begin(), fnOut->end(), idn->name), fnOut->end());
+                }
+            }
+        }
         return;
     }
     if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
         for (auto& cl : sw->clauses) {
             if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
-                for (auto& s : cc->statements) collectHoistedVarNames(s.get(), out);
+                for (auto& s : cc->statements) collectHoistedVarNames(s.get(), out, fnOut);
             }
             if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
-                for (auto& s : dc->statements) collectHoistedVarNames(s.get(), out);
+                for (auto& s : dc->statements) collectHoistedVarNames(s.get(), out, fnOut);
             }
         }
         return;
     }
     if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
-        for (auto& s : tryStmt->tryBlock) collectHoistedVarNames(s.get(), out);
+        for (auto& s : tryStmt->tryBlock) collectHoistedVarNames(s.get(), out, fnOut);
         if (tryStmt->catchClause) {
-            for (auto& s : tryStmt->catchClause->block) collectHoistedVarNames(s.get(), out);
+            for (auto& s : tryStmt->catchClause->block) collectHoistedVarNames(s.get(), out, fnOut);
         }
-        for (auto& s : tryStmt->finallyBlock) collectHoistedVarNames(s.get(), out);
+        for (auto& s : tryStmt->finallyBlock) collectHoistedVarNames(s.get(), out, fnOut);
         return;
     }
     if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(node)) {
-        collectHoistedVarNames(labeled->statement.get(), out);
+        collectHoistedVarNames(labeled->statement.get(), out, fnOut);
         return;
     }
     // Expressions that may contain statements — none in JS, but recurse into

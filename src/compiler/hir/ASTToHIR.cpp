@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "ASTToHIR_Internal.h"
 
 namespace ts::hir {
@@ -1045,6 +1046,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     // Initialize with null - will be set when the function is processed
                     builder_.createStore(builder_.createConstNull(), allocaVal);
                     defineVariableAlloca(nestedFunc->name, allocaVal, nestedFuncType);
+                    // Function-name slot: Annex-B var-copy target for block fns.
+                    if (auto* vi_ = lookupVariableInfoInCurrentFunction(nestedFunc->name))
+                        vi_->isFnHoist = true;
                 }
             }
 
@@ -1058,14 +1062,28 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // them in source-order-independent ways.
             {
                 std::vector<std::string> hoistedVars;
+                std::vector<std::string> hoistedFns;
                 for (auto& stmt : funcNode->body) {
-                    collectHoistedVarNames(stmt.get(), hoistedVars);
+                    collectHoistedVarNames(stmt.get(), hoistedVars, &hoistedFns);
+                }
+                {
+                    // Annex B B.3.3: suppress the var-copy for fn names that clash
+                    // with a top-level lexical declaration.
+                    std::set<std::string> lexNames_;
+                    collectTopLevelLexicalNames(funcNode->body, lexNames_);
+                    for (auto& fn_ : hoistedFns)
+                        if (lexNames_.count(fn_))
+                            hoistedVars.erase(std::remove(hoistedVars.begin(), hoistedVars.end(), fn_), hoistedVars.end());
+                    hoistedFns.erase(std::remove_if(hoistedFns.begin(), hoistedFns.end(),
+                        [&](const std::string& x){ return lexNames_.count(x) != 0; }), hoistedFns.end());
                 }
                 for (auto& name : hoistedVars) {
                     if (lookupVariableInfoInCurrentFunction(name)) continue;
                     auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
                     builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
                     defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+                    if (std::find(hoistedFns.begin(), hoistedFns.end(), name) != hoistedFns.end())
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(name)) vi->isFnHoist = true;
                 }
             }
 
@@ -1549,13 +1567,27 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // idiom then crashes. Mirrors the spec-function body lowering.
             {
                 std::vector<std::string> methodHoistedVars;
+                std::vector<std::string> methodHoistedVarsFns;
                 for (auto& stmt : methodNode->body)
-                    collectHoistedVarNames(stmt.get(), methodHoistedVars);
+                    collectHoistedVarNames(stmt.get(), methodHoistedVars, &methodHoistedVarsFns);
+                {
+                    // Annex B B.3.3: suppress the var-copy for fn names that clash
+                    // with a top-level lexical declaration.
+                    std::set<std::string> lexNames_;
+                    collectTopLevelLexicalNames(methodNode->body, lexNames_);
+                    for (auto& fn_ : methodHoistedVarsFns)
+                        if (lexNames_.count(fn_))
+                            methodHoistedVars.erase(std::remove(methodHoistedVars.begin(), methodHoistedVars.end(), fn_), methodHoistedVars.end());
+                    methodHoistedVarsFns.erase(std::remove_if(methodHoistedVarsFns.begin(), methodHoistedVarsFns.end(),
+                        [&](const std::string& x){ return lexNames_.count(x) != 0; }), methodHoistedVarsFns.end());
+                }
                 for (auto& name : methodHoistedVars) {
                     if (lookupVariableInfoInCurrentFunction(name)) continue;
                     auto a = builder_.createAlloca(HIRType::makeAny(), name);
                     builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
                     defineVariableAlloca(name, a, HIRType::makeAny());
+                    if (std::find(methodHoistedVarsFns.begin(), methodHoistedVarsFns.end(), name) != methodHoistedVarsFns.end())
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(name)) vi->isFnHoist = true;
                 }
                 // Top-level let/const: TDZ sentinel pre-declaration so nested
                 // function declarations capture them (mirrors the function

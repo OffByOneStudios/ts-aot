@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "ASTToHIR_Internal.h"
 
 namespace ts::hir {
@@ -621,13 +622,27 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // function inner(){ self.#m = v; }` read `self` as undefined).
             {
                 std::vector<std::string> mHoisted;
+                std::vector<std::string> mHoistedFns;
                 for (auto& stmt : methodDef->body)
-                    collectHoistedVarNames(stmt.get(), mHoisted);
+                    collectHoistedVarNames(stmt.get(), mHoisted, &mHoistedFns);
+                {
+                    // Annex B B.3.3: suppress the var-copy for fn names that clash
+                    // with a top-level lexical declaration.
+                    std::set<std::string> lexNames_;
+                    collectTopLevelLexicalNames(methodDef->body, lexNames_);
+                    for (auto& fn_ : mHoistedFns)
+                        if (lexNames_.count(fn_))
+                            mHoisted.erase(std::remove(mHoisted.begin(), mHoisted.end(), fn_), mHoisted.end());
+                    mHoistedFns.erase(std::remove_if(mHoistedFns.begin(), mHoistedFns.end(),
+                        [&](const std::string& x){ return lexNames_.count(x) != 0; }), mHoistedFns.end());
+                }
                 for (auto& nm : mHoisted) {
                     if (lookupVariableInfoInCurrentFunction(nm)) continue;
                     auto a = builder_.createAlloca(HIRType::makeAny(), nm);
                     builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
                     defineVariableAlloca(nm, a, HIRType::makeAny());
+                    if (std::find(mHoistedFns.begin(), mHoistedFns.end(), nm) != mHoistedFns.end())
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(nm)) vi->isFnHoist = true;
                 }
                 for (auto& stmt : methodDef->body) {
                     if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
@@ -1450,13 +1465,16 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // function inner(){ self.#m = v; }` read `self` as undefined).
             {
                 std::vector<std::string> mHoisted;
+                std::vector<std::string> mHoistedFns;
                 for (auto& stmt : methodDef->body)
-                    collectHoistedVarNames(stmt.get(), mHoisted);
+                    collectHoistedVarNames(stmt.get(), mHoisted, &mHoistedFns);
                 for (auto& nm : mHoisted) {
                     if (lookupVariableInfoInCurrentFunction(nm)) continue;
                     auto a = builder_.createAlloca(HIRType::makeAny(), nm);
                     builder_.createStore(builder_.createConstUndefined(), a, HIRType::makeAny());
                     defineVariableAlloca(nm, a, HIRType::makeAny());
+                    if (std::find(mHoistedFns.begin(), mHoistedFns.end(), nm) != mHoistedFns.end())
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(nm)) vi->isFnHoist = true;
                 }
                 for (auto& stmt : methodDef->body) {
                     if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {

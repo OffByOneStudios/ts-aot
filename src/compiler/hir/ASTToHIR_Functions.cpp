@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "ASTToHIR_Internal.h"
 
 namespace ts::hir {
@@ -303,6 +304,13 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             // Initialize with null - will be set when the function is processed
             builder_.createStore(builder_.createConstNull(), allocaVal);
             defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+            // Function-name slot: Annex-B var-copy target for block fns.
+            if (auto* vi_ = lookupVariableInfoInCurrentFunction(funcDecl->name))
+                vi_->isFnHoist = true;
+            // Function-name slot: a block-level `function f` may Annex-B
+            // var-copy into it (block-decl-global-existing-fn-update).
+            if (auto* vi = lookupVariableInfoInCurrentFunction(funcDecl->name))
+                vi->isFnHoist = true;
         }
     }
 
@@ -314,14 +322,28 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // global object) and the surrounding function sees `undefined`.
     {
         std::vector<std::string> hoistedVars;
+        std::vector<std::string> hoistedFns;
         for (auto& stmt : node->body) {
-            collectHoistedVarNames(stmt.get(), hoistedVars);
+            collectHoistedVarNames(stmt.get(), hoistedVars, &hoistedFns);
+        }
+        {
+            // Annex B B.3.3: suppress the var-copy for fn names that clash
+            // with a top-level lexical declaration.
+            std::set<std::string> lexNames_;
+            collectTopLevelLexicalNames(node->body, lexNames_);
+            for (auto& fn_ : hoistedFns)
+                if (lexNames_.count(fn_))
+                    hoistedVars.erase(std::remove(hoistedVars.begin(), hoistedVars.end(), fn_), hoistedVars.end());
+            hoistedFns.erase(std::remove_if(hoistedFns.begin(), hoistedFns.end(),
+                [&](const std::string& x){ return lexNames_.count(x) != 0; }), hoistedFns.end());
         }
         for (auto& name : hoistedVars) {
             if (lookupVariableInfoInCurrentFunction(name)) continue;
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
             builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
             defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+            if (std::find(hoistedFns.begin(), hoistedFns.end(), name) != hoistedFns.end())
+                if (auto* vi = lookupVariableInfoInCurrentFunction(name)) vi->isFnHoist = true;
         }
     }
 
@@ -507,12 +529,29 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
         // Store the closure into the pre-created alloca (if it exists)
         // This enables function hoisting - the alloca was created before processing statements
+        // Block-level function declaration semantics (ES 14.2.3 + Annex B
+        // B.3.3): inside a BLOCK, the declaration binds BLOCK-locally; the
+        // function-scope var-copy goes ONLY into the dedicated hoist slot
+        // (VariableInfo::isFnHoist, absent when a lexical collision
+        // suppressed it). Storing into an arbitrary outer binding clobbered
+        // same-named let/const (e.g. `for (let f in ...) { { function f(){} } }`
+        // overwrote the loop variable and leaked f past the loop).
+        bool fdInBlock = false;
+        for (size_t si = scopes_.size(); si-- > 0;) {
+            if (scopes_[si].isFunctionBoundary) {
+                fdInBlock = (si != scopes_.size() - 1);
+                break;
+            }
+        }
         auto* existingInfo = lookupVariableInfo(node->name);
-        if (existingInfo && existingInfo->isAlloca) {
+        bool storeToExisting = existingInfo && existingInfo->isAlloca &&
+                               (!fdInBlock || existingInfo->isFnHoist);
+        if (storeToExisting) {
             builder_.createStore(closureVal, existingInfo->value);
             broadcastCaptureWrite(existingInfo, closureVal);
-        } else {
-            // No pre-created alloca, define the function name as a closure variable
+        }
+        if (fdInBlock || !storeToExisting) {
+            // Block-local binding (or a fresh top-level one).
             defineVariable(node->name, closureVal);
         }
 
@@ -549,11 +588,29 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         auto closureVal = builder_.createMakeClosure(funcName, emptyCaptureValues, funcType);
 
         // Store into pre-created alloca or define new variable
+        // Block-level function declaration semantics (ES 14.2.3 + Annex B
+        // B.3.3): inside a BLOCK, the declaration binds BLOCK-locally; the
+        // function-scope var-copy goes ONLY into the dedicated hoist slot
+        // (VariableInfo::isFnHoist, absent when a lexical collision
+        // suppressed it). Storing into an arbitrary outer binding clobbered
+        // same-named let/const (e.g. `for (let f in ...) { { function f(){} } }`
+        // overwrote the loop variable and leaked f past the loop).
+        bool fdInBlock = false;
+        for (size_t si = scopes_.size(); si-- > 0;) {
+            if (scopes_[si].isFunctionBoundary) {
+                fdInBlock = (si != scopes_.size() - 1);
+                break;
+            }
+        }
         auto* existingInfo = lookupVariableInfo(node->name);
-        if (existingInfo && existingInfo->isAlloca) {
+        bool storeToExisting = existingInfo && existingInfo->isAlloca &&
+                               (!fdInBlock || existingInfo->isFnHoist);
+        if (storeToExisting) {
             builder_.createStore(closureVal, existingInfo->value);
             broadcastCaptureWrite(existingInfo, closureVal);
-        } else {
+        }
+        if (fdInBlock || !storeToExisting) {
+            // Block-local binding (or a fresh top-level one).
             defineVariable(node->name, closureVal);
         }
 
@@ -770,6 +827,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 auto allocaVal = builder_.createAlloca(nestedFuncType, nestedFunc->name);
                 builder_.createStore(builder_.createConstNull(), allocaVal);
                 defineVariableAlloca(nestedFunc->name, allocaVal, nestedFuncType);
+                // Function-name slot: Annex-B var-copy target for block fns.
+                if (auto* vi_ = lookupVariableInfoInCurrentFunction(nestedFunc->name))
+                    vi_->isFnHoist = true;
             }
         }
 
@@ -1204,14 +1264,17 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // declared inside an `if` branch.
     {
         std::vector<std::string> hoistedVars;
+        std::vector<std::string> hoistedFns;
         for (auto& stmt : node->body) {
-            collectHoistedVarNames(stmt.get(), hoistedVars);
+            collectHoistedVarNames(stmt.get(), hoistedVars, &hoistedFns);
         }
         for (auto& name : hoistedVars) {
             if (lookupVariableInfoInCurrentFunction(name)) continue;
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
             builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
             defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+            if (std::find(hoistedFns.begin(), hoistedFns.end(), name) != hoistedFns.end())
+                if (auto* vi = lookupVariableInfoInCurrentFunction(name)) vi->isFnHoist = true;
         }
     }
 
@@ -1260,6 +1323,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 auto allocaVal = builder_.createAlloca(funcType, funcDecl->name);
                 builder_.createStore(builder_.createConstNull(), allocaVal);
                 defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+                // Function-name slot: Annex-B var-copy target for block fns.
+                if (auto* vi_ = lookupVariableInfoInCurrentFunction(funcDecl->name))
+                    vi_->isFnHoist = true;
             }
         }
     }

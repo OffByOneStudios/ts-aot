@@ -107,6 +107,12 @@ private:
         // declaration lowering; checked at assignment/destructuring-assignment
         // sites only (declaration/loop-binding stores are unaffected).
         bool isConst = false;
+        // Function-scope slot created by the hoist prologue for a nested
+        // FunctionDeclaration's name (Annex B B.3.3 var-copy target). A
+        // block-level fn decl assigns THIS slot only when it exists —
+        // lexical collisions suppress its creation, so the assignment
+        // can't clobber a let/const of the same name.
+        bool isFnHoist = false;
         // The closure that owns the cell. Kept as a single ptr for the
         // primary capturer (used by READ sites — any cell is fine since all
         // copies are kept in sync by writes). The full list of all closures
