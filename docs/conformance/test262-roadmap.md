@@ -1,13 +1,15 @@
 # test262 Conformance Roadmap
 
-**State (2026-07-02, master `9b4bc7db`):** 36,458+/45,258 = **80.6%** on the
-milestone-tracking scope (sweep tmp_p24, 0 lost vs p23, +236; plus the
-post-sweep new-class-expression merge). Stage B (85% = 38,470) in progress:
-~2,000 to go. Landed this Stage B session: ES2025 Set methods (+164),
-RegExp.escape (+18), Promise.try + the instanceof-Promise offset bug (+14),
-globalThis reflection of top-level fn decls (asyncHelpers $DONE unblock,
-+~80 net), `new class {...}()` compiler fix. Wider scope: 36,458/50,506 =
-72.2%.
+**State (2026-07-02, master `60e0d6e1`):** 36,765/45,258 = **81.2%** on the
+milestone-tracking scope (sweep tmp_p25: +310 vs p24, 3 traced residuals
+from the new-class-expr fix). Stage B (85% = 38,470): 1,705 to go.
+15 gated merges this session: ES2025 Set methods (+164), RegExp.escape,
+Promise.try + instanceof-Promise offset bug, globalThis fn-decl reflection
+(asyncHelpers unblock), `new class {...}()` machinery, async-gen setjmp
+ctx-clobber (crash root, 105->34), lazy dstr initializers, for-of OBJECT
+assignment patterns (~+188), static private accessor arity, computed
+class-field key modvar fallback, dp-matrix drills (descriptor validation,
+attr retention, non-writable-length). Wider scope: 36,765/50,506 = 72.8%.
 **STAGE A COMPLETE — the 80% milestone (36,206) is MET** (+16 margin at the
 confirming sweep, plus ~7 more merged after it: set-path integrity gates +
 structural TestIntegrityLevel). +1,159 from the Stage A start at 35,063.
