@@ -5213,6 +5213,15 @@ void* ts_get_global_process() {
     return (void*)process;
 }
 
+// Reflect a top-level (script-goal) function declaration as an own
+// property of globalThis (ES CreateGlobalFunctionBinding). Emitted by the
+// compiler at program start for every top-level FunctionDeclaration.
+extern "C" void ts_global_bind_fn(void* nameStr, TsValue* fn) {
+    if (!globalThis || !nameStr) return;
+    TsValue* key = ts_value_make_string(nameStr);
+    ts_object_set_property((void*)globalThis, (void*)key, fn);
+}
+
 void* ts_get_global_globalThis() {
     TenureScope _tenure;
     return (void*)globalThis;
