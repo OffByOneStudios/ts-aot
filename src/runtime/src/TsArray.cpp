@@ -1601,6 +1601,53 @@ extern "C" {
     }
 
     extern TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv);
+    void* ts_array_sort(void* arr, void* comparator);  // fwd (spec path recurses)
+
+    // ES 23.1.3.30 SortIndexedProperties (SKIP-HOLES) + write-back, for exotic
+    // receivers: own index accessors, holes inheriting from a modified
+    // prototype, array-like temps. Reads a live snapshot in ascending index
+    // order (getters run once each and may mutate the array mid-read), sorts
+    // the snapshot as a plain packed array, then writes positions 0..n-1 back
+    // through the spec Set path and deletes the tail. The snapshot is a
+    // TsArray (GC-visible) — comparator calls can trigger collection.
+    // Returns true when it handled the sort; false → caller's fast path.
+    static bool array_sort_spec_exotic(TsArray* arr, void* comparator) {
+        extern bool ts_array_needs_spec_search(TsArray*);
+        if (!ts_array_needs_spec_search(arr)) return false;
+        int64_t len = arr->Length();
+        TsArray* snapshot = TsArray::Create((size_t)(len > 0 ? len : 1));
+        for (int64_t k = 0; k < len; ++k) {
+            if (!ts_array_has_property_at(arr, k)) continue;   // SKIP-HOLES
+            TsValue* v = ts_array_get_property_at(arr, k);
+            snapshot->Push((int64_t)(uintptr_t)(v ? v : ts_value_make_undefined()));
+        }
+        ts_array_sort((void*)snapshot, comparator);            // packed → fast path
+        int64_t n = snapshot->Length();
+        for (int64_t j = 0; j < n; ++j) {
+            // Spec Set(O, j, items[j], true): an own index accessor takes the
+            // write (setter runs / getter-only ignores); otherwise plain store
+            // (grows the array if a getter shrank it mid-read).
+            void* v = (void*)(uintptr_t)snapshot->Get((size_t)j);
+            if (array_index_write_intercept(arr, (size_t)j, v)) continue;
+            ts_object_set_dynamic(ts_value_make_object(arr), ts_value_make_int(j),
+                                  (TsValue*)v);
+        }
+        // DeletePropertyOrThrow for n <= j < len: drop any index accessor and
+        // leave a hole.
+        for (int64_t j = n; j < len; ++j) {
+            if (arr->properties) {
+                char gk[40], sk[40];
+                snprintf(gk, sizeof(gk), "__arr_getter_%lld", (long long)j);
+                snprintf(sk, sizeof(sk), "__arr_setter_%lld", (long long)j);
+                TsValue k1; k1.type = ValueType::STRING_PTR; k1.ptr_val = TsString::GetInterned(gk);
+                TsValue k2; k2.type = ValueType::STRING_PTR; k2.ptr_val = TsString::GetInterned(sk);
+                arr->properties->Delete(k1);
+                arr->properties->Delete(k2);
+            }
+            arr->SetHole((size_t)j);
+        }
+        return true;
+    }
 
     // ts_array_sort - HIR calls this with (array, comparator) and expects array to be returned
     void* ts_array_sort(void* arr, void* comparator) {
@@ -1617,6 +1664,17 @@ extern "C" {
             }
         }
         TsArray* array = (TsArray*)rawArr;
+
+        // Spec step 1 first (comparefn validation precedes any sorting), then
+        // the exotic-receiver path (index accessors / inherited holes /
+        // array-like temps read+write through the spec property protocol).
+        if (comparator && !ts_value_is_undefined((TsValue*)comparator) &&
+            !ts_is_callable(comparator)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Array.prototype.sort comparator must be a function or undefined"));
+            return nullptr;
+        }
+        if (array_sort_spec_exotic(array, comparator)) return array;
 
         if (!comparator) {
             array->Sort();
