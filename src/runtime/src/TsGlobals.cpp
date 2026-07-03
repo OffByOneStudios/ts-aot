@@ -5403,6 +5403,53 @@ extern "C" void* ts_typed_array_create_i8(int64_t length);
 // TypedArray.from(source, mapFn?, thisArg?) — iterate source by length
 // indexed reads, map each value, return a new typed array (Int8Array for
 // now; full spec would dispatch on ctx receiver kind).
+// Resolve the TypedArray CLASS a static `from`/`of` was invoked on (ctx is
+// the constructor function) to the matching allocator. %TypedArray% itself
+// or an unrecognized receiver falls back to Int8 (legacy behavior).
+extern "C" void* ts_get_global_Uint8Array();
+extern "C" void* ts_get_global_Int8Array();
+extern "C" void* ts_get_global_Uint8ClampedArray();
+extern "C" void* ts_get_global_Int16Array();
+extern "C" void* ts_get_global_Uint16Array();
+extern "C" void* ts_get_global_Int32Array();
+extern "C" void* ts_get_global_Uint32Array();
+extern "C" void* ts_get_global_Float32Array();
+extern "C" void* ts_get_global_Float64Array();
+extern "C" void* ts_get_global_BigInt64Array();
+extern "C" void* ts_get_global_BigUint64Array();
+extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v);
+extern "C" void* ts_typed_array_create_i64(int64_t);
+extern "C" void* ts_typed_array_create_u64(int64_t);
+extern "C" void* ts_typed_array_create_u8(int64_t);
+extern "C" void* ts_typed_array_create_clamped(int64_t);
+extern "C" void* ts_typed_array_create_i16(int64_t);
+extern "C" void* ts_typed_array_create_u16(int64_t);
+extern "C" void* ts_typed_array_create_i32(int64_t);
+extern "C" void* ts_typed_array_create_u32(int64_t);
+extern "C" void* ts_typed_array_create_f32(int64_t);
+extern "C" void* ts_typed_array_create_f64(int64_t);
+static void* ta_create_for_ctor(void* ctx, int64_t len) {
+    void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+    if (!raw) raw = ctx;
+    struct Row { void* (*global)(); void* (*create)(int64_t); };
+    static const Row rows[] = {
+        { ts_get_global_Uint8Array,        ts_typed_array_create_u8 },
+        { ts_get_global_Int8Array,         ts_typed_array_create_i8 },
+        { ts_get_global_Uint8ClampedArray, ts_typed_array_create_clamped },
+        { ts_get_global_Int16Array,        ts_typed_array_create_i16 },
+        { ts_get_global_Uint16Array,       ts_typed_array_create_u16 },
+        { ts_get_global_Int32Array,        ts_typed_array_create_i32 },
+        { ts_get_global_Uint32Array,       ts_typed_array_create_u32 },
+        { ts_get_global_Float32Array,      ts_typed_array_create_f32 },
+        { ts_get_global_Float64Array,      ts_typed_array_create_f64 },
+        { ts_get_global_BigInt64Array,     ts_typed_array_create_i64 },
+        { ts_get_global_BigUint64Array,    ts_typed_array_create_u64 },
+    };
+    for (const Row& r : rows)
+        if (raw == r.global()) return r.create(len);
+    return ts_typed_array_create_i8(len);
+}
+
 static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) {
     TenureScope _tenure;
     if (argc < 1 || !argv || !argv[0]) {
@@ -5453,10 +5500,17 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
     if (lenD > MAX_LEN) lenD = MAX_LEN;
     int64_t len = (int64_t)lenD;
 
-    void* result = ts_typed_array_create_i8(len);
+    void* result = ta_create_for_ctor(ctx, len);
     if (!result) return ts_value_make_undefined();
 
+    // Spec step 3: only UNDEFINED mapfn is "absent" — null (or any other
+    // non-callable) is a TypeError.
     TsValue* mapFn = (argc >= 2 && argv) ? argv[1] : nullptr;
+    if (mapFn && ts_value_is_null(mapFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from: mapfn is not callable"));
+        return ts_value_make_undefined();
+    }
     if (mapFn && !ts_value_is_nullish(mapFn)) {
         // Must be callable — if not a Function/Closure, throw.
         uint64_t mfNb = nanbox_from_tsvalue_ptr(mapFn);
@@ -5482,19 +5536,17 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
             TsValue* args[2] = { v, idx };
             v = ts_function_call_with_this(mapFn, thisArg, 2, args);
         }
-        double d = ts_to_number(v);
-        ((TsTypedArray*)result)->Set((size_t)i, d);
+        ts_ta_store_value(result, (size_t)i, v);   // type-aware (BigInt/number)
     }
     return ts_value_make_object(result);
 }
 
 // TypedArray.of(...items) — create a typed array from variadic args.
 static TsValue* ts_typed_array_of_native(void* ctx, int argc, TsValue** argv) {
-    void* result = ts_typed_array_create_i8(argc);
+    void* result = ta_create_for_ctor(ctx, argc);
     if (!result) return ts_value_make_undefined();
     for (int i = 0; i < argc; i++) {
-        double d = ts_to_number(argv[i]);
-        ((TsTypedArray*)result)->Set((size_t)i, d);
+        ts_ta_store_value(result, (size_t)i, argv[i]);
     }
     return ts_value_make_object(result);
 }
