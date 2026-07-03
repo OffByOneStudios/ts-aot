@@ -213,6 +213,8 @@ static struct NativePropsScanner {
     }
 } g_native_props_scanner;
 
+extern "C" uint8_t ts_integrity_get(void* raw);  // weak integrity side-table (TsObject_ObjectStatics.cpp)
+
 TsMap* getNativeProps(void* obj) {
     auto it = g_native_object_props.find(obj);
     return (it != g_native_object_props.end()) ? it->second : nullptr;
@@ -5573,6 +5575,15 @@ void* ts_create_arguments_from_params(
         // Check for TsFunction (can have properties like _.chunk)
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
             TsFunction* func = (TsFunction*)rawObj;
+            // Integrity: frozen blocks writes; sealed/non-extensible block ADDs.
+            {
+                uint8_t ilvl = ts_integrity_get(rawObj);
+                if (ilvl >= 3 ||
+                    (ilvl >= 1 && (!func->properties || !func->properties->Has(key)))) {
+                    if (strict) *violated = 1;
+                    return value;
+                }
+            }
             if (!func->properties) {
                 func->properties = TsMap::Create();
                 ts_gc_write_barrier(&func->properties, func->properties);
@@ -5624,6 +5635,16 @@ void* ts_create_arguments_from_params(
                     return value;
                 }
             }
+            // Integrity: frozen blocks writes; sealed/non-extensible block ADDs
+            // of NEW string-keyed props (element writes gate in ts_array_set_v).
+            {
+                uint8_t ilvl = ts_integrity_get(rawObj);
+                if (ilvl >= 3 ||
+                    (ilvl >= 1 && (!arr->properties || !arr->properties->Has(key)))) {
+                    if (strict) *violated = 1;
+                    return value;
+                }
+            }
             if (!arr->properties) {
                 arr->properties = TsMap::Create();
                 ts_gc_write_barrier(&arr->properties, arr->properties);
@@ -5672,6 +5693,15 @@ void* ts_create_arguments_from_params(
         // Check for TsClosure (can have properties like .prototype)
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
             TsClosure* closure = (TsClosure*)rawObj;
+            // Integrity: frozen blocks writes; sealed/non-extensible block ADDs.
+            {
+                uint8_t ilvl = ts_integrity_get(rawObj);
+                if (ilvl >= 3 ||
+                    (ilvl >= 1 && (!closure->properties || !closure->properties->Has(key)))) {
+                    if (strict) *violated = 1;
+                    return value;
+                }
+            }
             if (!closure->properties) {
                 closure->properties = TsMap::Create();
                 ts_gc_write_barrier(&closure->properties, closure->properties);
@@ -5812,6 +5842,15 @@ void* ts_create_arguments_from_params(
         // Fallback: store on side-map for native TsObject subclasses
         // This enables dynamic property writes on objects like TsServerResponse
         {
+            // Integrity levels for exotics: frozen blocks every write;
+            // sealed/non-extensible block ADDING a property (sloppy: silent).
+            uint8_t ilvl = ts_integrity_get(rawObj);
+            if (ilvl) {
+                if (ilvl >= 3) return value;
+                TsMap* existing = getNativeProps(rawObj);
+                if (!existing || existing->Get(key).type == ValueType::UNDEFINED)
+                    return value;
+            }
             TsMap* props = getOrCreateNativeProps(rawObj);
             props->Set(key, value);
         }

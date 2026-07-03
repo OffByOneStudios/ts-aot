@@ -1269,6 +1269,34 @@ extern "C" {
     }
 
     // Object.isFrozen(obj) - returns true if object is frozen
+    // ES TestIntegrityLevel structural check for a TsMap: non-extensible AND
+    // every own property non-configurable (frozen additionally requires data
+    // properties be non-writable; __getter_/__setter_ mangles are accessor
+    // halves where writability does not apply).
+    static bool map_integrity_level(TsMap* map, bool frozen) {
+        if (!map->IsExtensible()) {
+            void* keysPtr = map->GetKeys();
+            if (keysPtr) {
+                TsArray* keys = (TsArray*)keysPtr;
+                int64_t len = keys->Length();
+                for (int64_t i = 0; i < len; i++) {
+                    TsValue keyVal = nanbox_to_tagged((TsValue*)(uintptr_t)keys->Get(i));
+                    if (keyVal.type != ValueType::STRING_PTR) continue;
+                    uint8_t a = map->GetPropertyAttrs(keyVal);
+                    if (a & 0x04) return false;  // configurable
+                    if (frozen) {
+                        const char* k = ((TsString*)keyVal.ptr_val)->ToUtf8();
+                        bool accessor = k && (strncmp(k, "__getter_", 9) == 0 ||
+                                              strncmp(k, "__setter_", 9) == 0);
+                        if (!accessor && (a & 0x02)) return false;  // writable
+                    }
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     TsValue* ts_object_isFrozen(TsValue* obj) {
         if (!obj) return ts_value_make_bool(true);  // null/undefined considered frozen
         // ES2015+: non-object args return true (don't throw).
@@ -1281,16 +1309,31 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
-        // Flat objects: check the in-place frozen flag.
+        // Flat objects: frozen flag, or trivially frozen when non-extensible
+        // with zero own properties (ES TestIntegrityLevel).
         if (is_flat_object(rawPtr)) {
-            return ts_value_make_bool(flat_object_is_frozen(rawPtr));
+            if (flat_object_is_frozen(rawPtr)) return ts_value_make_bool(true);
+            if (!flat_object_is_extensible(rawPtr)) {
+                uint32_t sid = flat_object_shape_id(rawPtr);
+                ShapeDescriptor* desc = ts_shape_lookup(sid);
+                bool empty = desc && desc->numSlots == 0;
+                if (empty) {
+                    void* overflow = *(void**)((char*)rawPtr + 16);
+                    TsMap* om = (TsMap*)overflow;
+                    void* okeys = om ? om->GetKeys() : nullptr;
+                    if (!okeys || ((TsArray*)okeys)->Length() == 0)
+                        return ts_value_make_bool(true);
+                }
+            }
+            return ts_value_make_bool(false);
         }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
-            return ts_value_make_bool(map->IsFrozen());
+            if (map->IsFrozen()) return ts_value_make_bool(true);
+            return ts_value_make_bool(map_integrity_level(map, true));
         }
 
         return ts_value_make_bool(ts_integrity_get(rawPtr) >= 3);
@@ -1318,7 +1361,8 @@ extern "C" {
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
-            return ts_value_make_bool(map->IsSealed() || map->IsFrozen());
+            if (map->IsSealed() || map->IsFrozen()) return ts_value_make_bool(true);
+            return ts_value_make_bool(map_integrity_level(map, false));
         }
 
         return ts_value_make_bool(ts_integrity_get(rawPtr) >= 2);
