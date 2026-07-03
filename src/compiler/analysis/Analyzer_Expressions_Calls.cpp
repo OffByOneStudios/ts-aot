@@ -99,7 +99,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 
             if (calleeName == "require" && !node->arguments.empty()) {
                 if (auto lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
-                    loadModule(lit->value);
+                    if (auto m = loadModule(lit->value)) staticImportPaths.insert(m->path);
                 }
             }
         }
@@ -125,7 +125,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         methodName = id->name;
         if (methodName == "require" && !node->arguments.empty()) {
             if (auto lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
-                loadModule(lit->value);
+                if (auto m = loadModule(lit->value)) staticImportPaths.insert(m->path);
             }
         }
     }

@@ -121,6 +121,12 @@ public:
 
     std::map<std::string, std::shared_ptr<Module>> modules;
     std::vector<std::string> moduleOrder;
+    // Module paths reached through a STATIC import/export declaration or
+    // require(). Modules in moduleOrder but NOT here are only dynamically
+    // reachable (import() / string-literal discovery); the Monomorphizer
+    // wraps their startup init in a catch that memoizes the evaluation
+    // error instead of aborting the program (CONF-P3 phase 2).
+    std::set<std::string> staticImportPaths;
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 

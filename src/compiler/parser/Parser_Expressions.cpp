@@ -1242,8 +1242,13 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
                 setLocation(importId.get(), tok);
                 meta->expression = std::move(importId);
                 int identLine = current_.line;
+                // ES 13.3.13: the `meta` of a MetaProperty is a KEYWORD --
+                // Unicode escapes (import.meta) are SyntaxErrors even
+                // though they decode to "meta".
+                bool metaHadEscape =
+                    current_.text.find('\\') != std::string::npos;
                 std::string ident = identifierName();
-                if (ident != "meta") {
+                if (ident != "meta" || metaHadEscape) {
                     throw std::runtime_error(fmt::format(
                         "{}:{}: SyntaxError: 'import.{}' is not a valid "
                         "MetaProperty (only 'import.meta' is permitted)",
