@@ -1510,10 +1510,39 @@ static TsValue* ts_return_globalThis_native(void* ctx, int argc, TsValue** argv)
     return globalThis;
 }
 
-// Function('return this')() stub - returns a callable that returns globalThis
-// Used by lodash _root.js as a last-resort fallback for getting the global object
-void* ts_function_constructor_stub() {
-    return ts_value_make_native_function((void*)ts_return_globalThis_native, nullptr);
+static TsValue* ts_noop_undefined_native(void* ctx, int argc, TsValue** argv) {
+    return ts_value_make_undefined();
+}
+
+// Function(source) — AOT pattern-matcher (no interpreter tier). Exact-match
+// the safe literal idioms; throw EvalError for real dynamic source, the same
+// class of error a CSP-restricted host throws. A silent wrong function
+// (the old behavior: EVERY source returned a globalThis-returner) is a
+// production hazard — loud beats lucky.
+void* ts_function_constructor_stub(TsValue* body) {
+    const char* s = nullptr;
+    if (body) {
+        void* raw = ts_value_get_string(body);
+        if (raw) s = ((TsString*)raw)->ToUtf8();
+    }
+    if (!body || (body && ts_value_is_undefined(body)))
+        return ts_value_make_native_function((void*)ts_noop_undefined_native, nullptr);
+    if (s) {
+        // trim ASCII whitespace/semicolons for the comparison
+        std::string t(s);
+        const char* WS = " \t\r\n;";
+        size_t a = t.find_first_not_of(WS);
+        size_t b = t.find_last_not_of(WS);
+        std::string core = (a == std::string::npos) ? "" : t.substr(a, b - a + 1);
+        if (core.empty())
+            return ts_value_make_native_function((void*)ts_noop_undefined_native, nullptr);
+        if (core == "return this")
+            return ts_value_make_native_function((void*)ts_return_globalThis_native, nullptr);
+    }
+    ts_throw((TsValue*)ts_error_create_typed("EvalError",
+        "Function constructor with dynamic source is not supported in "
+        "AOT-compiled code (only the literal 'return this' idiom)"));
+    return nullptr;  // unreachable
 }
 
 }

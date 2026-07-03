@@ -1260,9 +1260,17 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
 
         if (ident->name == "Function") {
-            // Function('return this')() - eval-like pattern used by lodash _root.js
-            // Return a closure that returns globalThis
-            lastValue_ = builder_.createCall("ts_function_constructor_stub", {}, HIRType::makeAny());
+            // Function(source...) — AOT has no interpreter. The runtime
+            // pattern-matches the safe literal idioms ("return this" — the
+            // lodash/polyfill global-detection pattern — and empty bodies)
+            // and throws EvalError for anything else (the CSP-host
+            // precedent), instead of silently returning a wrong function.
+            // The LAST argument is the body per 20.2.1.1.
+            std::shared_ptr<HIRValue> body = args.empty()
+                ? builder_.createConstUndefined()
+                : boxValueIfNeeded(args.back());
+            lastValue_ = builder_.createCall("ts_function_constructor_stub",
+                                             {body}, HIRType::makeAny());
             return;
         }
 
@@ -1945,6 +1953,22 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             iter = boxValueIfNeeded(iter);
             lastValue_ = builder_.createCall("ts_set_create_from_iterable", {iter}, HIRType::makeSet());
         }
+        return;
+    }
+
+    // `new Function(source...)` — same AOT pattern-matcher as the call
+    // form: literal "return this"/empty match, EvalError otherwise (never
+    // a silent wrong function). Body = LAST argument per 20.2.1.1.
+    if (className == "Function") {
+        std::shared_ptr<HIRValue> fbody;
+        if (node->arguments.empty()) {
+            fbody = builder_.createConstUndefined();
+        } else {
+            fbody = boxValueIfNeeded(
+                lowerExpression(node->arguments.back().get()));
+        }
+        lastValue_ = builder_.createCall("ts_function_constructor_stub",
+                                         {fbody}, HIRType::makeAny());
         return;
     }
 
