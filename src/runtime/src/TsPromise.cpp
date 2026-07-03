@@ -59,6 +59,9 @@ TsValue* create_generator_result(TsValue value, bool done) {
     return ts_value_make_object(map);
 }
 
+extern "C" TsValue* Generator_return(TsValue* genVal, TsValue* value);   // defined below
+extern "C" TsValue* Generator_throw(TsValue* genVal, TsValue* exception); // defined below
+
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
@@ -71,6 +74,22 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
         return ts_value_make_object(ctx);
     }, this));
     this->Set(TsString::Create("[Symbol.iterator]"), iterFunc);
+
+    // `return`/`throw` as READABLE own properties. The compiler's method-call
+    // route special-cases gen.return()/gen.throw(), but a property READ
+    // (typeof gen.return; IteratorClose reading iterator.return) got
+    // undefined — so ih_close silently never closed generators (the
+    // Iterator-helpers early-exit close tests observe this).
+    TsValue retFunc = nanbox_to_tagged(ts_value_make_function(
+        (void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
+            return Generator_return(ts_value_make_object(ctx), arg);
+        }, this));
+    this->Set(TsString::Create("return"), retFunc);
+    TsValue thrFunc = nanbox_to_tagged(ts_value_make_function(
+        (void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
+            return Generator_throw(ts_value_make_object(ctx), arg);
+        }, this));
+    this->Set(TsString::Create("throw"), thrFunc);
 
     // Link the generator's [[Prototype]] to %IteratorPrototype% so it inherits
     // the iterator helpers (map/filter/take/drop/flatMap/toArray/...). The own
