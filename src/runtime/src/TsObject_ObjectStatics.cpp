@@ -2736,6 +2736,63 @@ extern "C" {
         return ts_value_make_object(desc);
     }
 
+    // ---- %ThrowTypeError% (ES 10.2.4) ------------------------------------
+    // One frozen, non-extensible, anonymous, zero-length function per realm;
+    // it is the get AND set of the "callee" accessor on unmapped (strict)
+    // arguments objects and of Function.prototype's "caller"/"arguments".
+    static TsValue* tte_call(void* ctx, int argc, TsValue** argv) {
+        (void)ctx; (void)argc; (void)argv;
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "'caller', 'callee', and 'arguments' properties may not be accessed on "
+            "strict mode functions or the arguments objects for calls to them"));
+        return ts_value_make_undefined();
+    }
+    extern "C" TsValue* ts_get_throw_type_error() {
+        static TsValue* tte = nullptr;
+        if (!tte) {
+            tte = ts_value_make_native_function((void*)tte_call, nullptr);
+            TsFunction* fn = (TsFunction*)tte;
+            fn->name = TsString::Create("");
+            fn->arity = 0;
+            fn->is_constructor = false;
+            if (!fn->properties) {
+                fn->properties = TsMap::Create();
+                ts_gc_write_barrier(&fn->properties, fn->properties);
+            }
+            TsValue k, v;
+            k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("length");
+            v.type = ValueType::NUMBER_INT; v.i_val = 0;
+            fn->properties->SetWithAttrs(k, v, 0);  // non-writable/enum/config
+            k.ptr_val = TsString::GetInterned("name");
+            v.type = ValueType::STRING_PTR; v.ptr_val = TsString::Create("");
+            fn->properties->SetWithAttrs(k, v, 0);
+            // frozen + non-extensible (Object.isFrozen/isExtensible read this)
+            void* raw = ts_value_get_object(tte);
+            if (!raw) raw = (void*)tte;
+            g_obj_integrity[raw] = 3;  // 3 = frozen (implies sealed + non-extensible)
+            static bool rooted = false;
+            if (!rooted) { rooted = true; ts_gc_register_root((void**)&tte); }
+        }
+        return tte;
+    }
+
+    // Accessor descriptor { get: TTE, set: TTE, enumerable:false,
+    // configurable:false } — shared by the branches below.
+    static TsValue* tte_accessor_descriptor() {
+        TsValue* tte = ts_get_throw_type_error();
+        TsMap* d = TsMap::Create();
+        TsValue k, v;
+        k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("get");
+        v = nanbox_to_tagged(tte); d->Set(k, v);
+        k.ptr_val = TsString::GetInterned("set");
+        d->Set(k, v);
+        k.ptr_val = TsString::GetInterned("enumerable");
+        v.type = ValueType::BOOLEAN; v.i_val = 0; d->Set(k, v);
+        k.ptr_val = TsString::GetInterned("configurable");
+        d->Set(k, v);
+        return ts_value_make_object(d);
+    }
+
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
         // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5)
         // when present (or revoked); trap-less proxies keep legacy behavior.
@@ -2766,6 +2823,30 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
             return ts_value_make_undefined();
+        }
+
+        // ES 20.2.3 / 10.2.4: %Function.prototype%'s "caller" and "arguments"
+        // are the %ThrowTypeError% accessor (get === set, non-configurable).
+        {
+            TsString* ks0 = (TsString*)ts_value_get_string(prop);
+            const char* k0 = ks0 ? ks0->ToUtf8() : nullptr;
+            if (k0 && (strcmp(k0, "caller") == 0 || strcmp(k0, "arguments") == 0)) {
+                extern void* ts_get_global_Function();
+                void* g = ts_get_global_Function();
+                void* fraw = g ? ts_value_get_object((TsValue*)g) : nullptr;
+                if (!fraw) fraw = g;
+                if (fraw && *(uint32_t*)((char*)fraw + 16) == 0x46554E43 /*FUNC*/) {
+                    TsFunction* fctor = (TsFunction*)fraw;
+                    if (fctor->properties) {
+                        TsValue pk; pk.type = ValueType::STRING_PTR;
+                        pk.ptr_val = TsString::GetInterned("prototype");
+                        TsValue pv = fctor->properties->Get(pk);
+                        if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val == rawPtr) {
+                            return tte_accessor_descriptor();
+                        }
+                    }
+                }
+            }
         }
 
         // Canonicalize a Symbol key to its "\x01@@sym\x01<i>" storage-key string
@@ -2880,6 +2961,12 @@ extern "C" {
                 if (!keyStr) return ts_value_make_undefined();
                 const char* keyCStr = ts_ensure_flat(keyStr)->ToUtf8();
                 if (!keyCStr) return ts_value_make_undefined();
+
+                // ES 10.4.4.6 CreateUnmappedArgumentsObject: "callee" is the
+                // %ThrowTypeError% accessor (get === set, non-configurable).
+                if (arr->isArguments && strcmp(keyCStr, "callee") == 0) {
+                    return tte_accessor_descriptor();
+                }
 
                 auto buildDataDesc = [](TsValue val, bool writable, bool enumerable, bool configurable) -> TsValue* {
                     TsMap* d = TsMap::Create();

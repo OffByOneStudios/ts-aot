@@ -1430,6 +1430,40 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // terminator, so it is valid mid-expression.
     // Inside a `with` body every statically-unresolved name must consult the
     // with-scope stack at runtime (the resolver walks it before globalThis).
+    // `arguments` referenced from a DEFAULT-PARAMETER initializer: the entry
+    // binding block only scans the function BODY for `arguments`, and even
+    // when it fires it runs AFTER parameter binding — so a default like
+    // `method(x = arguments[2])` reached this fallback and lowered to
+    // constant undefined (ES 10.2.11 creates the arguments object BEFORE
+    // IteratorBindingInitialization). Materialize it lazily here from the
+    // current function's incoming params; ts_last_call_argc still holds this
+    // call's argc during default evaluation.
+    if (node->name == "arguments" && currentFunction_ &&
+        !currentFunction_->params.empty()) {
+        std::vector<std::shared_ptr<HIRValue>> callArgs;
+        size_t userIdx = 0;
+        for (size_t i = 0; i < currentFunction_->params.size() && userIdx < 10; ++i) {
+            if (currentFunction_->params[i].first == "__closure__") continue;
+            if (currentFunction_->params[i].first == "this") continue;  // method receiver
+            // RAW incoming argument (HIRValue by param index): the arguments
+            // object holds the passed values, and the param currently being
+            // default-bound still holds the TDZ sentinel in its alloca — a
+            // lookupVariable load here would throw its own TDZ ReferenceError.
+            auto paramVal = std::make_shared<HIRValue>(
+                static_cast<uint32_t>(i),
+                currentFunction_->params[i].second,
+                currentFunction_->params[i].first);
+            callArgs.push_back(paramVal);
+            userIdx++;
+        }
+        while (userIdx < 10) {
+            callArgs.push_back(builder_.createConstUndefined());
+            userIdx++;
+        }
+        lastValue_ = builder_.createCall("ts_create_arguments_from_params",
+                                         callArgs, HIRType::makeAny());
+        return;
+    }
     if ((node->isUnresolvedReference || withScopeActive()) && !inTypeofOperand_) {
         auto nameStr = builder_.createConstString(node->name);
         lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",

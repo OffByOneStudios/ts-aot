@@ -851,6 +851,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         break;
                     }
                 }
+                if (!bodyUsesArguments) bodyUsesArguments = paramsReferenceArguments(funcNode->parameters);
                 if (bodyUsesArguments) {
                     while (func->params.size() < 10) {
                         std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -1087,6 +1088,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         break;
                     }
                 }
+                if (!usesArguments) usesArguments = paramsReferenceArguments(funcNode->parameters);
                 if (usesArguments) {
                     std::vector<std::shared_ptr<HIRValue>> callArgs;
                     size_t userIdx = 0;
@@ -1271,6 +1273,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 for (auto& stmt : methodNode->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { mBodyUsesArgs = true; break; }
                 }
+                if (!mBodyUsesArgs) mBodyUsesArgs = paramsReferenceArguments(methodNode->parameters);
                 if (mBodyUsesArgs) {
                     while (func->params.size() < 10) {
                         std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
@@ -1463,6 +1466,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 for (auto& stmt : methodNode->body) {
                     if (containsArgumentsIdentifier(stmt.get())) { usesArguments = true; break; }
                 }
+                if (!usesArguments) usesArguments = paramsReferenceArguments(methodNode->parameters);
                 if (usesArguments) {
                     std::vector<std::shared_ptr<HIRValue>> callArgs;
                     size_t userIdx = 0;
