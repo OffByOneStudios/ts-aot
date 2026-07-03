@@ -1440,20 +1440,32 @@ extern "C" {
             return TsString::FromCodePoint(&cp, 1);
         }
 
-        if (nanbox_is_ptr(nb)) codePointsArray = nanbox_to_ptr(nb);
-        if (!codePointsArray || (uintptr_t)codePointsArray < 0x10000)
+        void* rawArg = codePointsArray;
+        if (nanbox_is_ptr(nb)) rawArg = nanbox_to_ptr(nb);
+        if (!rawArg || (uintptr_t)rawArg < 0x10000)
             return TsString::Create("");
-        // Must be a TsArray ("ARRY"); anything else -> empty (no crash).
-        if (*(uint32_t*)codePointsArray != 0x41525259)
-            return TsString::Create("");
-        TsArray* arr = (TsArray*)codePointsArray;
+        if (*(uint32_t*)rawArg != 0x41525259) {
+            // Non-array operand (object/string/symbol/boolean): full ES
+            // ToNumber -- valueOf/toString hooks run and abrupt completions
+            // (incl. the Symbol TypeError) propagate; the result then goes
+            // through the same integral-code-point validation. Previously
+            // these silently produced "".
+            extern double ts_to_number(TsValue* v);
+            int64_t cp = validateCP(ts_to_number((TsValue*)codePointsArray));
+            return TsString::FromCodePoint(&cp, 1);
+        }
+        TsArray* arr = (TsArray*)rawArg;
         int64_t len = arr->Length();
         int64_t* codePoints = (int64_t*)ts_alloc(len * sizeof(int64_t));
         for (int64_t i = 0; i < len; i++) {
             uint64_t v = (uint64_t)arr->Get(i);
-            double d = nanbox_is_int32(v) ? (double)nanbox_to_int32(v)
-                     : nanbox_is_number(v) ? nanbox_to_double(v)
-                     : (double)nanbox_to_int64(v);
+            double d;
+            if (nanbox_is_int32(v)) d = (double)nanbox_to_int32(v);
+            else if (nanbox_is_number(v)) d = nanbox_to_double(v);
+            else {
+                extern double ts_to_number(TsValue* v);
+                d = ts_to_number((TsValue*)(uintptr_t)v);
+            }
             codePoints[i] = validateCP(d);
         }
         return TsString::FromCodePoint(codePoints, len);
