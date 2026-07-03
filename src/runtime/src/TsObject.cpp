@@ -4186,6 +4186,33 @@ void* ts_create_arguments_from_params(
     // C++ callers keep the lenient base entries.
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+    // ECMA-262 7.1.19 ToPropertyKey for a mis-tagged OBJECT key (lowerGet/
+    // SetElem box ANY pointer key via ts_value_make_string): the user's
+    // toString/valueOf must run — and may THROW — before the property op.
+    // It runs HERE because this frame is std::string-FREE; get_dynamic and
+    // set_prop_v hold std::string locals and a longjmp out of those frames
+    // corrupts the MSVC unwinder (see longjmp-stdstring rule). Compound
+    // assignments get the T3 ordering for free: their READ runs first.
+    static TsValue* checked_to_property_key(TsValue* key) {
+        uint64_t keyNb = key ? nanbox_from_tsvalue_ptr(key) : 0;
+        // Any pointer-shaped key regardless of box tag (lowerGet/SetElem may
+        // tag an object key as STRING_PTR or OBJECT_PTR): coerce unless it is
+        // already a real string or a Symbol (Symbols STAY symbol keys).
+        if (key && nanbox_is_ptr(keyNb)) {
+            void* kp = nanbox_to_ptr(keyNb);
+            if (kp) {
+                uint32_t m0 = *(uint32_t*)kp;
+                if (m0 != 0x53545247 /*STRG*/ && m0 != 0x434F4E53 /*CONS*/ &&
+                    m0 != 0x53594D42 /*SYMB stays a symbol key*/) {
+                    extern void* ts_to_string_spec(TsValue* val);
+                    TsString* ks = (TsString*)ts_to_string_spec(key);
+                    if (ks) return ts_value_make_string(ks);
+                }
+            }
+        }
+        return key;
+    }
+
     TsValue* ts_object_get_dynamic_checked(TsValue* obj, TsValue* key) {
         uint64_t nbB = obj ? (uint64_t)(uintptr_t)obj : 0;
         if (!obj || nanbox_is_null(nbB) || nanbox_is_undefined(nbB)) {
@@ -4193,6 +4220,7 @@ void* ts_create_arguments_from_params(
                 "Cannot read properties of null or undefined"));
             return ts_value_make_undefined();
         }
+        key = checked_to_property_key(key);
         return ts_object_get_dynamic(obj, key);
     }
     void ts_object_set_dynamic_checked(TsValue* obj, TsValue* key, TsValue* value) {
@@ -4202,6 +4230,7 @@ void* ts_create_arguments_from_params(
                 "Cannot set properties of null or undefined"));
             return;
         }
+        key = checked_to_property_key(key);
         ts_object_set_dynamic(obj, key, value);
     }
 
