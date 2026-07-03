@@ -124,6 +124,23 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
 static void rewriteRequireInStmt(ast::Statement* stmt,
     ModuleResolver& resolver, const std::string& fromPath);
 
+// Graveyard for REPLACED expression nodes. analyzer.expressions holds RAW
+// pointers into the analyzed AST; destroying a replaced subtree leaves them
+// dangling and the later specialization scans dynamic_cast freed memory —
+// a layout-dependent heisen-AV (bit ts_dynamic_import rewrites whenever
+// allocation patterns shifted). Retire replaced nodes here instead; the
+// vector lives for the process (one compile — or one --batch job's worth
+// of leaked husks, which is bounded and tiny).
+static std::vector<std::unique_ptr<ast::Expression>>& rewriteGraveyard() {
+    static std::vector<std::unique_ptr<ast::Expression>> g;
+    return g;
+}
+static void retireExpr(std::unique_ptr<ast::Expression>& slot,
+                       std::unique_ptr<ast::Expression> replacement) {
+    rewriteGraveyard().push_back(std::move(slot));
+    slot = std::move(replacement);
+}
+
 // Walk a single expression, rewriting require('literal') → ts_module_get_cached('absolutePath')
 static void rewriteRequireInExpr(ast::Expression* expr,
     ModuleResolver& resolver, const std::string& fromPath) {
@@ -139,9 +156,11 @@ static void rewriteRequireInExpr(ast::Expression* expr,
                 if (resolved.isValid() && resolved.type != ModuleType::Builtin) {
                     id->name = "ts_module_get_cached";
                     lit->value = resolved.path;
-                    // Trim to exactly 1 argument
-                    if (call->arguments.size() > 1) {
-                        call->arguments.resize(1);
+                    // Trim to exactly 1 argument (retire the extras --
+                    // they were analyzed; see rewriteGraveyard).
+                    while (call->arguments.size() > 1) {
+                        rewriteGraveyard().push_back(std::move(call->arguments.back()));
+                        call->arguments.pop_back();
                     }
                     call->inferredType = std::make_shared<Type>(TypeKind::Any);
                     SPDLOG_DEBUG("Rewrote require('{}') -> ts_module_get_cached('{}') in {}",
@@ -309,7 +328,7 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
                             replacement->inferredType = std::make_shared<Type>(TypeKind::String);
                             SPDLOG_DEBUG("Rewrote require.resolve('{}') -> '{}' in {}",
                                 lit->value, resolved.path, fromPath);
-                            expr = std::move(replacement);
+                            retireExpr(expr, std::move(replacement));
                             return;
                         }
                     }
@@ -334,7 +353,7 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
                 replacement->inferredType = dynImport->inferredType;
                 SPDLOG_DEBUG("Rewrote import('{}') -> ts_dynamic_import('{}') in {}",
                     lit->value, resolved.path, fromPath);
-                expr = std::move(replacement);
+                retireExpr(expr, std::move(replacement));
                 return;
             }
         }
@@ -355,7 +374,7 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
                             auto replacement = jsonToAstExpr(modIt->second->jsonContent.value());
                             replacement->inferredType = std::make_shared<Type>(TypeKind::Any);
                             SPDLOG_DEBUG("Inlined JSON require('{}') in {}", lit->value, fromPath);
-                            expr = std::move(replacement);
+                            retireExpr(expr, std::move(replacement));
                             return;
                         }
                     }
@@ -384,7 +403,7 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
                 auto replacement = std::make_unique<ast::Identifier>();
                 replacement->name = "__import_meta";
                 replacement->inferredType = std::make_shared<Type>(TypeKind::Any);
-                expr = std::move(replacement);
+                retireExpr(expr, std::move(replacement));
                 return;
             }
         }
@@ -1221,7 +1240,38 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 }
             }
 
-            // Inject: exports.<name> = <name>; for each exported name
+            // Export-rename clauses: `export { local as exported }` (no module
+            // specifier) must inject exports.<exported> = <local>. The symbol-
+            // table path above adds the EXPORTED name but the generic loop's
+            // RHS uses the same name — an identifier that doesn't exist as a
+            // local, so the export was undefined. Collect (exported, local)
+            // pairs and let them override the same-name entries.
+            std::map<std::string, std::string> renameLocals;
+            auto collectRenames = [&renameLocals](
+                                     const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
+                for (const auto& stmt : stmts) {
+                    if (auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get())) {
+                        if (!ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                        for (const auto& spec : ed->namedExports) {
+                            const std::string& local =
+                                spec.propertyName.empty() ? spec.name : spec.propertyName;
+                            if (!local.empty() && !spec.name.empty()) {
+                                renameLocals[spec.name] = local;
+                                }
+                        }
+                    }
+                }
+            };
+            collectRenames(newBody);
+            collectRenames(moduleInit->body);
+            for (const auto& [exported, local] : renameLocals) {
+                if (std::find(exportedNames.begin(), exportedNames.end(), exported) ==
+                    exportedNames.end()) {
+                    exportedNames.push_back(exported);
+                }
+            }
+
+            // Inject: exports.<name> = <local>; for each exported name
             // (uses the 'exports' local = module.exports, created in the preamble)
             for (const auto& name : exportedNames) {
                 auto assignExpr = std::make_unique<ast::AssignmentExpression>();
@@ -1236,15 +1286,69 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
                 assignExpr->left = std::move(exportsAccess);
 
-                // RHS: <name>
+                // RHS: the local binding (differs from the exported name for
+                // rename clauses).
+                auto rn = renameLocals.find(name);
                 auto nameRef = std::make_unique<ast::Identifier>();
-                nameRef->name = name;
+                nameRef->name = (rn != renameLocals.end()) ? rn->second : name;
                 assignExpr->right = std::move(nameRef);
 
                 auto exprStmt = std::make_unique<ast::ExpressionStatement>();
                 exprStmt->expression = std::move(assignExpr);
                 moduleInit->body.push_back(std::move(exprStmt));
             }
+
+            // Named re-exports WITH a specifier:
+            // `export { local as exported } from './m'` — inject
+            // exports.<exported> = ts_module_get_cached('<resolved>').<local>;
+            // AFTER the local-export injections (a SELF re-export reads its own
+            // just-populated exports).
+            std::vector<std::unique_ptr<ast::Statement>> reExportStmts;
+            auto injectReExports = [&](const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
+                for (const auto& stmt : stmts) {
+                    auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
+                    if (!ed || ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                    auto resolved = analyzer.getModuleResolver().resolve(
+                        ed->moduleSpecifier, fs::path(path));
+                    if (!resolved.isValid() || resolved.type == ModuleType::Builtin) continue;
+                    for (const auto& spec : ed->namedExports) {
+                        const std::string& local =
+                            spec.propertyName.empty() ? spec.name : spec.propertyName;
+                        if (local.empty() || spec.name.empty()) continue;
+                        auto assignExpr = std::make_unique<ast::AssignmentExpression>();
+                        auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
+                        auto exportsRef = std::make_unique<ast::Identifier>();
+                        exportsRef->name = "exports";
+                        exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        exportsAccess->expression = std::move(exportsRef);
+                        exportsAccess->name = spec.name;
+                        exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        assignExpr->left = std::move(exportsAccess);
+
+                        auto call = std::make_unique<ast::CallExpression>();
+                        auto callee = std::make_unique<ast::Identifier>();
+                        callee->name = "ts_module_get_cached";
+                        call->callee = std::move(callee);
+                        auto pathLit = std::make_unique<ast::StringLiteral>();
+                        pathLit->value = resolved.path;
+                        call->arguments.push_back(std::move(pathLit));
+                        auto srcAccess = std::make_unique<ast::PropertyAccessExpression>();
+                        srcAccess->expression = std::move(call);
+                        srcAccess->name = local;
+                        srcAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        assignExpr->right = std::move(srcAccess);
+
+                        auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                        exprStmt->expression = std::move(assignExpr);
+                        // Collected separately: pushing into moduleInit->body
+                        // while iterating it invalidates the range-for.
+                        reExportStmts.push_back(std::move(exprStmt));
+                    }
+                }
+            };
+            injectReExports(newBody);
+            injectReExports(moduleInit->body);
+            for (auto& s : reExportStmts) moduleInit->body.push_back(std::move(s));
         }
 
         // Return module.exports at the end of module init
