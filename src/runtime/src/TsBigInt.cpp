@@ -136,6 +136,61 @@ void* ts_bigint_create_str(void* strArg, int32_t radix) {
     return bigintFromTrimmedString(tsStr->ToUtf8(), radix);
 }
 
+// ECMA-262 StringToBigInt with SYNTAX VALIDATION: returns nullptr on input
+// the BigInt literal grammar rejects (caller throws SyntaxError), instead of
+// bigintFromTrimmedString's silent 0n. Whitespace-only is 0n per spec; a bare
+// sign, a bare radix prefix, a signed prefixed literal ("-0x1"), or any
+// out-of-radix digit is invalid.
+void* ts_bigint_from_string_checked(void* strArg) {
+    TsString* tsStr = (TsString*)strArg;
+    if (!tsStr) return TsBigInt::Create((int64_t)0);
+    const char* cstr = tsStr->ToUtf8();
+    if (!cstr) return TsBigInt::Create((int64_t)0);
+    auto isWs = [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+               c == '\v' || c == '\f' || c == 0xA0;
+    };
+    const char* p = cstr;
+    while (*p && isWs(static_cast<unsigned char>(*p))) ++p;
+    const char* end = p + std::strlen(p);
+    while (end > p && isWs(static_cast<unsigned char>(end[-1]))) --end;
+    if (p == end) return TsBigInt::Create((int64_t)0);  // "" / whitespace -> 0n
+
+    int parseRadix = 10;
+    bool negative = false;
+    bool prefixed = false;
+    if ((end - p) >= 2 && p[0] == '0') {
+        char ch = p[1];
+        if (ch == 'x' || ch == 'X') { parseRadix = 16; p += 2; prefixed = true; }
+        else if (ch == 'o' || ch == 'O') { parseRadix = 8;  p += 2; prefixed = true; }
+        else if (ch == 'b' || ch == 'B') { parseRadix = 2;  p += 2; prefixed = true; }
+    }
+    if (!prefixed && p < end && (*p == '+' || *p == '-')) {
+        negative = (*p == '-');
+        ++p;
+    }
+    if (p == end) return nullptr;  // bare sign or bare prefix
+    for (const char* q = p; q < end; ++q) {
+        char c = *q;
+        int dig;
+        if (c >= '0' && c <= '9') dig = c - '0';
+        else if (c >= 'a' && c <= 'z') dig = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'Z') dig = c - 'A' + 10;
+        else return nullptr;
+        if (dig >= parseRadix) return nullptr;
+    }
+    std::string digits(p, static_cast<size_t>(end - p));
+    TsBigInt* bi = (TsBigInt*)ts_alloc(sizeof(TsBigInt));
+    new (bi) TsBigInt();
+    if (mp_read_radix(&bi->value, digits.c_str(), parseRadix) != MP_OKAY) {
+        mp_set_i32(&bi->value, 0);
+    }
+    if (negative) {
+        mp_neg(&bi->value, &bi->value);
+    }
+    return bi;
+}
+
 void* ts_bigint_to_string(void* bi, int32_t radix) {
     if (!bi) return TsString::Create("0");
     return TsString::Create(((TsBigInt*)bi)->ToString(radix));
