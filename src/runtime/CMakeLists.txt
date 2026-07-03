@@ -77,6 +77,7 @@ add_library(tsruntime STATIC
     src/TsDate.cpp
     src/TsTemporal.cpp
     src/TsRegExp.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compiler/parser/RegExpEarlyErrors.cpp
     src/TsPromise.cpp
     src/TsTextEncoding.cpp
     src/TsBoxedPrimitives.cpp
