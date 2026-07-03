@@ -1329,6 +1329,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             pushFunctionScope(methPtr);
             methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
+            // ECMA-262 parameter TDZ (see preseedParamTDZ): later/self param
+            // reads inside a default must throw ReferenceError.
+            preseedParamTDZ(methPtr, methodNode->parameters);
             // argTypeOffset is 1 for instance methods (slot 0 = synthetic 'this',
             // user params start at HIR index 1) and 0 for static methods. Map
             // the HIR param index back to the AST parameter so we can honor
