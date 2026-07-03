@@ -2657,10 +2657,37 @@ extern "C" {
                 descNb = ts_object_get_property(descRaw, ln);
             } else {
                 TsValue desc = descMap->Get(keyTag);
-                if (desc.type == ValueType::UNDEFINED) continue;  // key-encoding
+                if (desc.type == ValueType::UNDEFINED) {
+                    // A PRESENT key whose value is undefined must throw
+                    // (ToPropertyDescriptor step 1); a Get miss here is a
+                    // key-encoding artifact and is skipped as before.
+                    if (descMap->Has(keyTag)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Property description must be an object"));
+                        return obj;  // unreachable
+                    }
+                    continue;
+                }
                 descNb = nanbox_from_tagged(desc);
             }
             if (!descNb) continue;
+            // ToPropertyDescriptor step 1: the descriptor must be an Object.
+            // null / boolean / number / string / symbol all throw.
+            {
+                uint64_t dnb = nanbox_from_tsvalue_ptr(descNb);
+                void* dptr = nanbox_is_ptr(dnb) ? nanbox_to_ptr(dnb) : nullptr;
+                bool isObj = dptr && (uintptr_t)dptr > 0x1000;
+                if (isObj) {
+                    uint32_t m0d = *(uint32_t*)dptr;
+                    if (m0d == 0x53545247 /*STRG*/ || m0d == 0x53594D42 /*SYMB*/)
+                        isObj = false;
+                }
+                if (!isObj) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Property description must be an object"));
+                    return obj;  // unreachable
+                }
+            }
             TsValue* logicalKeyNb = nanbox_from_tagged(logicalKey);
             ts_object_defineProperty(obj, logicalKeyNb, descNb);
         }
