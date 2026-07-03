@@ -2001,6 +2001,9 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "unicode") == 0) {
                 return ts_value_make_bool(re->IsUnicode());
             }
+            if (strcmp(keyStr, "unicodeSets") == 0) {
+                return ts_value_make_bool(re->IsUnicodeSets());
+            }
             if (strcmp(keyStr, "lastIndex") == 0) {
                 return ts_value_make_int(re->GetLastIndex());
             }

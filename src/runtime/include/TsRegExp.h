@@ -75,6 +75,7 @@ public:
     // from the canonical flags string (flag chars are a fixed single-letter set).
     bool IsDotAll() const { return flagsStr.find('s') != std::string::npos; }
     bool IsUnicode() const { return flagsStr.find('u') != std::string::npos; }
+    bool IsUnicodeSets() const { return flagsStr.find('v') != std::string::npos; }
     void* GetMatcher() const { return matcher; }
 
     // Named capture groups support
