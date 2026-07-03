@@ -862,6 +862,31 @@ def _compile_batch(jobs, compiler, base_extra_flags):
     if not jobs:
         return {}
     shared_flags = jobs[0]["shared_flags"]
+    # Module-goal tests (flags: [module]) need TS_SCRIPT_GOAL removed from the
+    # compile env — impossible inside a shared batch process. Compile them
+    # per-file with the adjusted env; everything else stays batched. (Without
+    # this, a --fast sweep recorded every positive module-code test as
+    # compile_error while plain -j runs passed them.)
+    rc_by_input = {}
+    module_jobs = [j for j in jobs if j.get("is_module")]
+    jobs = [j for j in jobs if not j.get("is_module")]
+    if module_jobs:
+        mod_env = dict(os.environ)
+        mod_env.pop("TS_SCRIPT_GOAL", None)
+        for j in module_jobs:
+            single = [str(compiler), str(j["tmp_js"]), "-o", str(j["tmp_exe"])] \
+                     + base_extra_flags + shared_flags
+            try:
+                sp = subprocess.run(single, capture_output=True, text=True,
+                                    timeout=30, encoding='utf-8',
+                                    errors='replace', env=mod_env, **_SPAWN_KW)
+                rc_by_input[str(j["tmp_js"])] = sp.returncode
+            except subprocess.TimeoutExpired:
+                rc_by_input[str(j["tmp_js"])] = None
+            except Exception:
+                rc_by_input[str(j["tmp_js"])] = 1
+    if not jobs:
+        return rc_by_input
     manifest = jobs[0]["tmp_exe"].parent / ("_batch_" + jobs[0]["tmp_exe"].stem + ".mf")
     try:
         manifest.write_text(
@@ -870,7 +895,6 @@ def _compile_batch(jobs, compiler, base_extra_flags):
         # Couldn't write manifest -> force per-file path for all.
         manifest = None
 
-    rc_by_input = {}
     if manifest is not None:
         cmd = [str(compiler), "--batch", str(manifest)] + base_extra_flags + shared_flags
         try:
