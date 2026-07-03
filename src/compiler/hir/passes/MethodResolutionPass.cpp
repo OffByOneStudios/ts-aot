@@ -78,6 +78,17 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::tryResolveMethod(
 
     SPDLOG_DEBUG("MethodResolution: resolution kind={}", static_cast<int>(resolution.kind));
 
+    // toSpliced(start, del, ...items): the positional operand mapping below
+    // would put the raw first item into the (items TsArray*) slot and the
+    // second item's VALUE into itemCount — untyped inserts were silently
+    // dropped (and a nanbox deref'd as an array under other lowerings).
+    // Leave it as CallMethod; the HIRToLLVM splice/toSpliced packer builds
+    // the items array correctly.
+    if (resolution.kind == MethodResolution::Kind::RuntimeCall &&
+        resolution.runtimeFunction == "ts_array_toSpliced" && args.size() > 2) {
+        return nullptr;
+    }
+
     switch (resolution.kind) {
         case MethodResolution::Kind::HIROpcode:
             return createOpcodeInstruction(inst, resolution.opcode, receiver, args);
