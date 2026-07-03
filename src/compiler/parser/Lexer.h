@@ -161,6 +161,7 @@ struct LexerState {
 class Lexer {
 public:
     explicit Lexer(const std::string& source, const std::string& fileName = "");
+    bool moduleGoal_ = true;  // set from TS_SCRIPT_GOAL in the ctor
 
     /// Advance to the next token and return it
     Token nextToken();

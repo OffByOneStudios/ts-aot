@@ -116,7 +116,12 @@ const std::unordered_map<std::string_view, TokenKind> Lexer::keywords_ = {
 };
 
 Lexer::Lexer(const std::string& source, const std::string& fileName)
-    : source_(source), fileName_(fileName) {}
+    : source_(source), fileName_(fileName) {
+    // ECMA-262 Annex B.1.3: HTML-like comments are SCRIPT-goal-only web
+    // reality; in a Module they are SyntaxErrors. Mirrors the parser's
+    // TS_SCRIPT_GOAL goal selection.
+    moduleGoal_ = (std::getenv("TS_SCRIPT_GOAL") == nullptr);
+}
 
 LexerState Lexer::saveLexerState() const {
     LexerState s;
@@ -398,6 +403,13 @@ void Lexer::skipWhitespaceAndComments() {
         // comments since the last regular token). hadNewline_ tracks exactly
         // that condition within this skipWhitespaceAndComments call.
         else if (c == '<' && peekAt(1) == '!' && peekAt(2) == '-' && peekAt(3) == '-') {
+            if (moduleGoal_) {
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "%s:%d: SyntaxError: HTML comments are not allowed in modules",
+                    fileName_.c_str(), line_);
+                throw std::runtime_error(buf);
+            }
             advance(); advance(); advance(); advance();  // skip <!--
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
                 // ECMA-262 12.4: U+2028 (LS) / U+2029 (PS) are LineTerminators
@@ -417,6 +429,13 @@ void Lexer::skipWhitespaceAndComments() {
             // HTMLCloseComment is allowed when preceded by a LineTerminator
             // OR at the very start of input (per Annex B.1.3 InputElement
             // productions where it appears at the start of a script).
+            if (moduleGoal_) {
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "%s:%d: SyntaxError: HTML comments are not allowed in modules",
+                    fileName_.c_str(), line_);
+                throw std::runtime_error(buf);
+            }
             advance(); advance(); advance();  // skip -->
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
                 // ECMA-262 12.4: U+2028 (LS) / U+2029 (PS) are LineTerminators
