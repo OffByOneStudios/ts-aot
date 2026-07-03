@@ -1241,6 +1241,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         if (path != mainSourceFilePath) {
             spec.modulePath = path;
         }
+        spec.registryPath = path;  // always: matches ts_module_register key
 
         // Set line number to 1 for synthetic module init
         moduleInit->line = 1;

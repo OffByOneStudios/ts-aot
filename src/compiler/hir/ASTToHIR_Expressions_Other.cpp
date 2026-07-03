@@ -944,6 +944,28 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     if (node->name == "Object" || node->name == "String") {
         SPDLOG_DEBUG("[IDENT-TOP] name={} func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
     }
+    // CommonJS `module` / `exports` referenced from a FUNCTION body (user_main
+    // or any nested function): the Monomorphizer binds them only inside
+    // __module_init_N (module param + `const exports` prologue). Anywhere
+    // else — no local/param/capture binding — resolve through the module
+    // registry keyed by the current module's path (registered by the
+    // synthetic main via ts_module_register). Placed at the top because the
+    // generic fallbacks below would otherwise resolve these to undefined /
+    // ts_get_global("module"). A real binding (the module-init prologue, a
+    // user variable, a capture) still wins via the lookup guards.
+    if ((node->name == "module" || node->name == "exports") &&
+        !(currentModulePath_.empty() && entryModulePath_.empty()) &&
+        !lookupVariable(node->name)) {
+        size_t capScope = 0;
+        if (!(currentFunction_ && isCapturedVariable(node->name, &capScope))) {
+            auto pathStr = builder_.createConstString(
+                !currentModulePath_.empty() ? currentModulePath_ : entryModulePath_);
+            lastValue_ = builder_.createCall(
+                node->name == "module" ? "ts_module_get_record" : "ts_module_get_cached",
+                {pathStr}, HIRType::makeAny());
+            return;
+        }
+    }
     // Handle 'this' keyword specially
     if (node->name == "this") {
         // Check if 'this' is a captured variable from an outer function

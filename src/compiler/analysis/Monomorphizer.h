@@ -19,6 +19,11 @@ struct Specialization {
     std::shared_ptr<Type> classType; // If this is a class method, the class type
     ast::Node* node; // Pointer to the original AST node (FunctionDeclaration or MethodDefinition)
     std::string modulePath; // Source module path (for cross-module name disambiguation)
+    // The module's REGISTRY path (always set for __module_init_* specs,
+    // including the main file whose modulePath is intentionally empty).
+    // Matches the ts_module_register key so codegen can resolve bare CommonJS
+    // module/exports reads from function bodies.
+    std::string registryPath;
 };
 
 class Analyzer; // Forward declaration

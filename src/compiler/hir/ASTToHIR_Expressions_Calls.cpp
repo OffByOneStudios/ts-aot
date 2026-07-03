@@ -1750,6 +1750,19 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         if (propAccess->expression->inferredType &&
             propAccess->expression->inferredType->kind == ts::TypeKind::Namespace) {
             className = propAccess->name;
+            // The module property may DECLARE a differently-named extension
+            // class (inspector.Session : InspectorSession). findType below
+            // needs the TYPE name, not the property name — otherwise the ctor
+            // lookup misses and `new inspector.Session()` degrades to a
+            // dynamic new on an undefined module-map entry.
+            if (auto* nsIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get())) {
+                auto& extReg = ext::ExtensionRegistry::instance();
+                const ext::PropertyDefinition* pd =
+                    extReg.findObjectProperty(nsIdent->name, propAccess->name);
+                if (pd && !pd->type.name.empty() && extReg.findType(pd->type.name)) {
+                    className = pd->type.name;
+                }
+            }
         }
     }
 

@@ -1119,12 +1119,12 @@ llvm::FunctionCallee HIRToLLVM::getTsObjectCreate() {
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectGetProperty() {
     // ts_object_get_dynamic(TsValue* obj, TsValue* key) -> TsValue*
-    return getOrDeclareRuntimeFunction("ts_object_get_dynamic", getGCPtrTy(), {getGCPtrTy(), getGCPtrTy()});
+    return getOrDeclareRuntimeFunction("ts_object_get_dynamic_checked", getGCPtrTy(), {getGCPtrTy(), getGCPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectSetProperty() {
     // ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) -> void
-    return getOrDeclareRuntimeFunction("ts_object_set_dynamic", builder_->getVoidTy(), {getGCPtrTy(), getGCPtrTy(), getGCPtrTy()});
+    return getOrDeclareRuntimeFunction("ts_object_set_dynamic_checked", builder_->getVoidTy(), {getGCPtrTy(), getGCPtrTy(), getGCPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectHasProperty() {

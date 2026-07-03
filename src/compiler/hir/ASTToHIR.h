@@ -59,6 +59,10 @@ private:
 
     // Current module path for cross-module function name disambiguation
     std::string currentModulePath_;
+    // Entry module's path (first hoisted module spec) — fallback registry key
+    // for CommonJS `module`/`exports` reads from functions with no
+    // per-spec modulePath (e.g. user_main). See visitIdentifier.
+    std::string entryModulePath_;
 
     // Helper: generate module-prefixed global variable name
     // Returns "__modvar_<name>" for the main file, "__modvar_<name>_m<hash>" for imported modules

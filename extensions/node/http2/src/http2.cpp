@@ -656,3 +656,27 @@ void ts_http2_server_set_timeout(void* server, int64_t msecs, void* callback) {
 }
 
 } // extern "C"
+
+// http2.constants is a nested MAP export — install at module creation via
+// post-init (the builtin registry only handles function/string exports).
+// Before this, http2.constants read as undefined and only "worked" through
+// the silent null-tolerant dynamic get.
+extern "C" void ts_builtin_register_post_init(const char*, void (*)(void*));
+extern "C" void ts_http2_post_init(void* moduleMap) {
+    TsMap* mod = (TsMap*)moduleMap;
+    TsValue* constants = (TsValue*)ts_http2_get_constants();
+    void* raw = ts_value_get_object(constants);
+    if (!raw) raw = (void*)constants;
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::Create("constants");
+    TsValue val;
+    val.type = ValueType::OBJECT_PTR;
+    val.ptr_val = raw;
+    mod->Set(key, val);
+}
+static struct Http2Registrar {
+    Http2Registrar() {
+        ts_builtin_register_post_init("http2", ts_http2_post_init);
+    }
+} g_http2_registrar;
