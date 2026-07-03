@@ -2654,6 +2654,20 @@ extern "C" {
         // Check if 'other' is a TsArray (magic 0x41525259 at offset 0)
         bool otherIsArray = rawOther && *(uint32_t*)rawOther == TsArray::MAGIC;
 
+        // ES IsConcatSpreadable step 1 applies to ARRAYS too: an array with
+        // [Symbol.isConcatSpreadable] = false is appended as a single
+        // element. Only pay the property read when the array actually has a
+        // side-properties map (symbol flags live there) — the plain fast
+        // path stays untouched.
+        if (otherIsArray && ((TsArray*)rawOther)->properties) {
+            TsValue* sval = ts_object_get_property(rawOther, "[Symbol.isConcatSpreadable]");
+            if (sval) {
+                uint64_t snb = nanbox_from_tsvalue_ptr(sval);
+                if (!nanbox_is_undefined(snb) && !ts_value_to_bool(sval))
+                    otherIsArray = false;  // fall to the not-spreadable append
+            }
+        }
+
         if (otherIsArray) {
             // Fast path: array-to-array concat
             TsArray* second = (TsArray*)rawOther;
