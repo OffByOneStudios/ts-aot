@@ -44,6 +44,8 @@ static bool validateRegExpFlags(const char* flags) {
         if (seen & mask) return false;  // duplicate flag
         seen |= mask;
     }
+    // ES 22.2.3.1: `u` and `v` are mutually exclusive.
+    if ((seen & (1u << 5)) && (seen & (1u << 6))) return false;
     return true;
 }
 
@@ -310,7 +312,8 @@ static std::string rewriteUnicodeForIcu(const std::string& pat) {
 // Transform a JavaScript regex pattern into an ICU-compatible pattern.
 // JS allows literal '[' inside character classes; ICU treats '[' inside a class
 // as a nested set operation. Escape unescaped '[' inside character classes.
-static std::string transformJsPatternForIcu(const std::string& pat) {
+static std::string transformJsPatternForIcu(const std::string& pat,
+                                             bool vMode = false) {
     std::string result;
     result.reserve(pat.size() + 8);
     bool inClass = false;
@@ -349,6 +352,13 @@ static std::string transformJsPatternForIcu(const std::string& pat) {
             continue;
         }
         if (inClass && pat[i] == '[') {
+            if (vMode) {
+                // /v (unicodeSets): nested classes are STRUCTURAL and ICU's
+                // UnicodeSet syntax supports them (plus the -- difference and
+                // && intersection operators) natively — pass through.
+                result += pat[i];
+                continue;
+            }
             // Escape [ inside character class for ICU compatibility
             result += "\\[";
             continue;
@@ -379,7 +389,9 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
     // Transform JS regex pattern for ICU compatibility: first normalize JS
     // surrogate-half / \u{...} escapes into ICU \x{...} code-point escapes
     // (ICU matches on code points), then escape [ inside char classes.
-    std::string transformed = transformJsPatternForIcu(rewriteUnicodeForIcu(pattern));
+    bool vMode = flags && std::string(flags).find('v') != std::string::npos;
+    std::string transformed =
+        transformJsPatternForIcu(rewriteUnicodeForIcu(pattern), vMode);
     icu::UnicodeString icuPatternStr = icu::UnicodeString::fromUTF8(transformed);
 
     uint32_t icuFlags = 0;
@@ -401,6 +413,8 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
         if (f.find('y') != std::string::npos) sticky = true;
         if (f.find('d') != std::string::npos) hasIndices = true;
     }
+
+    if (vMode) icuFlags |= UREGEX_UWORD;   // v implies unicode semantics
 
     matcher = new icu::RegexMatcher(icuPatternStr, icuFlags, status);
     if (U_FAILURE(status)) {
