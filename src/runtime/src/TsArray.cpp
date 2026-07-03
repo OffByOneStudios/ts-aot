@@ -1430,25 +1430,39 @@ extern "C" {
         // Check for TsTypedArray
         TsTypedArray* ta = asTypedArray(raw);
         if (ta) {
-            if (index < 0 || (size_t)index >= ta->GetLength()) return;
+            // ES 10.4.5.16 IntegerIndexedElementSet: the value CONVERSION
+            // (ToBigInt/ToNumber, with its TypeErrors and valueOf side
+            // effects) runs BEFORE the index validity check; an out-of-range
+            // index is then a silent no-op.
             TsValue decoded = nanbox_to_tagged((TsValue*)value);
             TypedArrayType tt = ta->GetType();
             if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
-                // BigInt store: raw 64-bit two's-complement slot; a Number
-                // value is a TypeError (ToBigInt on Number throws).
+                int64_t iv = 0;
                 if (decoded.type == ValueType::BIGINT_PTR && decoded.ptr_val) {
                     extern int64_t ts_bigint_to_i64(void* bi);
-                    uint8_t* data = ta->GetData();
-                    if (data) ((int64_t*)data)[(size_t)index] =
-                        ts_bigint_to_i64(decoded.ptr_val);
+                    iv = ts_bigint_to_i64(decoded.ptr_val);
                 } else if (decoded.type == ValueType::NUMBER_INT ||
                            decoded.type == ValueType::NUMBER_DBL) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "Cannot convert a Number to a BigInt"));
+                    return;
+                } else {
+                    // Full ES 7.1.13 ToBigInt: undefined/null/Symbol
+                    // TypeError, booleans 0n/1n, strings via the validated
+                    // grammar (SyntaxError), objects via ToPrimitive.
+                    extern void* ts_to_bigint_spec(TsValue* v);
+                    extern int64_t ts_bigint_to_i64(void* bi);
+                    void* bi = ts_to_bigint_spec((TsValue*)value);
+                    if (!bi) return;
+                    iv = ts_bigint_to_i64(bi);
                 }
+                if (index < 0 || (size_t)index >= ta->GetLength()) return;
+                uint8_t* data = ta->GetData();
+                if (data) ((int64_t*)data)[(size_t)index] = iv;
                 return;
             }
-            // Decode value to double
+            // Decode value to double (full ToNumber for the rest: strings,
+            // booleans, objects via ToPrimitive; Symbol throws inside).
             double dval = 0;
             if (decoded.type == ValueType::NUMBER_DBL) dval = decoded.d_val;
             else if (decoded.type == ValueType::NUMBER_INT) dval = (double)decoded.i_val;
@@ -1456,7 +1470,11 @@ extern "C" {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "Cannot convert a BigInt value to a number"));
                 return;
+            } else {
+                extern double ts_to_number(TsValue* v);
+                dval = ts_to_number((TsValue*)value);
             }
+            if (index < 0 || (size_t)index >= ta->GetLength()) return;
             ta->Set((size_t)index, dval);
             return;
         }

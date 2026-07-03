@@ -4424,6 +4424,12 @@ static TsBigInt* bigint_asn_tobigint(TsValue* v) {
     return nullptr;
 }
 
+// Exported spec ToBigInt for other TUs (typed-array element writes etc.):
+// throws for undefined/null/Number/Symbol/bad-string, returns TsBigInt*.
+extern "C" void* ts_to_bigint_spec(TsValue* v) {
+    return bigint_asn_tobigint(v);
+}
+
 void* ts_get_global_BigInt() {
     TenureScope _tenure;
     // Spec: BigInt is a constructor (isConstructor === true) but `new BigInt(x)`

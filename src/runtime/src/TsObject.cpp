@@ -5749,8 +5749,14 @@ void* ts_create_arguments_from_params(
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                             "Cannot convert a Number to a BigInt"));
                         return value;
+                    } else {
+                        // Full ES 7.1.13 ToBigInt: undefined/null/Symbol
+                        // TypeError, booleans 0n/1n, strings via the validated
+                        // grammar (SyntaxError), objects via ToPrimitive.
+                        extern void* ts_to_bigint_spec(TsValue* v);
+                        void* bi = ts_to_bigint_spec(nanbox_from_tagged(value));
+                        if (bi) bigv = ts_bigint_to_i64(bi);
                     }
-                    // other types: legacy zero-fill (full ToBigInt is #34)
                 } else {
                     if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
                     else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
@@ -5802,6 +5808,17 @@ void* ts_create_arguments_from_params(
                         } else {
                             dval = ts_to_number(nanbox_from_tagged(value));
                         }
+                    } else if (value.type != ValueType::BIGINT_PTR) {
+                        // BigInt TA exotic-key write: ToBigInt side effects
+                        // (and its TypeErrors) still run before the no-op.
+                        if (value.type == ValueType::NUMBER_INT ||
+                            value.type == ValueType::NUMBER_DBL) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "Cannot convert a Number to a BigInt"));
+                            return value;
+                        }
+                        extern void* ts_to_bigint_spec(TsValue* v);
+                        ts_to_bigint_spec(nanbox_from_tagged(value));
                     }
                     if (cls == 1 && !isBigTA) {
                         double kd = -1;
