@@ -2693,7 +2693,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                 (void*)+[](void* ctx, TsValue* offV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
-                    int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
+                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
                     if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
                         ts_throw((TsValue*)ts_error_create_typed("TypeError", \
@@ -2721,7 +2721,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
-                    int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
+                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
                     double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : 0.0; \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
                     if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
