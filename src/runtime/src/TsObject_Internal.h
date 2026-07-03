@@ -244,6 +244,7 @@ TsValue* ts_typed_array_indexOf_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_join_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_reverse_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_typed_array_sort_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_slice_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_typed_array_subarray_native(void* ctx, int argc, TsValue** argv);
