@@ -920,10 +920,17 @@ TsArray* TsArray::ToSpliced(int64_t start, int64_t deleteCount, void* items, int
     if (deleteCount < 0) deleteCount = 0;
     if (start + deleteCount > (int64_t)length) deleteCount = length - start;
 
-    // Guard: items must be a valid heap pointer (not a raw integer from incorrect codegen)
-    if (items && (uint64_t)(uintptr_t)items < 0x10000) {
+    // Guard: items must be a valid heap pointer — not a raw small integer
+    // NOR a NaN-boxed value (0xFFFE... tags observed arriving as `items`
+    // under alternate lowering modes; the elements deref crashed).
+    if (items && ((uint64_t)(uintptr_t)items < 0x10000 ||
+                  (uint64_t)(uintptr_t)items >= 0x0000800000000000ULL)) {
         items = nullptr;
         itemCount = 0;
+    }
+    // Cross-check: never trust itemCount beyond the actual array length.
+    if (items && ((TsArray*)items)->Length() < itemCount) {
+        itemCount = ((TsArray*)items)->Length();
     }
 
     // Calculate new length
