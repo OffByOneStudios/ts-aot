@@ -2507,8 +2507,27 @@ extern "C" {
     // Native wrappers for RegExp instance methods (.test() and .exec()).
     // Exported (non-static) so RegExp.prototype population in TsGlobals.cpp
     // can install them via addMethod with proper name/length metadata.
+    //
+    // Receiver BRAND CHECK: `RegExp.prototype.exec.call(Math, s)` (and any
+    // other non-RegExp receiver) must throw TypeError -- the old blind
+    // (TsRegExp*)ctx cast dereferenced arbitrary objects (0xc0000005).
+    static TsRegExp* regexp_receiver_or_throw(void* ctx, const char* name) {
+        void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+        if (!raw) raw = ctx;
+        uintptr_t a = (uintptr_t)raw;
+        if (raw && a >= 4096 && (a >> 48) == 0 &&
+            *(uint32_t*)raw == 0x52454758 /* TsRegExp "REGX" */) {
+            return (TsRegExp*)raw;
+        }
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+                 "RegExp.prototype.%s called on incompatible receiver", name);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", buf));
+        return nullptr;
+    }
     extern "C" TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv) {
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_receiver_or_throw(ctx, "test");
+        if (!re) return (TsValue*)ts_value_make_undefined();
         void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
         int32_t result = RegExp_test(re, str);
         return (TsValue*)ts_value_make_bool(result != 0);
@@ -2522,7 +2541,8 @@ extern "C" {
         return (TsValue*)ts_value_make_string(ts_string_from_value(boxed));
     }
     extern "C" TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_receiver_or_throw(ctx, "exec");
+        if (!re) return (TsValue*)ts_value_make_undefined();
         void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
         void* result = RegExp_exec(re, str);
         if (!result) return (TsValue*)ts_value_make_null();
