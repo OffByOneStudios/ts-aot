@@ -57,19 +57,43 @@ extern "C" int64_t ts_array_search_spec(TsArray* arr, int64_t value, int64_t fro
                                         bool fromLast) {
     uint64_t searchNB = (uint64_t)value;
     int64_t len = (int64_t)arr->Length();
-    int64_t k = fromLast ? fromIndex : fromIndex;
+    // Array-like receiver: HasProperty/Get must run against the ORIGINAL object
+    // each iteration — a getter can define/delete later indices mid-walk, which
+    // the up-front materialized temp can't reflect. Restricted to generic
+    // objects: strings/TypedArrays are dense (temp is exact) and their has_prop
+    // support is separately incomplete.
+    void* liveOrig = nullptr;
+    {
+        void* orig = arr->originalReceiver;
+        if (orig && orig != (void*)arr &&
+            (uintptr_t)orig >= 0x1000 && (uintptr_t)orig < 0x0000800000000000ULL) {
+            uint32_t m0 = *(uint32_t*)orig;
+            uint32_t m16 = *(uint32_t*)((char*)orig + 16);
+            if (m0 != 0x53545247 /* STRG */ && m0 != TsConsString::MAGIC &&
+                m16 != 0x54415252 /* TARR */) {
+                liveOrig = orig;
+            }
+        }
+    }
+    int64_t k = fromIndex;
     for (; fromLast ? (k >= 0) : (k < len); fromLast ? --k : ++k) {
-        // kPresent: own present index (accessor counts) or inherited.
         bool present;
-        if (k >= 0 && k < len && !arr->IsHole((size_t)k)) {
-            // Array-like receiver: the materialized temp is dense, so consult
-            // the ORIGINAL object's HasProperty to skip truly absent indices.
-            present = !array_generic_absent_index(arr, (size_t)k);
+        TsValue* elem = nullptr;
+        if (liveOrig) {
+            extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
+            extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+            TsValue* objB = ts_value_make_object(liveOrig);
+            TsValue* keyB = ts_value_make_int(k);
+            present = ts_object_has_prop(objB, keyB);
+            if (present) elem = ts_object_get_dynamic(objB, keyB);
         } else {
-            present = ts_array_has_property_at_idx(arr, k);
+            // kPresent: own present index (accessor counts) or inherited.
+            present = (k >= 0 && k < len && !arr->IsHole((size_t)k))
+                          ? true
+                          : ts_array_has_property_at_idx(arr, k);
+            if (present) elem = ts_array_get_property_at_idx(arr, k);
         }
         if (!present) continue;
-        TsValue* elem = ts_array_get_property_at_idx(arr, k);
         if (elem && array_search_equals(nanbox_from_tsvalue_ptr(elem), searchNB))
             return k;
     }
