@@ -1,4 +1,5 @@
 #include "TsObject_Internal.h"
+extern "C" void* ts_to_string_spec(TsValue* val);  // hook-invoking ToString (TsString.cpp)
 
 // Built-in method native wrappers extracted from TsObject.cpp: String, Array,
 // TypedArray, Boolean, Date, and RegExp prototype-method implementations (the
@@ -205,15 +206,31 @@ extern "C" {
         return string_html_wrap(ctx, "<sup>", "</sup>", "sup");
     }
     extern "C" TsValue* ts_string_anchor_native(void* ctx, int argc, TsValue** argv) {
+        // ToString(attr) runs user hooks that may throw — coerce in THIS thin
+        // POD frame (string_html_wrap_attr holds std::string scopes).
+        if (argc >= 1 && argv && argv[0])
+            argv[0] = ts_value_make_string((TsString*)ts_to_string_spec(argv[0]));
         return string_html_wrap_attr(ctx, argc, argv, "a", "name", "anchor");
     }
     extern "C" TsValue* ts_string_link_native(void* ctx, int argc, TsValue** argv) {
+        // ToString(attr) runs user hooks that may throw — coerce in THIS thin
+        // POD frame (string_html_wrap_attr holds std::string scopes).
+        if (argc >= 1 && argv && argv[0])
+            argv[0] = ts_value_make_string((TsString*)ts_to_string_spec(argv[0]));
         return string_html_wrap_attr(ctx, argc, argv, "a", "href", "link");
     }
     extern "C" TsValue* ts_string_fontcolor_native(void* ctx, int argc, TsValue** argv) {
+        // ToString(attr) runs user hooks that may throw — coerce in THIS thin
+        // POD frame (string_html_wrap_attr holds std::string scopes).
+        if (argc >= 1 && argv && argv[0])
+            argv[0] = ts_value_make_string((TsString*)ts_to_string_spec(argv[0]));
         return string_html_wrap_attr(ctx, argc, argv, "font", "color", "fontcolor");
     }
     extern "C" TsValue* ts_string_fontsize_native(void* ctx, int argc, TsValue** argv) {
+        // ToString(attr) runs user hooks that may throw — coerce in THIS thin
+        // POD frame (string_html_wrap_attr holds std::string scopes).
+        if (argc >= 1 && argv && argv[0])
+            argv[0] = ts_value_make_string((TsString*)ts_to_string_spec(argv[0]));
         return string_html_wrap_attr(ctx, argc, argv, "font", "size", "fontsize");
     }
     TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
@@ -482,11 +499,30 @@ extern "C" {
         if (!searchString) searchString = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         return ts_value_make_int(ts_string_lastIndexOf(str, searchString));
     }
+    // ES RequireObjectCoercible + ToString(this) with USER HOOKS (an object
+    // receiver's toString/valueOf runs and its throw propagates). POD frame
+    // only — the hook may ts_throw/longjmp (longjmp-stdstring rule).
+    static TsString* native_this_to_string(void* ctx, const char* methodName) {
+        void* self = ctx;
+        if (!self) self = ts_get_call_this();
+        uint64_t nb = (uint64_t)(uintptr_t)self;
+        if (!self || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "String.prototype.%s called on null or undefined", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        }
+        TsString* r = (TsString*)ts_to_string_spec((TsValue*)self);
+        return r ? r : TsString::Create("");
+    }
+
     TsValue* ts_string_trimStart_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string((TsString*)ts_string_trimStart((TsString*)ctx));
+        TsString* s0 = native_this_to_string(ctx, "trimStart");
+        return ts_value_make_string((TsString*)ts_string_trimStart(s0));
     }
     TsValue* ts_string_trimEnd_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string((TsString*)ts_string_trimEnd((TsString*)ctx));
+        TsString* s0 = native_this_to_string(ctx, "trimEnd");
+        return ts_value_make_string((TsString*)ts_string_trimEnd(s0));
     }
     TsValue* ts_string_replaceAll_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
