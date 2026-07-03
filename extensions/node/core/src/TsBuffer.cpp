@@ -2545,7 +2545,10 @@ TsTypedArray::TsTypedArray(TsBuffer* buffer, size_t byteOffset, size_t length,
 }
 
 double TsTypedArray::Get(size_t index) {
-    if (index >= length) return 0;
+    // GetLength(): a length-tracking view over a RESIZABLE buffer follows the
+    // buffer's CURRENT size; the raw `length` member is the creation snapshot
+    // (grown views silently read/wrote nothing past it).
+    if (index >= GetLength()) return 0;
     if (!buffer || buffer->IsDetached()) return 0;
     uint8_t* data = buffer->GetData() + byteOffset;
     if (!data) return 0;
@@ -2576,7 +2579,7 @@ double TsTypedArray::Get(size_t index) {
 }
 
 void TsTypedArray::Set(size_t index, double value) {
-    if (index >= length) return;
+    if (index >= GetLength()) return;  // see Get: resizable-aware bound
     if (!buffer || buffer->IsDetached()) return;
     uint8_t* data = buffer->GetData() + byteOffset;
     if (!data) return;
