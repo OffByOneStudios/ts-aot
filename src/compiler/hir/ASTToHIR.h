@@ -102,6 +102,11 @@ private:
         // declaration runs; reads are wrapped in ts_tdz_check (ReferenceError
         // on read-before-initialization).
         bool isTDZ = false;
+        // Declared with `const`: assignment expressions to this binding throw
+        // TypeError (ES 13.15.2 PutValue on an immutable binding). Set at
+        // declaration lowering; checked at assignment/destructuring-assignment
+        // sites only (declaration/loop-binding stores are unaffected).
+        bool isConst = false;
         // The closure that owns the cell. Kept as a single ptr for the
         // primary capturer (used by READ sites — any cell is fine since all
         // copies are kept in sync by writes). The full list of all closures

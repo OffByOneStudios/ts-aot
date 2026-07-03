@@ -1176,6 +1176,18 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Handle simple identifier assignment
     auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
     if (ident) {
+        // ES 13.15.2 PutValue on an immutable binding: assignment to a
+        // `const` binding throws TypeError (both strict and sloppy). Checked
+        // before the module-global/capture/alloca routing so every write path
+        // is covered. Declaration/loop-binding stores don't come through here.
+        if (auto* cinfo = lookupVariableInfo(ident->name)) {
+            if (cinfo->isConst) {
+                builder_.createCall("ts_throw_const_assign", {},
+                                    HIRType::makeAny());
+                lastValue_ = rhs;
+                return;
+            }
+        }
         // For module-scoped variables accessed from inner functions, use __modvar_ globals
         // instead of closure cells. Closure cells are per-closure snapshots, but module
         // variables must be shared across all functions in the module.

@@ -536,7 +536,13 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             // through the assign path.
                             if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
                                 auto* info = lookupVariableInfo(id->name);
-                                if (info && info->isAlloca) {
+                                if (info && info->isConst) {
+                                    // ES 13.15.2: destructuring-ASSIGNMENT to a
+                                    // const binding throws TypeError (the raw
+                                    // store below corrupted the const cell).
+                                    builder_.createCall("ts_throw_const_assign",
+                                                        {}, HIRType::makeAny());
+                                } else if (info && info->isAlloca) {
                                     builder_.createStore(value, info->value, info->elemType);
                                 } else if (info) {
                                     auto allocaPtr = builder_.createAlloca(value->type, id->name);
@@ -762,7 +768,13 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             // through the assign path.
                             if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
                                 auto* info = lookupVariableInfo(id->name);
-                                if (info && info->isAlloca) {
+                                if (info && info->isConst) {
+                                    // ES 13.15.2: destructuring-ASSIGNMENT to a
+                                    // const binding throws TypeError (the raw
+                                    // store below corrupted the const cell).
+                                    builder_.createCall("ts_throw_const_assign",
+                                                        {}, HIRType::makeAny());
+                                } else if (info && info->isAlloca) {
                                     builder_.createStore(value, info->value, info->elemType);
                                 } else if (info) {
                                     auto allocaPtr = builder_.createAlloca(value->type, id->name);
