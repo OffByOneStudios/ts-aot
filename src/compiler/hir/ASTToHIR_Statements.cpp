@@ -567,6 +567,12 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             }
                             ++index;
                         }
+                    } else if (auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(lhsExpr)) {
+                        // Top-level OBJECT assignment pattern: `for ({ x } of ...)`.
+                        // Route through the assignment-pattern engine (same as
+                        // nested targets) — previously fell through silently and
+                        // the pattern's identifiers were never assigned.
+                        destructureAssignmentPattern(objLit, boxValueIfNeeded(elemVal));
                     } else if (auto* id = dynamic_cast<ast::Identifier*>(lhsExpr)) {
                         // Plain `for (x of arr)` without let/const — assign
                         // to existing variable each iteration.
@@ -787,6 +793,12 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             }
                             ++index;
                         }
+                    } else if (auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(lhsExpr)) {
+                        // Top-level OBJECT assignment pattern: `for ({ x } of ...)`.
+                        // Route through the assignment-pattern engine (same as
+                        // nested targets) — previously fell through silently and
+                        // the pattern's identifiers were never assigned.
+                        destructureAssignmentPattern(objLit, boxValueIfNeeded(elemVal));
                     } else if (auto* id = dynamic_cast<ast::Identifier*>(lhsExpr)) {
                         // Plain `for (x of arr)` without let/const — assign
                         // to existing variable each iteration.
