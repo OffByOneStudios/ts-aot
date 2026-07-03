@@ -1796,6 +1796,20 @@ extern "C" {
                     // are ordinary string properties, not elements. (Was a loose
                     // strtoul that mis-routed all of these.)
                     if (parse_canonical_array_index(keyStr, &idx)) {
+                        // ECMA-262 10.4.2.1 step 2.c: defining an index >=
+                        // length EXTENDS length; when length is non-writable
+                        // (prior defineProperty(arr,"length",{writable:false}))
+                        // that is a TypeError and nothing is defined.
+                        if ((size_t)idx >= arr->Length() && arr->properties) {
+                            TsValue lkNW; lkNW.type = ValueType::STRING_PTR;
+                            lkNW.ptr_val = TsString::GetInterned("length");
+                            if (arr->properties->Has(lkNW) &&
+                                !(arr->properties->GetPropertyAttrs(lkNW) & 0x02)) {
+                                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                    "Cannot define property: array length is not writable"));
+                                return ts_value_make_undefined();
+                            }
+                        }
                         // Canonical array index. ECMA-262 10.4.2.1 Array
                         // [[DefineOwnProperty]]: a DATA descriptor's `value` is
                         // stored at the index and length extends to idx+1 when
