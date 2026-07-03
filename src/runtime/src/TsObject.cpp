@@ -2244,6 +2244,9 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "reverse") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_reverse_native, ta, "reverse", 0);
             }
+            if (strcmp(keyStr, "sort") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_sort_native, ta, "sort", 1);
+            }
             if (strcmp(keyStr, "join") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_join_native, ta, "join", 1);
             }

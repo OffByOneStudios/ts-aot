@@ -1352,6 +1352,85 @@ extern "C" {
         return ts_value_make_object(ta);
     }
 
+    // TypedArray.prototype.sort(comparefn?) — ES 23.2.3.29. Step 1 validates
+    // the comparator (undefined or callable, else TypeError) BEFORE anything
+    // else. Default sort: numeric ascending, NaN last, -0 before +0 (number
+    // kinds) / int64 or uint64 order (BigInt kinds). Sorts in place and
+    // returns the receiver.
+    TsValue* ts_typed_array_sort_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        TsValue* cmp = (argc >= 1 && argv) ? argv[0] : nullptr;
+        bool cmpFn = cmp && !ts_value_is_undefined(cmp);
+        if (cmpFn && !ts_is_callable((void*)cmp)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "The comparison function must be either a function or undefined"));
+            return ts_value_make_undefined();
+        }
+        if (throwIfDetached(ta, "sort")) return ts_value_make_undefined();
+        size_t len = ta->GetLength();
+        if (len < 2) return ts_value_make_object(ta);
+        bool isBig = (ta->GetType() == TypedArrayType::BigInt64 ||
+                      ta->GetType() == TypedArrayType::BigUint64);
+        if (cmpFn) {
+            // Custom comparator: it can ts_throw (longjmp) out of here, so
+            // keep this frame POD-only (no std:: containers) — in-place
+            // insertion sort over the raw slots.
+            extern void* ts_bigint_create_int(int64_t v);
+            int64_t* bdata = isBig ? (int64_t*)ta->GetData() : nullptr;
+            for (size_t i = 1; i < len; i++) {
+                for (size_t j = i; j > 0; j--) {
+                    TsValue* a;
+                    TsValue* b;
+                    if (isBig) {
+                        a = (TsValue*)ts_bigint_create_int(bdata[j - 1]);
+                        b = (TsValue*)ts_bigint_create_int(bdata[j]);
+                    } else {
+                        a = ts_value_make_double(ta->Get(j - 1));
+                        b = ts_value_make_double(ta->Get(j));
+                    }
+                    TsValue* args[2] = { a, b };
+                    TsValue* r = ts_function_call_with_this(
+                        cmp, ts_value_make_undefined(), 2, args);
+                    double d = r ? ts_to_number(r) : 0;
+                    if (!(d > 0)) break;  // NaN -> treated as 0 (no swap)
+                    if (isBig) {
+                        int64_t t = bdata[j - 1]; bdata[j - 1] = bdata[j]; bdata[j] = t;
+                    } else {
+                        double t = ta->Get(j - 1);
+                        ta->Set(j - 1, ta->Get(j));
+                        ta->Set(j, t);
+                    }
+                }
+            }
+            return ts_value_make_object(ta);
+        }
+        if (isBig) {
+            int64_t* data = (int64_t*)ta->GetData();
+            if (!data) return ts_value_make_object(ta);
+            if (ta->GetType() == TypedArrayType::BigUint64) {
+                std::sort((uint64_t*)data, (uint64_t*)data + len);
+            } else {
+                std::sort(data, data + len);
+            }
+            return ts_value_make_object(ta);
+        }
+        {
+            std::vector<double> v(len);
+            for (size_t i = 0; i < len; i++) v[i] = ta->Get(i);
+            std::stable_sort(v.begin(), v.end(), [](double a, double b) {
+                if (a != a) return false;  // NaN sorts last
+                if (b != b) return true;
+                if (a < b) return true;
+                if (a > b) return false;
+                // -0 before +0
+                if (a == 0 && b == 0) return std::signbit(a) && !std::signbit(b);
+                return false;
+            });
+            for (size_t i = 0; i < len; i++) ta->Set(i, v[i]);
+        }
+        return ts_value_make_object(ta);
+    }
+
     // TypedArray.prototype.join(separator?)
     TsValue* ts_typed_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
