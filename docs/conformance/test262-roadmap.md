@@ -1,8 +1,8 @@
 # test262 Conformance Roadmap
 
-**State (2026-07-02, master `60e0d6e1`):** 36,765/45,258 = **81.2%** on the
-milestone-tracking scope (sweep tmp_p25: +310 vs p24, 3 traced residuals
-from the new-class-expr fix). Stage B (85% = 38,470): 1,705 to go.
+**State (2026-07-02, master post-merge-31):** 36,968/45,258 = **81.7%** on
+the milestone-tracking scope (sweep tmp_p27: +66 vs p26, 0 lost; session
+total +746 across 31 gated merges). Stage B (85% = 38,470): 1,502 to go.
 15 gated merges this session: ES2025 Set methods (+164), RegExp.escape,
 Promise.try + instanceof-Promise offset bug, globalThis fn-decl reflection
 (asyncHelpers unblock), `new class {...}()` machinery, async-gen setjmp
