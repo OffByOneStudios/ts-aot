@@ -1,56 +1,99 @@
 # test262 Conformance Roadmap
 
-**State (2026-07-02, master `ac3da223`):** 36,222+/45,258 = **80.0%+** (sweep
-tmp_p23, 0 lost vs p22; +1,159 from the Stage A start at 35,063).
-**STAGE A COMPLETE — the 80% milestone (36,206) is MET (+16 margin, plus ~7 more
-merged after the confirming sweep).** Closers past the five line items: Proxy
-ownKeys invariants (ES 10.5.11) + Object.keys enumerable filtering, flat-object
-in-place integrity flags (preventExtensions/seal demoted a detached copy),
-exotic-object integrity side-table (functions/arrays/Dates seal/freeze/
-preventExtensions + set-path gates), structural TestIntegrityLevel, and
-`arguments[N]` padding for object-literal generator/async-generator methods.
-Structural floor: ~550 tests are AOT-unreachable (`eval` 256, runtime
-`dynamic-import` 292) → theoretical ceiling ~96–97%.
+**State (2026-07-02, master `90d276cb`):** 36,222/45,258 = **80.0%** on the
+milestone-tracking scope (sweep tmp_p23, 0 lost vs p22); 36,222/50,506 = 71.7%
+over everything the runner now sweeps (the wider scope adds intl402, staging,
+annexB, module-code, Atomics/SAB).
+**STAGE A COMPLETE — the 80% milestone (36,206) is MET** (+16 margin at the
+confirming sweep, plus ~7 more merged after it: set-path integrity gates +
+structural TestIntegrityLevel). +1,159 from the Stage A start at 35,063.
 
-Landed this cycle: operator coercion (+433), strict-write TypeError (+44),
-BigInt-as-primitive (+54), class by-classname (+51), IteratorClose, TDZ sentinel +
-let/const closure capture. See `docs/conformance/*.md` and the git log.
+## Where the remaining 14,284 fails live (p23, by category)
 
-## Stage A → 80% (+1,143) — mapped coherent roots
+| Category | Pass/Total | % | Fails | Character |
+|---|---|--:|--:|---|
+| language/expressions | 8,770/11,023 | 79.6% | 2,253 | 738 are `dynamic-import` (structural); class 344, object 167, compound-assign 123, super 73 |
+| language/statements | 7,627/9,154 | 83.3% | 1,527 | class 575, for-of 212, for-await-of 208 (#44 crash), with-residue 103, function 94 |
+| intl402 | 268/1,566 | 17.1% | 1,298 | Intl.* plumbing; ICU already bundled — dedicated Stage C effort |
+| staging | 521/1,632 | 31.9% | 1,111 | sm-shell harness bits, Float16Array, explicit-resource-management |
+| annexB | 351/1,079 | 32.5% | 728 | legacy web-compat (function-in-block hoisting, HTML comments, substr-era) |
+| built-ins/Array | 2,404/3,075 | 78.2% | 671 | prototype 510, fromAsync 95, from 26 |
+| language/module-code | 1/583 | 0.2% | 582 | structural (AOT single-image; no runtime module records) |
+| built-ins/RegExp | 1,254/1,822 | 68.8% | 568 | prototype 164, modifiers 70, unicodeSets 50, named-groups 33, escape 20 |
+| built-ins/Object | 2,919/3,410 | 85.6% | 491 | defineProperty 146 + defineProperties 62 (dp-matrix), prototype 77, gOPD 28 |
+| built-ins/TypedArray(+Ctors) | 1,328/2,162 | 61.4% | 834 | BigInt-TA storage tier-2 (#34), detached-buffer semantics, ctor internals |
+| built-ins/String | 836/1,212 | 69.0% | 376 | prototype 329 (locale/regexp-coupled methods) |
+| built-ins/Atomics | 1/376 | 0.3% | 375 | N/A — no shared memory (worker_threads stance) |
+| language/eval-code | 14/347 | 4.0% | 333 | structural (no runtime code generation) |
+| built-ins/DataView | 318/550 | 57.8% | 232 | mostly detached/OOB + BigInt getters/setters |
+| built-ins/Function | 296/509 | 58.2% | 213 | dynamic `Function()` structural core (~79); residue: bind/length/name edges |
+| built-ins/Set | 171/381 | 44.9% | 210 | ES2025 set methods (union/intersection/difference…) largely missing |
+| built-ins/Promise | 461/631 | 73.1% | 170 | species/subclass residue, resolve-thenable edges |
+| built-ins/Proxy | 142/311 | 45.7% | 169 | per-trap invariant matrices (ownKeys now done — pattern to replicate) |
+| built-ins/Temporal | 4,028/4,165 | 96.7% | 137 | IANA tz database (#33), relativeTo edges (#32) |
+| built-ins/SharedArrayBuffer | 0/104 | 0% | 104 | N/A — no shared memory |
+| ShadowRealm / Disposable*Stack / AbstractModuleSource | 0/176 | 0% | 176 | unimplemented proposals (Disposable* = explicit-resource-management, plausible Stage C) |
+| everything else | — | — | ~1,750 | diffuse: Iterator 119, Date 113, literals 117, JSON 93, NativeErrors 69, Symbol 46, … |
 
-| Item | Est. | Starting point |
+Structural / architectural N-A within the sweep: dynamic-import 738 +
+module-code 582 + eval-code 333 + import 85 + import.meta 21 + dynamic
+Function/Generator ctors ~115 + Atomics 375 + SAB 104 ≈ **2,350 tests** →
+practical ceiling ≈ 95–96% of the full 50.5k scope.
+
+## Stage A → 80% — COMPLETE (2026-07-02)
+
+All five line items landed (`with`, NewTarget/subclass-builtins, Promise,
+Function, Proxy traps) plus the last-mile closers: Proxy ownKeys ES 10.5.11
+invariants + Object.keys enumerable post-filter, flat-object IN-PLACE integrity
+flags (preventExtensions/seal previously demoted to a detached TsMap copy),
+exotic-object integrity side-table (functions/closures/arrays/Dates) with
+set-path gates, structural TestIntegrityLevel, and `arguments[N]` padding for
+object-literal generator/async-generator methods. History in the git log and
+memory checkpoints (`stage-a-*`, `roadmap-phases-1-5`).
+
+## Stage B → 85% (38,470 on the 45,258 scope; +2,248) — volume families
+
+Ordered by (size × coherence). Each is a measure-first cluster drill.
+
+| Vein | Fails | Notes |
 |---|--:|---|
-| ~~`with` statement~~ **LANDED 2026-07-02** (`1c8c6656`) | ~100 | with-cluster 20→31/146; reads/writes(two-phase lref)/delete/throw-unwind all in; plus eval identity stub + Promise combinator IsConstructor. Residue: with-resolved method-call `this` |
-| ~~NewTarget / subclass-builtins~~ **LANDED 2026-07-02** (`1fc1c182`, `35f14091`) | ~150 | subclass-builtins 0→68/70; new.target 2→11/14 (ambient swap-register); **class-expression prototype install fixed** (`const A = class {}` had no A.prototype). Residue: NativeError message/super families, AggregateError drill (~17), WeakRef getter |
-| ~~Promise cluster~~ **LANDED 2026-07-02** (`eac1c4d0`, `f1a05daa`) | ~150/334 | 339 cluster fails → 180 pass. Roots: GENERIC deferred-callee bug (`var f; closure sets f; f()` called undefined), GENERIC nested-fn tryDepth leak (closure return popped caller's handler), NewPromiseCapability receiver protocol (streaming + IteratorClose), resolve-function spec steps |
-| ~~Function cluster~~ **LANDED 2026-07-02** (`6b32cdf4`, `cebcd5ca`) | ~120/267 | Winnable subset 221 (79 are dynamic-Function structural): 17→98. @@hasInstance, bound-fn name/length, caller/arguments %ThrowTypeError%, constructor backrefs |
-| ~~Proxy trap completion~~ **LANDED 2026-07-02** (`3f39b8b4`, `b3c8e11d`) | ~120/243 | 6 missing internal-method traps wired at Reflect + Object layers (274 fails → ~46 pass net after trap-less-proxy guards). Remaining: ownKeys invariants (24), set/has/construct residue |
-| Small roots | ~50 | Next mapped root: **Object.defineProperty/defineProperties descriptor semantics (277 fails)** — redefinition TypeErrors, configurability enforcement, accessor descriptors. Then: NativeError message/super (~17), AggregateError (~17), WeakRef getter (4) |
+| class residue (statements+expressions) | 919 | private residue, subclass edge semantics; re-cluster first — Stage A fixes may have shifted the roots |
+| TypedArray + Ctors + DataView + ArrayBuffer | 1,131 | anchor: BigInt-TA storage tier-2 (#34, 5-layer); detached-buffer TypeErrors are a big shared root |
+| Array/prototype | 510 | species/@@species constructors, holes semantics, length-clamping matrices; `fromAsync` 95 needs async-iteration plumbing |
+| dp-matrix (defineProperty/ies) | 208 | real ValidateAndApplyPropertyDescriptor: redefinition TypeErrors, per-attr transitions; unlocks parts of Array/TypedArray matrices too |
+| for-of + for-await-of | 420 | includes #44 crash cluster (async-gen dstr-with-initializers, ~76) — a crash root, historically high-value |
+| RegExp families | 337 | modifiers (`(?i:)`) 70, unicodeSets (`v` flag) 50, named-groups 33, escape 20, prototype residue 164 — ICU capability audit first |
+| String/prototype | 329 | many regexp-coupled (@@split/@@replace protocol); locale tail |
+| Set methods (ES2025) | 210 | union/intersection/difference/symmetricDifference/isSubsetOf… — greenfield, spec-mechanical |
+| Proxy invariant matrices | 169 | replicate the ownKeys invariant pattern per trap (get/set/defineProperty/gOPD) |
+| Promise residue | 170 | species/subclass capability, thenable job ordering |
+| expressions/object + compound-assign + super | 363 | re-cluster; compound-assign fails despite coercion work → likely ref-evaluation-order matrices |
 
-## Stage B → 85% (+3,406 total) — volume families
+## Stage C → 88–90% — deep subsystems
 
-TypedArray/Buffer (937: BigInt-TA static-store, detached semantics, ctor internals),
-class residue (845; much unlocks after NewTarget), async-iteration (352, incl. the
-harness-emergent dstr crash family), staging/sm (804: needs Float16Array + sm-shell
-bits), annexB (296), diffuse language tail.
-
-## Stage C → 88–90% — deep subsystems + the grind
-
-intl402 (565: Intl.NumberFormat/DateTimeFormat plumbing — ICU already bundled),
-IANA tz + Temporal residue (~200), mapped arguments (154), diffuse built-ins tail
-(2,938 — autoloop territory).
+intl402 (1,298; ICU bundled, needs Intl.* object plumbing), annexB (728,
+mechanical legacy semantics), staging (1,111; sm-shell harness + Float16Array),
+explicit-resource-management / Disposable*Stack (104+52), IANA tz (#33) +
+Temporal residue (137), Iterator helpers residue (119), mapped-arguments
+aliasing (written off unless an accessor-backed arguments redesign happens).
+A compile-time module linker would unlock the ~1,400 module-family tests —
+architectural decision, not a grind item.
 
 ## Operating discipline (non-negotiable)
 
 Measure-first cluster drill → branch → probe battery → gates (golden-ir 267/279,
-node 295/297, 2k `.gate_base.pkl` 0-lost, plus a cluster-specific baseline like the
-BigInt-TA 367-list when touching that area) → full-sweep diff vs the previous
-results-jsonl → merge `--no-ff`. Two separate `cp` commands for the DLL (multi-dest
-`cp` treats the middle dir as a source). Full `cmake --build` when runtime symbols
-change.
+node 295/297, 2k `.gate_base.pkl` 0-lost, plus a cluster-specific baseline like
+the BigInt-TA 367-list when touching that area) → full-sweep diff vs the previous
+results-jsonl → merge `--no-ff`. Two separate `cp` commands for the DLL
+(multi-dest `cp` treats the middle dir as a source). Full `cmake --build` when
+runtime symbols change. Never build during a running sweep. tmp/*.exe probes can
+bind stale static runtime — `TS262_SHARED_RUNTIME=1 run_test262.py --filter X -j1`
+is authoritative.
 
 ## Accepted limitations (do not re-attempt without new architecture)
 
-`eval` / runtime `dynamic-import` (AOT), private-name per-class identity (6
-`private-setter-shadowed-by-*`), monkey-patched `Date.prototype.toString`
-ToPrimitive (1 sm test), Atomics/SharedArrayBuffer (no shared memory).
+`eval` / runtime `dynamic-import` / module-code (AOT single image), dynamic
+`Function()`/`GeneratorFunction()` constructors, Atomics/SharedArrayBuffer (no
+shared memory), private-name per-class identity (6 `private-setter-shadowed-by-*`),
+monkey-patched `Date.prototype.toString` ToPrimitive (1 sm test), mapped-arguments
+aliasing (~26, archaic).
