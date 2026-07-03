@@ -413,6 +413,9 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // for default-handling don't collide with param HIRValue ids
             // (params already occupy ids [0..N-1]).
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+            // ECMA-262 parameter TDZ (preseedParamTDZ): later/self param
+            // reads inside a default throw ReferenceError.
+            preseedParamTDZ(func.get(), methodDef->parameters);
             size_t ccArgTypeOffset = methodDef->isStatic ? 0 : 1;
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
@@ -1198,6 +1201,9 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // for default-handling don't collide with param HIRValue ids
             // (params already occupy ids [0..N-1]).
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+            // ECMA-262 parameter TDZ (preseedParamTDZ): later/self param
+            // reads inside a default throw ReferenceError.
+            preseedParamTDZ(func.get(), methodDef->parameters);
             size_t ccArgTypeOffset = methodDef->isStatic ? 0 : 1;
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
