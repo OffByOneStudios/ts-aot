@@ -1,9 +1,13 @@
 # test262 Conformance Roadmap
 
-**State (2026-07-02, master `90d276cb`):** 36,222/45,258 = **80.0%** on the
-milestone-tracking scope (sweep tmp_p23, 0 lost vs p22); 36,222/50,506 = 71.7%
-over everything the runner now sweeps (the wider scope adds intl402, staging,
-annexB, module-code, Atomics/SAB).
+**State (2026-07-02, master `9b4bc7db`):** 36,458+/45,258 = **80.6%** on the
+milestone-tracking scope (sweep tmp_p24, 0 lost vs p23, +236; plus the
+post-sweep new-class-expression merge). Stage B (85% = 38,470) in progress:
+~2,000 to go. Landed this Stage B session: ES2025 Set methods (+164),
+RegExp.escape (+18), Promise.try + the instanceof-Promise offset bug (+14),
+globalThis reflection of top-level fn decls (asyncHelpers $DONE unblock,
++~80 net), `new class {...}()` compiler fix. Wider scope: 36,458/50,506 =
+72.2%.
 **STAGE A COMPLETE — the 80% milestone (36,206) is MET** (+16 margin at the
 confirming sweep, plus ~7 more merged after it: set-path integrity gates +
 structural TestIntegrityLevel). +1,159 from the Stage A start at 35,063.
