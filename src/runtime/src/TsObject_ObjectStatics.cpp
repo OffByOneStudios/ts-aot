@@ -3378,6 +3378,50 @@ extern "C" {
             TsArray* entry = (TsArray*)entries->Get(i);
             TsValue* key = (TsValue*)entry->Get(0);
             TsValue* val = (TsValue*)entry->Get(1);
+            // ES CopyDataProperties/Object.assign use [[Get]]: an ACCESSOR on
+            // the source must be INVOKED and its VALUE copied as a data
+            // property — the __getter_/__setter_ storage keys must never be
+            // copied verbatim (rest/spread/assign of `{get v(){...}}` put the
+            // accessor itself on the result; gen-meth-dflt-obj-ptrn-rest-getter
+            // family). This frame is std::string-free: the getter may throw.
+            {
+                TsString* keyStr0 = (TsString*)ts_nanbox_safe_unbox(key);
+                const char* kc = keyStr0 ? keyStr0->ToUtf8() : nullptr;
+                if (kc && strncmp(kc, "__setter_", 9) == 0) {
+                    // A get/set pair is handled at its __getter_ entry; a
+                    // SET-ONLY accessor's [[Get]] is undefined.
+                    char gk[288];
+                    if (strlen(kc + 9) < 260) {
+                        snprintf(gk, sizeof(gk), "__getter_%s", kc + 9);
+                        TsValue gkv; gkv.type = ValueType::STRING_PTR;
+                        gkv.ptr_val = TsString::GetInterned(gk);
+                        if (!sourceMap->Has(gkv)) {
+                            TsValue* undef = ts_value_make_undefined();
+                            if (targetIsFlat) {
+                                ts_flat_object_set_property(targetRaw, kc + 9, undef);
+                            } else if (targetMagic == 0x4D415053) {
+                                TsValue rk; rk.type = ValueType::STRING_PTR;
+                                rk.ptr_val = TsString::GetInterned(kc + 9);
+                                ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(undef));
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if (kc && strncmp(kc, "__getter_", 9) == 0) {
+                    const char* realKey = kc + 9;
+                    // [[Get]] on the source invokes the accessor (may throw).
+                    TsValue* got = ts_object_get_property(sourceRaw, realKey);
+                    if (targetIsFlat) {
+                        ts_flat_object_set_property(targetRaw, realKey, got);
+                    } else if (targetMagic == 0x4D415053) {
+                        TsValue rk; rk.type = ValueType::STRING_PTR;
+                        rk.ptr_val = TsString::GetInterned(realKey);
+                        ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(got));
+                    }
+                    continue;
+                }
+            }
             if (targetIsFlat) {
                 TsString* keyStr = (TsString*)ts_nanbox_safe_unbox(key);
                 if (keyStr) {
