@@ -2,6 +2,9 @@
 
 namespace ts::hir {
 
+// Conservative super()-scanner (defined in ASTToHIR_Classes.cpp).
+bool stmtMightCallSuper(ast::Statement* s);
+
 
 //==============================================================================
 // Constructor / Entry Point
@@ -1586,6 +1589,29 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     if (builder_.isBlockTerminated()) {
                         break;
                     }
+                }
+            }
+
+            // ES 9.2.2: a DERIVED-class constructor completing normally
+            // without having called super() throws ReferenceError. Emitted
+            // only when the ctor body PROVABLY contains no super() call
+            // (conservative scanner in ASTToHIR_Classes.cpp) — conditional
+            // or unmodeled bodies never get a false throw. An explicit
+            // `return <object>` terminates the block first and skips this.
+            if (!hasTerminator() && methodNode->name == "constructor" &&
+                !methodNode->isStatic) {
+                ast::ClassDeclaration* clsNode = nullptr;
+                if (spec.classType) {
+                    if (auto ct2 = std::dynamic_pointer_cast<ts::ClassType>(spec.classType))
+                        clsNode = ct2->node;
+                }
+                if (clsNode && !clsNode->baseClass.empty()) {
+                    bool might = false;
+                    for (auto& stmt : methodNode->body)
+                        if (stmtMightCallSuper(stmt.get())) { might = true; break; }
+                    if (!might)
+                        builder_.createCall("ts_throw_super_not_called", {},
+                                            HIRType::makeAny());
                 }
             }
 
