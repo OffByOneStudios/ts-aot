@@ -953,6 +953,23 @@ static bool ts_proto_chain_has(void* rawObj, void* targetProto) {
     uint32_t magic0 = *(uint32_t*)rawObj;
     uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
 
+    // Subclass-of-builtin instance (Set/Map/Array/... allocated by
+    // ts_subclass_builtin_alloc): its [[Prototype]] is recorded in the
+    // native side map — walk from there (proto -> proto via TsMap chain).
+    {
+        extern void* ts_native_object_get_proto(void* obj);
+        void* p = ts_native_object_get_proto(rawObj);
+        int depth = 0;
+        while (p && depth < 100) {
+            if (p == targetProto) return true;
+            uint32_t pm16 = ((uintptr_t)p >= 4096)
+                ? *(uint32_t*)((char*)p + 16) : 0;
+            if (pm16 != 0x4D415053) break;
+            p = ((TsMap*)p)->GetPrototype();
+            depth++;
+        }
+    }
+
     // Flat-object class instance: walk via ShapeDescriptor::constructorSlot
     // → constructor.prototype → ... up the chain. The prototype map is a
     // TsMap whose GetPrototype() returns Base.prototype (set by

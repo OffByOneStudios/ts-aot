@@ -650,6 +650,17 @@ extern "C" {
                     return px->getPrototypeOfTrap();
             }
         }
+        // Subclass-of-builtin instance: its recorded [[Prototype]]
+        // (Subclass.prototype from ts_subclass_builtin_alloc) wins over the
+        // per-magic builtin dispatch below.
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0) {
+                extern void* ts_native_object_get_proto(void* o);
+                void* p = ts_native_object_get_proto(raw0);
+                if (p) return ts_value_make_object(p);
+            }
+        }
         // Per spec 19.1.2.12: ToObject(O) is performed first, which
         // throws TypeError on null/undefined. Without this guard, the
         // magic-check below dereferences a tagged primitive and crashes.
