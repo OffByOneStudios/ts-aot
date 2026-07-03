@@ -2045,6 +2045,14 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             builder_.createSetPropDynamic(obj, key, result);
         }
         lastValue_ = result;  // Prefix returns new value
+    } else if (op == "void") {
+        // ES 13.5.2: evaluate the operand (already lowered above for its
+        // side effects), result is ALWAYS undefined. `void` was missing
+        // from this dispatch, so the unknown-op fallback returned the
+        // OPERAND VALUE — `await void 1` awaited 1 (module TLA $DONE
+        // family), and any read of `void expr` saw expr's value.
+        lastValue_ = createValue(HIRType::makeAny());
+        builder_.createConstUndefined(lastValue_);
     } else {
         lastValue_ = operand;
     }
