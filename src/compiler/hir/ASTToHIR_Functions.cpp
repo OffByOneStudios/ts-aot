@@ -2,7 +2,30 @@
 
 namespace ts::hir {
 
+// ECMA-262 directive prologue: exact SOURCE-TEXT "use strict" (escaped
+// variants do not count). Shared by every function-lowering path so the
+// per-function strictCode_ (which gates sloppy-this coercion) is uniform.
+static bool bodyHasUseStrictDirective(const std::vector<std::unique_ptr<ast::Statement>>& body) {
+    for (auto& st : body) {
+        auto* es = dynamic_cast<ast::ExpressionStatement*>(st.get());
+        if (!es) break;
+        auto* sl = dynamic_cast<ast::StringLiteral*>(es->expression.get());
+        if (!sl) break;
+        if (sl->raw == "\"use strict\"" || sl->raw == "'use strict'" ||
+            (sl->raw.empty() && sl->value == "use strict"))
+            return true;
+    }
+    return false;
+}
+
 void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
+    bool savedStrict_decl = strictCode_;
+    if (bodyHasUseStrictDirective(node->body)) strictCode_ = true;
+    struct StrictRestoreDecl {
+        bool* p; bool v;
+        ~StrictRestoreDecl() { *p = v; }
+    } _strictRestoreDecl{&strictCode_, savedStrict_decl};
+
     setSourceLine(node);
     SPDLOG_DEBUG("[FD] ENTER name={} scopes={} currentFunc={} bodySize={}",
         node->name, scopes_.size(),
@@ -1054,13 +1077,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // (SetMutableBinding re-validation). Program::isStrict only covers the
     // top level; a strict IIFE inside sloppy `with` needs this scan.
     bool savedStrict_fn = strictCode_;
-    for (auto& st : node->body) {
-        auto* es = dynamic_cast<ast::ExpressionStatement*>(st.get());
-        if (!es) break;
-        auto* sl = dynamic_cast<ast::StringLiteral*>(es->expression.get());
-        if (!sl) break;
-        if (sl->value == "use strict") { strictCode_ = true; break; }
-    }
+    if (bodyHasUseStrictDirective(node->body)) strictCode_ = true;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
