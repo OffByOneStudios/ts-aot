@@ -2652,6 +2652,33 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         v.ptr_val = buffer;
         return v;
     }
+    // ES2024 resizable ArrayBuffer: a fixed-length DataView whose window
+    // no longer fits the CURRENT buffer length is out of bounds — byteLength
+    // and every get/set throw TypeError (resizable-array-buffer-* tests).
+    // (Detached buffers are excluded: the get/set lambdas check detachment
+    // AFTER the offset/value coercions per spec — pre-empting here broke the
+    // detached-buffer-after-number-value coercion-order tests.)
+    if (buffer && !buffer->IsDetached() &&
+        byteOffset + byteLength > buffer->GetLength() &&
+        (strcmp(key, "byteLength") == 0 || strcmp(key, "byteOffset") == 0 ||
+         strncmp(key, "get", 3) == 0 || strncmp(key, "set", 3) == 0)) {
+        TsValue v; v.type = ValueType::FUNCTION_PTR;
+        if (strcmp(key, "byteLength") == 0 || strcmp(key, "byteOffset") == 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "DataView is out of bounds of its resized ArrayBuffer"));
+            TsValue u; u.type = ValueType::UNDEFINED; return u;
+        }
+        void* mem = ts_alloc(sizeof(TsFunction));
+        TsFunction* fn = new (mem) TsFunction(
+            (void*)+[](void* ctx, TsValue*, TsValue*) -> TsValue* {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "DataView is out of bounds of its resized ArrayBuffer"));
+                return ts_value_make_undefined();
+            },
+            this, FunctionType::COMPILED, 1);
+        v.ptr_val = fn;
+        return v;
+    }
     if (strcmp(key, "byteLength") == 0) {
         TsValue v;
         v.type = ValueType::NUMBER_INT;
