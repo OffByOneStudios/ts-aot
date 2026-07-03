@@ -265,9 +265,15 @@ extern "C" {
     // Helper: override func->context = thisArg unless `func` is a bound-
     // method TsFunction (whose context IS its BoundMethodCtx — overriding
     // would corrupt the trampoline's read of the method pointer).
+    extern "C" TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv);
     static inline void* maybe_override_context(TsFunction* func, TsValue* thisArg) {
         void* savedCtx = func->context;
-        if (func->funcPtr != (void*)flat_bound_method_trampoline && !func->keep_context) {
+        // A BOUND function's context is its TsBoundFunction record — a
+        // thisArg override corrupts it (bound fns IGNORE thisArg per spec;
+        // flatMap passing an explicit undefined this AV'd on the deref).
+        if (func->funcPtr != (void*)flat_bound_method_trampoline &&
+            func->funcPtr != (void*)ts_bound_function_call &&
+            !func->keep_context) {
             func->context = thisArg;
         }
         return savedCtx;

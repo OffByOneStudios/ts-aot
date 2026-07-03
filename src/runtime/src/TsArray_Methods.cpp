@@ -243,10 +243,9 @@ void TsArray::ForEach(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                if (thisArg)
-                    ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr);
-                else
-                    tsCall((TsValue*)callback, v, idx, arr);
+                ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);
             }
         }
         return;
@@ -273,7 +272,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
         if (thisArgV)
             ts_call_with_this_3(cbVal, thisArgV, v, idx, arr);
         else
-            tsCall(cbVal, v, idx, arr);
+            ts_call_with_this_3(cbVal, ts_value_make_undefined(), v, idx, arr);
     }
 }
 
@@ -305,9 +304,10 @@ void* TsArray::Map(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 result->Push((int64_t)res);
             }
         }
@@ -336,9 +336,8 @@ void* TsArray::Map(void* callback, void* thisArg) {
         if (array_generic_absent_index(this, i)) continue;
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : tsCall(cbVal, v, idx, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idx, arr);
         result->SetUnchecked(i, (int64_t)res);
     }
     return result;
@@ -366,9 +365,10 @@ void* TsArray::Filter(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 if (ts_value_to_bool(res)) {
                     result->Push(((int64_t*)elements)[i]);
                 }
@@ -486,7 +486,8 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
         if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        accumulator = tsCall(cbVal, accumulator, v, idx, arr);
+        accumulator = ts_call_with_this_4(cbVal, ts_value_make_undefined(),
+            accumulator, v, idx, arr);  // reduce callback this = undefined
     }
     return accumulator;
 }
@@ -549,7 +550,8 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
         if (array_generic_absent_index(this, i - 1)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        accumulator = tsCall(cbVal, accumulator, v, idx, arr);
+        accumulator = ts_call_with_this_4(cbVal, ts_value_make_undefined(),
+            accumulator, v, idx, arr);  // reduce callback this = undefined
     }
     return accumulator;
 }
@@ -571,9 +573,10 @@ bool TsArray::Some(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 if (ts_value_to_bool(res)) return true;
             }
         }
@@ -598,9 +601,8 @@ bool TsArray::Some(void* callback, void* thisArg) {
         if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : tsCall(cbVal, v, idx, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idx, arr);
         if (ts_value_to_bool(res)) return true;
     }
     return false;
@@ -623,9 +625,10 @@ bool TsArray::Every(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 if (!ts_value_to_bool(res)) return false;
             }
         }
@@ -650,9 +653,8 @@ bool TsArray::Every(void* callback, void* thisArg) {
         if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : tsCall(cbVal, v, idx, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idx, arr);
         if (!ts_value_to_bool(res)) return false;
     }
     return true;
@@ -675,9 +677,10 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 if (ts_value_to_bool(res)) return GetElementBoxed(i);
             }
         }
@@ -702,9 +705,8 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : tsCall(cbVal, v, idx, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idx, arr);
         if (ts_value_to_bool(res)) {
             return v;
         }
@@ -727,9 +729,10 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = thisArg
-                    ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : tsCall((TsValue*)callback, v, idx, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    thisArg ? (TsValue*)thisArg : ts_value_make_undefined(),
+                    v, idx, arr);  // explicit undefined this: a STRICT callback
+                                   // must see undefined, not ambient call-this
                 if (ts_value_to_bool(res)) return (int64_t)i;
             }
         }
@@ -745,9 +748,8 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : tsCall(cbVal, v, idx, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idx, arr);
         if (ts_value_to_bool(res)) return (int64_t)i;
     }
     return -1;
@@ -770,7 +772,8 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = tsCall((TsValue*)callback, v, idx_v, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    ts_value_make_undefined(), v, idx_v, arr);
                 if (ts_value_to_bool(res)) return GetElementBoxed(i - 1);
             }
         }
@@ -787,9 +790,8 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
-            : tsCall(cbVal, v, idxVal, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idxVal, arr);
         if (ts_value_to_bool(res)) {
             return GetElementBoxed(idx);
         }
@@ -812,7 +814,8 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = tsCall((TsValue*)callback, v, idx_v, arr);
+                TsValue* res = ts_call_with_this_3((TsValue*)callback,
+                    ts_value_make_undefined(), v, idx_v, arr);
                 if (ts_value_to_bool(res)) return (int64_t)(i - 1);
             }
         }
@@ -829,9 +832,8 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = thisArgV
-            ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
-            : tsCall(cbVal, v, idxVal, arr);
+        TsValue* res = ts_call_with_this_3(cbVal,
+            thisArgV ? thisArgV : ts_value_make_undefined(), v, idxVal, arr);
         if (ts_value_to_bool(res)) return (int64_t)idx;
     }
     return -1;
