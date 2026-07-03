@@ -493,11 +493,39 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
                                 if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
                                     if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
+                                        // Lazily evaluate the initializer ONLY when the
+                                        // iterated element is undefined (ECMA-262
+                                        // DestructuringAssignmentEvaluation) — the old
+                                        // createSelect ran its side effects eagerly
+                                        // (dstr-array-elem-init-* observe this).
                                         auto isUndef = builder_.createIsUndefined(value);
-                                        auto defVal = lowerExpression(defExpr);
-                                        defVal = boxValueIfNeeded(defVal);
                                         value = boxValueIfNeeded(value);
-                                        value = builder_.createSelect(isUndef, defVal, value);
+                                        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "forof_dstr_dflt");
+                                        builder_.createStore(value, mergeSlot);
+                                        auto* defaultBB = currentFunction_->createBlock("forof_dstr_default");
+                                        auto* mergeBB = currentFunction_->createBlock("forof_dstr_merge");
+                                        builder_.createCondBranch(isUndef, defaultBB, mergeBB);
+                                        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
+                                        // NamedEvaluation: anonymous fn/class initializer
+                                        // takes the assignment-target name.
+                                        std::string savedPCDN = pendingClosureDisplayName_;
+                                        if (auto* tid = dynamic_cast<ast::Identifier*>(assn->left.get())) {
+                                            auto* ie = defExpr;
+                                            bool anon = dynamic_cast<ast::ArrowFunction*>(ie) ||
+                                                        dynamic_cast<ast::ClassExpression*>(ie);
+                                            if (!anon) {
+                                                if (auto* fe = dynamic_cast<ast::FunctionExpression*>(ie))
+                                                    anon = fe->name.empty();
+                                            }
+                                            if (anon) pendingClosureDisplayName_ = tid->name;
+                                        }
+                                        auto defVal = lowerExpression(defExpr);
+                                        pendingClosureDisplayName_ = savedPCDN;
+                                        defVal = boxValueIfNeeded(defVal);
+                                        builder_.createStore(defVal, mergeSlot);
+                                        builder_.createBranch(mergeBB);
+                                        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+                                        value = builder_.createLoad(HIRType::makeAny(), mergeSlot);
                                     }
                                     tgt = dynamic_cast<ast::Expression*>(assn->left.get());
                                 }
@@ -685,11 +713,39 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
                                 if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
                                     if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
+                                        // Lazily evaluate the initializer ONLY when the
+                                        // iterated element is undefined (ECMA-262
+                                        // DestructuringAssignmentEvaluation) — the old
+                                        // createSelect ran its side effects eagerly
+                                        // (dstr-array-elem-init-* observe this).
                                         auto isUndef = builder_.createIsUndefined(value);
-                                        auto defVal = lowerExpression(defExpr);
-                                        defVal = boxValueIfNeeded(defVal);
                                         value = boxValueIfNeeded(value);
-                                        value = builder_.createSelect(isUndef, defVal, value);
+                                        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "forof_dstr_dflt");
+                                        builder_.createStore(value, mergeSlot);
+                                        auto* defaultBB = currentFunction_->createBlock("forof_dstr_default");
+                                        auto* mergeBB = currentFunction_->createBlock("forof_dstr_merge");
+                                        builder_.createCondBranch(isUndef, defaultBB, mergeBB);
+                                        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
+                                        // NamedEvaluation: anonymous fn/class initializer
+                                        // takes the assignment-target name.
+                                        std::string savedPCDN = pendingClosureDisplayName_;
+                                        if (auto* tid = dynamic_cast<ast::Identifier*>(assn->left.get())) {
+                                            auto* ie = defExpr;
+                                            bool anon = dynamic_cast<ast::ArrowFunction*>(ie) ||
+                                                        dynamic_cast<ast::ClassExpression*>(ie);
+                                            if (!anon) {
+                                                if (auto* fe = dynamic_cast<ast::FunctionExpression*>(ie))
+                                                    anon = fe->name.empty();
+                                            }
+                                            if (anon) pendingClosureDisplayName_ = tid->name;
+                                        }
+                                        auto defVal = lowerExpression(defExpr);
+                                        pendingClosureDisplayName_ = savedPCDN;
+                                        defVal = boxValueIfNeeded(defVal);
+                                        builder_.createStore(defVal, mergeSlot);
+                                        builder_.createBranch(mergeBB);
+                                        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+                                        value = builder_.createLoad(HIRType::makeAny(), mergeSlot);
                                     }
                                     tgt = dynamic_cast<ast::Expression*>(assn->left.get());
                                 }
