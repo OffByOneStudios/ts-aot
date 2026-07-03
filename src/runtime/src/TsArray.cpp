@@ -1717,6 +1717,12 @@ extern "C" {
         return nanbox_is_double(vnb) && nanbox_to_double(vnb) != nanbox_to_double(vnb);
     }
 
+    // Spec-path search for exotic receivers (TsArray_Methods.cpp): own index
+    // accessors, holes inheriting from a modified prototype, array-like temps.
+    extern bool ts_array_needs_spec_search(TsArray* arr);
+    extern int64_t ts_array_search_spec(TsArray* arr, int64_t value,
+                                        int64_t fromIndex, bool fromLast);
+
     int64_t ts_array_indexOf(void* arr, int64_t value) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             // `value` is the raw bit pattern of a boxed TsValue* or small int.
@@ -1732,6 +1738,8 @@ extern "C" {
             return -1;
         }
         if (ts_search_value_is_nan(value)) return -1;
+        if (ts_array_needs_spec_search((TsArray*)arr))
+            return ts_array_search_spec((TsArray*)arr, value, 0, false);
         return ((TsArray*)arr)->IndexOf(value);
     }
 
@@ -1749,6 +1757,8 @@ extern "C" {
         }
         if (fi >= len) return -1;
         if (ts_search_value_is_nan(value)) return -1;
+        if (ts_array_needs_spec_search(a))
+            return ts_array_search_spec(a, value, fi, false);
         return a->IndexOf(value, (size_t)fi);
     }
 
@@ -1765,6 +1775,9 @@ extern "C" {
             return -1;
         }
         if (ts_search_value_is_nan(value)) return -1;
+        if (ts_array_needs_spec_search((TsArray*)arr))
+            return ts_array_search_spec((TsArray*)arr, value,
+                                        ((TsArray*)arr)->Length() - 1, true);
         return ((TsArray*)arr)->LastIndexOf(value);
     }
 
@@ -1783,6 +1796,8 @@ extern "C" {
             if (fi >= len) fi = len - 1;
         }
         if (ts_search_value_is_nan(value)) return -1;
+        if (ts_array_needs_spec_search(a))
+            return ts_array_search_spec(a, value, fi, true);
         return a->LastIndexOf(value, fi);
     }
 

@@ -1061,6 +1061,10 @@ extern "C" {
         int64_t fromIndex = parseFromIndex(argc, argv, len, false);
         if (fromIndex < 0) fromIndex = 0;
         if (fromIndex >= len) return ts_value_make_int(-1);
+        extern bool ts_array_needs_spec_search(TsArray*);
+        extern int64_t ts_array_search_spec(TsArray*, int64_t, int64_t, bool);
+        if (ts_array_needs_spec_search(arr))
+            return ts_value_make_int(ts_array_search_spec(arr, value, fromIndex, false));
         return ts_value_make_int(arr->IndexOf(value, (size_t)fromIndex));
     }
     TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
@@ -1605,6 +1609,11 @@ extern "C" {
         int64_t fromIndex = parseFromIndex(argc, argv, len, true);
         // lastIndexOf: fromIndex < 0 means skip everything (no valid index).
         if (fromIndex < 0) return ts_value_make_int(-1);
+        if (fromIndex >= len) fromIndex = len - 1;
+        extern bool ts_array_needs_spec_search(TsArray*);
+        extern int64_t ts_array_search_spec(TsArray*, int64_t, int64_t, bool);
+        if (ts_array_needs_spec_search(arr))
+            return ts_value_make_int(ts_array_search_spec(arr, value, fromIndex, true));
         return ts_value_make_int(arr->LastIndexOf(value, fromIndex));
     }
 
