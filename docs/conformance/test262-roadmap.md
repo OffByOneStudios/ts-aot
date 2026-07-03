@@ -1,10 +1,14 @@
 # test262 Conformance Roadmap
 
-**State (2026-07-02, master `b3c8e11d`):** 35,712+/45,258 = **78.7%** (sweep tmp_p18;
-+649 from the Stage A start at 35,063). All five Stage A line items have landed.
-The 80% milestone (36,206) is ~490 tests away — the remaining distance comes from
-the mapped "small roots" and early Stage B veins (defineProperty descriptor
-semantics 277, Array.prototype 568, class residue 449).
+**State (2026-07-02, master `ac3da223`):** 36,222+/45,258 = **80.0%+** (sweep
+tmp_p23, 0 lost vs p22; +1,159 from the Stage A start at 35,063).
+**STAGE A COMPLETE — the 80% milestone (36,206) is MET (+16 margin, plus ~7 more
+merged after the confirming sweep).** Closers past the five line items: Proxy
+ownKeys invariants (ES 10.5.11) + Object.keys enumerable filtering, flat-object
+in-place integrity flags (preventExtensions/seal demoted a detached copy),
+exotic-object integrity side-table (functions/arrays/Dates seal/freeze/
+preventExtensions + set-path gates), structural TestIntegrityLevel, and
+`arguments[N]` padding for object-literal generator/async-generator methods.
 Structural floor: ~550 tests are AOT-unreachable (`eval` 256, runtime
 `dynamic-import` 292) → theoretical ceiling ~96–97%.
 
