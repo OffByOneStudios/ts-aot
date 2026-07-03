@@ -95,6 +95,31 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     }
 }
 
+// The `super` branches below need to know whether the CURRENT function is a
+// STATIC class member. The `_static_` name convention covers plain static
+// methods, but a class accessor lowers to TWO versions and the dual-version
+// stub is named <Class>___getter_<n>/___setter_<n> with no static marker —
+// inside it, `super.x` wrongly took the instance table and fell through to a
+// null-base dynamic get. Disambiguate via the class's own tables: the
+// accessor key appears in staticMethods XOR methods.
+static bool functionIsStaticClassMember(HIRFunction* fn, HIRClass* cls) {
+    if (!fn || !cls) return false;
+    const std::string& n = fn->name;
+    if (n.find("_static_") != std::string::npos) return true;
+    // Dual-version accessor stub: its key may not be REGISTERED in
+    // staticMethods yet while its own body lowers, so the caller also
+    // consults currentMethodIsStatic_ (set at the lowering sites).
+    for (const char* pfx : {"___getter_", "___setter_"}) {
+        auto pos = n.find(pfx);
+        if (pos != std::string::npos) {
+            std::string key = n.substr(pos + 1);  // "__getter_<name>"
+            if (cls->staticMethods.count(key) && !cls->methods.count(key))
+                return true;
+        }
+    }
+    return false;
+}
+
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
     setSourceLine(node);
     // `super[key]` READ with a literal key: dispatch base-class getter/method.
@@ -106,8 +131,8 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
         else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get()))
             key = std::to_string((int64_t)nl->value);
         if (!key.empty()) {
-            bool inStatic = currentFunction_ &&
-                currentFunction_->name.find("_static_") != std::string::npos;
+            bool inStatic = currentMethodIsStatic_ ||
+                functionIsStaticClassMember(currentFunction_, currentClass_);
             auto thisVal = lookupVariable("this");
             if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
             for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
@@ -222,8 +247,8 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // path; this covers `super.getter` and `super.method` without invocation.)
     if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
         currentClass_ && currentClass_->baseClass) {
-        bool inStatic = currentFunction_ &&
-            currentFunction_->name.find("_static_") != std::string::npos;
+        bool inStatic = currentMethodIsStatic_ ||
+                functionIsStaticClassMember(currentFunction_, currentClass_);
         auto thisVal = lookupVariable("this");
         if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
         for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {

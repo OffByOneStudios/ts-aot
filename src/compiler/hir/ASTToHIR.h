@@ -59,6 +59,11 @@ private:
 
     // Current module path for cross-module function name disambiguation
     std::string currentModulePath_;
+    // True while lowering the body of a STATIC class member. The `_static_`
+    // name convention misses the dual-version accessor stub
+    // (<Class>___getter_<n>), whose `super.x` then wrongly used the instance
+    // table. Set/restored at the class-method lowering sites.
+    bool currentMethodIsStatic_ = false;
     // Entry module's path (first hoisted module spec) — fallback registry key
     // for CommonJS `module`/`exports` reads from functions with no
     // per-spec modulePath (e.g. user_main). See visitIdentifier.
