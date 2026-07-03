@@ -173,6 +173,30 @@ static struct ModuleCacheScanner {
 // Express's setPrototypeOf(res, app.response) which copies methods onto native objects.
 std::unordered_map<void*, TsMap*> g_native_object_props;  // PRE-1: single def; extern in TsObject_Internal.h
 
+// Subclass-of-builtin instances (ts_subclass_builtin_alloc): the instance's
+// [[Prototype]] (Subclass.prototype) lives in the native side map under a
+// hidden key. Consulted by the instanceof chain walk.
+extern "C" void ts_native_object_set_proto(void* obj, TsValue* proto) {
+    if (!obj || !proto) return;
+    TsMap*& props = g_native_object_props[obj];
+    if (!props) props = TsMap::Create();
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("__proto__");
+    void* raw = ts_value_get_object(proto);
+    TsValue v; v.type = ValueType::OBJECT_PTR; v.ptr_val = raw ? raw : (void*)proto;
+    props->Set(k, v);
+}
+extern "C" void* ts_native_object_get_proto(void* obj) {
+    if (!obj) return nullptr;
+    auto it = g_native_object_props.find(obj);
+    if (it == g_native_object_props.end() || !it->second) return nullptr;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("__proto__");
+    if (!it->second->Has(k)) return nullptr;
+    TsValue v = it->second->Get(k);
+    return v.ptr_val;
+}
+
 static struct NativePropsScanner {
     NativePropsScanner() {
         ts_gc_register_scanner([](void*) {

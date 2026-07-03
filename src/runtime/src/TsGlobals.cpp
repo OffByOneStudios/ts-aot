@@ -7000,6 +7000,40 @@ bool ts_instanceof_array(TsValue* v) {
 // baseBuiltinName and no user constructor. No std::string locals (the
 // ToString of a Symbol message ts_throws).
 extern "C" TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor);
+// `class MySet extends Set {}` instance allocation: the exotic builtin
+// object IS the instance (collection magic intact); subclass dynamic
+// properties land in the native-object side map.
+void* ts_subclass_builtin_alloc(void* nameStr, void* ctorVal) {
+    const char* n = nameStr ? ((TsString*)nameStr)->ToUtf8() : nullptr;
+    if (!n) return nullptr;
+    extern void* ts_set_create();
+    extern void* ts_map_create_explicit();
+    extern void* ts_weakset_create();
+    extern void* ts_weakmap_create();
+    extern void* ts_array_create();
+    void* inst = nullptr;
+    if (strcmp(n, "Set") == 0)          inst = ts_set_create();
+    else if (strcmp(n, "Map") == 0)     inst = ts_map_create_explicit();
+    else if (strcmp(n, "WeakSet") == 0) inst = ts_weakset_create();
+    else if (strcmp(n, "WeakMap") == 0) inst = ts_weakmap_create();
+    else if (strcmp(n, "Array") == 0)   inst = ts_array_create();
+    if (!inst) return nullptr;
+    // Link instance -> Subclass.prototype so `x instanceof Subclass` walks
+    // (stored under a hidden key in the native-object side map; consumed by
+    // ts_proto_chain_has and ts_object_getPrototypeOf's native branch).
+    if (ctorVal) {
+        TsValue* protoVal = ts_object_get_property(
+            ts_value_get_object((TsValue*)ctorVal)
+                ? ts_value_get_object((TsValue*)ctorVal) : ctorVal,
+            "prototype");
+        if (protoVal && !ts_value_is_undefined(protoVal)) {
+            extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+            ts_native_object_set_proto(inst, protoVal);
+        }
+    }
+    return inst;
+}
+
 void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0) {
     if (!thisVal || !nameStr) return;
     const char* n = ((TsString*)nameStr)->ToUtf8();

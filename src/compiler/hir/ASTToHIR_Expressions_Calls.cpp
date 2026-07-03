@@ -2297,7 +2297,29 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 
     // Create new object with the correct type
     std::shared_ptr<HIRValue> newObj;
-    if (hirClass && hirClass->shape && hirClass->shape->id != UINT32_MAX) {
+    // `class MySet extends Set {}` (and Map/WeakSet/WeakMap/Array): the
+    // instance must BE the builtin exotic object — a flat instance makes
+    // every inherited method throw "called on incompatible receiver".
+    // Only safe for FIELDLESS subclasses (compiled field access assumes
+    // flat slot offsets); classes with fields keep the legacy flat layout.
+    bool subclassBuiltinAlloc = false;
+    if (hirClass && !hirClass->baseBuiltinName.empty() &&
+        (!hirClass->shape || hirClass->shape->propertyOffsets.empty())) {
+        const std::string& b = hirClass->baseBuiltinName;
+        if (b == "Set" || b == "Map" || b == "WeakSet" || b == "WeakMap" ||
+            b == "Array") {
+            auto baseNameC = builder_.createConstString(b);
+            auto ctorVal2 = builder_.createLoadFunction(
+                hirClass->constructor ? hirClass->constructor->name
+                                      : (className + "_constructor"));
+            newObj = builder_.createCall("ts_subclass_builtin_alloc",
+                                         {baseNameC, ctorVal2}, HIRType::makeAny());
+            subclassBuiltinAlloc = true;
+        }
+    }
+    if (subclassBuiltinAlloc) {
+        // allocation done above
+    } else if (hirClass && hirClass->shape && hirClass->shape->id != UINT32_MAX) {
         // Use flat object layout for class instances with registered shapes
         newObj = builder_.createNewObjectDynamic(hirClass->shape.get());
         // Set type to Class so codegen can find the vtable
