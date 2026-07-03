@@ -230,122 +230,52 @@ static TsSet* setFromArg(void* other) {
     return nullptr;
 }
 
+// Spec-correct ES2025 implementations (defined below). The legacy raw-set ops
+// delegate to them so the typed compiler path (BuiltinRegistry routes
+// Set-typed receivers straight at these symbols) gets full set-like-argument
+// protocol + GetSetRecord validation instead of treating a non-Set as empty.
+TsValue* ts_set_union_wrapper(void* context, TsValue* other);
+TsValue* ts_set_intersection_wrapper(void* context, TsValue* other);
+TsValue* ts_set_difference_wrapper(void* context, TsValue* other);
+TsValue* ts_set_symdiff_wrapper(void* context, TsValue* other);
+TsValue* ts_set_isSubsetOf_wrapper(void* context, TsValue* other);
+TsValue* ts_set_isSupersetOf_wrapper(void* context, TsValue* other);
+TsValue* ts_set_isDisjointFrom_wrapper(void* context, TsValue* other);
+
+static void* set_unbox_result(TsValue* r) {
+    void* raw = r ? ts_value_get_object(r) : nullptr;
+    return raw ? raw : (void*)r;
+}
+
 void* ts_set_union(void* set, void* other) {
-    if (!set) return TsSet::Create();
-    TsSet* a = (TsSet*)set;
-    TsSet* result = TsSet::Create();
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        result->Add(v);
-    }
-    TsSet* b = setFromArg(other);
-    if (b) {
-        TsArray* bVals = (TsArray*)b->GetValues();
-        int64_t bLen = bVals ? bVals->Length() : 0;
-        for (int64_t i = 0; i < bLen; i++) {
-            TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
-            result->Add(v);
-        }
-    }
-    return result;
+    return set_unbox_result(ts_set_union_wrapper(set, (TsValue*)other));
 }
 
 void* ts_set_intersection(void* set, void* other) {
-    if (!set) return TsSet::Create();
-    TsSet* a = (TsSet*)set;
-    TsSet* result = TsSet::Create();
-    TsSet* b = setFromArg(other);
-    if (!b) return result;
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        if (b->Has(v)) result->Add(v);
-    }
-    return result;
+    return set_unbox_result(ts_set_intersection_wrapper(set, (TsValue*)other));
 }
 
 void* ts_set_difference(void* set, void* other) {
-    if (!set) return TsSet::Create();
-    TsSet* a = (TsSet*)set;
-    TsSet* result = TsSet::Create();
-    TsSet* b = setFromArg(other);
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        if (!b || !b->Has(v)) result->Add(v);
-    }
-    return result;
+    return set_unbox_result(ts_set_difference_wrapper(set, (TsValue*)other));
 }
 
 void* ts_set_symmetricDifference(void* set, void* other) {
-    if (!set) return TsSet::Create();
-    TsSet* a = (TsSet*)set;
-    TsSet* result = TsSet::Create();
-    TsSet* b = setFromArg(other);
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        if (!b || !b->Has(v)) result->Add(v);
-    }
-    if (b) {
-        TsArray* bVals = (TsArray*)b->GetValues();
-        int64_t bLen = bVals ? bVals->Length() : 0;
-        for (int64_t i = 0; i < bLen; i++) {
-            TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
-            if (!a->Has(v)) result->Add(v);
-        }
-    }
-    return result;
+    return set_unbox_result(ts_set_symdiff_wrapper(set, (TsValue*)other));
 }
 
 // NB: registry-dispatched Set methods are IR-declared with `ptr` return type
 // regardless of the registry's HIRType hint, so boolean results must be
 // returned as NaN-boxed TsValue* (via ts_value_make_bool), not raw `bool`.
 void* ts_set_isSubsetOf(void* set, void* other) {
-    if (!set) return ts_value_make_bool(true);
-    TsSet* a = (TsSet*)set;
-    TsSet* b = setFromArg(other);
-    if (!b) return ts_value_make_bool(a->Size() == 0);
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        if (!b->Has(v)) return ts_value_make_bool(false);
-    }
-    return ts_value_make_bool(true);
+    return (void*)ts_set_isSubsetOf_wrapper(set, (TsValue*)other);
 }
 
 void* ts_set_isSupersetOf(void* set, void* other) {
-    if (!set) return ts_value_make_bool(false);
-    TsSet* a = (TsSet*)set;
-    TsSet* b = setFromArg(other);
-    if (!b) return ts_value_make_bool(true);
-    TsArray* bVals = (TsArray*)b->GetValues();
-    int64_t bLen = bVals ? bVals->Length() : 0;
-    for (int64_t i = 0; i < bLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
-        if (!a->Has(v)) return ts_value_make_bool(false);
-    }
-    return ts_value_make_bool(true);
+    return (void*)ts_set_isSupersetOf_wrapper(set, (TsValue*)other);
 }
 
 void* ts_set_isDisjointFrom(void* set, void* other) {
-    if (!set) return ts_value_make_bool(true);
-    TsSet* a = (TsSet*)set;
-    TsSet* b = setFromArg(other);
-    if (!b) return ts_value_make_bool(true);
-    TsArray* aVals = (TsArray*)a->GetValues();
-    int64_t aLen = aVals ? aVals->Length() : 0;
-    for (int64_t i = 0; i < aLen; i++) {
-        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
-        if (b->Has(v)) return ts_value_make_bool(false);
-    }
-    return ts_value_make_bool(true);
+    return (void*)ts_set_isDisjointFrom_wrapper(set, (TsValue*)other);
 }
 
 // Collection brand for receiver validation. Set/WeakSet share the TsSet impl,
@@ -612,6 +542,283 @@ TsValue* ts_set_forEach_wrapper(void* context, TsValue* callback, TsValue* thisA
     return ts_value_make_undefined();
 }
 
+// ---------------------------------------------------------------------------
+// ES2025 Set methods (ECMA-262 24.2.4): union, intersection, difference,
+// symmetricDifference, isSubsetOf, isSupersetOf, isDisjointFrom.
+// All operate on a "set-like" argument via GetSetRecord (24.2.1.2): the
+// argument must be an Object with a numeric `size`, callable `has`, and
+// callable `keys`. Validation order (size -> has -> keys) is observable.
+// ---------------------------------------------------------------------------
+
+extern "C" double ts_to_number(TsValue* v);
+extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+
+// Get(other, prop) through the generic property path (handles flat objects,
+// TsMaps, class instances, proxies, and real Sets).
+static TsValue* setrec_get(TsValue* other, const char* prop) {
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    void* raw = ts_value_get_object(other);
+    if (!raw) raw = other;
+    return ts_object_get_property(raw, prop);
+}
+
+struct SetRecord {
+    TsValue* other;   // the boxed set-like object
+    double size;      // IntegerOrInfinity, >= 0
+    TsValue* hasFn;
+    TsValue* keysFn;
+};
+
+// GetSetRecord (24.2.1.2). Throws TypeError/RangeError per spec; on success
+// fills rec and returns true.
+static bool set_get_record(TsValue* other, SetRecord* rec) {
+    uint64_t nb = other ? (uint64_t)(uintptr_t)other : 0;
+    bool isObj = other && nanbox_is_ptr(nb) && nanbox_to_ptr(nb);
+    if (!isObj) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method argument must be an object"));
+        return false;
+    }
+    TsValue* rawSize = setrec_get(other, "size");
+    // ToNumber(BigInt) throws TypeError (ES 7.1.4); ts_to_number coerces
+    // silently, so reject the BigInt case explicitly first.
+    if (rawSize && nanbox_to_tagged(rawSize).type == ValueType::BIGINT_PTR) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot convert a BigInt to a number"));
+        return false;
+    }
+    double numSize = ts_to_number(rawSize);   // ToNumber (may throw)
+    if (numSize != numSize) {                 // NaN (incl. undefined size)
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method argument has non-numeric size"));
+        return false;
+    }
+    // ToIntegerOrInfinity
+    double intSize = (numSize == INFINITY || numSize == -INFINITY)
+        ? numSize : std::trunc(numSize);
+    if (intSize < 0) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Set method argument has negative size"));
+        return false;
+    }
+    TsValue* hasFn = setrec_get(other, "has");
+    if (!ts_is_callable((void*)hasFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method argument has non-callable has"));
+        return false;
+    }
+    TsValue* keysFn = setrec_get(other, "keys");
+    if (!ts_is_callable((void*)keysFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method argument has non-callable keys"));
+        return false;
+    }
+    rec->other = other; rec->size = intSize;
+    rec->hasFn = hasFn; rec->keysFn = keysFn;
+    return true;
+}
+
+// Has.call(other, v) -> ToBoolean
+static bool setrec_has(SetRecord* rec, TsValue* v) {
+    TsValue* args[1] = { v };
+    TsValue* r = ts_function_call_with_this(rec->hasFn, rec->other, 1, args);
+    return ts_value_to_bool(r);
+}
+
+// Iterate keys.call(other) with the generic iterator protocol, invoking
+// visit for each value. visit returns false to stop early.
+static void setrec_iterate_keys(SetRecord* rec,
+                                const std::function<bool(TsValue*)>& visit) {
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    TsValue* iter = ts_function_call_with_this(rec->keysFn, rec->other, 0, nullptr);
+    void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+    if (!iterRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "keys() did not return an iterator"));
+        return;
+    }
+    TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+    if (!ts_is_callable((void*)nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "keys() iterator has no callable next"));
+        return;
+    }
+    for (;;) {
+        TsValue* res = ts_function_call_with_this(nextFn, iter, 0, nullptr);
+        void* resRaw = res ? ts_value_get_object(res) : nullptr;
+        if (!resRaw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator result is not an object"));
+            return;
+        }
+        TsValue* done = ts_object_get_property(resRaw, "done");
+        if (ts_value_to_bool(done)) return;
+        TsValue* val = ts_object_get_property(resRaw, "value");
+        if (!visit(val)) return;
+    }
+}
+
+// Snapshot of a set (insertion order, boxed TsValue* elements).
+static TsArray* set_elements(void* rawSet) {
+    return (TsArray*)((TsSet*)rawSet)->GetValues();
+}
+
+static TsSet* set_copy(void* rawSet) {
+    TsSet* out = TsSet::Create();
+    TsArray* vals = set_elements(rawSet);
+    int64_t n = vals ? vals->Length() : 0;
+    for (int64_t i = 0; i < n; i++)
+        out->Add(nanbox_to_tagged((TsValue*)(uintptr_t)vals->Get(i)));
+    return out;
+}
+
+// 24.2.4.16 Set.prototype.union
+TsValue* ts_set_union_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "union", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_undefined();
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_undefined();
+    TsSet* out = set_copy(rawCtx);
+    setrec_iterate_keys(&rec, [&](TsValue* v) {
+        out->Add(ts_set_canon_key(nanbox_to_tagged(v)));
+        return true;
+    });
+    return ts_value_make_object(out);
+}
+
+// 24.2.4.9 Set.prototype.intersection
+TsValue* ts_set_intersection_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "intersection", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_undefined();
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_undefined();
+    TsSet* self = (TsSet*)rawCtx;
+    TsSet* out = TsSet::Create();
+    if ((double)self->Size() <= rec.size) {
+        TsArray* vals = set_elements(rawCtx);
+        int64_t n = vals ? vals->Length() : 0;
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
+            if (setrec_has(&rec, v))
+                out->Add(nanbox_to_tagged(v));
+        }
+    } else {
+        setrec_iterate_keys(&rec, [&](TsValue* v) {
+            TsValue tv = ts_set_canon_key(nanbox_to_tagged(v));
+            if (self->Has(tv)) out->Add(tv);
+            return true;
+        });
+    }
+    return ts_value_make_object(out);
+}
+
+// 24.2.4.5 Set.prototype.difference
+TsValue* ts_set_difference_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "difference", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_undefined();
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_undefined();
+    TsSet* self = (TsSet*)rawCtx;
+    TsSet* out = set_copy(rawCtx);
+    if ((double)self->Size() <= rec.size) {
+        TsArray* vals = set_elements(rawCtx);
+        int64_t n = vals ? vals->Length() : 0;
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
+            if (setrec_has(&rec, v))
+                out->Delete(nanbox_to_tagged(v));
+        }
+    } else {
+        setrec_iterate_keys(&rec, [&](TsValue* v) {
+            out->Delete(ts_set_canon_key(nanbox_to_tagged(v)));
+            return true;
+        });
+    }
+    return ts_value_make_object(out);
+}
+
+// 24.2.4.15 Set.prototype.symmetricDifference
+TsValue* ts_set_symdiff_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "symmetricDifference", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_undefined();
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_undefined();
+    TsSet* self = (TsSet*)rawCtx;
+    TsSet* out = set_copy(rawCtx);
+    setrec_iterate_keys(&rec, [&](TsValue* v) {
+        TsValue tv = ts_set_canon_key(nanbox_to_tagged(v));
+        // Membership judged against THIS set (not the evolving result) per
+        // spec: nextValue in thisSet -> remove, else -> append.
+        if (self->Has(tv)) out->Delete(tv);
+        else out->Add(tv);
+        return true;
+    });
+    return ts_value_make_object(out);
+}
+
+// 24.2.4.10 Set.prototype.isSubsetOf
+TsValue* ts_set_isSubsetOf_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "isSubsetOf", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_bool(false);
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_bool(false);
+    TsSet* self = (TsSet*)rawCtx;
+    if ((double)self->Size() > rec.size) return ts_value_make_bool(false);
+    TsArray* vals = set_elements(rawCtx);
+    int64_t n = vals ? vals->Length() : 0;
+    for (int64_t i = 0; i < n; i++) {
+        TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
+        if (!setrec_has(&rec, v)) return ts_value_make_bool(false);
+    }
+    return ts_value_make_bool(true);
+}
+
+// 24.2.4.11 Set.prototype.isSupersetOf
+TsValue* ts_set_isSupersetOf_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "isSupersetOf", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_bool(false);
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_bool(false);
+    TsSet* self = (TsSet*)rawCtx;
+    if ((double)self->Size() < rec.size) return ts_value_make_bool(false);
+    bool result = true;
+    setrec_iterate_keys(&rec, [&](TsValue* v) {
+        if (!self->Has(ts_set_canon_key(nanbox_to_tagged(v)))) {
+            result = false;
+            return false;  // early exit
+        }
+        return true;
+    });
+    return ts_value_make_bool(result);
+}
+
+// 24.2.4.12 Set.prototype.isDisjointFrom
+TsValue* ts_set_isDisjointFrom_wrapper(void* context, TsValue* other) {
+    void* rawCtx = requireSet(context, "isDisjointFrom", SetBrand::Set);
+    if (!rawCtx) return ts_value_make_bool(false);
+    SetRecord rec;
+    if (!set_get_record(other, &rec)) return ts_value_make_bool(false);
+    TsSet* self = (TsSet*)rawCtx;
+    bool result = true;
+    if ((double)self->Size() <= rec.size) {
+        TsArray* vals = set_elements(rawCtx);
+        int64_t n = vals ? vals->Length() : 0;
+        for (int64_t i = 0; i < n && result; i++) {
+            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
+            if (setrec_has(&rec, v)) result = false;
+        }
+    } else {
+        setrec_iterate_keys(&rec, [&](TsValue* v) {
+            if (self->Has(ts_set_canon_key(nanbox_to_tagged(v)))) {
+                result = false;
+                return false;
+            }
+            return true;
+        });
+    }
+    return ts_value_make_bool(result);
+}
+
 // Helper: create a TsFunction with name, arity, and properties TsMap
 static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
     TsValue* val = ts_value_make_function(funcPtr, ctx);
@@ -653,6 +860,20 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
         return makeSetMethod((void*)ts_set_entries_iter_wrapper, obj, "entries", 0);
     } else if (strcmp(name, "forEach") == 0) {
         return makeSetMethod((void*)ts_set_forEach_wrapper, obj, "forEach", 1);
+    } else if (strcmp(name, "union") == 0) {
+        return makeSetMethod((void*)ts_set_union_wrapper, obj, "union", 1);
+    } else if (strcmp(name, "intersection") == 0) {
+        return makeSetMethod((void*)ts_set_intersection_wrapper, obj, "intersection", 1);
+    } else if (strcmp(name, "difference") == 0) {
+        return makeSetMethod((void*)ts_set_difference_wrapper, obj, "difference", 1);
+    } else if (strcmp(name, "symmetricDifference") == 0) {
+        return makeSetMethod((void*)ts_set_symdiff_wrapper, obj, "symmetricDifference", 1);
+    } else if (strcmp(name, "isSubsetOf") == 0) {
+        return makeSetMethod((void*)ts_set_isSubsetOf_wrapper, obj, "isSubsetOf", 1);
+    } else if (strcmp(name, "isSupersetOf") == 0) {
+        return makeSetMethod((void*)ts_set_isSupersetOf_wrapper, obj, "isSupersetOf", 1);
+    } else if (strcmp(name, "isDisjointFrom") == 0) {
+        return makeSetMethod((void*)ts_set_isDisjointFrom_wrapper, obj, "isDisjointFrom", 1);
     } else if (strcmp(name, "constructor") == 0) {
         // Set.prototype.constructor === Set. Enables `s.constructor === Set`
         // and lodash baseClone `new set.constructor`.

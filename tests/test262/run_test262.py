@@ -76,7 +76,7 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "RegExp.escape",
     "explicit-resource-management",
     # "iterator-helpers",  # CONF-P2b: implementing (eager helpers landed)
-    "set-methods",
+    # "set-methods",  # Stage B1: implemented 2026-07-02
     "promise-try",
     "regexp-modifiers",
     "source-phase-imports",

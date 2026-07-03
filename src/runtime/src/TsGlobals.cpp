@@ -2444,6 +2444,14 @@ extern "C" {
     TsValue* ts_set_forEach_wrapper_branded(void* context, TsValue* callback, TsValue* thisArg, int brand);
     TsValue* ts_set_values_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand);
     TsValue* ts_set_entries_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand);
+    // ES2025 Set methods (TsSet.cpp) — brand-check internally via requireSet.
+    TsValue* ts_set_union_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_intersection_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_difference_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_symdiff_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_isSubsetOf_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_isSupersetOf_wrapper(void* context, TsValue* other);
+    TsValue* ts_set_isDisjointFrom_wrapper(void* context, TsValue* other);
 }
 
 // Collection brand codes shared with TsMap.cpp (CollBrand) / TsSet.cpp (SetBrand).
@@ -2628,6 +2636,37 @@ void* ts_get_global_Set() {
             TsValue* callback = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
             TsValue* thisArg = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
             return ts_set_forEach_wrapper_branded(ctx, callback, thisArg, TS_BRAND_SET);
+        });
+
+        // ES2025 Set methods (union/intersection/difference/symmetricDifference/
+        // isSubsetOf/isSupersetOf/isDisjointFrom) — set-like argument protocol.
+        addMethod(proto, "union", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_union_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "intersection", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_intersection_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "difference", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_difference_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "symmetricDifference", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_symdiff_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "isSubsetOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_isSubsetOf_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "isSupersetOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_isSupersetOf_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "isDisjointFrom", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_isDisjointFrom_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
 
         // Set.prototype[@@iterator] === Set.prototype.values (same function).
