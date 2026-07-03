@@ -1749,6 +1749,13 @@ extern "C" {
         if (!arr) return ts_array_create();
         TsTypedArray* ta = asTypedArray(arr);
         if (ta) {
+            // ValidateTypedArray: %TypedArray%.prototype.slice throws on a
+            // detached or out-of-bounds receiver.
+            if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArray has a detached ArrayBuffer"));
+                return nullptr;  // unreachable
+            }
             int64_t len = (int64_t)ta->GetLength();
             if (start < 0) start = std::max<int64_t>(len + start, 0);
             if (end < 0) end = std::max<int64_t>(len + end, 0);
@@ -1781,6 +1788,13 @@ extern "C" {
         uint32_t m16 = *(uint32_t*)((char*)raw + 16);
         if (m16 != TsTypedArray::MAGIC) return nullptr;
         TsTypedArray* ta = (TsTypedArray*)raw;
+        // ValidateTypedArray (ES 23.2.4.4): a DETACHED buffer throws TypeError
+        // from every %TypedArray%.prototype method, same as out-of-bounds.
+        if (ta->IsDetachedBuffer()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArray has a detached ArrayBuffer"));
+            return nullptr;  // unreachable
+        }
         if (ta->IsOutOfBounds()) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "TypedArray is out of bounds on its ArrayBuffer"));
