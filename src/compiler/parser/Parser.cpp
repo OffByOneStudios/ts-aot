@@ -617,6 +617,13 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     previous_ = current_;
 
     scriptGoal_ = (std::getenv("TS_SCRIPT_GOAL") != nullptr);
+    // Module goal: top-level code is an [+Await] context (ES2022 top-level
+    // await) — `await expr` parses as an AwaitExpression at ANY statement
+    // depth outside function bodies (blocks, loops, switch...). Function
+    // boundaries save/restore inAsync_ as before. Previously only some
+    // direct-statement forms happened to work; `{ await 1; }` at module top
+    // level was "Expected ';'" (~150 module-code/top-level-await tests).
+    inAsync_ = !scriptGoal_;
 
     auto program = std::make_unique<ast::Program>();
     program->sourceFile = fileName;
