@@ -77,7 +77,7 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "explicit-resource-management",
     # "iterator-helpers",  # CONF-P2b: implementing (eager helpers landed)
     # "set-methods",  # Stage B1: implemented 2026-07-02
-    "promise-try",
+    # "promise-try",  # Stage B: implemented 2026-07-02
     "regexp-modifiers",
     "source-phase-imports",
     "import-defer",

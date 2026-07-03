@@ -2221,6 +2221,53 @@ static TsValue* promise_allSettled_native(void* ctx, int argc, TsValue** argv) {
     }
     return ts_promise_allSettled(v);
 }
+// Promise.try (ES proposal, stage 4 / test262 "promise-try"): call fn
+// synchronously with the given args; the return value resolves (a throw
+// rejects) a fresh promise. A non-callable fn rejects via the same abrupt
+// path (Call throws TypeError).
+extern "C" void* ts_push_exception_handler();
+extern "C" void ts_pop_exception_handler();
+extern "C" TsValue* ts_get_exception();
+extern "C" void ts_set_exception(TsValue* exc);
+class TsPromise;
+extern "C" TsPromise* ts_promise_create();
+void ts_promise_resolve_internal(TsPromise* p, TsValue* value);
+void ts_promise_reject_internal(TsPromise* p, TsValue* reason);
+#include <csetjmp>
+
+extern "C" TsValue* ts_promise_try_spec(TsValue* C, int argc, TsValue** argv);
+static TsValue* promise_try_native(void* ctx, int argc, TsValue** argv) {
+    if (promise_receiver_is_non_ctor(ctx, (void*)promise_try_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
+    if (TsValue* C = promise_custom_receiver(ctx, (void*)promise_try_native)) {
+        return ts_promise_try_spec(C, argc, argv);
+    }
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsPromise* p = ts_promise_create();
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ts_promise_reject_internal(p, exc ? exc : ts_value_make_undefined());
+        return ts_value_make_promise(p);
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+    if (!ts_is_callable((void*)fn)) {
+        ts_pop_exception_handler();
+        ts_promise_reject_internal(p, (TsValue*)ts_error_create_typed("TypeError",
+            "Promise.try argument is not callable"));
+        return ts_value_make_promise(p);
+    }
+    TsValue* r = ts_function_call_with_this(fn, ts_value_make_undefined(),
+        argc > 1 ? argc - 1 : 0, argc > 1 ? argv + 1 : nullptr);
+    ts_pop_exception_handler();
+    ts_promise_resolve_internal(p, r);
+    return ts_value_make_promise(p);
+}
+
 static TsValue* promise_any_native(void* ctx, int argc, TsValue** argv) {
     if (promise_receiver_is_non_ctor(ctx, (void*)promise_any_native)) { promise_throw_non_ctor(); return ts_value_make_undefined(); }
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
@@ -2241,6 +2288,7 @@ void* ts_get_global_Promise() {
         addMethod(ctor, "race",       (void*)promise_race_native,    1);
         addMethod(ctor, "allSettled", (void*)promise_allSettled_native, 1);
         addMethod(ctor, "any",        (void*)promise_any_native,     1);
+        addMethod(ctor, "try",        (void*)promise_try_native,     1);
         // Per ECMA-262: Promise.prototype has @@toStringTag = "Promise".
         TsValue pkey; pkey.type = ValueType::STRING_PTR;
         pkey.ptr_val = TsString::GetInterned("prototype");
