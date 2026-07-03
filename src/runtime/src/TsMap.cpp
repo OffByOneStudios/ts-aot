@@ -1,4 +1,7 @@
 #include "TsMap.h"
+#include "TsConsString.h"
+#include <algorithm>
+#include <vector>
 #include "TsHashTable.h"
 #include "TsWeakMap.h"
 #include "TsSet.h"
@@ -554,8 +557,85 @@ void* ts_map_own_string_keys(void* map) {
     return map_keys_filtered(map, false, true);
 }
 
+// ES 10.1.11.1 OrdinaryOwnPropertyKeys: array-index string keys (canonical
+// numeric, < 2^32-1) come FIRST in ascending numeric order; other string
+// keys keep insertion order. In-place stable reorder of raw element bits —
+// no allocation between read and write-back, so no GC point can move keys.
+static bool key_is_array_index(TsArray* arr, int64_t i, uint32_t* out) {
+    uint64_t nb = (uint64_t)arr->Get((size_t)i);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p || (uintptr_t)p < 4096) return false;
+    uint32_t m = *(uint32_t*)p;
+    if (m != TsString::MAGIC && m != TsConsString::MAGIC) return false;
+    const char* s = ((TsString*)p)->ToUtf8();
+    if (!s || !*s) return false;
+    if (s[0] == '0' && s[1]) return false;
+    uint64_t v = 0;
+    for (const char* c = s; *c; ++c) {
+        if (*c < '0' || *c > '9') return false;
+        v = v * 10 + (uint64_t)(*c - '0');
+        if (v > 0xFFFFFFFEULL) return false;
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+extern "C" void ts_keys_spec_order(void* keysRaw) {
+    TsArray* keys = (TsArray*)keysRaw;
+    if (!keys || keys->Length() < 2) return;
+    int64_t n = (int64_t)keys->Length();
+    std::vector<std::pair<uint32_t, int64_t>> idxKeys;
+    std::vector<int64_t> others;
+    for (int64_t i = 0; i < n; ++i) {
+        uint32_t v;
+        int64_t bits = keys->Get((size_t)i);
+        if (key_is_array_index(keys, i, &v)) idxKeys.push_back({v, bits});
+        else others.push_back(bits);
+    }
+    if (idxKeys.empty()) return;
+    std::stable_sort(idxKeys.begin(), idxKeys.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    int64_t w = 0;
+    for (auto& pr : idxKeys)
+        ts_array_set_unchecked(keys, w++, (void*)(uintptr_t)pr.second);
+    for (int64_t b : others)
+        ts_array_set_unchecked(keys, w++, (void*)(uintptr_t)b);
+}
+// Pair-aware variant for Object.entries ([key, value] elements).
+extern "C" void ts_entries_spec_order(void* entriesRaw) {
+    TsArray* entries = (TsArray*)entriesRaw;
+    if (!entries || entries->Length() < 2) return;
+    int64_t n = (int64_t)entries->Length();
+    std::vector<std::pair<uint32_t, int64_t>> idxKeys;
+    std::vector<int64_t> others;
+    for (int64_t i = 0; i < n; ++i) {
+        int64_t bits = entries->Get((size_t)i);
+        uint64_t nb = (uint64_t)bits;
+        TsArray* pair = nullptr;
+        if (nanbox_is_ptr(nb)) {
+            void* p = nanbox_to_ptr(nb);
+            if (p && (uintptr_t)p >= 4096 && *(uint32_t*)p == TsArray::MAGIC)
+                pair = (TsArray*)p;
+        }
+        uint32_t v;
+        if (pair && pair->Length() >= 1 && key_is_array_index(pair, 0, &v))
+            idxKeys.push_back({v, bits});
+        else others.push_back(bits);
+    }
+    if (idxKeys.empty()) return;
+    std::stable_sort(idxKeys.begin(), idxKeys.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    int64_t w = 0;
+    for (auto& pr : idxKeys)
+        ts_array_set_unchecked(entries, w++, (void*)(uintptr_t)pr.second);
+    for (int64_t b : others)
+        ts_array_set_unchecked(entries, w++, (void*)(uintptr_t)b);
+}
+
 void* ts_map_enumerable_keys(void* map) {
-    return map_keys_filtered(map, false, false);
+    void* keys = map_keys_filtered(map, false, false);
+    ts_keys_spec_order(keys);
+    return keys;
 }
 
 // Own user-Symbol storage keys (as strings) of an object-backing map.

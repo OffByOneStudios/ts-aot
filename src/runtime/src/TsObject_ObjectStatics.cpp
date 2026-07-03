@@ -58,7 +58,15 @@ extern "C" {
     // Revoked-proxy guard (defined in TsProxy.cpp): throws TypeError for a
     // revoked-proxy receiver in the Object.* operations below.
     extern "C" void ts_proxy_throw_if_revoked(void* boxed);
+    static TsValue* ts_object_keys_impl(TsValue* obj);
     TsValue* ts_object_keys(TsValue* obj) {
+        TsValue* r = ts_object_keys_impl(obj);
+        extern void ts_keys_spec_order(void* keysRaw);
+        void* arr = r ? ts_value_get_object(r) : nullptr;
+        if (arr && *(uint32_t*)arr == TsArray::MAGIC) ts_keys_spec_order(arr);
+        return r;
+    }
+    static TsValue* ts_object_keys_impl(TsValue* obj) {
         // Proxy: route through the ownKeys trap (ES 10.5.11), then apply
         // Object.keys' EnumerableOwnPropertyNames filtering: STRING keys
         // whose [[GetOwnProperty]] (the gOPD trap — observable) reports
@@ -410,7 +418,15 @@ extern "C" {
     }
 
     // Object.entries(obj) - returns array of [key, value] pairs
+    static TsValue* ts_object_entries_impl(TsValue* obj);
     TsValue* ts_object_entries(TsValue* obj) {
+        TsValue* r = ts_object_entries_impl(obj);
+        extern void ts_entries_spec_order(void* entriesRaw);
+        void* arr = r ? ts_value_get_object(r) : nullptr;
+        if (arr && *(uint32_t*)arr == TsArray::MAGIC) ts_entries_spec_order(arr);
+        return r;
+    }
+    static TsValue* ts_object_entries_impl(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
         // ECMA-262 20.1.2.5: ToObject(O) first -> TypeError on null/undefined;
@@ -534,7 +550,15 @@ extern "C" {
     // Object.getOwnPropertyNames(obj) - returns array of all own property names
     // In our runtime, this is the same as Object.keys() since we don't have
     // non-enumerable properties
+    static TsValue* ts_object_getOwnPropertyNames_impl(TsValue* obj);
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj) {
+        TsValue* r = ts_object_getOwnPropertyNames_impl(obj);
+        extern void ts_keys_spec_order(void* keysRaw);
+        void* arr = r ? ts_value_get_object(r) : nullptr;
+        if (arr && *(uint32_t*)arr == TsArray::MAGIC) ts_keys_spec_order(arr);
+        return r;
+    }
+    static TsValue* ts_object_getOwnPropertyNames_impl(TsValue* obj) {
         // Proxy: ownKeys trap (string keys; see ts_object_keys).
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
