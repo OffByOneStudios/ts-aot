@@ -646,6 +646,7 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     // `let a; class a {}` slip through (block/function scopes already catch them).
     pushLexicalScope();
     while (!isAtEnd()) {
+        atTopLevel_ = true;  // consumed by parseDeclarationOrStatement
         auto stmt = parseDeclarationOrStatement();
         if (!stmt) continue;
         if (inPrologue) {
@@ -1764,10 +1765,24 @@ ast::StmtPtr Parser::parseLoopBody() {
 }
 
 ast::StmtPtr Parser::parseDeclarationOrStatement() {
+    // ModuleItem position: only the module body's top-level loop sets this;
+    // consume it so every nested statement parse (blocks, if/while bodies,
+    // switch cases, function bodies) sees false.
+    bool moduleItemPos = atTopLevel_;
+    atTopLevel_ = false;
     auto decorators = parseDecorators();
 
     // Handle export/import at top level
     if (check(TokenKind::KW_export)) {
+        // ES 16.2.1: an ExportDeclaration is a ModuleItem — a nested
+        // statement position (`{ export default null; }`, an if body, a
+        // function body...) is a parse-phase SyntaxError
+        // (module-code/parse-err-decl-pos-export-*).
+        if (!moduleItemPos) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'export' declarations may only appear "
+                "at the top level of a module", fileName_, current_.line));
+        }
         auto stmt = parseExportDeclaration();
         return stmt;
     }
@@ -1785,6 +1800,13 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             return parseExpressionStatement();
         }
         restoreState(saved);
+        // Same ModuleItem rule for ImportDeclaration (import() / import.meta
+        // EXPRESSIONS took the branch above and stay legal anywhere).
+        if (!moduleItemPos) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'import' declarations may only appear "
+                "at the top level of a module", fileName_, current_.line));
+        }
         return parseImportDeclaration();
     }
 
