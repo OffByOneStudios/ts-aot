@@ -1938,12 +1938,108 @@ static TsRegExp* regexp_accessor_this(void* ctx, bool* isProto) {
     return nullptr;
 }
 
+// RegExp.escape (ES2025 22.2.5.1). Non-string input -> TypeError (NO
+// coercion). Escapes: syntax chars + solidus with a backslash; a leading
+// ASCII letter/digit as \xNN; control t/n/v/f/r as their ControlEscape;
+// "other punctuators", whitespace, line terminators and surrogates as
+// \xNN (<= 0xFF) or \uXXXX per UTF-16 unit. Builds UTF-8 output; every
+// escaped form is ASCII, and lone surrogates are always escaped, so the
+// pass-through code-point encoder keeps the buffer valid UTF-8.
+static void re_escape_append_cp(std::string& out, uint32_t cp) {
+    if (cp < 0x80) out += (char)cp;
+    else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+static bool re_escape_is_ws_or_lt(uint32_t c) {
+    switch (c) {
+        case 0x9: case 0xB: case 0xC: case 0x20: case 0xA0: case 0xFEFF:
+        case 0xA: case 0xD: case 0x2028: case 0x2029:
+        case 0x1680: case 0x202F: case 0x205F: case 0x3000:
+            return true;
+        default:
+            return c >= 0x2000 && c <= 0x200A;  // Zs range
+    }
+}
+extern "C" TsValue* ts_regexp_escape_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx;
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsString* str = nullptr;
+    {
+        uint64_t nb = arg ? (uint64_t)(uintptr_t)arg : 0;
+        void* raw = (arg && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
+        if (raw && *(uint32_t*)raw == 0x53545247 /*STRG*/) str = (TsString*)raw;
+    }
+    if (!str) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "RegExp.escape called with a non-string argument"));
+        return ts_value_make_undefined();
+    }
+    static const char* kSyntax = "^$\\.*+?()[]{}|/";
+    static const char* kOtherPunct = ",-=<>#&!%:;@~'`\"";
+    static const char kHex[] = "0123456789abcdef";
+    std::string out;
+    int64_t len = str->Length();  // UTF-16 code units
+    for (int64_t i = 0; i < len; i++) {
+        uint32_t u = (uint32_t)str->CharCodeAt(i);
+        uint32_t cp = u;
+        int64_t adv = 0;
+        if (u >= 0xD800 && u <= 0xDBFF && i + 1 < len) {
+            uint32_t lo = (uint32_t)str->CharCodeAt(i + 1);
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00);
+                adv = 1;
+            }
+        }
+        bool isFirst = (i == 0);
+        if (cp && cp < 0x80 && strchr(kSyntax, (char)cp)) {
+            out += '\\'; out += (char)cp;
+        } else if (isFirst && ((cp >= '0' && cp <= '9') ||
+                               (cp >= 'a' && cp <= 'z') ||
+                               (cp >= 'A' && cp <= 'Z'))) {
+            out += "\\x"; out += kHex[(cp >> 4) & 0xF]; out += kHex[cp & 0xF];
+        } else if (cp == 0x9)  { out += "\\t"; }
+        else if (cp == 0xA)  { out += "\\n"; }
+        else if (cp == 0xB)  { out += "\\v"; }
+        else if (cp == 0xC)  { out += "\\f"; }
+        else if (cp == 0xD)  { out += "\\r"; }
+        else if ((cp && cp < 0x80 && strchr(kOtherPunct, (char)cp)) ||
+                 re_escape_is_ws_or_lt(cp) ||
+                 (cp >= 0xD800 && cp <= 0xDFFF)) {
+            if (cp <= 0xFF) {
+                out += "\\x"; out += kHex[(cp >> 4) & 0xF]; out += kHex[cp & 0xF];
+            } else {
+                // one \uXXXX per UTF-16 unit (BMP: the unit itself; the
+                // astral case never reaches here — no astral ws/punct)
+                out += "\\u";
+                out += kHex[(u >> 12) & 0xF]; out += kHex[(u >> 8) & 0xF];
+                out += kHex[(u >> 4) & 0xF];  out += kHex[u & 0xF];
+            }
+        } else {
+            re_escape_append_cp(out, cp);
+        }
+        i += adv;
+    }
+    return ts_value_make_string(TsString::Create(out.c_str()));
+}
+
 void* ts_get_global_RegExp() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* reCtor = makeSimpleConstructorGlobal("RegExp");
         addAccessorGetter(reCtor, "[Symbol.species]", (void*)species_this_getter);
+        addMethod(reCtor, "escape", (void*)ts_regexp_escape_native, 1);
         cached = wrapAsCallable(reCtor, "RegExp", 2);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // Populate RegExp.prototype with the spec-required methods so that
