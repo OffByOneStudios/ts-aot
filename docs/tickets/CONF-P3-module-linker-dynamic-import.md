@@ -1,6 +1,22 @@
 # CONF-P3: Compile-Time Module Linker — lazy init, dynamic import(), module-goal execution
 
-**Status:** Scoped (not started)
+**Status:** Phase 1 COMPLETE + Phase 2a COMPLETE (2026-07-03, merges 83-86).
+Registry + dynamic import() delivered: literal AND computed specifiers resolve
+over the closed world (relative .js string literals are bundle candidates);
+misses reject; module evaluation errors are memoized on the record and import()
+rejects with the SAME error object (eager init + error capture = behaviorally
+equivalent to lazy init for the error-observability tests); specifier ToString
+runs user hooks guarded (abrupt -> rejection); all export forms land on the
+namespace (default expr/fn/class, `export {a as b}`, named re-exports incl.
+self). Per-file parse goal (TS_SCRIPT_GOAL = entry only; imports always module
+goal). Runner batch mode now compiles module-goal tests correctly (+251).
+dynamic-import family 217 -> ~390/942; overall p36 = 37,722 (86.0%).
+
+**Remaining (follow-on scope):** live bindings through namespaces (blocked in
+part on the shared-closure-environment task), namespace exotic object
+semantics (non-extensible, @@toStringTag, sorted keys, iee-err link
+validation ~45), TLA init ordering, module-goal residue.
+
 **Created:** 2026-07-02
 **Scale:** Architectural (multi-session). This is the "module linker decision"
 flagged in `docs/conformance/test262-roadmap.md` Stage C.
