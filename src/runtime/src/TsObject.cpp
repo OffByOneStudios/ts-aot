@@ -4193,7 +4193,14 @@ void* ts_create_arguments_from_params(
     // set_prop_v hold std::string locals and a longjmp out of those frames
     // corrupts the MSVC unwinder (see longjmp-stdstring rule). Compound
     // assignments get the T3 ordering for free: their READ runs first.
+    TsValue* ts_to_property_key_spec(TsValue* key);
     static TsValue* checked_to_property_key(TsValue* key) {
+        return ts_to_property_key_spec(key);
+    }
+    // Exposed for other TUs (gOPD / __lookupGetter__ wrappers): spec
+    // ToPropertyKey with hook invocation. Call ONLY from frames that hold no
+    // std::string scopes — a throwing hook longjmps through the caller.
+    TsValue* ts_to_property_key_spec(TsValue* key) {
         uint64_t keyNb = key ? nanbox_from_tsvalue_ptr(key) : 0;
         // Any pointer-shaped key regardless of box tag (lowerGet/SetElem may
         // tag an object key as STRING_PTR or OBJECT_PTR): coerce unless it is
@@ -7370,9 +7377,13 @@ void* ts_create_arguments_from_params(
         return ts_value_make_undefined();
     }
     TsValue* ts_object_lookupGetter_native(void* ctx, int argc, TsValue** argv) {
+        // ToPropertyKey FIRST, in this std::string-free frame — the key's
+        // toString may throw (B.2.2.4 step 3 via 7.1.19).
+        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
         return lookupAccessor_impl(ctx, argv, argc, "get");
     }
     TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv) {
+        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
         return lookupAccessor_impl(ctx, argv, argc, "set");
     }
 
