@@ -170,6 +170,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Register parameters in the scope so they can be looked up.
     // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM.
+    preseedParamTDZ(func.get(), node->parameters);
     // Strategy B Phase 6a: per-parameter logic factored into bindOneParameter.
     for (size_t i = 0; i < func->params.size(); ++i) {
         ast::Parameter* astParam = (i < node->parameters.size()) ? node->parameters[i].get() : nullptr;
@@ -679,6 +680,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     func->nextValueId = static_cast<uint32_t>(func->params.size());
 
     // Register parameters in the scope (with default value handling).
+    preseedParamTDZ(func.get(), node->parameters);
     // Strategy B Phase 6c: per-parameter logic factored into bindOneParameter.
     // The slot-0 __closure__ has no AST parameter; user params start at index 1.
     for (size_t i = 0; i < func->params.size(); ++i) {
@@ -1086,6 +1088,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     func->nextValueId = static_cast<uint32_t>(func->params.size());
 
     // Register parameters in the scope (with default value handling).
+    preseedParamTDZ(func.get(), node->parameters);
     // Strategy B Phase 6b: per-parameter logic factored into bindOneParameter.
     // The slot-0 __closure__ has no AST parameter; user params start at index 1.
     for (size_t i = 0; i < func->params.size(); ++i) {

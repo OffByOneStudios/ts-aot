@@ -876,6 +876,33 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // Push function scope and bind parameters
             pushFunctionScope(funcPtr);
             funcPtr->nextValueId = static_cast<uint32_t>(funcPtr->params.size());
+            // ECMA-262 FunctionDeclarationInstantiation: parameters form a
+            // lexical environment — a default expression reading a LATER (or
+            // its own) parameter is in the TDZ and throws ReferenceError
+            // (`function f(a = b, b) {}` / `f(a = a)`). Pre-seed every named
+            // Any-typed param with the TDZ sentinel when any default exists;
+            // the real binding below re-defines each name left-to-right.
+            // (Any-only per the phase-5 rule: the sentinel is a nanbox.)
+            {
+                bool anyDefault = false;
+                for (auto& ap : funcNode->parameters)
+                    if (ap && ap->initializer) { anyDefault = true; break; }
+                if (anyDefault) {
+                    for (size_t i = 0; i < funcPtr->params.size(); ++i) {
+                        const auto& [pn, pt] = funcPtr->params[i];
+                        if (pn == "this" || pn == "__closure__") continue;
+                        if (pn.rfind("__arg", 0) == 0) continue;
+                        if (!pt || pt->kind != HIRTypeKind::Any) continue;
+                        auto a = builder_.createAlloca(HIRType::makeAny(), pn);
+                        auto tdz = builder_.createCall("ts_tdz_sentinel", {},
+                                                       HIRType::makeAny());
+                        builder_.createStore(tdz, a, HIRType::makeAny());
+                        defineVariableAlloca(pn, a, HIRType::makeAny());
+                        if (auto* vi = lookupVariableInfoInCurrentFunction(pn))
+                            vi->isTDZ = true;
+                    }
+                }
+            }
             for (size_t i = 0; i < funcPtr->params.size(); ++i) {
                 const auto& [paramName, paramType] = funcPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);

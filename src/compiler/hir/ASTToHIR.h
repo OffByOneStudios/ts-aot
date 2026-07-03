@@ -528,6 +528,11 @@ private:
     // astParam may be nullptr for synthetic params (e.g., __closure__ itself).
     // useAlloca=true uses defineVariableAlloca (params can be reassigned);
     // useAlloca=false uses defineVariable (direct HIRValue, used by methods).
+    // ECMA-262 parameter TDZ: pre-seed Any-typed named params with the TDZ
+    // sentinel when any default exists (defaults reading later/self params
+    // throw ReferenceError). Call BEFORE the bindOneParameter loop.
+    void preseedParamTDZ(HIRFunction* func,
+                         const std::vector<std::unique_ptr<ast::Parameter>>& astParams);
     void bindOneParameter(HIRFunction* func,
                           size_t hirParamIndex,
                           ast::Parameter* astParam,

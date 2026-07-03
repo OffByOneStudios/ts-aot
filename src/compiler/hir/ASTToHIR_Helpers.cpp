@@ -321,6 +321,25 @@ std::shared_ptr<HIRValue> ASTToHIR::forceBoxValue(std::shared_ptr<HIRValue> valu
 // Parameter Binder Helpers (Strategy B Phase 6)
 //==============================================================================
 
+void ASTToHIR::preseedParamTDZ(HIRFunction* func,
+                               const std::vector<std::unique_ptr<ast::Parameter>>& astParams) {
+    bool anyDefault = false;
+    for (auto& ap : astParams)
+        if (ap && ap->initializer) { anyDefault = true; break; }
+    if (!anyDefault) return;
+    for (size_t i = 0; i < func->params.size(); ++i) {
+        const auto& [pn, pt] = func->params[i];
+        if (pn == "this" || pn == "__closure__") continue;
+        if (pn.rfind("__arg", 0) == 0) continue;
+        if (!pt || pt->kind != HIRTypeKind::Any) continue;
+        auto a = builder_.createAlloca(HIRType::makeAny(), pn);
+        auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+        builder_.createStore(tdz, a, HIRType::makeAny());
+        defineVariableAlloca(pn, a, HIRType::makeAny());
+        if (auto* vi = lookupVariableInfoInCurrentFunction(pn)) vi->isTDZ = true;
+    }
+}
+
 void ASTToHIR::bindOneParameter(HIRFunction* func,
                                 size_t hirParamIndex,
                                 ast::Parameter* astParam,
