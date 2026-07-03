@@ -55,19 +55,23 @@ memory checkpoints (`stage-a-*`, `roadmap-phases-1-5`).
 
 Ordered by (size × coherence). Each is a measure-first cluster drill.
 
-| Vein | Fails | Notes |
+Characterizations below VERIFIED by reason-clustering p23 (2026-07-02);
+"uses eval" counts are permanently unwinnable and already subtracted from the
+winnable notes.
+
+| Vein | Fails | Verified character |
 |---|--:|---|
-| class residue (statements+expressions) | 919 | private residue, subclass edge semantics; re-cluster first — Stage A fixes may have shifted the roots |
-| TypedArray + Ctors + DataView + ArrayBuffer | 1,131 | anchor: BigInt-TA storage tier-2 (#34, 5-layer); detached-buffer TypeErrors are a big shared root |
-| Array/prototype | 510 | species/@@species constructors, holes semantics, length-clamping matrices; `fromAsync` 95 needs async-iteration plumbing |
+| class residue | 921 | **elements 438** is the anchor (field/private/accessor semantics), dstr 120, subclass 72; minus 124 `uses eval` → ~800 winnable. Top reasons: missing TypeError 59, missing ReferenceError 55, 49 crashes (no message) |
+| TypedArray + Ctors + DataView + ArrayBuffer | 1,131 | anchor: BigInt-TA storage tier-2 (#34, 5-layer); detached-buffer TypeErrors are a big shared root (not re-verified this pass) |
+| for-of + for-await-of | 422 | **102 hard CRASHES (VectoredException)** — #44's cluster is bigger than its ~76 estimate; dstr 156, `.then` on undefined 55. Crash roots are historically the highest-value drills |
+| Array/prototype | 511 | method-spread, NOT species-centric: concat 46, lastIndexOf 39, sort 38, indexOf 33, splice 29 — shared roots look like ToObject/array-like coercion + missing TypeErrors (38) + holes; cross-realm 10 unwinnable |
+| String/prototype | ~366 | abrupt-completion/coercion-order protocol (63 expected-Test262Error), regexp-coupled subset split/match/matchAll/replace ≈ 87, trim family 50; 10 eval |
+| RegExp families | 337 | **103 are parser-gated "unsupported feature"** (modifiers 70, escape 20, duplicate-named-groups 13) — greenfield; unicodeSets/generated 50 real fails; 13 compiler Driver ERRORS (investigate — possible crash root); prototype residue 164 |
+| Set methods (ES2025) | 210 | CONFIRMED greenfield: 184/210 are literally "unsupported feature: set-methods" (union/intersection/difference/…) — spec-mechanical, predictable yield |
 | dp-matrix (defineProperty/ies) | 208 | real ValidateAndApplyPropertyDescriptor: redefinition TypeErrors, per-attr transitions; unlocks parts of Array/TypedArray matrices too |
-| for-of + for-await-of | 420 | includes #44 crash cluster (async-gen dstr-with-initializers, ~76) — a crash root, historically high-value |
-| RegExp families | 337 | modifiers (`(?i:)`) 70, unicodeSets (`v` flag) 50, named-groups 33, escape 20, prototype residue 164 — ICU capability audit first |
-| String/prototype | 329 | many regexp-coupled (@@split/@@replace protocol); locale tail |
-| Set methods (ES2025) | 210 | union/intersection/difference/symmetricDifference/isSubsetOf… — greenfield, spec-mechanical |
+| Promise residue | 170 | **12 CRASHES**, promise-try 12 (unimplemented proposal), builtin fn length/name/order metadata 21, any 28 + allSettled 20 + prototype 45 |
 | Proxy invariant matrices | 169 | replicate the ownKeys invariant pattern per trap (get/set/defineProperty/gOPD) |
-| Promise residue | 170 | species/subclass capability, thenable job ordering |
-| expressions/object + compound-assign + super | 363 | re-cluster; compound-assign fails despite coercion work → likely ref-evaluation-order matrices |
+| compound-assign + super + expressions/object | 363 | compound-assign = reference-semantics matrices (PutValue on private refs/no-setter TypeErrors ~24) + 20 eval; super/object not yet drilled |
 
 ## Stage C → 88–90% — deep subsystems
 
