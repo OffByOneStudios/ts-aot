@@ -1528,6 +1528,16 @@ extern "C" {
         return ta_classify_index((TsTypedArray*)taRaw, prop, nullptr);
     }
 
+    // ES 9.2.2: a derived-class constructor completing without super().
+    // Emitted by the compiler at the implicit-return point of derived ctors
+    // that provably contain no super call.
+    extern "C" TsValue* ts_throw_super_not_called() {
+        ts_throw((TsValue*)ts_error_create_typed("ReferenceError",
+            "Must call super constructor in derived class before returning "
+            "from derived constructor"));
+        return ts_value_make_undefined();  // unreachable
+    }
+
     // ES 10.4.5.3 [[DefineOwnProperty]] for integer-indexed exotic objects.
     // `descriptor` must already be normalized to a TsMap. Returns:
     //   -1 — key is not a canonical numeric index (caller: ordinary define)

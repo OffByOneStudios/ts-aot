@@ -9,6 +9,51 @@ namespace ts::hir {
 // evaluated at the class source position, after that binding is initialized.
 // NOTE: `&&=`/`+` both parse as BinaryExpression, so recurse rather than match
 // on kind — a binary of literals is constant; a binary touching an identifier is not.
+// Conservative "might this derived-constructor body call super()?" scanner.
+// Polarity matters: we emit the must-call-super ReferenceError only when we
+// are CERTAIN there is no super() reachable — any node kind we don't model
+// counts as "might" (returns true) so no valid program ever gets the throw.
+// Nested non-arrow functions get their own [[HomeObject]]/this and cannot
+// satisfy the requirement, but scanning them as "might" is safely lenient.
+bool stmtMightCallSuper(ast::Statement* s);
+static bool exprMightCallSuper(ast::Expression* e) {
+    if (!e) return false;
+    std::string k = e->getKind();
+    if (k == "SuperExpression") return true;   // super(...) / super.x
+    if (k == "Identifier" || k == "NumericLiteral" || k == "StringLiteral" ||
+        k == "BooleanLiteral" || k == "NullLiteral" || k == "BigIntLiteral" ||
+        k == "ThisExpression" || k == "RegularExpressionLiteral")
+        return false;
+    if (auto* c = dynamic_cast<ast::CallExpression*>(e)) {
+        if (exprMightCallSuper(c->callee.get())) return true;
+        for (auto& a : c->arguments)
+            if (exprMightCallSuper(a.get())) return true;
+        return false;
+    }
+    if (auto* b = dynamic_cast<ast::BinaryExpression*>(e))
+        return exprMightCallSuper(b->left.get()) || exprMightCallSuper(b->right.get());
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(e))
+        return exprMightCallSuper(p->expression.get());
+    return true;   // anything else: assume it might
+}
+bool stmtMightCallSuper(ast::Statement* s) {
+    if (!s) return false;
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(s))
+        return exprMightCallSuper(es->expression.get());
+    if (auto* bs = dynamic_cast<ast::BlockStatement*>(s)) {
+        for (auto& st : bs->statements)
+            if (stmtMightCallSuper(st.get())) return true;
+        return false;
+    }
+    if (auto* is = dynamic_cast<ast::IfStatement*>(s))
+        return exprMightCallSuper(is->condition.get()) ||
+               stmtMightCallSuper(is->thenStatement.get()) ||
+               stmtMightCallSuper(is->elseStatement.get());
+    if (auto* rs = dynamic_cast<ast::ReturnStatement*>(s))
+        return exprMightCallSuper(rs->expression.get());
+    return true;   // loops/try/decls/etc.: assume they might
+}
+
 static bool computedKeyReferencesBinding(ast::Expression* e) {
     if (!e) return false;
     std::string k = e->getKind();
@@ -606,6 +651,22 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     lowerStatement(stmt.get());
                     if (builder_.isBlockTerminated()) break;
                 }
+            }
+
+            // ES 9.2.2 / 10.2.2: a DERIVED-class constructor that completes
+            // normally without having called super() throws ReferenceError
+            // (`this` never initialized). Emitted only when the body PROVABLY
+            // contains no super() (conservative scanner) so conditional or
+            // exotic bodies never get a false throw. An explicit
+            // `return <object>` terminates the block first and skips this.
+            if (methodDef->name == "constructor" && !methodDef->isStatic &&
+                !node->baseClass.empty() && !hasTerminator()) {
+                bool might = false;
+                for (auto& stmt : methodDef->body)
+                    if (stmtMightCallSuper(stmt.get())) { might = true; break; }
+                if (!might)
+                    builder_.createCall("ts_throw_super_not_called", {},
+                                        HIRType::makeAny());
             }
 
             // Add implicit return if no terminator
@@ -1419,6 +1480,22 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     lowerStatement(stmt.get());
                     if (builder_.isBlockTerminated()) break;
                 }
+            }
+
+            // ES 9.2.2 / 10.2.2: a DERIVED-class constructor that completes
+            // normally without having called super() throws ReferenceError
+            // (`this` never initialized). Emitted only when the body PROVABLY
+            // contains no super() (conservative scanner) so conditional or
+            // exotic bodies never get a false throw. An explicit
+            // `return <object>` terminates the block first and skips this.
+            if (methodDef->name == "constructor" && !methodDef->isStatic &&
+                !node->baseClass.empty() && !hasTerminator()) {
+                bool might = false;
+                for (auto& stmt : methodDef->body)
+                    if (stmtMightCallSuper(stmt.get())) { might = true; break; }
+                if (!might)
+                    builder_.createCall("ts_throw_super_not_called", {},
+                                        HIRType::makeAny());
             }
 
             // Add implicit return if no terminator
