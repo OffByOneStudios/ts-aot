@@ -2321,19 +2321,58 @@ void* ts_create_arguments_from_params(
                 extern void* ts_get_global_Float64Array();
                 extern void* ts_get_global_BigInt64Array();
                 extern void* ts_get_global_BigUint64Array();
+                void* g = nullptr;
                 switch (ta->GetType()) {
-                    case TypedArrayType::Int8:    return (TsValue*)ts_get_global_Int8Array();
-                    case TypedArrayType::Uint8:   return (TsValue*)ts_get_global_Uint8Array();
-                    case TypedArrayType::Uint8Clamped: return (TsValue*)ts_get_global_Uint8ClampedArray();
-                    case TypedArrayType::Int16:   return (TsValue*)ts_get_global_Int16Array();
-                    case TypedArrayType::Uint16:  return (TsValue*)ts_get_global_Uint16Array();
-                    case TypedArrayType::Int32:   return (TsValue*)ts_get_global_Int32Array();
-                    case TypedArrayType::Uint32:  return (TsValue*)ts_get_global_Uint32Array();
-                    case TypedArrayType::Float32: return (TsValue*)ts_get_global_Float32Array();
-                    case TypedArrayType::Float64: return (TsValue*)ts_get_global_Float64Array();
-                    case TypedArrayType::BigInt64:  return (TsValue*)ts_get_global_BigInt64Array();
-                    case TypedArrayType::BigUint64: return (TsValue*)ts_get_global_BigUint64Array();
+                    case TypedArrayType::Int8:    g = ts_get_global_Int8Array();    break;
+                    case TypedArrayType::Uint8:   g = ts_get_global_Uint8Array();   break;
+                    case TypedArrayType::Uint8Clamped: g = ts_get_global_Uint8ClampedArray(); break;
+                    case TypedArrayType::Int16:   g = ts_get_global_Int16Array();   break;
+                    case TypedArrayType::Uint16:  g = ts_get_global_Uint16Array();  break;
+                    case TypedArrayType::Int32:   g = ts_get_global_Int32Array();   break;
+                    case TypedArrayType::Uint32:  g = ts_get_global_Uint32Array();  break;
+                    case TypedArrayType::Float32: g = ts_get_global_Float32Array(); break;
+                    case TypedArrayType::Float64: g = ts_get_global_Float64Array(); break;
+                    case TypedArrayType::BigInt64:  g = ts_get_global_BigInt64Array();  break;
+                    case TypedArrayType::BigUint64: g = ts_get_global_BigUint64Array(); break;
                     default: break;
+                }
+                // Inherited override: `Object.defineProperty(TA.prototype,
+                // "constructor", {get})` (or a data redefine) stores in the
+                // kind constructor's .prototype map — ES resolution reads it
+                // BEFORE the builtin fallback (the speciesctor-get-ctor-
+                // inherited tests count exactly one accessor call).
+                if (g) {
+                    void* graw = ts_value_get_object((TsValue*)g);
+                    if (!graw) graw = g;
+                    if (graw && *(uint32_t*)((char*)graw + 16) == TsFunction::MAGIC) {
+                        TsFunction* gf = (TsFunction*)graw;
+                        if (gf->properties) {
+                            TsValue pk; pk.type = ValueType::STRING_PTR;
+                            pk.ptr_val = TsString::GetInterned("prototype");
+                            TsValue pv = gf->properties->Get(pk);
+                            void* praw = (pv.type == ValueType::OBJECT_PTR) ? pv.ptr_val : nullptr;
+                            if (praw && *(uint32_t*)((char*)praw + 16) == 0x4D415053 /*MAPS*/) {
+                                TsMap* proto = (TsMap*)praw;
+                                TsValue gk2; gk2.type = ValueType::STRING_PTR;
+                                gk2.ptr_val = TsString::GetInterned("__getter_constructor");
+                                if (proto->Has(gk2)) {
+                                    TsValue gv2 = proto->Get(gk2);
+                                    if (gv2.ptr_val && (gv2.type == ValueType::FUNCTION_PTR ||
+                                                        gv2.type == ValueType::OBJECT_PTR)) {
+                                        TsValue* fn = ts_value_make_object(gv2.ptr_val);
+                                        TsValue* recv = ts_value_make_object((void*)ta);
+                                        return ts_function_call_with_this(fn, recv, 0, nullptr);
+                                    }
+                                }
+                                TsValue dk2; dk2.type = ValueType::STRING_PTR;
+                                dk2.ptr_val = TsString::GetInterned("constructor");
+                                if (proto->Has(dk2)) {
+                                    return nanbox_from_tagged(proto->Get(dk2));
+                                }
+                            }
+                        }
+                    }
+                    return (TsValue*)g;
                 }
             }
             // Check for numeric index
