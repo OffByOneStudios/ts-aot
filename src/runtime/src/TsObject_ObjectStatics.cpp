@@ -1528,6 +1528,13 @@ extern "C" {
         return ta_classify_index((TsTypedArray*)taRaw, prop, nullptr);
     }
 
+    // ES 13.15.2 PutValue on an immutable binding: assignment to `const`.
+    extern "C" TsValue* ts_throw_const_assign() {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Assignment to constant variable."));
+        return ts_value_make_undefined();  // unreachable
+    }
+
     // ES 9.2.2: a derived-class constructor completing without super().
     // Emitted by the compiler at the implicit-return point of derived ctors
     // that provably contain no super call.

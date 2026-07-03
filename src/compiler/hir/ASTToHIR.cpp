@@ -2310,10 +2310,14 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             // assignment to every capture cell (lodash declares many helpers
             // that all capture the same forward-referenced var).
             broadcastCaptureWrite(existingInfo, initValue);
+            if (node->varKind == ast::VarKind::Const)
+                existingInfo->isConst = true;
         } else {
             auto allocaPtr = builder_.createAlloca(varType, ident->name);
             builder_.createStore(initValue, allocaPtr, varType);
             defineVariableAlloca(ident->name, allocaPtr, varType);
+            if (node->varKind == ast::VarKind::Const)
+                if (auto* cvi = lookupVariableInfo(ident->name)) cvi->isConst = true;
         }
 
         // If this variable is a module-scoped global (from an imported module),
