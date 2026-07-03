@@ -1967,20 +1967,32 @@ extern "C" {
                                 // when absent) so for-in/Object.keys honor
                                 // enumerability and getOwnPropertyDescriptor
                                 // reports the accessor's attrs.
+                                // ValidateAndApplyPropertyDescriptor: on a
+                                // REDEFINE, fields absent from the descriptor
+                                // RETAIN their current values (starting from
+                                // 0x00 reset configurable:true accessors to
+                                // non-configurable — dp-matrix a-25x tests).
                                 uint8_t accAttrs = 0x00;
+                                if (!wasHole) {
+                                    uint8_t cur = 0;
+                                    if (array_index_attrs_get(arr, (size_t)idx, &cur))
+                                        accAttrs = cur & 0x05;  // enumerable|configurable
+                                }
                                 TsValue ekA; ekA.type = ValueType::STRING_PTR;
                                 ekA.ptr_val = TsString::GetInterned("enumerable");
                                 TsValue ckA; ckA.type = ValueType::STRING_PTR;
                                 ckA.ptr_val = TsString::GetInterned("configurable");
                                 if (dm->Has(ekA)) {
                                     TsValue v = dm->Get(ekA);
-                                    if (v.type == ValueType::BOOLEAN ? (v.i_val != 0)
-                                        : (v.type != ValueType::UNDEFINED && v.ptr_val)) accAttrs |= 0x01;
+                                    bool b = v.type == ValueType::BOOLEAN ? (v.i_val != 0)
+                                        : (v.type != ValueType::UNDEFINED && v.ptr_val);
+                                    if (b) accAttrs |= 0x01; else accAttrs &= ~(uint8_t)0x01;
                                 }
                                 if (dm->Has(ckA)) {
                                     TsValue v = dm->Get(ckA);
-                                    if (v.type == ValueType::BOOLEAN ? (v.i_val != 0)
-                                        : (v.type != ValueType::UNDEFINED && v.ptr_val)) accAttrs |= 0x04;
+                                    bool b = v.type == ValueType::BOOLEAN ? (v.i_val != 0)
+                                        : (v.type != ValueType::UNDEFINED && v.ptr_val);
+                                    if (b) accAttrs |= 0x04; else accAttrs &= ~(uint8_t)0x04;
                                 }
                                 array_index_attrs_set(arr, (size_t)idx, accAttrs);
                                 return obj;
