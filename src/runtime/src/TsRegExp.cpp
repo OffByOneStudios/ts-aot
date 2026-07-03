@@ -836,6 +836,36 @@ void* TsRegExp::Exec(TsString* str) {
     return nullptr;
 }
 
+// ECMA-262 pattern early errors for the RUNTIME `new RegExp(pattern, flags)`
+// path: the compile-time literal recognizer (RegExpEarlyErrors.cpp, linked
+// into the runtime for this) never sees runtime-built patterns, so
+// `new RegExp("a**")` silently produced a never-matching matcher instead of
+// SyntaxError. The validator throws std::runtime_error; catch it HERE and
+// copy the message to a POD buffer — the caller ts_throws from its clean
+// frame (C++ unwind state must be fully settled before any longjmp).
+namespace tsaot {
+void validateRegExpLiteral(const std::string& body, const std::string& flags,
+                           int line, int col);
+}
+static bool validateRegExpPatternRuntime(const char* pattern, const char* flags,
+                                         char* msgBuf, size_t msgLen) {
+    try {
+        tsaot::validateRegExpLiteral(std::string(pattern ? pattern : ""),
+                                     std::string(flags ? flags : ""), 0, 0);
+        return true;
+    } catch (const std::exception& e) {
+        const char* w = e.what();
+        // Strip the "0:0: SyntaxError: " prefix the validator formats for
+        // compile-time diagnostics.
+        const char* m = strstr(w, "SyntaxError: ");
+        snprintf(msgBuf, msgLen, "%s", m ? m + 13 : w);
+        return false;
+    } catch (...) {
+        snprintf(msgBuf, msgLen, "invalid regular expression");
+        return false;
+    }
+}
+
 extern "C" {
     void* ts_regexp_create(void* pattern, void* flags) {
         // pattern/flags may be NaN-boxed TsValue* from slow path
@@ -868,6 +898,17 @@ extern "C" {
             ts_throw((TsValue*)ts_error_create_typed(
                 "SyntaxError", "Invalid flags supplied to RegExp constructor"));
             return nullptr;
+        }
+        // Pattern early errors (same recognizer as regex literals). The
+        // helper fully unwinds its C++ exception before we longjmp; this
+        // frame holds only POD locals.
+        {
+            char msg[256];
+            if (!validateRegExpPatternRuntime(p->ToUtf8(), flagsStr, msg,
+                                              sizeof(msg))) {
+                ts_throw((TsValue*)ts_error_create_typed("SyntaxError", msg));
+                return nullptr;
+            }
         }
         return TsRegExp::Create(p->ToUtf8(), flagsStr);
     }

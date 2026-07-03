@@ -114,6 +114,12 @@ static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
     const DWORD code = info->ExceptionRecord->ExceptionCode;
     void* addr = info->ExceptionRecord->ExceptionAddress;
 
+    // MSVC C++ exceptions (0xE06D7363) are ordinary control flow -- the
+    // runtime's internal try/catch guards (e.g. the RegExp pattern
+    // validator) raise and handle them routinely. Logging every
+    // first-chance one floods stderr on expected SyntaxError paths.
+    if (code == 0xE06D7363) return EXCEPTION_CONTINUE_SEARCH;
+
     HMODULE mod = nullptr;
     char modName[MAX_PATH] = {0};
     if (addr && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
