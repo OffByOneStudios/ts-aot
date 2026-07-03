@@ -5464,6 +5464,98 @@ static void* ta_create_for_ctor(void* ctx, int64_t len) {
     return ts_typed_array_create_i8(len);
 }
 
+// %TypedArray%.from/of receiver validation (ES 23.2.2.1/.2 steps 1-2):
+// `this` must be a CONSTRUCTOR. Known TA constructors create directly; any
+// other constructor is `new`-called with (len) and the result must be a
+// TypedArray of at least that length. Everything else (undefined, methods,
+// arrows, plain objects) throws TypeError.
+static void* ta_create_for_ctor_checked(void* ctx, int64_t len) {
+    void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+    if (!raw) raw = ctx;
+    uintptr_t a = (uintptr_t)raw;
+    if (!raw || a < 4096 || (a >> 48) != 0) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from/of: this is not a constructor"));
+        return nullptr;
+    }
+    // Known TA constructor rows create directly (same match set as
+    // ta_create_for_ctor — including the %TypedArray% parent would be wrong:
+    // the abstract ctor itself throws on construct, and it is NOT a row).
+    {
+        struct Row { void* (*global)(); void* (*create)(int64_t); };
+        static const Row rows[] = {
+            { ts_get_global_Uint8Array,        ts_typed_array_create_u8 },
+            { ts_get_global_Int8Array,         ts_typed_array_create_i8 },
+            { ts_get_global_Uint8ClampedArray, ts_typed_array_create_clamped },
+            { ts_get_global_Int16Array,        ts_typed_array_create_i16 },
+            { ts_get_global_Uint16Array,       ts_typed_array_create_u16 },
+            { ts_get_global_Int32Array,        ts_typed_array_create_i32 },
+            { ts_get_global_Uint32Array,       ts_typed_array_create_u32 },
+            { ts_get_global_Float32Array,      ts_typed_array_create_f32 },
+            { ts_get_global_Float64Array,      ts_typed_array_create_f64 },
+            { ts_get_global_BigInt64Array,     ts_typed_array_create_i64 },
+            { ts_get_global_BigUint64Array,    ts_typed_array_create_u64 },
+        };
+        for (const Row& r : rows)
+            if (raw == r.global()) return r.create(len);
+    }
+    // IsConstructor: TsClosure carries the ES [[Construct]] bit; a TsFunction
+    // (native) is treated as constructible unless flagged otherwise.
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    bool ctorOk = false;
+    if (m16 == TsFunction::MAGIC) {
+        ctorOk = ((TsFunction*)raw)->is_constructor;
+    } else if (m16 == 0x434C5352 /* TsClosure */) {
+        TsClosure* cl = (TsClosure*)raw;
+        // constructable covers plain functions; class constructors compile
+        // as method-shaped NON-constructable closures (their [[Construct]]
+        // runs through the class new-machinery), so also accept a closure
+        // that carries an OWN .prototype -- the class installer creates one,
+        // while methods/accessors/arrows have none.
+        ctorOk = cl->constructable;
+        if (!ctorOk && cl->properties) {
+            TsValue pk; pk.type = ValueType::STRING_PTR;
+            pk.ptr_val = TsString::GetInterned("prototype");
+            ctorOk = cl->properties->Has(pk);
+        }
+    } else {
+        // Class constructors (and other callable wrappers) don't always
+        // unwrap to a bare closure/function -- any other CALLABLE defers to
+        // the construct + result-is-a-TypedArray validation below.
+        ctorOk = ts_is_callable((void*)ctx);
+    }
+    if (getenv("TS_TAV_TRACE")) {
+        fprintf(stderr, "[TAV] raw=%p m16=%08X ctorOk=%d", raw, m16, (int)ctorOk);
+        if (m16 == 0x434C5352) {
+            TsClosure* cl = (TsClosure*)raw;
+            fprintf(stderr, " constructable=%d is_method=%d", (int)cl->constructable, (int)cl->is_method);
+        }
+        fprintf(stderr, "%c", 10); fflush(stderr);
+    }
+    if (!ctorOk) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from/of: this is not a constructor"));
+        return nullptr;
+    }
+    extern TsValue* ts_new_from_constructor_1(TsValue* ctor, TsValue* arg);
+    TsValue* res = ts_new_from_constructor_1((TsValue*)ctx, ts_value_make_int(len));
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    uint32_t rm16 = (resRaw && (uintptr_t)resRaw >= 4096)
+        ? *(uint32_t*)((char*)resRaw + 16) : 0;
+    if (rm16 != 0x54415252 /* TsTypedArray */) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from/of: custom constructor did not return a TypedArray"));
+        return nullptr;
+    }
+    TsTypedArray* ta = (TsTypedArray*)resRaw;
+    if ((int64_t)ta->GetLength() < len) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from/of: constructed TypedArray is too small"));
+        return nullptr;
+    }
+    return resRaw;
+}
+
 static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) {
     TenureScope _tenure;
     if (argc < 1 || !argv || !argv[0]) {
@@ -5514,7 +5606,7 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
     if (lenD > MAX_LEN) lenD = MAX_LEN;
     int64_t len = (int64_t)lenD;
 
-    void* result = ta_create_for_ctor(ctx, len);
+    void* result = ta_create_for_ctor_checked(ctx, len);
     if (!result) return ts_value_make_undefined();
 
     // Spec step 3: only UNDEFINED mapfn is "absent" — null (or any other
@@ -5557,7 +5649,7 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
 
 // TypedArray.of(...items) — create a typed array from variadic args.
 static TsValue* ts_typed_array_of_native(void* ctx, int argc, TsValue** argv) {
-    void* result = ta_create_for_ctor(ctx, argc);
+    void* result = ta_create_for_ctor_checked(ctx, argc);
     if (!result) return ts_value_make_undefined();
     for (int i = 0; i < argc; i++) {
         ts_ta_store_value(result, (size_t)i, argv[i]);
