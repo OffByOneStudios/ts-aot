@@ -1925,6 +1925,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // path (boxed string)
             .build());
 
+    reg.registerLowering("ts_module_set_init_error",
+        lowering("ts_module_set_init_error")
+            .returnsVoid()
+            .ptrArg()          // path (boxed string)
+            .ptrArg()          // error (boxed)
+            .build());
+
     // Override ext.json matching: ts_module_register must NOT be redirected
     // to ts_module_register_loader (which is a no-op stub for the 'module' API).
     // ts_module_register is an internal function that populates g_module_cache.

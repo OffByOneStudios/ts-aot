@@ -3,6 +3,7 @@
 #include "TsError.h"
 #include <sstream>
 #include <cctype>
+#include <csetjmp>
 
 // Module system / require() + builtin-module registration, extracted from
 // TsObject.cpp. The require() cache (g_module_cache) and its GC scanner stay
@@ -415,6 +416,69 @@ void* ts_builtin_lookup_special(const char* name) {
         return ts_value_make_undefined();
     }
 
+    // ---- CONF-P3 Phase 2: memoized module-evaluation errors. A bundled
+    // module whose top-level code THROWS (e.g. a dynamic-import fixture with
+    // `throw new URIError()`) must not abort the program at startup — the
+    // compiler wraps such (dynamically-reachable-only) inits in a catch that
+    // records the error here; import() then rejects with the SAME error
+    // object every time (spec: the evaluation error is memoized).
+    void ts_module_set_init_error(TsValue* path, TsValue* err) {
+        TsString* s = (TsString*)ts_value_get_string(path);
+        if (!s) return;
+        TsValue* record = ts_module_get(s->ToUtf8());
+        if (!record) {
+            TsMap* rec = TsMap::Create();
+            record = ts_value_make_object(rec);
+            ts_module_register(path, record);
+        }
+        TsString* ek = TsString::GetInterned("\x01initerr");
+        ts_object_set_dynamic(record, ts_value_make_string(ek),
+                              err ? err : ts_value_make_undefined());
+    }
+
+    // Returns the memoized evaluation error for a module record, or nullptr.
+    TsValue* ts_module_get_init_error(TsValue* record) {
+        if (!record) return nullptr;
+        TsString* ek = TsString::GetInterned("\x01initerr");
+        TsValue* e = ts_object_get_dynamic(record, ts_value_make_string(ek));
+        if (!e || ts_value_is_undefined(e)) return nullptr;
+        return e;
+    }
+
+    // Guarded ToString(specifier) for import(): runs user @@toPrimitive /
+    // toString hooks; an abrupt completion is captured (not propagated) and
+    // returned via *errOut so the caller can REJECT with it. No std::string
+    // locals — ts_throw longjmps through this frame.
+    static TsString* module_spec_to_string(TsValue* spec, TsValue** errOut) {
+        *errOut = nullptr;
+        if (!spec) return nullptr;
+        extern void* ts_push_exception_handler();
+        extern void ts_pop_exception_handler();
+        extern TsValue* ts_get_exception();
+        extern void ts_set_exception(TsValue* e);
+        extern TsValue* ts_to_primitive(TsValue* val, int hint);
+        // The ENTIRE conversion runs guarded: even ts_value_get_string
+        // ToPrimitives object operands (user toString hooks can throw).
+        void* handler = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)handler;
+        if (setjmp(*env) == 0) {
+            TsString* out;
+            void* sp = ts_value_get_string(spec);
+            if (sp) {
+                out = (TsString*)sp;
+            } else {
+                TsValue* prim = ts_to_primitive(spec, 2 /* string hint */);
+                out = (TsString*)ts_string_from_value(prim);
+            }
+            ts_pop_exception_handler();
+            return out;
+        }
+        ts_pop_exception_handler();
+        *errOut = ts_get_exception();
+        ts_set_exception(nullptr);
+        return nullptr;
+    }
+
     // ---- CONF-P3 Phase 1a: import(specifier) over the closed-world registry.
     // The Monomorphizer bundles every literal specifier it can see and rewrites
     // those to pre-resolved ts_dynamic_import calls; this handles EVERYTHING
@@ -432,13 +496,13 @@ void* ts_builtin_lookup_special(const char* name) {
                 (TsValue*)ts_error_create_typed("TypeError", msg));
             return ts_value_make_object(promise);
         };
-        // ToString(specifier). ts_string_from_value is hook-free: an object
-        // specifier stringifies to "[object Object]" and misses.
-        TsString* sstr = nullptr;
-        if (spec) {
-            void* sp = ts_value_get_string(spec);
-            if (sp) sstr = (TsString*)sp;
-            else sstr = (TsString*)ts_string_from_value(spec);
+        // ToString(specifier) — runs user hooks; an abrupt completion becomes
+        // a REJECTION with the thrown value (spec: IfAbruptRejectPromise).
+        TsValue* toStrErr = nullptr;
+        TsString* sstr = module_spec_to_string(spec, &toStrErr);
+        if (toStrErr) {
+            ts_promise_reject_internal(promise, toStrErr);
+            return ts_value_make_object(promise);
         }
         const char* specC = sstr ? sstr->ToUtf8() : nullptr;
         if (!specC || !*specC) {
@@ -486,6 +550,11 @@ void* ts_builtin_lookup_special(const char* name) {
         if (!record) {
             std::string msg = "Failed to resolve module specifier '" + specStr + "'";
             return rejectWith(msg.c_str());
+        }
+        // Memoized evaluation error: reject with the SAME error object.
+        if (TsValue* initErr = ts_module_get_init_error(record)) {
+            ts_promise_reject_internal(promise, initErr);
+            return ts_value_make_object(promise);
         }
         // The cache holds the module RECORD ({exports: ...}); the import()
         // namespace is its exports object.

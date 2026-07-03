@@ -314,7 +314,7 @@ void Analyzer::visit(Node* node) {
             if (auto id = dynamic_cast<ast::Identifier*>(call->callee.get())) {
                 if (id->name == "require" && !call->arguments.empty()) {
                     if (auto lit = dynamic_cast<ast::StringLiteral*>(call->arguments[0].get())) {
-                        loadModule(lit->value);
+                        if (auto m = loadModule(lit->value)) staticImportPaths.insert(m->path);
                     }
                 }
             }
@@ -322,7 +322,7 @@ void Analyzer::visit(Node* node) {
         // ESM imports: import ... from 'module'
         if (auto importDecl = dynamic_cast<ast::ImportDeclaration*>(node)) {
             if (!importDecl->moduleSpecifier.empty() && !importDecl->isTypeOnly) {
-                loadModule(importDecl->moduleSpecifier);
+                if (auto m = loadModule(importDecl->moduleSpecifier)) staticImportPaths.insert(m->path);
             }
         }
         lastType = std::make_shared<Type>(TypeKind::Any);

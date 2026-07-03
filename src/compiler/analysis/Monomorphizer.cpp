@@ -1558,7 +1558,44 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
 
         resDecl->initializer = std::move(finalExpr);
-        userMain->body.push_back(std::move(resDecl));
+
+        // A module reachable ONLY through dynamic import() / string-literal
+        // discovery must not abort the program when its top-level code throws
+        // (spec: the evaluation error is memoized and import() rejects with
+        // it). Wrap its init in try/catch → ts_module_set_init_error. Static
+        // graph modules keep propagating (same behavior as today). Never wrap
+        // the LAST init when its result is the synthetic main's return value.
+        bool dynamicOnly = (path != mainSourceFilePath) &&
+                           !analyzer.staticImportPaths.count(path) &&
+                           !(i == moduleInitFunctions.size() - 1 && !userDefinedMain);
+        if (dynamicOnly) {
+            auto tryStmt = std::make_unique<ast::TryStatement>();
+            tryStmt->tryBlock.push_back(std::move(resDecl));
+            auto catchClause = std::make_unique<ast::CatchClause>();
+            std::string errName = "__mi_err_" + std::to_string(i);
+            auto errId = std::make_unique<ast::Identifier>();
+            errId->name = errName;
+            catchClause->variable = std::move(errId);
+            auto setCall = std::make_unique<ast::CallExpression>();
+            auto setId = std::make_unique<ast::Identifier>();
+            setId->name = "ts_module_set_init_error";
+            setCall->callee = std::move(setId);
+            auto pathLit2 = std::make_unique<ast::StringLiteral>();
+            pathLit2->value = path;
+            setCall->arguments.push_back(std::move(pathLit2));
+            auto errRef = std::make_unique<ast::Identifier>();
+            errRef->name = errName;
+            errRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+            setCall->arguments.push_back(std::move(errRef));
+            setCall->inferredType = std::make_shared<Type>(TypeKind::Void);
+            auto setStmt = std::make_unique<ast::ExpressionStatement>();
+            setStmt->expression = std::move(setCall);
+            catchClause->block.push_back(std::move(setStmt));
+            tryStmt->catchClause = std::move(catchClause);
+            userMain->body.push_back(std::move(tryStmt));
+        } else {
+            userMain->body.push_back(std::move(resDecl));
+        }
 
         // If this is the last module init and there's NO user-defined user_main,
         // make it a return statement.

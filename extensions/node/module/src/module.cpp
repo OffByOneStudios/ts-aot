@@ -209,6 +209,18 @@ void* ts_dynamic_import(void* moduleSpecifier) {
     // Try the module cache first — the module may have been compiled statically
     if (name) {
         TsValue* boxedPath = ts_value_make_string(name);
+        // Memoized evaluation error (module top-level code threw): reject
+        // with the SAME error object every time (CONF-P3 phase 2).
+        extern TsValue* ts_module_get_record(TsValue* path);
+        extern TsValue* ts_module_get_init_error(TsValue* record);
+        TsValue* record = ts_module_get_record(boxedPath);
+        if (record && !ts_value_is_undefined(record)) {
+            if (TsValue* initErr = ts_module_get_init_error(record)) {
+                TsPromise* promise = ts_promise_create();
+                ts_promise_reject_internal(promise, initErr);
+                return ts_value_make_object(promise);
+            }
+        }
         TsValue* exports = ts_module_get_cached(boxedPath);
         if (exports && !ts_value_is_undefined(exports)) {
             // Module found in cache — resolve the promise with its exports

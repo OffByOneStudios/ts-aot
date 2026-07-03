@@ -129,6 +129,7 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
     if (!module) {
         return;
     }
+    staticImportPaths.insert(module->path);
 
     // Import symbols
     if (!node->defaultImport.empty()) {
@@ -199,6 +200,7 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
     if (!node->moduleSpecifier.empty()) {
         auto module = loadModule(node->moduleSpecifier);
         if (!module) return;
+        staticImportPaths.insert(module->path);
 
         // ES2020: export * as ns from "module"
         if (!node->namespaceExport.empty()) {
@@ -306,6 +308,7 @@ void Analyzer::visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) 
     // import X = require('module') — CommonJS-style import
     auto mod = loadModule(node->moduleSpecifier);
     if (!mod) return;
+    staticImportPaths.insert(mod->path);
     // Try default export first (for `export = X` or `export default X`)
     auto defaultExport = mod->exports->lookup("default");
     if (defaultExport) {
