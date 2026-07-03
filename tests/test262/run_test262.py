@@ -113,7 +113,9 @@ UNSUPPORTED_FEATURES: Set[str] = {
 
 # Flags that indicate tests we should skip
 UNSUPPORTED_FLAGS: Set[str] = {
-    "module",       # ES module tests need different compilation
+    # "module" tests compile since 2026-07-03: the job compiles them with
+    # TS_SCRIPT_GOAL removed (module goal - top-level import/export legal)
+    # and a "use strict" prologue (module code is strict by default).
     "async",        # Async completion protocol ($DONE) not yet wired
     "CanBlockIsFalse",
     "CanBlockIsTrue",
@@ -647,7 +649,8 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
     full_source = build_test_source(test_path, meta)
 
     # Strict mode; default sloppy (many tests expect sloppy behavior).
-    if 'onlyStrict' in meta.flags:
+    # Module code (flags: [module]) is ALWAYS strict per ES.
+    if 'onlyStrict' in meta.flags or 'module' in meta.flags:
         full_source = '"use strict";\n' + full_source
 
     rel = test_path.relative_to(TEST_DIR)
@@ -688,6 +691,7 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
 
     _shared_flags, run_env = _shared_runtime_config(str(compiler))
     return None, {
+        "is_module": 'module' in meta.flags,
         "test_path": test_path, "meta": meta, "tmp_js": tmp_js, "tmp_exe": tmp_exe,
         "run_env": run_env, "shared_flags": _shared_flags or [], "start": start,
     }
@@ -796,9 +800,15 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     if _extra:
         compile_cmd += _extra
     compile_cmd += job["shared_flags"]
+    compile_env = None
+    if job.get("is_module"):
+        # Module goal: top-level import/export must be legal for this test.
+        compile_env = dict(os.environ)
+        compile_env.pop("TS_SCRIPT_GOAL", None)
     try:
         comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=30,
-                              encoding='utf-8', errors='replace', **_SPAWN_KW)
+                              encoding='utf-8', errors='replace', env=compile_env,
+                              **_SPAWN_KW)
         rc, stderr = comp.returncode, comp.stderr or ""
     except subprocess.TimeoutExpired:
         rc, stderr = None, ""
