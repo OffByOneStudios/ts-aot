@@ -2047,7 +2047,29 @@ TsValue* ts_promise_new(TsValue* executor) {
 
 TsValue* ts_promise_await(TsValue* promise) {
     TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
-    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return promise;
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) {
+        // ES Await = PromiseResolve(value): a plain-object THENABLE must
+        // assimilate (`await {then(res){res(42)}}` is 42, not the object).
+        // Cheap gate: magic-sniffed plain object AND a callable own/inherited
+        // `then` — everything else keeps the pass-through fast path.
+        if (pVal.type == ValueType::OBJECT_PTR && pVal.ptr_val &&
+            (uintptr_t)pVal.ptr_val > 0x1000) {
+            void* raw = pVal.ptr_val;
+            uint32_t magic0 = *(uint32_t*)raw;
+            uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+            if (magic0 == 0x464C4154 /* FLAT */ || magic16 == TsMap::MAGIC) {
+                extern TsValue* ts_object_get_property(void* o, const char* k);
+                TsValue* thenFn = ts_object_get_property(raw, "then");
+                if (thenFn && !ts_value_is_undefined(thenFn) &&
+                    ts_is_callable((void*)thenFn)) {
+                    TsPromise* wrap = ts_promise_create();
+                    ts_promise_resolve_internal(wrap, promise);  // assimilates
+                    return ts_promise_await(ts_value_make_object(wrap));
+                }
+            }
+        }
+        return promise;
+    }
     TsPromise* p = (TsPromise*)pVal.ptr_val;
 
     // An `await` is intent to consume the result. If the promise is (or
@@ -2088,6 +2110,25 @@ TsValue* ts_promise_await(TsValue* promise) {
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
     TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
     if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) {
+        // ES Await = PromiseResolve(value) + react: a THENABLE assimilates
+        // (`await {then(res){res(42)}}` is 42, not the object).
+        // ts_promise_resolve_internal already implements assimilation with a
+        // magic-sniffed fast path; route plain-object values through it.
+        // Primitives (and non-plain objects) keep the direct resume.
+        if (getenv("TS_AWAIT_TRACE")) fprintf(stderr, "[await] type=%d ptr=%p\n", (int)pVal.type, pVal.ptr_val);
+        if (pVal.type == ValueType::OBJECT_PTR && pVal.ptr_val &&
+            (uintptr_t)pVal.ptr_val > 0x1000) {
+            void* raw = pVal.ptr_val;
+            uint32_t magic0 = *(uint32_t*)raw;
+            uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+            if (getenv("TS_AWAIT_TRACE")) fprintf(stderr, "[await] m0=%08X m16=%08X\n", magic0, magic16);
+            if (magic0 == 0x464C4154 /* FLAT */ || magic16 == TsMap::MAGIC) {
+                TsPromise* wrap = ts_promise_create();
+                ts_promise_resolve_internal(wrap, promise);
+                wrap->then_async(ctx);
+                return;
+            }
+        }
         ts_async_resume(ctx, promise);
         return;
     }
