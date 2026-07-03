@@ -1729,7 +1729,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // Get constructor/class name
     auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
     std::string className = "Object";
-    if (ident) {
+    if (auto* classExpr = dynamic_cast<ast::ClassExpression*>(node->expression.get())) {
+        // `new class { ... }( ... )` — immediately-instantiated anonymous
+        // class expression. Register/emit the class (cache-hit if the
+        // pre-pass saw it) so construction goes through the real class
+        // machinery instead of the generic-Object fallback that silently
+        // dropped every method and accessor.
+        visitClassExpression(classExpr);
+        className = lastGeneratedClassName_;
+    } else if (ident) {
         // First check if this is a variable pointing to a class expression
         auto it = variableToClassName_.find(ident->name);
         if (it != variableToClassName_.end()) {
