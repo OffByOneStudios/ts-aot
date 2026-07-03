@@ -789,7 +789,24 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Every class needs a prototype init (not just classes with user-defined
     // methods) so that `c.constructor === C`, `Object.getPrototypeOf(c) ===
     // C.prototype`, and `extends` linkage all hold.
-    deferredClassPrototypes_.push_back(hirClass);
+    // Classes in NESTED function bodies emit their full setup INLINE at the
+    // class statement's source position: heritage evaluation and computed-key
+    // evaluation are ClassDefinitionEvaluation side effects that must run
+    // inside the enclosing function (an enclosing try/catch must see their
+    // throws; the deferred flush would run them at user_main entry instead —
+    // computed-name-referenceerror / extends-TypeError families). Module-level
+    // classes keep the deferred flush + Monomorphizer trigger machinery.
+    {
+        bool topLevelCtx = !currentFunction_ ||
+            currentFunction_->name.rfind("__module_init_", 0) == 0 ||
+            currentFunction_->name == "user_main" ||
+            currentFunction_->name == "__synthetic_user_main";
+        if (topLevelCtx) {
+            deferredClassPrototypes_.push_back(hirClass);
+        } else {
+            emitSingleClassSetup(hirClass, /*valueResolveHeritage=*/true);
+        }
+    }
 
     // Restore class context
     currentClass_ = savedClass;

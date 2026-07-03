@@ -305,6 +305,14 @@ private:
     // at the declaration site. Push the HIRClass here and emit the
     // trailer IR at the start of user_main / __synthetic_user_main.
     std::vector<HIRClass*> deferredClassPrototypes_;
+    // Emit ONE class's full setup (prototype, methods, heritage links,
+    // computed accessors) at the CURRENT insert point. Used by the deferred
+    // flush (module-level classes) and INLINE at the class statement's
+    // source position for classes in nested function bodies — their setup
+    // side effects (heritage eval, computed keys) must run inside the
+    // enclosing function so try/catch sees them (ES ClassDefinitionEvaluation).
+    void emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritage = false);
+    void emitDeferredStaticInitsTail();  // static blocks etc. (split from flush)
 
     // Deferred decorator invocations - classes with decorators need static init functions
     struct DeferredDecorator {

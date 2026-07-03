@@ -6909,6 +6909,68 @@ void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
     ts_object_setPrototypeOf((TsValue*)ctorVal, (TsValue*)base);
 }
 
+// ES 7.2.4 IsConstructor for our value model: a TsFunction/TsClosure with
+// its is_constructor flag set (function declarations default true; arrows,
+// methods, built-in prototype methods are false). Primitives and plain
+// objects are never constructors.
+static bool value_is_constructor(void* v) {
+    void* raw = ts_nanbox_safe_unbox(v);
+    if (!raw) return false;
+    if ((uintptr_t)raw < 4096 || (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return false;
+    if (*(uint32_t*)raw == 0x46554E43) return true;  // native fn at offset 0
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 == TsFunction::MAGIC) return ((TsFunction*)raw)->is_constructor;
+    if (m16 == 0x434C5352 /*CLSR*/) return ((TsClosure*)raw)->is_constructor;
+    return false;
+}
+
+// `class C extends <identifier>` with the compiler-resolved VALUE (the name-
+// only ts_class_link_builtin_base can't see module vars/closures). undefined
+// value -> legacy name lookup; null -> legal; a non-constructor -> TypeError
+// BEFORE any "prototype" read (ES 15.7.14 step 6.f; the
+// superclass-emulates-undefined family asserts zero prototype gets).
+void ts_class_link_dynamic_base(void* ctorVal, void* protoVal, void* baseVal, void* nameStr) {
+    uint64_t nb = baseVal ? nanbox_from_tsvalue_ptr((TsValue*)baseVal) : 0;
+    if (!baseVal || nanbox_is_undefined(nb)) {
+        ts_class_link_builtin_base(ctorVal, protoVal, nameStr);
+        return;
+    }
+    if (nanbox_is_null(nb)) return;
+    // Nanbox-primitive heritage (number/bool/string): definitely not a
+    // constructor -> TypeError.
+    if (nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb)) {
+        // (string heritage also throws: it unboxes to a plausible STRG-magic
+        // pointer and fails value_is_constructor below)
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Class extends value is not a constructor"));
+        return;
+    }
+    // A value that unboxes to nothing plausible is an UNINITIALIZED slot
+    // (the class-expression trailer can evaluate before the heritage var's
+    // assignment when the pre-pass hoists it) — fall back to the legacy
+    // name link rather than false-TypeError.
+    {
+        void* rawCheck = ts_nanbox_safe_unbox(baseVal);
+        if (!rawCheck || (uintptr_t)rawCheck < 4096 ||
+            (uintptr_t)rawCheck > 0x00007FFFFFFFFFFFULL) {
+            ts_class_link_builtin_base(ctorVal, protoVal, nameStr);
+            return;
+        }
+    }
+    if (!value_is_constructor(baseVal)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Class extends value is not a constructor"));
+        return;
+    }
+    void* base = ts_nanbox_safe_unbox(baseVal);
+    if (!base) base = baseVal;
+    if (!ctorVal || !protoVal) return;
+    TsValue* baseProto = ts_object_get_property(base, "prototype");
+    if (baseProto && !ts_value_is_undefined(baseProto))
+        ts_object_setPrototypeOf((TsValue*)protoVal, baseProto);
+    ts_object_setPrototypeOf((TsValue*)ctorVal, (TsValue*)base);
+}
+
 void* ts_resolve_identifier_or_throw(void* nameStr) {
     // `with` object environments shadow EVERYTHING outer — including
     // builtins (`with({parseInt(){}}) { parseInt }` must yield the
