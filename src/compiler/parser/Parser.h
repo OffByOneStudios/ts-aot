@@ -246,6 +246,12 @@ private:
     // harness sets it for non-module tests. Default false preserves ts-aot's
     // module-friendly behavior for real programs.
     bool scriptGoal_ = false;
+    // True ONLY for a statement parsed directly from the module body's
+    // top-level loop; consumed (reset) at parseDeclarationOrStatement entry
+    // so every nested statement position sees false. import/export
+    // DECLARATIONS are ModuleItems — legal only when this was true
+    // (ES 16.2.1; the parse-err-decl-pos-* family).
+    bool atTopLevel_ = false;
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     // Like functionDepth_ but NOT incremented by arrow functions (which inherit
     // their [[NewTarget]] from the enclosing non-arrow function). 0 means there
