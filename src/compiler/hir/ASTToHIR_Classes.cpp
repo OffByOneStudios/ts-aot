@@ -380,6 +380,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Save current function and create entry block
             HIRFunction* savedFunc = currentFunction_;
+            bool savedMethodStatic = currentMethodIsStatic_;
+            currentMethodIsStatic_ = methodDef->isStatic;
     // A nested function body starts OUTSIDE any enclosing try/with:
     // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
     // `return` in a closure defined inside a try{} otherwise emits a
@@ -615,6 +617,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Restore saved function
             currentFunction_ = savedFunc;
+            currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
@@ -700,6 +703,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // Create entry block
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
             HIRFunction* savedFunc = currentFunction_;
+            bool savedMethodStatic = currentMethodIsStatic_;
+            currentMethodIsStatic_ = false;  // synthesized default ctor
     // A nested function body starts OUTSIDE any enclosing try/with:
     // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
     // `return` in a closure defined inside a try{} otherwise emits a
@@ -754,6 +759,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             popScope();
             currentFunction_ = savedFunc;
+            currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
@@ -1170,6 +1176,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Save current function and create entry block
             HIRFunction* savedFunc = currentFunction_;
+            bool savedMethodStatic = currentMethodIsStatic_;
+            currentMethodIsStatic_ = methodDef->isStatic;
     // A nested function body starts OUTSIDE any enclosing try/with:
     // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
     // `return` in a closure defined inside a try{} otherwise emits a
@@ -1405,6 +1413,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Restore saved function
             currentFunction_ = savedFunc;
+            currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
@@ -1483,6 +1492,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Create entry block
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
             HIRFunction* savedFunc = currentFunction_;
+            bool savedMethodStatic = currentMethodIsStatic_;
+            currentMethodIsStatic_ = false;  // synthesized default ctor
     // A nested function body starts OUTSIDE any enclosing try/with:
     // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
     // `return` in a closure defined inside a try{} otherwise emits a
@@ -1531,6 +1542,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             popScope();
             currentFunction_ = savedFunc;
+            currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
             if (savedFunc) {
