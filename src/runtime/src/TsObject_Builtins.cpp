@@ -1518,17 +1518,94 @@ extern "C" {
         void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
         return out ? ts_value_make_object(out) : ts_value_make_undefined();
     }
+    // ECMA-262 23.1.3.2 IsConcatSpreadable(O): Type(O) must be Object; a
+    // defined @@isConcatSpreadable wins (ToBoolean), else Array.isArray(O).
+    static bool value_is_concat_spreadable(TsValue* item) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(item);
+        if (!nanbox_is_ptr(nb)) return false;
+        void* raw = ts_value_get_object(item);
+        if (!raw) raw = nanbox_to_ptr(nb);
+        if (!raw || (uintptr_t)raw < 0x1000 ||
+            (uintptr_t)raw >= 0x0000800000000000ULL) return false;
+        uint32_t m0 = *(uint32_t*)raw;
+        // Primitive-shaped heap values are not Objects for this predicate.
+        if (m0 == 0x53545247 /* STRG */ || m0 == TsConsString::MAGIC ||
+            m0 == 0x53594D42 /* SYMB */ || m0 == 0x42494749 /* BIGI */)
+            return false;
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* sval = ts_object_get_property(raw, "[Symbol.isConcatSpreadable]");
+        if (sval && !ts_value_is_undefined(sval)) return ts_value_to_bool(sval);
+        return m0 == TsArray::MAGIC;
+    }
+
+    // Append one concat item to the result: spreadable items are walked
+    // 0..ToLength(length) with HasProperty/Get (getters run live, absent
+    // indices land as undefined slots); non-spreadable items append whole.
+    static void concat_append_item(TsArray* result, TsValue* item) {
+        if (!value_is_concat_spreadable(item)) {
+            ts_array_push(result, (void*)item);
+            return;
+        }
+        void* raw = ts_value_get_object(item);
+        if (!raw) raw = (void*)item;
+        // Fast path: plain packed TsArray with no exotic index state.
+        extern bool ts_array_needs_spec_search(TsArray*);
+        if (*(uint32_t*)raw == TsArray::MAGIC &&
+            !ts_array_needs_spec_search((TsArray*)raw) &&
+            !((TsArray*)raw)->HasHoles()) {
+            TsArray* src = (TsArray*)raw;
+            for (size_t i = 0; i < src->Length(); ++i)
+                ts_array_push(result, (void*)(uintptr_t)src->Get(i));
+            return;
+        }
+        // Generic walk: ToLength(length) + per-index HasProperty/Get on the
+        // live object. A throwing length/element getter propagates.
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* lenVal = ts_object_get_property(raw, "length");
+        double lenD = lenVal ? ts_to_number(lenVal) : 0;
+        int64_t len = 0;
+        if (lenD == lenD && lenD > 0) {
+            if (lenD > (double)(1LL << 26)) lenD = (double)(1LL << 26);  // alloc guard
+            len = (int64_t)lenD;
+        }
+        TsValue* objB = ts_value_make_object(raw);
+        for (int64_t k = 0; k < len; ++k) {
+            extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
+            extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+            TsValue* keyB = ts_value_make_int(k);
+            TsValue* elem = ts_object_has_prop(objB, keyB)
+                                ? ts_object_get_dynamic(objB, keyB)
+                                : ts_value_make_undefined();
+            ts_array_push(result, (void*)(elem ? elem : ts_value_make_undefined()));
+        }
+    }
+
+    // Zero-arg `arr.concat()` (compiled path): still a fresh spread of the
+    // receiver through ArraySpeciesCreate — NOT the receiver itself.
+    void* ts_array_concat_none(void* arr) {
+        extern TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv);
+        TsValue* r = ts_array_concat_native(arr, 0, nullptr);
+        void* raw = r ? ts_value_get_object(r) : nullptr;
+        return raw ? raw : arr;
+    }
+
     TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "concat");
         if (!arr) return ts_value_make_undefined();
-        void* other = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        // Unbox the other arg if needed
-        if (other) {
-            void* raw = ts_value_get_object((TsValue*)other);
-            if (raw) other = raw;
+        // Spec 23.1.3.2: the receiver is itself the first concat item —
+        // spreadable receivers walk, others append whole. Use the ORIGINAL
+        // receiver (not the materialized temp) so @@isConcatSpreadable and
+        // getters are consulted live.
+        void* orig = (arr->originalReceiver && arr->originalReceiver != (void*)arr)
+                         ? arr->originalReceiver : (void*)arr;
+        TsArray* result = (TsArray*)ts_array_create();
+        concat_append_item(result, ts_value_make_object(orig));
+        for (int i = 0; i < argc; ++i) {
+            if (argv && argv[i]) concat_append_item(result, argv[i]);
         }
-        void* result = ts_array_concat(arr, other);
-        return result ? ts_value_make_object(result) : ts_value_make_object(arr);
+        extern void* ts_array_species_rematerialize(void* receiver, void* resultRaw);
+        void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
+        return ts_value_make_object(out ? out : (void*)result);
     }
 
     // P2: Moderate methods

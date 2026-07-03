@@ -653,6 +653,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // array2
             .build());
 
+    reg.registerLowering("ts_array_concat_none",
+        lowering("ts_array_concat_none")
+            .returnsPtr()
+            .ptrArg()      // receiver array (zero-item concat)
+            .build());
+
     reg.registerLowering("ts_array_spread_into",
         lowering("ts_array_spread_into")
             .returnsPtr()

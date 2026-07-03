@@ -2405,9 +2405,16 @@ extern "C" {
             if (raw && *(uint32_t*)raw == 0x41525259) {        // TsArray::MAGIC
                 TsArray* a = (TsArray*)raw;
                 if (!a->properties) return resultRaw;          // no own props
+                // Has(), not Get().type: a stored null/undefined VALUE (e.g.
+                // `a.constructor = null`, which must TypeError below) reads
+                // back as UNDEFINED and wrongly took the fast reject. Also
+                // check the accessor form — a poisoned own `constructor`
+                // getter lives under __getter_constructor, not the data key.
                 TsValue ck; ck.type = ValueType::STRING_PTR;
                 ck.ptr_val = TsString::GetInterned("constructor");
-                if (a->properties->Get(ck).type == ValueType::UNDEFINED)
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned("__getter_constructor");
+                if (!a->properties->Has(ck) && !a->properties->Has(gk))
                     return resultRaw;                          // default species
             }
         }

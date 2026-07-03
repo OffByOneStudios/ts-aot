@@ -89,6 +89,17 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::tryResolveMethod(
         return nullptr;
     }
 
+    // Zero-arg `arr.concat()` still builds a NEW array through
+    // ArraySpeciesCreate (copy + species/constructor validation). The 2-arg
+    // ts_array_concat lowering can't express that (a 1-operand call to it
+    // gets swallowed downstream and the result silently aliases the
+    // receiver) — route to the dedicated no-item entry point.
+    if (resolution.kind == MethodResolution::Kind::RuntimeCall &&
+        resolution.runtimeFunction == "ts_array_concat" && args.empty()) {
+        return createRuntimeCallInstruction(inst, "ts_array_concat_none",
+                                            receiver, args, resolution.returnType);
+    }
+
     switch (resolution.kind) {
         case MethodResolution::Kind::HIROpcode:
             return createOpcodeInstruction(inst, resolution.opcode, receiver, args);

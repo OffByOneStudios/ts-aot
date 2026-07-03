@@ -500,6 +500,16 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             getGCPtrTy(), { getGCPtrTy(), getGCPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_concat", ft);
         llvm::Value* acc = obj;
+        if (inst->operands.size() <= 2) {
+            // Zero-arg concat: spec still builds a NEW array through
+            // ArraySpeciesCreate — returning the receiver skips the copy
+            // and the species/constructor validation TypeErrors.
+            llvm::FunctionType* ft0 = llvm::FunctionType::get(
+                getGCPtrTy(), { getGCPtrTy() }, false);
+            llvm::FunctionCallee fn0 =
+                module_->getOrInsertFunction("ts_array_concat_none", ft0);
+            acc = builder_->CreateCall(ft0, fn0.getCallee(), { obj });
+        }
         for (size_t i = 2; i < inst->operands.size(); ++i) {
             llvm::Value* other = getOperandValue(inst->operands[i]);
             if (!other->getType()->isPointerTy()) {
