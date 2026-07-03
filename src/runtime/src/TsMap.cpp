@@ -1415,7 +1415,14 @@ static TsValue* make_iter_helper(int kind, TsValue* src, TsValue* fn, double n) 
     TsValue kv; kv.type = ValueType::NUMBER_INT; kv.i_val = kind; ih_set(it, "__ihk", kv);
     ih_set(it, "__ihs", src ? nanbox_to_tagged(src) : TsValue());
     // Cache the source iterator's next method ONCE (GetIteratorDirect).
-    ih_set(it, "__ihnext", src ? nanbox_to_tagged(ih_get_next(src)) : TsValue());
+    // Spec GetIteratorDirect only READS next — a non-callable value is NOT
+    // an error until the first next() call (this-non-callable-next tests).
+    TsValue* rawNext = nullptr;
+    if (src) {
+        void* sraw = ts_value_get_object(src); if (!sraw) sraw = (void*)src;
+        rawNext = ts_object_get_property(sraw, "next");
+    }
+    ih_set(it, "__ihnext", rawNext ? nanbox_to_tagged(rawNext) : TsValue());
     ih_set(it, "__ihf", fn ? nanbox_to_tagged(fn) : TsValue());
     TsValue nv; nv.type = ValueType::NUMBER_DBL; nv.d_val = n; ih_set(it, "__ihn", nv);
     TsValue cv; cv.type = ValueType::NUMBER_DBL; cv.d_val = 0; ih_set(it, "__ihc", cv);
@@ -1429,6 +1436,14 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     int kind = (int)ih_get(it, "__ihk").i_val;
     TsValue srcT = ih_get(it, "__ihs"); TsValue* src = nanbox_from_tagged(srcT);
     TsValue* srcNext = nanbox_from_tagged(ih_get(it, "__ihnext"));  // cached once at creation
+    // Deferred GetIteratorDirect validation: the cached next must be
+    // callable when the helper is actually driven.
+    if (!srcNext || !ts_is_callable((void*)srcNext)) {
+        TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 1; ih_set(it, "__ihdone", d);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not a function"));
+        return ih_make_result(nullptr, true);
+    }
     TsValue fnT = ih_get(it, "__ihf");
     TsValue* fn = (fnT.type != ValueType::UNDEFINED) ? nanbox_from_tagged(fnT) : nullptr;
     double cnt = ih_get(it, "__ihc").d_val;
