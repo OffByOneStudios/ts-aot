@@ -1083,6 +1083,28 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
             emitMutualRecursionFixup();
 
+            // Script-goal global bindings (ES 9.1.1.4.17/18): top-level
+            // function declarations must be reflected as OWN properties of
+            // globalThis — Object.hasOwn(globalThis, "$DONE") gates the
+            // test262 asyncHelpers harness. Emit after pass-1 hoisting so
+            // the closure variables exist; identifier reads still resolve
+            // through the static binding (the reflection is additive).
+            // Top-level statements live in the __module_init_* synthetic
+            // functions (JS modules) or the entry function (TS scripts).
+            if (funcNode->name == "user_main" ||
+                funcNode->name == "__synthetic_user_main" ||
+                funcNode->name.rfind("__module_init", 0) == 0) {
+                for (auto& stmt : funcNode->body) {
+                    auto* fd = dynamic_cast<ast::FunctionDeclaration*>(stmt.get());
+                    if (!fd || fd->name.empty()) continue;
+                    auto fnVal = lookupVariable(fd->name);
+                    if (!fnVal) continue;
+                    auto nameStr = builder_.createConstString(fd->name);
+                    builder_.createCall("ts_global_bind_fn", {nameStr, fnVal},
+                                        HIRType::makeVoid());
+                }
+            }
+
             // SECOND PASS: Process non-FunctionDeclaration statements in order
             SPDLOG_DEBUG("[SPEC] Body pass 2: {} stmts in {}", funcNode->body.size(), spec.specializedName);
             for (auto& stmt : funcNode->body) {
