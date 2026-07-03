@@ -2855,6 +2855,29 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         std::memcpy(p, &u, 8);
     });
 
+    DV_GET("getBigInt64", 8, {
+        uint64_t r = 0;
+        if (le) { for (int i = 7; i >= 0; --i) r = (r << 8) | p[i]; }
+        else    { for (int i = 0; i <  8; ++i) r = (r << 8) | p[i]; }
+        extern void* ts_bigint_create_int(int64_t v);
+        extern TsValue* ts_value_make_bigint(void* bi);
+        return ts_value_make_bigint(ts_bigint_create_int((int64_t)r));
+    });
+    DV_GET("getBigUint64", 8, {
+        uint64_t r = 0;
+        if (le) { for (int i = 7; i >= 0; --i) r = (r << 8) | p[i]; }
+        else    { for (int i = 0; i <  8; ++i) r = (r << 8) | p[i]; }
+        extern void* ts_bigint_create_int(int64_t v);
+        extern TsValue* ts_value_make_bigint(void* bi);
+        return ts_value_make_bigint(ts_bigint_create_int((int64_t)r));
+    });
+    // BigInt SET: the shared DV_SET macro ToNumber-coerces the value, which
+    // THROWS on a BigInt — these need a BigInt-first extraction (and a
+    // TypeError for non-BigInt values per SetViewValue's ToBigInt).
+    #define DV_SET_BIG(name)         if (strcmp(key, name) == 0) {             TsValue v; v.type = ValueType::FUNCTION_PTR;             void* mem = ts_alloc(sizeof(TsFunction));             TsFunction* fn = new (mem) TsFunction(                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* {                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx);                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined();                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD);                     int64_t iv = 0;                     {                         uint64_t nb = valV ? (uint64_t)(uintptr_t)valV : 0;                         void* raw = (valV && ((nb >> 48) != 0xFFFF) && nb > 4096) ? ts_value_get_object(valV) : nullptr;                         if (!raw) raw = (void*)valV;                         if (raw && (uintptr_t)raw >= 4096 &&                             (uintptr_t)raw < 0x0000800000000000ULL &&                             *(uint32_t*)raw == 0x42494749 /*BIGI*/) {                             extern int64_t ts_bigint_to_i64(void* bi);                             iv = ts_bigint_to_i64(raw);                         } else {                             ts_throw((TsValue*)ts_error_create_typed("TypeError",                                 "Cannot convert a non-BigInt value to a BigInt"));                             return ts_value_make_undefined();                         }                     }                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV);                     if (dv->GetBuffer()->IsDetached()) {                         ts_throw((TsValue*)ts_error_create_typed("TypeError",                             "DataView: the underlying ArrayBuffer is detached"));                         return ts_value_make_undefined();                     }                     if (off < 0 || (size_t)off + 8 > dv->GetByteLength()) {                         ts_throw((TsValue*)ts_error_create_typed("RangeError",                             "Offset is outside the bounds of the DataView"));                         return ts_value_make_undefined();                     }                     uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off;                     uint64_t u = (uint64_t)iv;                     if (le) { for (int i = 0; i < 8; ++i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     else    { for (int i = 7; i >= 0; --i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     return ts_value_make_undefined();                 },                 this, FunctionType::COMPILED, 2);             installFnMeta(fn, name, 2);             v.ptr_val = fn;             return v;         }
+    DV_SET_BIG("setBigInt64");
+    DV_SET_BIG("setBigUint64");
+    #undef DV_SET_BIG
     #undef DV_GET
     #undef DV_SET
     return TsObject::GetPropertyVirtual(key);
