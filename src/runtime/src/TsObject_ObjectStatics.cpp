@@ -2793,7 +2793,28 @@ extern "C" {
         return ts_value_make_object(d);
     }
 
+    static TsValue* ts_object_getOwnPropertyDescriptor_impl(TsValue* obj, TsValue* prop);
+    extern "C" TsValue* ts_to_property_key_spec(TsValue* key);  // TsObject.cpp
+
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
+        // ES 20.1.2.8 order in a std::string-FREE frame (the impl holds
+        // std::string scopes; a ToPropertyKey hook may throw/longjmp):
+        // 1. ToObject(O) — TypeError on null/undefined; 2. ToPropertyKey(P)
+        // — runs toString/valueOf; both-non-primitive throws TypeError
+        // (Object/getOwnPropertyDescriptor/15.2.3.3-2-46).
+        if (obj) {
+            uint64_t nbO = nanbox_from_tsvalue_ptr(obj);
+            if (nanbox_is_null(nbO) || nanbox_is_undefined(nbO)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_undefined();
+            }
+        }
+        if (prop) prop = ts_to_property_key_spec(prop);
+        return ts_object_getOwnPropertyDescriptor_impl(obj, prop);
+    }
+
+    static TsValue* ts_object_getOwnPropertyDescriptor_impl(TsValue* obj, TsValue* prop) {
         // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5)
         // when present (or revoked); trap-less proxies keep legacy behavior.
         {
