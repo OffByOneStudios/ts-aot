@@ -3458,13 +3458,24 @@ void* ts_create_arguments_from_params(
             return false;
         };
 
-        // ECMA-262 7.1.1 ToPrimitive: first look up @@toPrimitive
-        // (Symbol.toPrimitive). If present and callable, call with
-        // hint string and use the primitive result. Well-known symbols
-        // are stored under canonical string keys "[Symbol.<name>]"
+        // ECMA-262 7.1.1 ToPrimitive: first GetMethod(@@toPrimitive) —
+        // undefined AND null both mean "no exotic hook" (fall through to
+        // OrdinaryToPrimitive); anything else must be callable. Well-known
+        // symbols are stored under canonical string keys "[Symbol.<name>]"
         // (see TsGlobals.cpp register-well-known-symbols).
+        auto is_exotic_null = [](TsValue* m) -> bool {
+            if (!m) return true;
+            uint64_t mnb = nanbox_from_tsvalue_ptr(m);
+            return nanbox_is_undefined(mnb) || nanbox_is_null(mnb);
+        };
         TsValue* exoticToPrim = ts_object_get_property(obj, "[Symbol.toPrimitive]");
-        if (exoticToPrim && !ts_value_is_undefined(exoticToPrim)) {
+        if (exoticToPrim && !is_exotic_null(exoticToPrim)) {
+            // GetMethod step 3: present but not callable -> TypeError.
+            if (!(ts_extract_closure(exoticToPrim) ||
+                  ts_extract_function(exoticToPrim))) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Symbol.toPrimitive is not a function"));
+            }
             const char* hintStr = (hint == 2) ? "string"
                                 : (hint == 1) ? "number"
                                               : "default";

@@ -4335,6 +4335,95 @@ void* ts_get_global_SharedArrayBuffer() {
     return cached;
 }
 
+// ECMA-262 7.1.22 ToIndex for BigInt.asIntN/asUintN `bits` (step 1 of both):
+// ToNumber (incl. ToPrimitive on objects, done by ts_to_number), NaN/undefined
+// -> +0, truncate toward zero, RangeError outside [0, 2^53-1].
+static int64_t bigint_asn_bits(TsValue* v) {
+    // ToPrimitive(number) FIRST (an object's @@toPrimitive/valueOf may yield
+    // a BigInt), then gate BigInt: spec ToNumber(BigInt) is a TypeError, but
+    // ts_to_number keeps its legacy numeric coercion for internal callers.
+    {
+        extern TsValue* ts_to_primitive(TsValue* val, int hint);
+        v = ts_to_primitive(v, 1);
+        uint64_t nb = v ? nanbox_from_tsvalue_ptr(v) : 0;
+        if (v && nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (raw && *(uint32_t*)raw == 0x42494749) {  // TsBigInt
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a BigInt value to a number"));
+                return 0;
+            }
+        }
+    }
+    double d = ts_to_number(v);
+    if (d != d) d = 0;  // ToIntegerOrInfinity(NaN) = +0 (covers undefined too)
+    d = std::trunc(d);
+    if (d < 0 || d > 9007199254740991.0) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "bits must be an integer in [0, 2^53-1]"));
+        return 0;  // unreachable
+    }
+    // mp_2expt takes an int; anything this large is out of practical range.
+    if (d > 2147483647.0) d = 2147483647.0;
+    return (int64_t)d;
+}
+
+// ECMA-262 7.1.13 ToBigInt (step 2 of asIntN/asUintN): primitives per the
+// table (undefined/null/Number/Symbol TypeError; boolean 0n/1n; string via
+// the validated StringToBigInt -> SyntaxError on bad syntax); objects go
+// through ToPrimitive(number) once, then the primitive rules. Throws rather
+// than returning nullptr (the nullptr return is for the unreachable path).
+static TsBigInt* bigint_asn_tobigint(TsValue* v) {
+    extern TsValue* ts_to_primitive(TsValue* val, int hint);
+    extern void* ts_bigint_from_string_checked(void* str);
+    for (int pass = 0; pass < 2; ++pass) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to BigInt"));
+            return nullptr;
+        }
+        if (nanbox_is_true(nb))  return (TsBigInt*)ts_bigint_create_int(1);
+        if (nanbox_is_false(nb)) return (TsBigInt*)ts_bigint_create_int(0);
+        if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a Number to a BigInt"));
+            return nullptr;
+        }
+        if (nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (raw) {
+                uint32_t magic = *(uint32_t*)raw;
+                if (magic == 0x42494749) {  // TsBigInt
+                    return (TsBigInt*)raw;
+                }
+                if (magic == 0x53594D42) {  // TsSymbol
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot convert a Symbol value to a BigInt"));
+                    return nullptr;
+                }
+                if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                    void* bi = ts_bigint_from_string_checked(ts_ensure_flat(raw));
+                    if (!bi) {
+                        ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+                            "Cannot convert string to a BigInt"));
+                        return nullptr;
+                    }
+                    return (TsBigInt*)bi;
+                }
+                if (pass == 0) {
+                    v = ts_to_primitive(v, 1);  // hint number
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "Cannot convert value to a BigInt"));
+    return nullptr;
+}
+
 void* ts_get_global_BigInt() {
     TenureScope _tenure;
     // Spec: BigInt is a constructor (isConstructor === true) but `new BigInt(x)`
@@ -4368,55 +4457,9 @@ void* ts_get_global_BigInt() {
                     "BigInt.asIntN requires bits and bigint arguments"));
                 return ts_value_make_undefined();
             }
-            double bitsD = ts_to_number(argv[0]);
-            if (!(bitsD >= 0)) {
-                ts_throw((TsValue*)ts_error_create_typed("RangeError",
-                    "BigInt.asIntN: bits must be a non-negative integer"));
-                return ts_value_make_undefined();
-            }
-            int bits = (int)bitsD;
-            // ToBigInt(argv[1]) per ECMA-262 7.1.13:
-            //   undefined/null/Number/Symbol → TypeError
-            //   true → 1n, false → 0n
-            //   BigInt → as-is
-            //   String → parse as BigInt (NaN → SyntaxError)
-            //   Object → ToPrimitive then recursive ToBigInt
-            uint64_t nb = nanbox_from_tsvalue_ptr(argv[1]);
-            TsBigInt* src = nullptr;
-            if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "Cannot convert undefined or null to BigInt"));
-                return ts_value_make_undefined();
-            }
-            if (nanbox_is_true(nb))  src = (TsBigInt*)ts_bigint_create_int(1);
-            else if (nanbox_is_false(nb)) src = (TsBigInt*)ts_bigint_create_int(0);
-            else if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "Cannot convert a Number to a BigInt"));
-                return ts_value_make_undefined();
-            } else if (nanbox_is_ptr(nb)) {
-                void* raw = nanbox_to_ptr(nb);
-                if (raw) {
-                    uint32_t magic = *(uint32_t*)raw;
-                    if (magic == 0x42494749) {  // TsBigInt
-                        src = (TsBigInt*)raw;
-                    } else if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
-                        // Parse string as BigInt (radix 10)
-                        TsString* s = ts_ensure_flat(raw);
-                        src = (TsBigInt*)ts_bigint_create_str(s, 10);
-                    } else if (magic == 0x53594D42) {  // TsSymbol
-                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                            "Cannot convert a Symbol value to a BigInt"));
-                        return ts_value_make_undefined();
-                    }
-                    // Other objects: leave src=nullptr → throw below
-                }
-            }
-            if (!src) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "BigInt.asIntN: second argument must be a BigInt"));
-                return ts_value_make_undefined();
-            }
+            int bits = (int)bigint_asn_bits(argv[0]);
+            TsBigInt* src = bigint_asn_tobigint(argv[1]);
+            if (!src) return ts_value_make_undefined();  // unreachable (threw)
             if (bits == 0) {
                 return (TsValue*)ts_bigint_create_int(0);
             }
@@ -4442,48 +4485,9 @@ void* ts_get_global_BigInt() {
                     "BigInt.asUintN requires bits and bigint arguments"));
                 return ts_value_make_undefined();
             }
-            double bitsD = ts_to_number(argv[0]);
-            if (!(bitsD >= 0)) {
-                ts_throw((TsValue*)ts_error_create_typed("RangeError",
-                    "BigInt.asUintN: bits must be a non-negative integer"));
-                return ts_value_make_undefined();
-            }
-            int bits = (int)bitsD;
-            // ToBigInt(argv[1]) per ECMA-262 7.1.13 — see asIntN above.
-            uint64_t nb = nanbox_from_tsvalue_ptr(argv[1]);
-            TsBigInt* src = nullptr;
-            if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "Cannot convert undefined or null to BigInt"));
-                return ts_value_make_undefined();
-            }
-            if (nanbox_is_true(nb))  src = (TsBigInt*)ts_bigint_create_int(1);
-            else if (nanbox_is_false(nb)) src = (TsBigInt*)ts_bigint_create_int(0);
-            else if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "Cannot convert a Number to a BigInt"));
-                return ts_value_make_undefined();
-            } else if (nanbox_is_ptr(nb)) {
-                void* raw = nanbox_to_ptr(nb);
-                if (raw) {
-                    uint32_t magic = *(uint32_t*)raw;
-                    if (magic == 0x42494749) {
-                        src = (TsBigInt*)raw;
-                    } else if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
-                        TsString* s = ts_ensure_flat(raw);
-                        src = (TsBigInt*)ts_bigint_create_str(s, 10);
-                    } else if (magic == 0x53594D42) {
-                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                            "Cannot convert a Symbol value to a BigInt"));
-                        return ts_value_make_undefined();
-                    }
-                }
-            }
-            if (!src) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "BigInt.asUintN: second argument must be a BigInt"));
-                return ts_value_make_undefined();
-            }
+            int bits = (int)bigint_asn_bits(argv[0]);
+            TsBigInt* src = bigint_asn_tobigint(argv[1]);
+            if (!src) return ts_value_make_undefined();  // unreachable (threw)
             if (bits == 0) return (TsValue*)ts_bigint_create_int(0);
             mp_int mod, modulus;
             mp_init(&mod); mp_init(&modulus);
