@@ -2815,11 +2815,26 @@ extern "C" {
     // std::vector of GC-pointer results is held across allocating exec calls.
     extern "C" TsValue* ts_regexp_symbol_replace_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
-        TsRegExp* re = regexp_require_this(ctx,
-            "RegExp.prototype[Symbol.replace] called on incompatible receiver");
+        extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+        extern void* ts_string_from_value(TsValue* val);
+        // ES 22.2.6.11 is GENERIC: any OBJECT receiver; global comes from the
+        // hooked flags string, lastIndex is an ordinary property op, and exec
+        // runs through RegExpExec (abrupt exec-getter completions propagate).
+        void* recvRaw = regexp_generic_receiver(ctx, "Symbol.replace");
+        if (!recvRaw) return (TsValue*)ts_value_make_undefined();
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
+        // Hooked flags coercion BEFORE any C++ locals (longjmp rule).
+        TsString* fTs = nullptr;
+        {
+            extern TsValue* ts_to_primitive(TsValue* val, int hint);
+            TsValue* fvv = ts_object_get_property(recvRaw, "flags");
+            TsValue* fprim = ts_to_primitive(
+                fvv ? fvv : (TsValue*)ts_value_make_undefined(), 2);
+            fTs = (TsString*)ts_string_from_value(fprim);
+        }
+        TsValue* liKey = ts_value_make_string(TsString::GetInterned("lastIndex"));
         icu::UnicodeString S = sTs->getUStr();
         int sLen = S.length();
         TsValue* replaceVal = (argc >= 2 && argv && argv[1]) ? argv[1]
@@ -2828,14 +2843,17 @@ extern "C" {
         icu::UnicodeString replTemplate;
         if (!functional) replTemplate = ts_regexp_tostring_arg(replaceVal)->getUStr();
 
-        bool global = re->IsGlobal();
-        if (global) re->SetLastIndex(0);
+        const char* fC = fTs ? fTs->ToUtf8() : nullptr;
+        bool global = fC && strchr(fC, 'g');
+        if (global) {
+            ts_object_set_dynamic((TsValue*)recvRaw, liKey, ts_value_make_int(0));
+        }
 
         icu::UnicodeString accumulated;
         int nextSourcePosition = 0;
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
         while (true) {
-            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+            void* result = ts_regexp_exec_observable(recvRaw, sBoxed);
             if (!result) break;
             TsString* matchedTs = ts_regexp_tostring_arg(ts_object_get_property(result, "0"));
             icu::UnicodeString matched = matchedTs->getUStr();
@@ -2886,9 +2904,17 @@ extern "C" {
                 nextSourcePosition = position + matchLen;
             }
             if (!global) break;
-            if (matchLen == 0)
-                re->SetLastIndex(ts_regexp_advance_string_index(re->GetLastIndex()));
-            if (re->GetLastIndex() > sLen + 1) break;
+            if (matchLen == 0) {
+                TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
+                int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
+                ts_object_set_dynamic((TsValue*)recvRaw, liKey,
+                    ts_value_make_int(ts_regexp_advance_string_index(li)));
+            }
+            {
+                TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
+                int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
+                if (li > sLen + 1) break;
+            }
         }
         if (nextSourcePosition < sLen)
             accumulated.append(S, nextSourcePosition, sLen - nextSourcePosition);
@@ -3035,23 +3061,84 @@ extern "C" {
     // pre-materialize all match results into an array (using a clone so the
     // receiver's lastIndex isn't mutated) and return a forward iterator over
     // them. Lazy per-next() re-exec observability is a residual.
+    // SpeciesConstructor(rx, %RegExp%) -> construct with (rx, flags), used
+    // by the generic @@split/@@matchAll. Returns the constructed RegExp, or
+    // nullptr for "use the default construction" (no custom species). NO C++
+    // locals: a custom species can ts_throw.
+    static TsRegExp* regexp_species_construct(void* recvRaw, const char* flagsC) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
+        extern void* ts_get_global_RegExp();
+        TsValue* c = ts_object_get_property(recvRaw, "constructor");
+        void* cRaw = c ? ts_value_get_object(c) : nullptr;
+        if (!cRaw || (uintptr_t)cRaw < 4096) return nullptr;
+        TsValue* sp = ts_object_get_property(cRaw, "[Symbol.species]");
+        if (!sp || ts_value_is_undefined(sp) || ts_value_is_null(sp) ||
+            !ts_is_callable((void*)sp) || (void*)sp == ts_get_global_RegExp()) {
+            return nullptr;
+        }
+        TsValue* fBoxed = (TsValue*)ts_value_make_string(TsString::Create(flagsC));
+        TsValue* args2[2] = { (TsValue*)ts_value_make_object(recvRaw), fBoxed };
+        TsValue* built = ts_new_from_constructor(sp, 2, args2);
+        void* raw = built ? ts_value_get_object(built) : nullptr;
+        if (!raw) raw = built;
+        if (raw && (uintptr_t)raw >= 4096 &&
+            *(uint32_t*)raw == 0x52454758 /*REGX*/) {
+            return (TsRegExp*)raw;
+        }
+        return nullptr;
+    }
+
     extern "C" TsValue* ts_regexp_symbol_matchAll_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
         extern TsValue* ts_create_array_iterator_pub(void* items);
-        TsRegExp* re = regexp_require_this(ctx,
-            "RegExp.prototype[Symbol.matchAll] called on incompatible receiver");
+        extern void* ts_string_from_value(TsValue* val);
+        // ES 22.2.6.9 is GENERIC: any OBJECT receiver; flags via hooked
+        // ToString(Get(rx,"flags")); the matcher comes from
+        // SpeciesConstructor(rx, %RegExp%) constructed with (rx, flags) and
+        // inherits ToLength(Get(rx,"lastIndex")).
+        void* recvRaw = regexp_generic_receiver(ctx, "Symbol.matchAll");
+        if (!recvRaw) return (TsValue*)ts_value_make_undefined();
+        bool recvIsRegExp = (*(uint32_t*)recvRaw == 0x52454758 /*REGX*/);
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
+        // Hooked flags coercion BEFORE any C++ locals (longjmp rule).
+        TsString* fTs = nullptr;
+        {
+            extern TsValue* ts_to_primitive(TsValue* val, int hint);
+            TsValue* fvv = ts_object_get_property(recvRaw, "flags");
+            TsValue* fprim = ts_to_primitive(
+                fvv ? fvv : (TsValue*)ts_value_make_undefined(), 2);
+            fTs = (TsString*)ts_string_from_value(fprim);
+        }
+        TsRegExp* matcher =
+            regexp_species_construct(recvRaw, fTs ? fTs->ToUtf8() : "");
         icu::UnicodeString S = sTs->getUStr();
         int sLen = S.length();
-        std::string flags = re->GetFlags()->ToUtf8();
+        std::string flags = fTs ? fTs->ToUtf8() : "";
         bool global = flags.find('g') != std::string::npos;
-        std::string srcU8 = re->GetSource()->ToUtf8();
-        TsRegExp* matcher = TsRegExp::Create(srcU8.c_str(), flags.c_str());
-        matcher->SetLastIndex(re->GetLastIndex());
+        if (!matcher) {
+            std::string srcU8;
+            if (recvIsRegExp) {
+                srcU8 = ((TsRegExp*)recvRaw)->GetSource()->ToUtf8();
+            } else {
+                TsValue* srcProp = ts_object_get_property(recvRaw, "source");
+                TsString* srcTs = (TsString*)ts_string_from_value(
+                    srcProp ? srcProp : (TsValue*)ts_value_make_undefined());
+                srcU8 = srcTs ? srcTs->ToUtf8() : "(?:)";
+                if (srcU8 == "undefined") srcU8 = "(?:)";
+            }
+            matcher = TsRegExp::Create(srcU8.c_str(), flags.c_str());
+        }
+        {
+            TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
+            double li = liv ? ts_to_number(liv) : 0;
+            if (li != li || li < 0) li = 0;
+            matcher->SetLastIndex((int64_t)li);
+        }
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
         void* results = ts_array_create();
         while (true) {
