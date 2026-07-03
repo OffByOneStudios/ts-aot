@@ -1256,7 +1256,14 @@ static TsValue* iter_toArray_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_forEach_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
     TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
@@ -1269,7 +1276,14 @@ static TsValue* iter_forEach_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
     TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
@@ -1285,7 +1299,14 @@ static TsValue* iter_some_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
     TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
@@ -1301,7 +1322,14 @@ static TsValue* iter_every_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     TsValue* u = ts_value_make_undefined(); int64_t i = 0;
     TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     while (true) {
@@ -1318,7 +1346,14 @@ static TsValue* iter_find_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     TsValue* nextFn = ih_get_next(it); if (!nextFn) return ts_value_make_undefined();
     TsValue* u = ts_value_make_undefined();
     TsValue* acc; int64_t i = 0;
@@ -1521,13 +1556,27 @@ static TsMap* getIterHelperPrototype() {
 static TsValue* iter_map_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     return make_iter_helper(0, it, fn, 0);
 }
 static TsValue* iter_filter_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     return make_iter_helper(1, it, fn, 0);
 }
 static TsValue* iter_take_native(void* ctx, int argc, TsValue** argv) {
@@ -1547,7 +1596,14 @@ static TsValue* iter_drop_native(void* ctx, int argc, TsValue** argv) {
 static TsValue* iter_flatMap_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    if (!iterhelper_require_callable(fn)) return ts_value_make_undefined();
+    // Argument validation CLOSES the underlying first (ES: IfAbruptCloseIterator
+    // around the GetMethod/callable check in every helper, eager and lazy).
+    if (!fn || !ts_is_callable((void*)fn)) {
+        ih_close(it);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator helper callback is not a function"));
+        return ts_value_make_undefined();
+    }
     return make_iter_helper(4, it, fn, 0);
 }
 
