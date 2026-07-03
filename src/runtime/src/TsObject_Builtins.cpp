@@ -670,6 +670,28 @@ extern "C" {
     // matching the existing behavior of resolve_array_ctx for that path
     // (which is broken for non-arrays but at least doesn't crash on
     // valid arrays).
+    // A MUTATING Array.prototype method invoked on an array-LIKE receiver
+    // operated on the materialized temp (require_array_or_throw) — the spec
+    // Sets go to the ORIGINAL object. Write the temp's elements and length
+    // back. POD frame: a setter on the original may throw.
+    extern "C" void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+    static void arraylike_writeback(TsArray* arr) {
+        if (!arr) return;
+        void* orig = arr->originalReceiver;
+        if (!orig || orig == (void*)arr) return;
+        if ((uintptr_t)orig < 0x1000 || (uintptr_t)orig >= 0x0000800000000000ULL) return;
+        uint32_t m0 = *(uint32_t*)orig;
+        if (m0 == 0x53545247 || m0 == TsConsString::MAGIC) return;  // string receiver: read-only
+        TsValue* origBoxed = ts_value_make_object(orig);
+        int64_t n = (int64_t)arr->Length();
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* v = arr->GetElementBoxed((size_t)i);
+            ts_object_set_dynamic(origBoxed, ts_value_make_int(i), v);
+        }
+        TsValue* lk = ts_value_make_string(TsString::GetInterned("length"));
+        ts_object_set_dynamic(origBoxed, lk, ts_value_make_int(n));
+    }
+
     static TsArray* require_array_or_throw(void* ctx, const char* methodName) {
         TsArray* arr = resolve_array_ctx(ctx);
         if (arr) return arr;
@@ -959,6 +981,7 @@ extern "C" {
         for (int i = 0; i < argc; i++) {
             ts_array_push(arr, (void*)argv[i]);
         }
+        arraylike_writeback(arr);
         return ts_value_make_int(arr->Length());
     }
     TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
@@ -1433,12 +1456,14 @@ extern "C" {
         if (!arr) return ts_value_make_undefined();
         void* comparator = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* result = ts_array_sort(arr, comparator);
+        arraylike_writeback(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "reverse");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_reverse(arr);
+        arraylike_writeback(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
@@ -1541,6 +1566,7 @@ extern "C" {
         for (int i = argc - 1; i >= 0; i--) {
             ts_array_unshift(arr, (void*)argv[i]);
         }
+        arraylike_writeback(arr);
         return ts_value_make_int(arr->Length());
     }
     TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv) {
@@ -1551,6 +1577,7 @@ extern "C" {
         int64_t start = (argc >= 2 && argv) ? toInteger(argv[1], 0) : 0;
         int64_t end = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_fill(arr, value, start, end);
+        arraylike_writeback(arr);
         return ts_value_make_object(arr);
     }
     TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv) {
@@ -1637,6 +1664,7 @@ extern "C" {
         int64_t start  = (argc >= 2 && argv) ? toInteger(argv[1], 0) : 0;
         int64_t end    = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_copyWithin(arr, target, start, end);
+        arraylike_writeback(arr);
         return ts_value_make_object(arr);
     }
     TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
