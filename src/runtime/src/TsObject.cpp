@@ -658,6 +658,12 @@ TsFunction* ts_extract_function(TsValue* boxedFunc);
 static TsValue* invoke_accessor_getter(TsValue* getterFunc, TsValue* thisObj) {
     TsClosure* gc = ts_extract_closure(getterFunc);
     if (!gc) { TsFunction* gf = ts_extract_function(getterFunc); if (gf) gc = ts_funcptr_as_closure(gf->funcPtr); }
+    if (getenv("TS_ACC_TRACE")) {
+        fprintf(stderr, "[ACC] getter=%p gc=%p ncap=%d is_method=%d this=%p\n",
+                (void*)getterFunc, (void*)gc, gc ? (int)gc->num_captures : -1,
+                gc ? (int)gc->is_method : -1, (void*)thisObj);
+        fflush(stderr);
+    }
     if (!gc || gc->num_captures == 0) {
         // Non-capturing getter: the compiled body takes the receiver as its first
         // physical parameter (this is exactly the pre-existing behavior, so these
@@ -5386,6 +5392,34 @@ void* ts_create_arguments_from_params(
     void ts_object_set_property(void* obj, void* key, void* value) {
         // Forward to ts_object_set_dynamic after casting
         ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
+    }
+
+    // Install a COMPUTED-key accessor on an object literal:
+    // { get [expr]() {...} } / { set [expr](v) {...} }. Same storage
+    // convention as class computed accessors (install_computed_accessor,
+    // defined below): "__getter_<canonical-key>"/"__setter_<...>" with the
+    // method descriptor, so the dynamic accessor dispatch invokes it with
+    // the owning object as `this`.
+    static void install_computed_accessor(TsValue* recv, TsValue* key,
+                                          TsValue* closure, const char* prefix);
+    void ts_object_install_accessor_dynamic(TsValue* obj, TsValue* key,
+                                            TsValue* fn, int64_t isSetter) {
+        if (!fn) return;
+        // The static-name accessor install wraps the closure in a TsFunction
+        // (ts_value_make_function) — whose invocation path passes the RECEIVER
+        // as the getter body's first physical param. A bare closure instead
+        // takes the closure-first convention and the body reads the closure as
+        // `this`. Wrap identically so both installs dispatch the same way.
+        {
+            uint64_t nb = nanbox_from_tsvalue_ptr(fn);
+            void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : nullptr;
+            if (raw && *(uint32_t*)((char*)raw + 16) == 0x434C5352 /*CLSR*/) {
+                extern TsValue* ts_value_make_function(void* closure, void* ctx);
+                fn = ts_value_make_function(fn, nullptr);
+            }
+        }
+        install_computed_accessor(obj, key, fn,
+                                  isSetter ? "__setter_" : "__getter_");
     }
 
     // ECMA-262 7.4.8 IteratorClose: on abrupt loop completion (break / early

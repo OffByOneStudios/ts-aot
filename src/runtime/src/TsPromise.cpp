@@ -814,6 +814,33 @@ TsValue* ts_agen_get_async_iterator(TsValue* iterable) {
     }
 }
 
+// Delegate-scoped Await of a yield* step result. Spec Await reads `then`
+// exactly ONCE (inside promise resolution); ts_promise_await's thenable
+// gate reads it once for the callable CHECK and resolve_internal reads it
+// again — a double "get then" the yield-star-async logs catch. Route
+// plain objects straight through wrap+resolve_internal (its assimilation
+// is the single observable read).
+static TsValue* ts_agen_await_result(TsValue* res) {
+    extern TsValue* ts_promise_await(TsValue* promise);
+    void ts_promise_resolve_internal(TsPromise* promise, TsValue* value);
+    TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+    if (rv.type == ValueType::PROMISE_PTR) {
+        return ts_promise_await(res);
+    }
+    if (rv.type == ValueType::OBJECT_PTR && rv.ptr_val &&
+        (uintptr_t)rv.ptr_val > 0x1000) {
+        void* raw = rv.ptr_val;
+        uint32_t magic0 = *(uint32_t*)raw;
+        uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+        if (magic0 == 0x464C4154 /* FLAT */ || magic16 == TsMap::MAGIC) {
+            TsPromise* wrap = ts_promise_create();
+            ts_promise_resolve_internal(wrap, res);
+            return ts_promise_await(ts_value_make_object(wrap));
+        }
+    }
+    return res;
+}
+
 // Unwrap an IteratorRecord wrapper produced by ts_agen_get_async_iterator.
 // Returns true and fills iterOut/nextOut when `iterator` is such a record.
 static bool agen_unwrap_iter_record(TsValue* iterator, TsValue** iterOut,
@@ -891,14 +918,10 @@ TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* se
     TsValue* res = ts_call_with_this_1(
         nextFn, realIter, sentArg ? sentArg : ts_value_make_undefined());
 
-    // Await(result): promises AND plain-object thenables assimilate
-    // (ts_promise_await reads `then` once — the observable get — and calls
-    // it with the two capability functions). A rejection ts_throws inside
-    // the caller's impl frame.
-    TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
-    if (rv.type == ValueType::PROMISE_PTR || rv.type == ValueType::OBJECT_PTR) {
-        res = ts_promise_await(res);
-    }
+    // Await(result): promises AND plain-object thenables assimilate with a
+    // SINGLE observable `then` read (ts_agen_await_result). A rejection
+    // ts_throws inside the caller's impl frame.
+    res = ts_agen_await_result(res);
 
     void* resRaw = res ? ts_value_get_object(res) : nullptr;
     if (!resRaw) {
@@ -993,11 +1016,13 @@ TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
         return ts_value_make_undefined();
     }
 
-    // innerResult = ? Call(method, iterator, [arg]); Await it (async kind).
+    // innerResult = ? Call(method, iterator, [received.[[Value]]]) — the
+    // spec argument list is ALWAYS one element (undefined when absent); the
+    // yield-star-async-throw log asserts args.length 1.
     TsValue* res;
     if (hasMethod) {
-        res = arg ? ts_call_with_this_1(method, iterator, arg)
-                  : ts_call_with_this_0(method, iterator);
+        res = ts_call_with_this_1(method, iterator,
+                                  arg ? arg : ts_value_make_undefined());
     } else if (ts_is_unchecked<TsGenerator>(raw)) {
         // Sync generator delegate built-ins: Generator_throw ts_throws an
         // uncaught exception (never returns); Generator_return produces the
@@ -1011,10 +1036,7 @@ TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
         res = (mode == AGEN_MODE_THROW) ? AsyncGenerator_throw(iterator, arg)
                                         : AsyncGenerator_return(iterator, arg);
     }
-    TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
-    if (rv.type == ValueType::PROMISE_PTR) {
-        res = ts_promise_await(res);
-    }
+    res = ts_agen_await_result(res);
     void* resRaw = res ? ts_value_get_object(res) : nullptr;
     if (!resRaw) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -1022,11 +1044,18 @@ TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
         return ts_value_make_undefined();
     }
 
-    if (mode == AGEN_MODE_RETURN && ts_iterator_result_done(res)) {
+    // IteratorComplete then IteratorValue — each is ONE observable read (the
+    // yield-star-async-return log asserts exactly "get return done (1)" then
+    // "get return value (1)"). The lowered delegation loop re-checks done and
+    // re-reads value on whatever we return, so hand it a FRESH plain result
+    // object; the user's getters must not fire twice.
+    bool resDone = ts_iterator_result_done(res);
+    TsValue* value = ts_iterator_result_value(res);
+
+    if (mode == AGEN_MODE_RETURN && resDone) {
         // Return-completion with done: the GENERATOR completes with the
         // result's value (finally unwinding is a future stage, matching the
         // forced-return path).
-        TsValue* value = ts_iterator_result_value(res);
         TsValue vv = value ? nanbox_to_tagged(value) : TsValue();
         if (vv.type == ValueType::PROMISE_PTR) {
             value = ts_promise_await(value);
@@ -1040,7 +1069,8 @@ TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
     // the lowered done-check: done -> the yield* completes with the value and
     // the body continues; not done -> the value is yielded (awaited by the
     // yield path) and the generator stays suspended inside the yield*.
-    return res;
+    return create_generator_result(
+        value ? nanbox_to_tagged(value) : TsValue(), resDone);
 }
 
 TsValue* ts_async_generator_yield(TsValue* value) {
