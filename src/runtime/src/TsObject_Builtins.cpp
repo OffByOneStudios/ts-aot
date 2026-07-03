@@ -2597,6 +2597,18 @@ extern "C" {
             }
             return robj;
         }
+        // RegExpBuiltinExec requires the [[RegExpMatcher]] internal slot --
+        // a generic receiver without a callable `exec` is a TypeError, not
+        // a blind cast into RegExp_exec.
+        {
+            uintptr_t a = (uintptr_t)rx;
+            if (!rx || a < 4096 || (a >> 48) != 0 ||
+                *(uint32_t*)rx != 0x52454758 /* REGX */) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "RegExpExec: receiver is not a RegExp and has no callable exec"));
+                return nullptr;
+            }
+        }
         return RegExp_exec(rx, sBoxed);  // RegExpBuiltinExec
     }
 
@@ -2659,32 +2671,56 @@ extern "C" {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
-        TsRegExp* re = regexp_require_this(ctx,
-            "RegExp.prototype[Symbol.match] called on incompatible receiver");
+        extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+        // ES 22.2.6.8 is GENERIC: any OBJECT receiver works. `flags` and
+        // `lastIndex` are ordinary property operations and exec runs through
+        // RegExpExec, so user getters (and their abrupt completions) are
+        // observable in spec order (g-get-exec-err: lastIndex is set to 0
+        // BEFORE the throwing `exec` getter propagates).
+        void* recv = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+        if (!recv) recv = ctx;
+        uintptr_t ra = (uintptr_t)recv;
+        if (!recv || ra < 4096 || (ra >> 48) != 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "RegExp.prototype[Symbol.match] called on incompatible receiver"));
+            return (TsValue*)ts_value_make_undefined();
+        }
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sStr = ts_regexp_tostring_arg(sv);
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sStr);
-        if (!re->IsGlobal()) {
-            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+        TsValue* fv = ts_object_get_property(recv, "flags");
+        TsString* fStr = (TsString*)ts_string_from_value(fv);
+        const char* fC = fStr ? fStr->ToUtf8() : nullptr;
+        bool global = fC && strchr(fC, 'g');
+        if (!global) {
+            void* result = ts_regexp_exec_observable(recv, sBoxed);
             return result ? (TsValue*)ts_value_make_object(result)
                           : (TsValue*)ts_value_make_null();
         }
-        re->SetLastIndex(0);
+        TsValue* liKey = ts_value_make_string(TsString::GetInterned("lastIndex"));
+        ts_object_set_dynamic((TsValue*)recv, liKey, ts_value_make_int(0));
         void* arr = ts_array_create();
         int64_t sLen = sStr->Length();
         int n = 0;
         while (true) {
-            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+            void* result = ts_regexp_exec_observable(recv, sBoxed);
             if (!result) break;
             TsValue* m0 = ts_object_get_property(result, "0");
             TsString* mStr = (TsString*)ts_string_from_value(m0);  // ToString
             ts_array_push(arr, (void*)ts_value_make_string(mStr));
             n++;
             if (mStr->Length() == 0) {
-                re->SetLastIndex(ts_regexp_advance_string_index(re->GetLastIndex()));
+                TsValue* liv = ts_object_get_property(recv, "lastIndex");
+                int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
+                ts_object_set_dynamic((TsValue*)recv, liKey,
+                    ts_value_make_int(ts_regexp_advance_string_index(li)));
             }
-            if (re->GetLastIndex() > sLen + 1) break;  // termination safety
+            {
+                TsValue* liv = ts_object_get_property(recv, "lastIndex");
+                int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
+                if (li > sLen + 1 || n > (int)sLen + 2) break;  // termination safety
+            }
         }
         if (n == 0) return (TsValue*)ts_value_make_null();
         return (TsValue*)ts_value_make_object(arr);
