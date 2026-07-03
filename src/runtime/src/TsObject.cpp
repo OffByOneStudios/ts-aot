@@ -5619,22 +5619,89 @@ void* ts_create_arguments_from_params(
             uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
             if (magic16 == 0x54415252) { // TsTypedArray::MAGIC
                 TsTypedArray* ta = (TsTypedArray*)rawObj;
-                if (idx >= 0 && (size_t)idx < ta->GetLength()) {
-                    TypedArrayType tt = ta->GetType();
-                    if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
-                        // BigInt store: write the raw 64-bit two's-complement, no double.
-                        int64_t v = (value.type == ValueType::BIGINT_PTR && value.ptr_val)
-                                        ? ts_bigint_to_i64(value.ptr_val) : 0;
-                        uint8_t* data = ta->GetData();
-                        if (data) ((int64_t*)data)[(size_t)idx] = v;
+                // ES 10.4.5.16 IntegerIndexedElementSet: the value CONVERSION
+                // runs first (valueOf exactly once; BigInt/number mismatches
+                // TypeError), then an invalid index makes the write a silent
+                // no-op — never an ordinary named property.
+                TypedArrayType tt = ta->GetType();
+                bool isBigTA = (tt == TypedArrayType::BigInt64 ||
+                                tt == TypedArrayType::BigUint64);
+                int64_t bigv = 0; double dval = 0;
+                if (isBigTA) {
+                    if (value.type == ValueType::BIGINT_PTR && value.ptr_val) {
+                        bigv = ts_bigint_to_i64(value.ptr_val);
+                    } else if (value.type == ValueType::NUMBER_INT ||
+                               value.type == ValueType::NUMBER_DBL) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot convert a Number to a BigInt"));
+                        return value;
+                    }
+                    // other types: legacy zero-fill (full ToBigInt is #34)
+                } else {
+                    if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
+                    else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+                    else if (value.type == ValueType::BIGINT_PTR) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot convert a BigInt value to a number"));
+                        return value;
                     } else {
-                        double dval = 0;
-                        if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
-                        else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+                        dval = ts_to_number(nanbox_from_tagged(value));  // valueOf; throws on Symbol
+                    }
+                }
+                if (idx >= 0 && (size_t)idx < ta->GetLength()) {
+                    if (isBigTA) {
+                        uint8_t* data = ta->GetData();
+                        if (data) ((int64_t*)data)[(size_t)idx] = bigv;
+                    } else {
                         ta->Set((size_t)idx, dval);
                     }
                 }
                 return value;
+            }
+        }
+        // TypedArray with a NON-integer-shaped key: canonical numeric index
+        // strings ("-0", "1.1", "-1", "1e2", "NaN", …) must behave as the
+        // exotic [[Set]] — conversion side effects run, then silent no-op —
+        // NOT become ordinary named properties. Non-canonical keys ("1.0",
+        // names, symbols) fall through to the ordinary path.
+        {
+            uint32_t taMagic16 = ((uintptr_t)rawObj >= 4096)
+                ? *(uint32_t*)((char*)rawObj + 16) : 0;
+            if (taMagic16 == 0x54415252) {
+                extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+                int cls = ts_ta_classify_index_c(rawObj, nanbox_from_tagged(key));
+                if (cls != 0) {
+                    TsTypedArray* ta = (TsTypedArray*)rawObj;
+                    TypedArrayType tt = ta->GetType();
+                    bool isBigTA = (tt == TypedArrayType::BigInt64 ||
+                                    tt == TypedArrayType::BigUint64);
+                    // Conversion first (valueOf runs exactly once; mismatched
+                    // BigInt/number TypeErrors) — then invalid index = no-op.
+                    double dval = 0;
+                    if (!isBigTA) {
+                        if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
+                        else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+                        else if (value.type == ValueType::BIGINT_PTR) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "Cannot convert a BigInt value to a number"));
+                            return value;
+                        } else {
+                            dval = ts_to_number(nanbox_from_tagged(value));
+                        }
+                    }
+                    if (cls == 1 && !isBigTA) {
+                        double kd = -1;
+                        if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+                            const char* ks = ((TsString*)key.ptr_val)->ToUtf8();
+                            if (ks) kd = strtod(ks, nullptr);
+                        } else if (key.type == ValueType::NUMBER_DBL) {
+                            kd = key.d_val;
+                        }
+                        if (kd >= 0 && (size_t)kd < ta->GetLength())
+                            ta->Set((size_t)kd, dval);
+                    }
+                    return value;  // cls==2: exotic silent no-op
+                }
             }
         }
 
@@ -6457,6 +6524,17 @@ void* ts_create_arguments_from_params(
 
         // Check magic to determine object type
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
+
+        // ES 10.4.5.5 [[Delete]] for integer-indexed exotic objects: a VALID
+        // numeric index cannot be deleted (false); an invalid one (OOB,
+        // detached, -0, fractional) "deletes" successfully (true). Non-index
+        // keys (symbols, names, non-canonical strings) are ordinary — we have
+        // no persistent TA named-prop storage on this path, so report true.
+        if (magic == 0x54415252 /* TARR */) {
+            extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+            int cls = ts_ta_classify_index_c(rawMap, (TsValue*)keyArg);
+            return (cls == 1) ? 0 : 1;
+        }
 
         // TsFunction/TsClosure: delete from their properties TsMap,
         // honoring the configurable attribute per ES spec.

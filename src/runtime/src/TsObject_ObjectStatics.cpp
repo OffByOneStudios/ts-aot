@@ -1470,6 +1470,109 @@ extern "C" {
     // descriptor object into a plain own-fields TsMap first. A non-object
     // descriptor throws TypeError.
     extern "C" bool ts_object_has_property(void* objArg, void* keyArg);
+    // ES 7.1.21 CanonicalNumericIndexString + classification of a property
+    // key against a TypedArray. Returns:
+    //   0 — key is not a canonical numeric index (symbol, "1.0", "01", "+1",
+    //       plain names) → caller takes the ORDINARY property path
+    //   1 — canonical numeric index, VALID for this TA (integral, not -0,
+    //       0 <= i < length, not detached); *outIdx set
+    //   2 — canonical numeric index but INVALID (OOB, -0, fractional,
+    //       NaN/Infinity, detached)
+    static int ta_classify_index(TsTypedArray* ta, TsValue* prop, size_t* outIdx) {
+        uint64_t knb = nanbox_from_tsvalue_ptr(prop);
+        double d;
+        bool haveNum = false;
+        if (nanbox_is_int32(knb)) { d = (double)nanbox_to_int32(knb); haveNum = true; }
+        else if (nanbox_is_double(knb)) { d = nanbox_to_double(knb); haveNum = true; }
+        else if (nanbox_is_ptr(knb)) {
+            void* kraw = nanbox_to_ptr(knb);
+            uint32_t m0 = (kraw && (uintptr_t)kraw >= 4096) ? *(uint32_t*)kraw : 0;
+            if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC) {
+                const char* ks = ((TsString*)kraw)->ToUtf8();
+                if (!ks || !*ks) return 0;
+                if (strcmp(ks, "-0") == 0) { d = -0.0; haveNum = true; }
+                else {
+                    char* end = nullptr;
+                    double parsed = strtod(ks, &end);
+                    if (end && *end == '\0') {
+                        // Canonical iff ToString(parsed) round-trips exactly
+                        // ("1.0" -> "1" != "1.0" → not canonical; "1.5" is).
+                        TsString* back = TsString::FromDouble(parsed);
+                        const char* bs = back ? back->ToUtf8() : nullptr;
+                        if (bs && strcmp(bs, ks) == 0) { d = parsed; haveNum = true; }
+                    } else if (strcmp(ks, "NaN") == 0 || strcmp(ks, "Infinity") == 0 ||
+                               strcmp(ks, "-Infinity") == 0) {
+                        d = (ks[0] == 'N') ? std::numeric_limits<double>::quiet_NaN()
+                            : (ks[0] == '-') ? -std::numeric_limits<double>::infinity()
+                                             : std::numeric_limits<double>::infinity();
+                        haveNum = true;
+                    }
+                }
+            }
+        }
+        if (!haveNum) return 0;
+        // IsValidIntegerIndex: integral, not -0, in [0, length), live buffer.
+        if (d != d || std::isinf(d)) return 2;
+        if (d != std::trunc(d)) return 2;
+        if (d == 0 && std::signbit(d)) return 2;
+        if (d < 0) return 2;
+        if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) return 2;
+        if (d >= (double)ta->GetLength()) return 2;
+        if (outIdx) *outIdx = (size_t)d;
+        return 1;
+    }
+
+    // extern shim: key classification for other TUs ([[Delete]]/[[Has]] in
+    // TsObject.cpp). Same return codes as ta_classify_index.
+    extern "C" int ts_ta_classify_index_c(void* taRaw, TsValue* prop) {
+        return ta_classify_index((TsTypedArray*)taRaw, prop, nullptr);
+    }
+
+    // ES 10.4.5.3 [[DefineOwnProperty]] for integer-indexed exotic objects.
+    // `descriptor` must already be normalized to a TsMap. Returns:
+    //   -1 — key is not a canonical numeric index (caller: ordinary define)
+    //    0 — define refused (Object.defineProperty throws, Reflect returns false)
+    //    1 — define succeeded
+    extern "C" int ts_ta_define_own_property(void* taRaw, TsValue* prop,
+                                             TsValue* descriptor) {
+        TsTypedArray* ta = (TsTypedArray*)taRaw;
+        size_t idx = 0;
+        int cls = ta_classify_index(ta, prop, &idx);
+        if (cls == 0) return -1;
+        if (cls == 2) return 0;   // invalid index → false
+        void* dRaw = ts_nanbox_safe_unbox(descriptor);
+        TsMap* dm = (dRaw && *(uint32_t*)((char*)dRaw + 16) == 0x4D415053)
+                        ? (TsMap*)dRaw : nullptr;
+        if (!dm) return 1;        // no recognizable fields → nothing to refuse
+        auto field = [&](const char* name, TsValue* out) -> bool {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(name);
+            if (!dm->Has(k)) return false;
+            if (out) *out = dm->Get(k);
+            return true;
+        };
+        TsValue v;
+        // Steps iii-vi: configurable:false, enumerable:false, any accessor
+        // field, writable:false → false. Absent fields are fine (indices are
+        // configurable+enumerable+writable per ES2021).
+        if (field("configurable", &v) && !ts_value_to_bool(nanbox_from_tagged(v))) return 0;
+        if (field("enumerable", &v) && !ts_value_to_bool(nanbox_from_tagged(v))) return 0;
+        if (field("get", nullptr) || field("set", nullptr)) return 0;
+        if (field("writable", &v) && !ts_value_to_bool(nanbox_from_tagged(v))) return 0;
+        // Step vii: IntegerIndexedElementSet — conversion runs user code
+        // (valueOf) which may detach the buffer; a now-invalid index is a
+        // silent success per spec.
+        if (field("value", &v)) {
+            TsValue* boxedVal = nanbox_from_tagged(v);
+            double num = ts_to_number(boxedVal);   // throws on Symbol / poisoned valueOf
+            if (!ta->IsDetachedBuffer() && !ta->IsOutOfBounds() &&
+                idx < ta->GetLength()) {
+                ta->Set(idx, num);
+            }
+        }
+        return 1;
+    }
+
     static TsValue* ts_descriptor_normalize(TsValue* descriptor) {
         uint64_t nb = descriptor ? nanbox_from_tsvalue_ptr(descriptor) : 0;
         void* raw = (descriptor && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
@@ -1582,6 +1685,20 @@ extern "C" {
         if (!rawPtr) {
             // Unknown raw pointer (native object, exotic) — legacy no-op.
             return obj;
+        }
+
+        // ES 10.4.5.3: integer-indexed exotic [[DefineOwnProperty]]. A refusal
+        // is a TypeError here (DefinePropertyOrThrow); non-index keys fall
+        // through to the ordinary paths below.
+        if ((uintptr_t)rawPtr >= 4096 &&
+            *(uint32_t*)((char*)rawPtr + 16) == 0x54415252 /* TARR */) {
+            int r = ts_ta_define_own_property(rawPtr, prop, descriptor);
+            if (r == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot define property on a TypedArray index"));
+                return ts_value_make_undefined();
+            }
+            if (r == 1) return obj;
         }
 
         // For flat objects, use the overflow TsMap directly (creating if
