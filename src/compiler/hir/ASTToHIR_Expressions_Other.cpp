@@ -949,6 +949,14 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         // If not found in scope, check the dynamic this context
         // (set by Function.prototype.call/apply)
         lastValue_ = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+        // OrdinaryCallBindThis: a SLOPPY function coerces undefined/null
+        // `this` to globalThis (TypedArray callbacks, fn.call(null), ...).
+        // strictCode_ is per-function (directive-prologue scan), so strict
+        // callbacks keep the raw undefined.
+        if (!strictCode_) {
+            lastValue_ = builder_.createCall("ts_this_coerce_sloppy",
+                                             {lastValue_}, HIRType::makeAny());
+        }
         return;
     }
 
