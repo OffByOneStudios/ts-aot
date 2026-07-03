@@ -796,7 +796,42 @@ TsValue* ts_agen_get_async_iterator(TsValue* iterable) {
         return ts_value_make_undefined();
     }
 
-    return iter;
+    // IteratorRecord: the spec caches [[NextMethod]] at GetIterator — a
+    // per-step re-fetch of `next` is OBSERVABLE (the yield-star-async-next
+    // log counts exactly one "get next"). Wrap {iterator, next} in a small
+    // map under hidden '' keys (enumeration-invisible); delegate_step
+    // and delegate_resume unwrap it.
+    {
+        TsMap* rec = TsMap::Create();
+        TsValue ik; ik.type = ValueType::STRING_PTR;
+        ik.ptr_val = TsString::GetInterned("it");
+        TsValue iv2; iv2.type = ValueType::OBJECT_PTR; iv2.ptr_val = iterRaw;
+        rec->Set(ik, iv2);
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("nx");
+        rec->Set(nk, nanbox_to_tagged(nextFn));
+        return ts_value_make_object(rec);
+    }
+}
+
+// Unwrap an IteratorRecord wrapper produced by ts_agen_get_async_iterator.
+// Returns true and fills iterOut/nextOut when `iterator` is such a record.
+static bool agen_unwrap_iter_record(TsValue* iterator, TsValue** iterOut,
+                                    TsValue** nextOut) {
+    void* raw = iterator ? ts_value_get_object(iterator) : nullptr;
+    if (!raw || (uintptr_t)raw < 4096) return false;
+    if (*(uint32_t*)((char*)raw + 16) != TsMap::MAGIC) return false;
+    TsMap* m = (TsMap*)raw;
+    TsValue ik; ik.type = ValueType::STRING_PTR;
+    ik.ptr_val = TsString::GetInterned("it");
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("nx");
+    if (!m->Has(ik) || !m->Has(nk)) return false;
+    TsValue iv2 = m->Get(ik);
+    TsValue nv = m->Get(nk);
+    *iterOut = ts_value_make_object(iv2.ptr_val);
+    *nextOut = nanbox_from_tagged(nv);
+    return true;
 }
 
 // ONE step of suspendable yield* delegation (GEN-001 Stage 4b): performs
@@ -834,7 +869,13 @@ TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* se
             elem ? nanbox_to_tagged(elem) : TsValue(), false);
     }
 
-    TsValue* nextFn = ts_object_get_property(raw, "next");
+    TsValue* nextFn = nullptr;
+    TsValue* realIter = iterator;
+    if (agen_unwrap_iter_record(iterator, &realIter, &nextFn)) {
+        raw = ts_value_get_object(realIter);
+    } else {
+        nextFn = ts_object_get_property(raw, "next");
+    }
     // Only reject definitively-absent next; some runtime iterator shapes
     // carry callables that evade the magic check, and a non-callable still
     // surfaces as TypeError via the result-not-object check below.
@@ -844,15 +885,18 @@ TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* se
         return ts_value_make_undefined();
     }
 
-    TsValue* res = sentArg
-        ? ts_call_with_this_1(nextFn, iterator, sentArg)
-        : ts_call_with_this_0(nextFn, iterator);
+    // IteratorNext always passes exactly ONE argument — undefined for the
+    // first resume (the yield-star-async-next log asserts args.length 1,
+    // args[0] undefined).
+    TsValue* res = ts_call_with_this_1(
+        nextFn, realIter, sentArg ? sentArg : ts_value_make_undefined());
 
-    // Async iterators return a promise of the result object: await it. A
-    // rejection ts_throws inside the caller's impl frame (matching the eager
-    // drain's ts_promise_await points).
+    // Await(result): promises AND plain-object thenables assimilate
+    // (ts_promise_await reads `then` once — the observable get — and calls
+    // it with the two capability functions). A rejection ts_throws inside
+    // the caller's impl frame.
     TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
-    if (rv.type == ValueType::PROMISE_PTR) {
+    if (rv.type == ValueType::PROMISE_PTR || rv.type == ValueType::OBJECT_PTR) {
         res = ts_promise_await(res);
     }
 
@@ -881,12 +925,23 @@ TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* se
 // pop-handlers + ret-void suspend path. Protocol violations ts_throw (the
 // caller re-armed the enclosing user try handlers before calling, so the
 // throw is catchable; otherwise the impl barrier rejects the request).
+static bool agen_unwrap_iter_record(TsValue* iterator, TsValue** iterOut,
+                                    TsValue** nextOut);
 TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
                                  int mode, TsValue* arg) {
     extern TsValue* ts_object_get_property(void* o, const char* k);
     extern TsValue* ts_promise_await(TsValue* promise);
 
     void* raw = iterator ? ts_value_get_object(iterator) : nullptr;
+    // Unwrap the IteratorRecord wrapper so return/throw reads hit the REAL
+    // delegate (the record itself has no such methods).
+    {
+        TsValue* realIter = nullptr; TsValue* cachedNext = nullptr;
+        if (agen_unwrap_iter_record(iterator, &realIter, &cachedNext)) {
+            iterator = realIter;
+            raw = ts_value_get_object(iterator);
+        }
+    }
     // Legacy plain-TsArray "iterator-likes" (see ts_agen_delegate_step) carry
     // no throw/return methods.
     bool isLegacyArray = raw && *(uint32_t*)raw == 0x41525259; // "ARRY"
