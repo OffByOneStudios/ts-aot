@@ -116,13 +116,20 @@ TsValue* TsGenerator::next(TsValue* value) {
     if (ctx->thisValue) {
         ts_set_call_this(ctx->thisValue);
     }
+    // Assume completion BEFORE resuming: a THROW inside the body longjmps
+    // straight past this frame, and the generator must read as "completed"
+    // afterwards (ES 27.5.3.3: resuming a completed generator returns
+    // {value: undefined, done: true} — previously the impl was re-driven
+    // and RE-THREW the same error; the class/dstr *-step-err family calls
+    // iter.next() after catching and expects a quiet done).
+    done = true;
     ctx->resumeFn(ctx);
     ts_set_call_this(savedThis);
 
     if (ctx->yielded) {
+        done = false;  // suspended at a yield — still live
         return create_generator_result(ctx->yieldedValue, false);
     } else {
-        done = true;
         return create_generator_result(ctx->yieldedValue, true);
     }
 }
