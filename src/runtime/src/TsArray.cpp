@@ -1761,13 +1761,29 @@ extern "C" {
             if (end < 0) end = std::max<int64_t>(len + end, 0);
             if (start > len) start = len;
             if (end > len) end = len;
-            if (end <= start) {
-                return TsTypedArray::Create(0, ta->GetElementSize(), false, ta->GetType());
+            size_t count = (size_t)(end > start ? end - start : 0);
+            // TypedArraySpeciesCreate (22.2.4.7): honors an own/inherited
+            // @@species / .constructor — a defineProperty'd constructor
+            // accessor must be read exactly once (speciesctor-get-ctor).
+            extern void* ts_typed_array_species_alloc(void* receiver, int64_t length);
+            TsTypedArray* result =
+                (TsTypedArray*)ts_typed_array_species_alloc((void*)ta, (int64_t)count);
+            if (!result) return nullptr;  // TypeError already thrown
+            if (count > 0) {
+                if (result->GetType() == ta->GetType() &&
+                    result->GetLength() >= count && result->GetData()) {
+                    uint8_t* srcData = ta->GetData() + (size_t)start * ta->GetElementSize();
+                    memcpy(result->GetData(), srcData, count * ta->GetElementSize());
+                } else {
+                    // Different species element type: element-wise copy.
+                    extern TsValue* ts_ta_get_boxed(TsTypedArray* ta, size_t index);
+                    extern void ts_ta_store_value(void* taRaw, size_t i, TsValue* v);
+                    size_t n = std::min(count, result->GetLength());
+                    for (size_t i = 0; i < n; i++)
+                        ts_ta_store_value((void*)result, i,
+                                          ts_ta_get_boxed(ta, (size_t)start + i));
+                }
             }
-            size_t count = (size_t)(end - start);
-            TsTypedArray* result = TsTypedArray::Create(count, ta->GetElementSize(), false, ta->GetType());
-            uint8_t* srcData = ta->GetData() + (size_t)start * ta->GetElementSize();
-            memcpy(result->GetData(), srcData, count * ta->GetElementSize());
             return result;
         }
         void* result = ((TsArray*)arr)->Slice(start, end);

@@ -2248,6 +2248,31 @@ void* ts_create_arguments_from_params(
             // matching this instance's element type. Required by
             // SpeciesConstructor's default-fallback path
             // (`O.constructor[@@species] ?? O.constructor`).
+            // An OWN "constructor" (defineProperty'd data value or accessor —
+            // stored in the native-object side map) takes precedence: the
+            // speciesctor-get-ctor tests count exactly one accessor read.
+            if (strcmp(keyStr, "constructor") == 0) {
+                auto it = g_native_object_props.find((void*)ta);
+                if (it != g_native_object_props.end() && it->second) {
+                    TsMap* props = it->second;
+                    TsValue gk; gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned("__getter_constructor");
+                    if (props->Has(gk)) {
+                        TsValue gv = props->Get(gk);
+                        if (gv.type == ValueType::FUNCTION_PTR ||
+                            gv.type == ValueType::OBJECT_PTR) {
+                            TsValue* fn = ts_value_make_object(gv.ptr_val);
+                            TsValue* recv = ts_value_make_object((void*)ta);
+                            return ts_function_call_with_this(fn, recv, 0, nullptr);
+                        }
+                    }
+                    TsValue dk; dk.type = ValueType::STRING_PTR;
+                    dk.ptr_val = TsString::GetInterned("constructor");
+                    if (props->Has(dk)) {
+                        return nanbox_from_tagged(props->Get(dk));
+                    }
+                }
+            }
             if (strcmp(keyStr, "constructor") == 0) {
                 extern void* ts_get_global_Int8Array();
                 extern void* ts_get_global_Uint8Array();
