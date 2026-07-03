@@ -1900,6 +1900,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // path (boxed string)
             .build());
 
+    reg.registerLowering("ts_module_dynamic_import",
+        lowering("ts_module_dynamic_import")
+            .returnsPtr()      // boxed Promise
+            .ptrArg()          // specifier (boxed, any expression)
+            .ptrArg()          // importing module path (boxed string)
+            .build());
+
     reg.registerLowering("ts_dynamic_import",
         lowering("ts_dynamic_import")
             .returnsPtr()      // Returns boxed Promise

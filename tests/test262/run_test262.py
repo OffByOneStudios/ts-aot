@@ -674,11 +674,15 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
             import shutil
             for fx in test_path.parent.glob("*_FIXTURE.js"):
                 dst = out_dir / fx.name
-                if not dst.exists():
-                    try:
+                # Also refresh a STALE copy (a size mismatch means an old run
+                # staged something else under this name — e.g. the April runs
+                # that compiled fixtures as harness'd tests; those poisoned
+                # module resolution for every later import of the fixture).
+                try:
+                    if not dst.exists() or dst.stat().st_size != fx.stat().st_size:
                         shutil.copyfile(fx, dst)
-                    except OSError:
-                        pass  # concurrent copy of the same fixture
+                except OSError:
+                    pass  # concurrent copy of the same fixture
     except Exception as e:
         return TestResult(test_path, "fail", f"write error: {e}"), None
 

@@ -1656,9 +1656,21 @@ void ASTToHIR::visitYieldExpression(ast::YieldExpression* node) {
 
 void ASTToHIR::visitDynamicImport(ast::DynamicImport* node) {
     setSourceLine(node);
-    // TODO: Dynamic import support
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstUndefined(lastValue_);
+    // CONF-P3 Phase 1a: import(<any expression>). Literal specifiers the
+    // Monomorphizer could resolve were already rewritten to pre-resolved
+    // ts_dynamic_import calls and never reach here. Everything else —
+    // computed specifiers, unresolvable literals — resolves at RUNTIME
+    // against the closed-world module registry (hit: resolved Promise of
+    // the exports; miss: rejected Promise). Previously lowered to constant
+    // undefined, so `import(x).then(...)` threw ".then of undefined".
+    auto specVal = node->moduleSpecifier
+        ? boxValueIfNeeded(lowerExpression(node->moduleSpecifier.get()))
+        : builder_.createConstUndefined();
+    const std::string& ipath = !currentModulePath_.empty()
+        ? currentModulePath_ : entryModulePath_;
+    auto ipathVal = builder_.createConstString(ipath);
+    lastValue_ = builder_.createCall("ts_module_dynamic_import",
+                                     {specVal, ipathVal}, HIRType::makeAny());
 }
 
 

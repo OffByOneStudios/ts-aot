@@ -1,5 +1,8 @@
 #include "TsObject_Internal.h"
+#include "TsPromise.h"
+#include "TsError.h"
 #include <sstream>
+#include <cctype>
 
 // Module system / require() + builtin-module registration, extracted from
 // TsObject.cpp. The require() cache (g_module_cache) and its GC scanner stay
@@ -410,6 +413,87 @@ void* ts_builtin_lookup_special(const char* name) {
         }
         
         return ts_value_make_undefined();
+    }
+
+    // ---- CONF-P3 Phase 1a: import(specifier) over the closed-world registry.
+    // The Monomorphizer bundles every literal specifier it can see and rewrites
+    // those to pre-resolved ts_dynamic_import calls; this handles EVERYTHING
+    // else — any-expression specifiers resolve at runtime against the module
+    // cache. Bundled modules are eagerly evaluated at startup, so a hit is a
+    // resolved Promise of the exports; a miss REJECTS (host policy: only
+    // compile-time-known modules are resolvable — ES HostLoadImportedModule
+    // is host-defined). This function never ts_throws: every failure becomes
+    // a rejection (the std::string locals here are safe — no longjmp exits).
+    TsValue* ts_module_dynamic_import(TsValue* spec, TsValue* importerPath) {
+        using namespace ts;   // TsPromise & the ts_promise_* C API live in ns ts
+        TsPromise* promise = ts_promise_create();
+        auto rejectWith = [&](const char* msg) -> TsValue* {
+            ts_promise_reject_internal(promise,
+                (TsValue*)ts_error_create_typed("TypeError", msg));
+            return ts_value_make_object(promise);
+        };
+        // ToString(specifier). ts_string_from_value is hook-free: an object
+        // specifier stringifies to "[object Object]" and misses.
+        TsString* sstr = nullptr;
+        if (spec) {
+            void* sp = ts_value_get_string(spec);
+            if (sp) sstr = (TsString*)sp;
+            else sstr = (TsString*)ts_string_from_value(spec);
+        }
+        const char* specC = sstr ? sstr->ToUtf8() : nullptr;
+        if (!specC || !*specC) {
+            return rejectWith("Failed to resolve module specifier");
+        }
+        std::string specStr = specC;
+        if (specStr.rfind("node:", 0) == 0) specStr = specStr.substr(5);
+        if (is_builtin_module_name(specStr)) {
+            TsValue* mod = create_builtin_module(specStr);
+            ts_promise_resolve_internal(promise, mod);
+            return ts_value_make_object(promise);
+        }
+        // Canonicalize a relative/absolute file specifier against the
+        // importing module's directory (mirrors the compile-time resolver).
+        TsString* ip = importerPath ? (TsString*)ts_value_get_string(importerPath) : nullptr;
+        const char* ipC = ip ? ip->ToUtf8() : nullptr;
+        bool isRel = specStr.rfind("./", 0) == 0 || specStr.rfind("../", 0) == 0;
+        bool isAbsWin = specStr.size() >= 2 &&
+                        std::isalpha((unsigned char)specStr[0]) && specStr[1] == ':';
+        bool isAbs = isAbsWin || (!specStr.empty() && specStr[0] == '/');
+        std::string lookup;
+        try {
+            if (isRel && ipC) {
+                lookup = finalize_module_path(fs::path(ipC).parent_path() / specStr);
+            } else if (isAbs) {
+                lookup = finalize_module_path(fs::path(specStr));
+            }
+        } catch (...) { lookup.clear(); }
+        TsValue* record = nullptr;
+        if (!lookup.empty()) record = ts_module_get(lookup.c_str());
+        if (!record) record = ts_module_get(specStr.c_str());
+        if (!record) {
+            // Separator/case-insensitive fallback over the (small) cache —
+            // compile-time keys come from the compiler's resolver and may
+            // differ in slash direction or drive-letter case.
+            auto norm = [](std::string v) {
+                for (auto& c : v) { if (c == '/') c = '\\'; c = (char)std::tolower((unsigned char)c); }
+                return v;
+            };
+            std::string want = norm(!lookup.empty() ? lookup : specStr);
+            for (auto& kv : g_module_cache) {
+                if (norm(kv.first) == want) { record = kv.second; break; }
+            }
+        }
+        if (!record) {
+            std::string msg = "Failed to resolve module specifier '" + specStr + "'";
+            return rejectWith(msg.c_str());
+        }
+        // The cache holds the module RECORD ({exports: ...}); the import()
+        // namespace is its exports object.
+        TsString* ek = TsString::GetInterned("exports");
+        TsValue* ns = ts_object_get_dynamic(record, ts_value_make_string(ek));
+        if (!ns || ts_value_is_undefined(ns)) ns = record;
+        ts_promise_resolve_internal(promise, ns);
+        return ts_value_make_object(promise);
     }
 
 }  // extern "C"
