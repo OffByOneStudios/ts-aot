@@ -1377,8 +1377,17 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 }
             }
             if (setterFunc) {
-                // Found a setter - call it instead of direct property assignment
-                builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
+                // Found a setter - call it instead of direct property
+                // assignment. Match the callee's arity: STATIC accessor
+                // bodies take only (value) — passing (this, value) tripped
+                // LLVM module verification ("Incorrect number of arguments")
+                // and failed the whole compile for static get/set # classes.
+                size_t nParams = setterFunc->params.size();
+                if (nParams == 1) {
+                    builder_.createCall(setterFunc->name, {rhs}, HIRType::makeVoid());
+                } else {
+                    builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
+                }
                 lastValue_ = rhs;
                 return;
             }
