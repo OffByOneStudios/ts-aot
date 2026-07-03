@@ -2828,8 +2828,23 @@ extern "C" {
         // ES 20.2.3 / 10.2.4: %Function.prototype%'s "caller" and "arguments"
         // are the %ThrowTypeError% accessor (get === set, non-configurable).
         {
-            TsString* ks0 = (TsString*)ts_value_get_string(prop);
-            const char* k0 = ks0 ? ks0->ToUtf8() : nullptr;
+            // ONLY inspect a REAL string key here: ts_value_get_string on a
+            // Symbol key routes through ToString and THROWS ("Cannot convert
+            // a Symbol value to a string") — this pre-check runs on EVERY
+            // getOwnPropertyDescriptor call and took out 139 symbol-keyed
+            // descriptor tests in sweep p29 (@@species/@@match prop-desc,
+            // class computed keys...).
+            const char* k0 = nullptr;
+            uint64_t pNb0 = nanbox_from_tsvalue_ptr(prop);
+            if (nanbox_is_ptr(pNb0)) {
+                void* pp0 = nanbox_to_ptr(pNb0);
+                if (pp0) {
+                    uint32_t m0 = *(uint32_t*)pp0;
+                    if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/) {
+                        k0 = ((TsString*)pp0)->ToUtf8();
+                    }
+                }
+            }
             if (k0 && (strcmp(k0, "caller") == 0 || strcmp(k0, "arguments") == 0)) {
                 extern void* ts_get_global_Function();
                 void* g = ts_get_global_Function();
