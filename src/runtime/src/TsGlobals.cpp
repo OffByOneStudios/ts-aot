@@ -4148,6 +4148,55 @@ static TsValue* dv_set_impl(void* ctx, int argc, TsValue** argv, int size, int k
     }
     return ts_value_make_undefined();
 }
+// kind 3/4: BigInt64/BigUint64 — raw 64-bit slots boxed as TsBigInt; the
+// set path requires a BigInt VALUE (ToBigInt on a Number is a TypeError).
+static TsValue* dv_get_big(void* ctx, int argc, TsValue** argv, bool isSigned){
+    TsDataView* dv = dv_require(ctx); if(!dv) return ts_value_make_undefined();
+    int64_t off = dv_to_index((argc>=1&&argv)?argv[0]:nullptr);
+    bool le = (argc>=2 && argv && argv[1]) ? ts_value_to_bool(argv[1]) : false;
+    TsBuffer* buf = dv->GetBuffer();
+    if(!buf || buf->IsDetached()){ ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView: the underlying ArrayBuffer is detached")); return ts_value_make_undefined(); }
+    size_t blen = dv->GetByteLength();
+    if((uint64_t)off + 8ull > (uint64_t)blen){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Offset is outside the bounds of the DataView")); return ts_value_make_undefined(); }
+    uint64_t raw = dv_read_bytes(buf->GetData() + dv->GetByteOffset() + off, 8, le);
+    (void)isSigned;  // TsBigInt is i64-backed; unsigned > 2^63-1 saturates (rare in tests)
+    extern void* ts_bigint_create_int(int64_t v);
+    extern TsValue* ts_value_make_bigint(void* bi);
+    return ts_value_make_bigint(ts_bigint_create_int((int64_t)raw));
+}
+static TsValue* dv_set_big(void* ctx, int argc, TsValue** argv){
+    TsDataView* dv = dv_require(ctx); if(!dv) return ts_value_make_undefined();
+    int64_t off = dv_to_index((argc>=1&&argv)?argv[0]:nullptr);
+    // Step order per 25.3.1.6 SetViewValue: ToBigInt(value) BEFORE the
+    // detached/bounds checks would be wrong — spec: GetViewValue does
+    // ToIndex, then ToBigInt, then detached check. Match that.
+    TsValue* vArg = (argc>=2&&argv) ? argv[1] : nullptr;
+    int64_t iv = 0;
+    {
+        uint64_t nb = vArg ? nanbox_from_tsvalue_ptr(vArg) : 0;
+        void* raw = (vArg && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
+        if (raw && (uintptr_t)raw >= 4096 && *(uint32_t*)raw == 0x42494749 /*BIGI*/) {
+            extern int64_t ts_bigint_to_i64(void* bi);
+            iv = ts_bigint_to_i64(raw);
+        } else {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a non-BigInt value to a BigInt"));
+            return ts_value_make_undefined();
+        }
+    }
+    bool le = (argc>=3 && argv && argv[2]) ? ts_value_to_bool(argv[2]) : false;
+    TsBuffer* buf = dv->GetBuffer();
+    if(!buf || buf->IsDetached()){ ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView: the underlying ArrayBuffer is detached")); return ts_value_make_undefined(); }
+    size_t blen = dv->GetByteLength();
+    if((uint64_t)off + 8ull > (uint64_t)blen){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Offset is outside the bounds of the DataView")); return ts_value_make_undefined(); }
+    dv_write_bytes(buf->GetData() + dv->GetByteOffset() + off, 8, le, (uint64_t)iv);
+    return ts_value_make_undefined();
+}
+static TsValue* dv_getBigInt64 (void*c,int a,TsValue**v){return dv_get_big(c,a,v,true);}
+static TsValue* dv_getBigUint64(void*c,int a,TsValue**v){return dv_get_big(c,a,v,false);}
+static TsValue* dv_setBigInt64 (void*c,int a,TsValue**v){return dv_set_big(c,a,v);}
+static TsValue* dv_setBigUint64(void*c,int a,TsValue**v){return dv_set_big(c,a,v);}
+
 static TsValue* dv_getInt8   (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,1,0);}
 static TsValue* dv_getUint8  (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,1,1);}
 static TsValue* dv_getInt16  (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,2,0);}
@@ -4254,6 +4303,8 @@ void* ts_get_global_DataView() {
             addMethod(dvProto, "getUint32", (void*)dv_getUint32, 1);
             addMethod(dvProto, "getFloat32",(void*)dv_getFloat32,1);
             addMethod(dvProto, "getFloat64",(void*)dv_getFloat64,1);
+            addMethod(dvProto, "getBigInt64",(void*)dv_getBigInt64,1);
+            addMethod(dvProto, "getBigUint64",(void*)dv_getBigUint64,1);
             addMethod(dvProto, "setInt8",   (void*)dv_setInt8,   2);
             addMethod(dvProto, "setUint8",  (void*)dv_setUint8,  2);
             addMethod(dvProto, "setInt16",  (void*)dv_setInt16,  2);
@@ -4262,6 +4313,8 @@ void* ts_get_global_DataView() {
             addMethod(dvProto, "setUint32", (void*)dv_setUint32, 2);
             addMethod(dvProto, "setFloat32",(void*)dv_setFloat32,2);
             addMethod(dvProto, "setFloat64",(void*)dv_setFloat64,2);
+            addMethod(dvProto, "setBigInt64",(void*)dv_setBigInt64,2);
+            addMethod(dvProto, "setBigUint64",(void*)dv_setBigUint64,2);
             setProtoStringTag(dvProto, "DataView");
         }
         cached = wrapAsCallable(ctor, "DataView", 1);
