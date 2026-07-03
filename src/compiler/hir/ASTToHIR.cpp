@@ -120,6 +120,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (!funcNode) continue;
         // Set currentModulePath_ so modVarName() generates unique globals per module
         currentModulePath_ = spec.modulePath;
+        // Remember the FIRST (entry) module's path: user functions like
+        // user_main carry no modulePath in their spec, but bare CommonJS
+        // `module`/`exports` reads inside them (visitIdentifier hook) need a
+        // registry key — for single-module programs this is exactly the key
+        // ts_module_register was called with.
+        if (entryModulePath_.empty() && !spec.registryPath.empty()) {
+            entryModulePath_ = spec.registryPath;
+        }
         // Note: We include all module init functions (including the main file)
         // because file-level variables need to be shared across functions.
         // Helper to register a single name as a module global

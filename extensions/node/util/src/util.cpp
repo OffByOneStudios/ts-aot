@@ -2451,3 +2451,29 @@ namespace TsUtilTypes {
     bool isSetIterator(void* value) { return false; }
     bool isSharedArrayBuffer(void* value) { return false; }
 }
+
+// util.inspect READ as a property (util.inspect.custom / .defaultOptions):
+// the module map had no "inspect" entry, so the read was undefined and the
+// chain only "worked" through the silent null-tolerant dynamic get. Calls
+// util.inspect(x) lower directly via the ext.json method entry and are
+// unaffected. Installed via post-init at module creation.
+extern "C" void ts_builtin_register_post_init(const char*, void (*)(void*));
+extern "C" void* ts_util_get_inspect();
+extern "C" void ts_util_post_init(void* moduleMap) {
+    TsMap* mod = (TsMap*)moduleMap;
+    TsValue* inspectObj = (TsValue*)ts_util_get_inspect();
+    void* raw = ts_value_get_object(inspectObj);
+    if (!raw) raw = (void*)inspectObj;
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::Create("inspect");
+    TsValue val;
+    val.type = ValueType::OBJECT_PTR;
+    val.ptr_val = raw;
+    mod->Set(key, val);
+}
+static struct UtilRegistrar {
+    UtilRegistrar() {
+        ts_builtin_register_post_init("util", ts_util_post_init);
+    }
+} g_util_registrar;

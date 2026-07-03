@@ -1888,6 +1888,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // referrerPath
             .build());
 
+    reg.registerLowering("ts_module_get_record",
+        lowering("ts_module_get_record")
+            .returnsPtr()      // Returns the module RECORD (not .exports)
+            .ptrArg()          // path (boxed string)
+            .build());
+
     reg.registerLowering("ts_module_get_cached",
         lowering("ts_module_get_cached")
             .returnsPtr()      // Returns module.exports

@@ -23,6 +23,17 @@ extern "C" {
         return nullptr;
     }
 
+    // CommonJS `module` referenced from a function body: return the module
+    // RECORD registered under this path (ts_module_get_cached returns its
+    // .exports). Compiler-emitted by the visitIdentifier fallback.
+    TsValue* ts_module_get_record(TsValue* path) {
+        TsString* s = (TsString*)ts_value_get_string(path);
+        if (!s) return ts_value_make_undefined();
+        std::string pathStr = s->ToUtf8();
+        TsValue* moduleObj = ts_module_get(pathStr.c_str());
+        return moduleObj ? moduleObj : ts_value_make_undefined();
+    }
+
     TsValue* ts_module_get_cached(TsValue* path) {
         TsString* s = (TsString*)ts_value_get_string(path);
         if (!s) return ts_value_make_undefined();

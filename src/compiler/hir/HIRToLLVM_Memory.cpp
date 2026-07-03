@@ -1309,7 +1309,7 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
 
         auto ft = llvm::FunctionType::get(getGCPtrTy(),
                                           {getGCPtrTy(), getGCPtrTy()}, false);
-        auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
+        auto fn = module_->getOrInsertFunction("ts_object_get_dynamic_checked", ft);
         result = builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey});
     } else {
         // Numeric index access: default to array access (ts_array_get).
@@ -1435,7 +1435,7 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
 
             auto ft = llvm::FunctionType::get(getGCPtrTy(),
                                               {getGCPtrTy(), getGCPtrTy()}, false);
-            auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
+            auto fn = module_->getOrInsertFunction("ts_object_get_dynamic_checked", ft);
             result = builder_->CreateCall(ft, fn.getCallee(), {arr, boxedIdx});
         }
     }
@@ -1580,7 +1580,7 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
 
         auto ft = llvm::FunctionType::get(builder_->getVoidTy(),
                                           {getGCPtrTy(), getGCPtrTy(), getGCPtrTy()}, false);
-        auto fn = module_->getOrInsertFunction("ts_object_set_dynamic", ft);
+        auto fn = module_->getOrInsertFunction("ts_object_set_dynamic_checked", ft);
         builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey, boxedVal});
     } else {
         // Numeric index set - check if target is a Buffer

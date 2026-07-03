@@ -521,9 +521,25 @@ void* ts_os_get_constants() {
 
 } // extern "C"
 
+// os.constants is a nested MAP export (signals/errno/priority), not a
+// function — install it at module creation via post-init (the plain
+// registry only handles function/string exports). Before this, os.constants
+// read as undefined and the chain os.constants.signals only "worked" via
+// the silent null-tolerant dynamic get.
+extern "C" void ts_builtin_register_post_init(const char*, void (*)(void*));
+extern "C" void ts_os_post_init(void* moduleMap) {
+    TsMap* mod = (TsMap*)moduleMap;
+    TsValue* constants = (TsValue*)ts_os_get_constants();
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::GetInterned("constants");
+    mod->Set(key, nanbox_to_tagged(constants));
+}
+
 // Register os functions for create_builtin_module("os")
 static struct OsRegistrar {
     OsRegistrar() {
+        ts_builtin_register_post_init("os", ts_os_post_init);
         ts_builtin_register("os", "homedir", (void*)ts_os_homedir, TS_THUNK_FN);
         ts_builtin_register("os", "tmpdir", (void*)ts_os_tmpdir, TS_THUNK_FN);
         ts_builtin_register("os", "platform", (void*)ts_os_platform, TS_THUNK_FN);

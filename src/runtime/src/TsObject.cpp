@@ -4181,6 +4181,30 @@ void* ts_create_arguments_from_params(
         ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
     }
 
+    // Spec-throwing entries for COMPILER-EMITTED dynamic accesses only:
+    // `null[k]` reads/writes throw TypeError (GetValue/PutValue). Internal
+    // C++ callers keep the lenient base entries.
+    TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+    TsValue* ts_object_get_dynamic_checked(TsValue* obj, TsValue* key) {
+        uint64_t nbB = obj ? (uint64_t)(uintptr_t)obj : 0;
+        if (!obj || nanbox_is_null(nbB) || nanbox_is_undefined(nbB)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot read properties of null or undefined"));
+            return ts_value_make_undefined();
+        }
+        return ts_object_get_dynamic(obj, key);
+    }
+    void ts_object_set_dynamic_checked(TsValue* obj, TsValue* key, TsValue* value) {
+        uint64_t nbB = obj ? (uint64_t)(uintptr_t)obj : 0;
+        if (!obj || nanbox_is_null(nbB) || nanbox_is_undefined(nbB)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot set properties of null or undefined"));
+            return;
+        }
+        ts_object_set_dynamic(obj, key, value);
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
