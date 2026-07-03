@@ -453,14 +453,20 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
         // params but the first param is a user param, not a closure context. Without this
         // check, ts_call_N would pass the closure as the first arg, shifting all user args.
         std::string funcName0 = originalFunc->getName().str();
+        // NOTE: __method_ (object-literal shorthand methods) is deliberately
+        // NOT in this list. Its param 0 is `this` — NOT a closure env — and
+        // lowerLoadFunction flags these closures is_method, so the runtime
+        // dispatch calls func_ptr as (closure, thisArg, args...). Returning
+        // the raw fn here bound the CLOSURE to `this` and shifted every user
+        // arg by one ({ m(v){ this.a = v } } saw this === the closure). They
+        // fall through to the method-shaped trampoline below.
         bool isKnownClosure = (funcName0.find("__arrow_fn_") == 0) ||
                                (funcName0.find("__closure_") == 0) ||
                                (funcName0.find("__anon_fn_") == 0) ||
                                (funcName0.find("__fn_expr_") == 0) ||
                                (funcName0.find("__lambda_") == 0) ||
                                (funcName0.find("__getter_") == 0) ||
-                               (funcName0.find("__setter_") == 0) ||
-                               (funcName0.find("__method_") == 0);
+                               (funcName0.find("__setter_") == 0);
         if (!isKnownClosure) {
             auto firstArg = originalFunc->arg_begin();
             std::string firstParamName = firstArg->getName().str();
@@ -545,10 +551,19 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
     SPDLOG_DEBUG("getOrCreateTrampoline: {} has {} total params, {} context params, {} user params",
                  originalFunc->getName().str(), numOrigParams, numContextParams, numUserParams);
 
+    // Object-literal shorthand methods (`__method_`) are is_method closures:
+    // the runtime's method dispatch calls func_ptr as (closure, thisArg,
+    // args...), matching the class-method trampoline shape. The original fn is
+    // (this, args...) — the trampoline drops the closure slot and routes the
+    // receiver into `this`.
+    bool methodThisFirst = isMethodFunction && numContextParams == 1;
+
     // Create trampoline: (ptr %ctx, TsValue* %arg1, TsValue* %arg2, ...) -> ptr
+    // (methodThisFirst adds a leading ignored closure slot before %ctx).
     // The trampoline accepts boxed arguments and returns a boxed result
     std::vector<llvm::Type*> trampolineParams;
-    trampolineParams.push_back(getGCPtrTy());  // context
+    if (methodThisFirst) trampolineParams.push_back(getGCPtrTy());  // closure (ignored)
+    trampolineParams.push_back(getGCPtrTy());  // context / this
     for (unsigned i = 0; i < numUserParams; ++i) {
         trampolineParams.push_back(getGCPtrTy());  // TsValue* for each arg
     }
@@ -585,7 +600,8 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
 
     // Get trampoline arguments iterator
     auto trampolineArg = trampoline->arg_begin();
-    llvm::Value* ctxArg = trampolineArg++;  // Skip context argument
+    if (methodThisFirst) trampolineArg++;   // Skip the ignored closure slot
+    llvm::Value* ctxArg = trampolineArg++;  // Context / this argument
 
     // First, pass the context to all context parameters of the original function
     for (unsigned i = 0; i < numContextParams; ++i) {
