@@ -43,6 +43,38 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
     void* target = reflect_require_object(targetArg,
         "Reflect.set called on non-object");
 
+    // ES 10.4.5.5 [[Set]] with an explicit DIFFERENT receiver: the exotic
+    // element-set (and its ToNumber coercion — "valueOf is not called") is
+    // bypassed. An invalid canonical index returns true untouched; a valid
+    // one ordinary-sets on the Receiver (false when it isn't an object).
+    if ((uintptr_t)target >= 4096 &&
+        *(uint32_t*)((char*)target + 16) == 0x54415252 /* TARR */ &&
+        receiverArg) {
+        void* recvRaw = ts_nanbox_safe_unbox(receiverArg);
+        if (recvRaw != target) {
+            extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+            int cls = ts_ta_classify_index_c(target, (TsValue*)propArg);
+            if (cls == 2) return 1;   // invalid index: true, nothing written
+            bool recvIsObj = recvRaw && (uintptr_t)recvRaw >= 4096 &&
+                             (uintptr_t)recvRaw < 0x0000800000000000ULL &&
+                             *(uint32_t*)recvRaw != 0x53545247 /* STRG */ &&
+                             *(uint32_t*)recvRaw != 0x53594D42 /* SYMB */;
+            if (cls == 1) {
+                if (!recvIsObj) return 0;   // CreateDataProperty on non-object
+                ts_object_set_dynamic(ts_value_box_any(recvRaw),
+                                      (TsValue*)propArg, (TsValue*)valueArg);
+                return 1;
+            }
+            // cls == 0 (ordinary key): OrdinarySet lands on the receiver.
+            if (recvIsObj) {
+                ts_object_set_dynamic(ts_value_box_any(recvRaw),
+                                      (TsValue*)propArg, (TsValue*)valueArg);
+                return 1;
+            }
+            return 0;
+        }
+    }
+
     // If receiver is null, use target
     if (!receiverArg) receiverArg = target;
 
@@ -330,6 +362,23 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
     }
     void* target = reflect_require_object(targetArg,
         "Reflect.defineProperty called on non-object");
+
+    // ES 10.4.5.3: integer-indexed exotic [[DefineOwnProperty]] — Reflect
+    // surfaces the boolean instead of throwing.
+    if ((uintptr_t)target >= 4096 &&
+        *(uint32_t*)((char*)target + 16) == 0x54415252 /* TARR */) {
+        extern int ts_ta_define_own_property(void* taRaw, TsValue* prop,
+                                             TsValue* descriptor);
+        void* dRaw = ts_nanbox_safe_unbox(descriptorArg);
+        if (dRaw && is_flat_object(dRaw)) {
+            descriptorArg = (void*)ts_value_box_any(ts_flat_object_to_map(dRaw));
+        }
+        int r = ts_ta_define_own_property(target, (TsValue*)propArg,
+                                          (TsValue*)descriptorArg);
+        if (r >= 0) return r;
+        // r == -1: non-index key → fall through to the ordinary path below
+        // (which handles maps only; TA named props stay legacy).
+    }
 
     if (is_flat_object(target)) {
         target = ts_flat_object_to_map(target);

@@ -1781,6 +1781,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
         auto packed = builder_.createCall("ts_array_create", {}, anyArr);
         for (auto& a : node->arguments) {
+            // A SpreadElement expands into the packed args via the iterator
+            // protocol — pushing the spread SOURCE as one element gave
+            // `new (fnexpr)(...[])` a phantom argument.
+            if (auto* spread = dynamic_cast<ast::SpreadElement*>(a.get())) {
+                auto sv = lowerExpression(spread->expression.get());
+                builder_.createCall("ts_array_spread_into",
+                                    {packed, boxValueIfNeeded(sv)}, anyArr);
+                continue;
+            }
             auto v = lowerExpression(a.get());
             builder_.createCall("ts_array_push", {packed, boxValueIfNeeded(v)},
                                 HIRType::makeInt64());
