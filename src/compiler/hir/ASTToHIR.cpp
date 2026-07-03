@@ -2221,7 +2221,20 @@ void ASTToHIR::emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
     // ComputedPropertyName in propDef->nameNode and leaves name=="[computed]".
     if (propDef->name == "[computed]" && propDef->nameNode) {
         if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get())) {
-            auto key = lowerExpression(cpn->expression.get());
+            std::shared_ptr<HIRValue> key;
+            // SYNTHETIC default ctors lower in the early class pre-pass,
+            // BEFORE moduleGlobalVarsByModule_ is populated — a bare
+            // module-var key (`class C { [s] = 1 }` with top-level
+            // `var s = Symbol()`) lowered to undefined and the field stored
+            // under the string "undefined". When the key is an identifier
+            // with no local binding, read the __modvar_ global directly
+            // (module init StoreGlobals every module-scoped var there).
+            if (auto* kid = dynamic_cast<ast::Identifier*>(cpn->expression.get())) {
+                if (!lookupVariable(kid->name) && !isModuleGlobalVar(kid->name)) {
+                    key = builder_.createLoadGlobal(modVarName(kid->name));
+                }
+            }
+            if (!key) key = lowerExpression(cpn->expression.get());
             builder_.createSetPropDynamic(thisValue, key, std::move(initVal));
             return;
         }
