@@ -776,7 +776,7 @@ extern "C" void* ts_temporal_get_zoneddatetime_ctor();
 static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x44415445, 0,  ts_get_global_Date    },   // TsDate     "DATE"
     { 0x52454758, 0,  ts_get_global_RegExp  },   // TsRegExp   "REGX"
-    { 0x50524F4D, 0,  ts_get_global_Promise },   // TsPromise  "PROM"
+    { 0x50524F4D, 16, ts_get_global_Promise },   // TsPromise "PROM" (TsObject subclass: magic @16)
     { 0x53455453, 16, ts_get_global_Set     },   // TsSet      "SETS"
     { 0x574D4150, 16, ts_get_global_WeakMap },   // TsWeakMap  "WMAP"
     { 0x57534554, 16, ts_get_global_WeakSet },   // TsWeakSet  "WSET"

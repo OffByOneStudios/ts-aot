@@ -2563,6 +2563,32 @@ extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x) {
                  x ? x : ts_value_make_undefined());
     return cap->promiseObj;
 }
+// Promise.try with a custom constructor receiver: NewPromiseCapability(C),
+// call fn synchronously (abrupt -> reject), return the capability promise.
+extern "C" TsValue* ts_promise_try_spec(TsValue* C, int argc, TsValue** argv) {
+    SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
+    spec_new_capability(C, cap);   // throws out on non-conforming C
+    TsValue* fn = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        spec_invoke1(cap->rejectFn, ts_value_make_undefined(),
+                     exc ? exc : ts_value_make_undefined());
+        return cap->promiseObj;
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    TsValue* r = ts_function_call_with_this(fn, ts_value_make_undefined(),
+        argc > 1 ? argc - 1 : 0, argc > 1 ? argv + 1 : nullptr);
+    ts_pop_exception_handler();
+    spec_invoke1(cap->resolveFn, ts_value_make_undefined(),
+                 r ? r : ts_value_make_undefined());
+    return cap->promiseObj;
+}
+
 extern "C" TsValue* ts_promise_static_reject_spec(TsValue* C, TsValue* r) {
     SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
     spec_new_capability(C, cap);
@@ -3151,6 +3177,11 @@ TsValue* ts_promise_get_property(void* obj, void* propName) {
         return promise_method_function((void*)ts_promise_catch_wrapper, obj);
     } else if (strcmp(name, "finally") == 0) {
         return promise_method_function((void*)ts_promise_finally_wrapper, obj);
+    } else if (strcmp(name, "constructor") == 0) {
+        // Promise.prototype.constructor === Promise (`p.constructor` tests).
+        extern void* ts_get_global_Promise();
+        void* ctor = ts_get_global_Promise();
+        if (ctor) return (TsValue*)ctor;
     }
     return ts_value_make_undefined();
 }
@@ -3182,6 +3213,12 @@ TsValue TsPromise::GetPropertyVirtual(const char* key) {
         f->is_constructor = false;  // built-in method, no [[Construct]]
         v.ptr_val = f;
         return v;
+    }
+    if (strcmp(key, "constructor") == 0) {
+        // Promise.prototype.constructor === Promise (`p.constructor`).
+        extern void* ts_get_global_Promise();
+        if (void* ctor = ts_get_global_Promise())
+            return nanbox_to_tagged((TsValue*)ctor);
     }
     return TsObject::GetPropertyVirtual(key);
 }
