@@ -758,6 +758,8 @@ extern "C" void* ts_get_global_Int32Array();
 extern "C" void* ts_get_global_Uint32Array();
 extern "C" void* ts_get_global_Float32Array();
 extern "C" void* ts_get_global_Float64Array();
+extern "C" void* ts_get_global_BigInt64Array();
+extern "C" void* ts_get_global_BigUint64Array();
 
 namespace {
 struct BuiltinInstanceCheck {
@@ -1072,6 +1074,8 @@ static bool ts_proto_chain_has(void* rawObj, void* targetProto) {
             case TypedArrayType::Uint32:       kindGlobal = ts_get_global_Uint32Array;       break;
             case TypedArrayType::Float32:      kindGlobal = ts_get_global_Float32Array;      break;
             case TypedArrayType::Float64:      kindGlobal = ts_get_global_Float64Array;      break;
+            case TypedArrayType::BigInt64:     kindGlobal = ts_get_global_BigInt64Array;     break;
+            case TypedArrayType::BigUint64:    kindGlobal = ts_get_global_BigUint64Array;    break;
             default: return false;
         }
         if (kindGlobal) {
