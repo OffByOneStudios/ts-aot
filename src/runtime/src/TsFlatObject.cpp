@@ -96,6 +96,9 @@ static int flat_find_slot(ShapeDescriptor* desc, const char* key) {
     return -1;
 }
 
+extern "C" TsValue* ts_object_proto_dynamic_lookup(const char* key);
+extern "C" TsValue* ts_object_proto_dynamic_lookup_recv(const char* key, TsValue* recv);
+
 extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     if (!obj || !key) return (void*)(uintptr_t)NANBOX_UNDEFINED;
 
@@ -248,6 +251,30 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
         }
     }
 
+    // #66: dynamic Object.prototype inheritance. Gate: the overflow map may
+    // own the key as a data entry holding undefined or as a set-only
+    // accessor (__setter_<key>) — either SHADOWS the inherited property
+    // (getter entries returned above already).
+    {
+        bool ownsKey = false;
+        void* ovf = *(void**)((char*)obj + 16 + desc->numSlots * 8);
+        if (ovf) {
+            TsMap* m = (TsMap*)ovf;
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::Create(key);
+            if (m->Has(k)) ownsKey = true;
+            if (!ownsKey) {
+                std::string sk = std::string("__setter_") + key;
+                k.ptr_val = TsString::Create(sk.c_str());
+                ownsKey = m->Has(k);
+            }
+        }
+        if (!ownsKey) {
+            // obj is a NaN-boxed pointer already (see the getter call above)
+            if (TsValue* pv = ts_object_proto_dynamic_lookup_recv(key, (TsValue*)obj))
+                return (void*)pv;
+        }
+    }
     return (void*)(uintptr_t)NANBOX_UNDEFINED;
 }
 

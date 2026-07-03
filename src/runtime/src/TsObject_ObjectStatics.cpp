@@ -1,4 +1,6 @@
 #include "TsObject_Internal.h"
+// #66 (defined extern "C" in TsObject.cpp)
+extern "C" { extern void* g_object_proto_map; extern bool g_object_proto_dirty; }
 #include "TsProxy.h"
 
 // Integrity levels for EXOTIC objects (functions, Dates, RegExps, TsArrays,
@@ -1515,6 +1517,12 @@ extern "C" {
     }
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
+        // #66: defineProperty on %Object.prototype% flips the dirty bit.
+        if (g_object_proto_map && obj) {
+            void* r0 = ts_value_get_object(obj);
+            if (!r0) r0 = (void*)obj;
+            if (r0 == g_object_proto_map) g_object_proto_dirty = true;
+        }
         // Proxy: route through the defineProperty trap (ES 10.5.6) when
         // present (or revoked). A trap-less proxy keeps the legacy define-
         // on-the-proxy behavior (our ordinary define can't reach an Array
