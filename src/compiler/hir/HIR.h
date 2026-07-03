@@ -583,6 +583,12 @@ struct HIRModule {
     // Global variables
     std::map<std::string, std::shared_ptr<HIRType>> globals;
 
+    // Module-level let/const globals (__modvar_*): seeded with the TDZ
+    // sentinel instead of null, and reads are ts_tdz_check-wrapped so
+    // `typeof x` / reads before the declaration executes throw
+    // ReferenceError (ES module instn-local-bndng semantics).
+    std::set<std::string> tdzGlobals;
+
     // Source file path table (deduplicated, indexed by HIRInstruction::sourceFileIdx)
     std::vector<std::string> sourceFiles;
 

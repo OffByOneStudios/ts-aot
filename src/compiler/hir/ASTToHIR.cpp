@@ -188,6 +188,13 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     ident->name != "__filename" && ident->name != "__dirname") return;
                 moduleVarDecls_[ident->name] = varDecl;
                 registerModuleGlobalName(ident->name, globalType);
+                // Module-level let/const: mark for TDZ seeding + checked reads
+                // (ANY-typed only, matching the phase-5 local sentinel rule).
+                if ((varDecl->varKind == ast::VarKind::Let ||
+                     varDecl->varKind == ast::VarKind::Const) &&
+                    globalType->kind == HIRTypeKind::Any) {
+                    module_->tdzGlobals.insert(modVarName(ident->name));
+                }
             } else {
                 // Destructuring pattern: const { a, b } = ... or const [a, b] = ...
                 // For destructured require(), each extracted variable is Any type
