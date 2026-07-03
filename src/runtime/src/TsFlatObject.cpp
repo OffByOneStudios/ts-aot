@@ -309,9 +309,18 @@ extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
     int slot = flat_find_slot(desc, key);
     if (slot >= 0) {
         uint64_t* slotPtr = (uint64_t*)((char*)obj + 16 + slot * 8);
-        *slotPtr = (uint64_t)(uintptr_t)value;
-        ts_gc_write_barrier(slotPtr, value);
-        return;
+        // ES property-insertion order: a DELETED slot's name that is
+        // re-assigned becomes the NEWEST property — re-adding in place would
+        // resurrect its original enumeration position (Object.keys
+        // return-order). Route the re-add to the overflow map, which is
+        // insertion-ordered and already consulted by get/has/keys.
+        if (*slotPtr == NANBOX_DELETED) {
+            slot = -1;   // fall through to the overflow store below
+        } else {
+            *slotPtr = (uint64_t)(uintptr_t)value;
+            ts_gc_write_barrier(slotPtr, value);
+            return;
+        }
     }
 
     // Sealed/non-extensible objects can update existing properties (seal
