@@ -15,6 +15,10 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     // autoDefineUndefinedIdents flag in its profile.
     if (activeOptions.autoDefineUndefinedIdents || activeOptions.suppressErrors) {
         auto anyType = std::make_shared<Type>(TypeKind::Any);
+        // Phantom auto-defined name: every read stays an unresolvable
+        // reference until an assignment promotes it.
+        if (phantomUnresolved_.count(node->name))
+            node->isUnresolvedReference = true;
         if (!symbols.lookup(node->name)) {
             // Flag genuinely-unresolvable names (absent from BOTH the value and
             // type tables) BEFORE the auto-define so codegen can throw
@@ -23,6 +27,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
             if (!symbols.lookupType(node->name) &&
                 node->name != "null" && node->name != "undefined") {
                 node->isUnresolvedReference = true;
+                phantomUnresolved_.insert(node->name);
             }
             symbols.define(node->name, anyType);
         }
@@ -44,6 +49,10 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
 
     auto sym = symbols.lookup(node->name);
     if (sym) {
+        // Phantom auto-defined name (see phantomUnresolved_): still an
+        // unresolvable reference until something actually assigns it.
+        if (phantomUnresolved_.count(node->name))
+            node->isUnresolvedReference = true;
         lastType = sym->type;
         SPDLOG_DEBUG("  Lookup {}: {}", node->name, lastType->toString());
         

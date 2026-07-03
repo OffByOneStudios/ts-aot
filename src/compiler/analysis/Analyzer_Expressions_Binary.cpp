@@ -96,6 +96,10 @@ void Analyzer::visitConditionalExpression(ast::ConditionalExpression* node) {
 }
 
 void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
+    // Assignment to a phantom auto-defined name promotes it to a real
+    // sloppy-mode implicit global — later reads stop flagging unresolved.
+    if (auto* lhsId = dynamic_cast<Identifier*>(node->left.get()))
+        phantomUnresolved_.erase(lhsId->name);
     // Strict mode check: cannot assign to eval or arguments
     if (strictMode) {
         if (auto id = dynamic_cast<Identifier*>(node->left.get())) {

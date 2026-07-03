@@ -266,6 +266,14 @@ private:
     // reference so codegen throws ReferenceError (ECMA-262 6.2.4.8 GetValue).
     void flagUnresolvedDefaultRef(ast::Node* initializer);
 
+    // Names auto-defined by the suppress-errors/auto-define READ path for a
+    // genuinely-unresolvable identifier. The definition prevents cascading
+    // errors, but LATER reads must still flag isUnresolvedReference (codegen's
+    // ReferenceError throw) — otherwise one `typeof f` silently legitimized
+    // every subsequent bare `f`. An ASSIGNMENT to the name promotes it to a
+    // real sloppy-mode implicit global (erased here).
+    std::set<std::string> phantomUnresolved_;
+
     std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
 
     void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
