@@ -1749,13 +1749,21 @@ void ASTToHIR::emitDeferredStaticInits() {
     // verifyProperty(C.prototype, "m", { enumerable: false, ... }) and
     // Object.keys(C) tests require non-enumerable. Routes through the
     // ts_object_set_method runtime which uses TsMap::SetWithAttrs.
+    for (auto* hirClass : deferredClassPrototypes_) {
+        emitSingleClassSetup(hirClass);
+    }
+    deferredClassPrototypes_.clear();
+    emitDeferredStaticInitsTail();
+}
+
+void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritage) {
     auto installMethod = [&](std::shared_ptr<HIRValue> recv,
                              const std::string& key,
                              std::shared_ptr<HIRValue> closure) {
         installClassMember(recv, key, closure);  // shared with the class-expr trailer
     };
-    for (auto* hirClass : deferredClassPrototypes_) {
-        if (!hirClass) continue;
+    {
+        if (!hirClass) return;
         // Every class needs a real prototype object (not just classes with
         // user-defined methods) so that `c.constructor === C` and
         // `Object.getPrototypeOf(c) === C.prototype` hold per ECMA-262
@@ -1812,8 +1820,31 @@ void ASTToHIR::emitDeferredStaticInits() {
         // the prototype install so the ctor's properties map exists.
         if (!hirClass->baseClass && !hirClass->baseBuiltinName.empty()) {
             auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
-            builder_.createCall("ts_class_link_builtin_base",
-                {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+            // Resolve the heritage VALUE like any identifier read. For
+            // nested-function classes this now runs at the class statement's
+            // SOURCE POSITION, so module vars are initialized and a
+            // non-constructor value throws TypeError HERE (catchable by the
+            // enclosing try). Statically-unresolvable yields undefined and
+            // the runtime falls back to the name-based builtin link.
+            if (valueResolveHeritage) {
+                // INLINE (source-position) emission only: the identifier
+                // resolves in the correct scope. The DEFERRED flush runs in
+                // user_main's frame where an outer-scope heritage name would
+                // resolve to garbage and false-TypeError (the 30
+                // arrow-body-derived-cls eval tests caught exactly that).
+                std::shared_ptr<HIRValue> heritageVal;
+                {
+                    ast::Identifier heritageId;
+                    heritageId.name = hirClass->baseBuiltinName;
+                    visitIdentifier(&heritageId);
+                    heritageVal = boxValueIfNeeded(lastValue_);
+                }
+                builder_.createCall("ts_class_link_dynamic_base",
+                    {ctorVal, proto, heritageVal, baseNameC}, HIRType::makeVoid());
+            } else {
+                builder_.createCall("ts_class_link_builtin_base",
+                    {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+            }
         }
 
         // ECMA-262 §15.7.14: set the derived CONSTRUCTOR's [[Prototype]] to
@@ -1851,8 +1882,9 @@ void ASTToHIR::emitDeferredStaticInits() {
         // the constructor object (static).
         emitComputedAccessorInstalls(hirClass, proto, ctorVal);
     }
-    deferredClassPrototypes_.clear();
+}
 
+void ASTToHIR::emitDeferredStaticInitsTail() {
     // Emit static blocks
     for (auto* staticBlock : deferredStaticBlocks_) {
         for (auto& stmt : staticBlock->body) {
