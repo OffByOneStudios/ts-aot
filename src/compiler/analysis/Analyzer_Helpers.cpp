@@ -653,8 +653,11 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             return module;
         }
         
-        // TypeScript or JavaScript - parse the AST using native parser
-        auto nativeAst = parseSourceFile(resolved.path);
+        // TypeScript or JavaScript - parse the AST using native parser.
+        // Imported files parse with the MODULE goal even when the entry is a
+        // script (TS_SCRIPT_GOAL): an `export` in a fixture is otherwise a
+        // script-goal SyntaxError and the module silently never bundles.
+        auto nativeAst = parseSourceFile(resolved.path, /*forceModuleGoal=*/true);
         if (!nativeAst) {
             // Fallback to Node.js parser
             SPDLOG_WARN("Native parser failed for {}, falling back to Node.js", resolved.path);

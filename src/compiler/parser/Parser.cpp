@@ -613,10 +613,16 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     source_ = &source;
     fileName_ = fileName;
     lexer_ = std::make_unique<Lexer>(source, fileName);
+    // Per-file goal: TS_SCRIPT_GOAL applies to the entry file; imported
+    // modules force the module goal (see setForceModuleGoal). Must be set
+    // BEFORE the first nextToken (HTML-comment lexing is goal-dependent).
+    if (forceModuleGoal_) lexer_->moduleGoal_ = true;
     current_ = lexer_->nextToken();
     previous_ = current_;
 
-    scriptGoal_ = (std::getenv("TS_SCRIPT_GOAL") != nullptr);
+    scriptGoal_ = forceModuleGoal_
+        ? false
+        : (std::getenv("TS_SCRIPT_GOAL") != nullptr);
     // Module goal: top-level code is an [+Await] context (ES2022 top-level
     // await) — `await expr` parses as an AwaitExpression at ANY statement
     // depth outside function bodies (blocks, loops, switch...). Function

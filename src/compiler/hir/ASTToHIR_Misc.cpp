@@ -40,9 +40,22 @@ void ASTToHIR::visitExportDeclaration(ast::ExportDeclaration* node) {
 
 void ASTToHIR::visitExportAssignment(ast::ExportAssignment* node) {
     setSourceLine(node);
-    // Lower the expression
-    if (node->expression) {
-        lowerExpression(node->expression.get());
+    // `export default <expression>`: evaluate at source position AND store as
+    // the module's "default" export. Module-init bodies bind an `exports`
+    // local (the preamble creates `exports = module.exports`); store through
+    // it so import() namespaces see the value. Outside a module-init body
+    // (no `exports` binding), keep the old evaluate-only behavior.
+    if (!node->expression) return;
+    auto val = boxValueIfNeeded(lowerExpression(node->expression.get()));
+    ast::Identifier exportsId;
+    exportsId.name = "exports";
+    exportsId.inferredType = std::make_shared<ts::Type>(ts::TypeKind::Any);
+    if (lookupVariableInfo("exports")) {
+        exportsId.accept(this);
+        auto exportsVal = lastValue_;
+        if (exportsVal && val) {
+            builder_.createSetPropStatic(exportsVal, "default", val);
+        }
     }
 }
 
