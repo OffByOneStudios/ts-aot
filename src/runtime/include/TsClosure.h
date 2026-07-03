@@ -34,6 +34,11 @@ public:
     // (plain functions and generators, incl. generator methods). FALSE for
     // regular methods, getters, setters — not constructors → no `.prototype`.
     bool is_constructor = true;
+    // ES IsConstructor: arrows, async fns, generators, and async generators
+    // have no [[Construct]] regardless of prototype-slot semantics (which
+    // is_constructor above also drives — generators KEEP .prototype but are
+    // still not constructable). Set false via ts_closure_set_not_constructable.
+    bool constructable = true;
     TsMap* properties = nullptr;  // For storing properties like .prototype
     int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
     // PHYSICAL user param count (the compiled trampoline's positional params,

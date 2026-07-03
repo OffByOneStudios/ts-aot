@@ -363,7 +363,14 @@ void ts_closure_set_method(TsClosure* closure) {
 void ts_closure_set_no_prototype(TsClosure* closure) {
     if (closure) {
         closure->is_constructor = false;
+        closure->constructable = false;  // methods/accessors: not constructors
     }
+}
+
+// ES IsConstructor=false WITHOUT touching prototype-slot semantics:
+// arrows, async functions, generators, async generators.
+void ts_closure_set_not_constructable(TsClosure* closure) {
+    if (closure) closure->constructable = false;
 }
 
 // Invoke a closure with one double argument, returns double
