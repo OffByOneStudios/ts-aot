@@ -76,6 +76,12 @@ extern "C" {
             if (raw0 && (uintptr_t)raw0 > 0x1000 &&
                 *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    // Trap-less proxy: [[OwnPropertyKeys]] forwards to the
+                    // TARGET's ordinary behavior (was: fell to the proxy's
+                    // own empty map -> []).
+                    if (!px->revoked && !px->getTrap("ownKeys") && px->target) {
+                        return ts_object_keys(ts_value_box_any(px->target));
+                    }
                     if (px->revoked || px->getTrap("ownKeys")) {
                         TsValue* all = px->ownKeys();
                         void* aRaw = all ? ts_value_get_object(all) : nullptr;
@@ -565,6 +571,9 @@ extern "C" {
             if (raw0 && (uintptr_t)raw0 > 0x1000 &&
                 *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
+                    if (!px->revoked && !px->getTrap("ownKeys") && px->target)
+                        return ts_object_getOwnPropertyNames(
+                            ts_value_box_any(px->target));
                     if (px->revoked || px->getTrap("ownKeys"))
                         return px->ownKeys();
                 }
