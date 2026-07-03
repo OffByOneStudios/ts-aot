@@ -6909,6 +6909,9 @@ void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
     ts_object_setPrototypeOf((TsValue*)ctorVal, (TsValue*)base);
 }
 
+extern "C" TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv);
+extern "C" void* ts_bound_function_target(void* boundCtx);  // TsObject_Call.cpp
+
 // ES 7.2.4 IsConstructor for our value model: a TsFunction/TsClosure with
 // its is_constructor flag set (function declarations default true; arrows,
 // methods, built-in prototype methods are false). Primitives and plain
@@ -6919,8 +6922,23 @@ static bool value_is_constructor(void* v) {
     if ((uintptr_t)raw < 4096 || (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return false;
     if (*(uint32_t*)raw == 0x46554E43) return true;  // native fn at offset 0
     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-    if (m16 == TsFunction::MAGIC) return ((TsFunction*)raw)->is_constructor;
-    if (m16 == 0x434C5352 /*CLSR*/) return ((TsClosure*)raw)->is_constructor;
+    if (m16 == TsFunction::MAGIC) {
+        TsFunction* tf = (TsFunction*)raw;
+        // ES 10.4.1: a BOUND function is a constructor iff its TARGET is —
+        // (() => {}).bind() must stay non-constructable
+        // (superclass-arrow-function's `extends bound` leg). Recurse via the
+        // helper (declared at file scope; TsBoundFunction is TU-private to
+        // the call module).
+        if (tf->funcPtr == (void*)ts_bound_function_call && tf->context) {
+            void* target = ts_bound_function_target(tf->context);
+            return target ? value_is_constructor(target) : false;
+        }
+        return tf->is_constructor;
+    }
+    if (m16 == 0x434C5352 /*CLSR*/) {
+        TsClosure* cl = (TsClosure*)raw;
+        return cl->is_constructor && cl->constructable;
+    }
     return false;
 }
 

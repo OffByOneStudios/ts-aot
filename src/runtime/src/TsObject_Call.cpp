@@ -266,6 +266,14 @@ extern "C" {
     // method TsFunction (whose context IS its BoundMethodCtx — overriding
     // would corrupt the trampoline's read of the method pointer).
     extern "C" TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv);
+
+    // Expose the bound-function TARGET for IsConstructor recursion
+    // (TsGlobals.cpp) without leaking the TU-private struct layout.
+    void* ts_bound_function_target(void* boundCtx) {
+        if (!boundCtx) return nullptr;
+        return ((TsBoundFunction*)boundCtx)->targetFunction;
+    }
+
     static inline void* maybe_override_context(TsFunction* func, TsValue* thisArg) {
         void* savedCtx = func->context;
         // A BOUND function's context is its TsBoundFunction record — a

@@ -831,6 +831,29 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             builder_->CreateCall(setRestFt, setRestFn.getCallee(),
                 { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), restParamUserIdx) });
         }
+        // ES IsConstructor: arrows / async / generators / async generators
+        // have no [[Construct]] — `class C extends <one of them> {}` must
+        // TypeError (superclass-arrow/async/generator-function family).
+        // Prototype-slot semantics are separate (generators keep theirs).
+        {
+            bool notCtor = false;
+            if (hirModule_) {
+                for (const auto& hirFn : hirModule_->functions) {
+                    if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                        notCtor = hirFn->isAsync || hirFn->isGenerator;
+                        break;
+                    }
+                }
+            }
+            if (!notCtor && funcName.rfind("__arrow_fn_", 0) == 0) notCtor = true;
+            if (notCtor) {
+                auto ncFt = llvm::FunctionType::get(builder_->getVoidTy(),
+                                                    { getGCPtrTy() }, false);
+                auto ncFn = module_->getOrInsertFunction(
+                    "ts_closure_set_not_constructable", ncFt);
+                builder_->CreateCall(ncFt, ncFn.getCallee(), { gcPtrToRaw(closure) });
+            }
+        }
     }
 
     // Set the function's display name on the closure for .name and .toString()
