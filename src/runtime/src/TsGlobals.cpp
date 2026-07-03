@@ -2088,11 +2088,37 @@ void* ts_get_global_RegExp() {
                     if (isProto) return ts_value_make_string(TsString::Create("(?:)"));
                     return ts_value_make_undefined();
                 });
+                // ES 22.2.6.4 `get RegExp.prototype.flags` is GENERIC: any
+                // OBJECT receiver works -- the string is built by reading the
+                // eight flag properties (in spec order d,g,i,m,s,u,v,y) off
+                // the receiver and ToBoolean-ing each, so user getters run
+                // and coercion tests observe them. Only non-objects throw.
                 addAccessorGetter(reproto, "flags", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
-                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
-                    if (re) return ts_value_make_string(re->GetFlags());
-                    if (isProto) return ts_value_make_string(TsString::Create(""));
-                    return ts_value_make_undefined();
+                    if (!ctx) ctx = ts_get_call_this();
+                    void* raw = ts_nanbox_safe_unbox(ctx);
+                    if (!raw) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "RegExp.prototype.flags getter called on non-object"));
+                        return ts_value_make_undefined();
+                    }
+                    // Real RegExp fast path keeps the stored flag string
+                    // (ordering matches the ctor's normalization).
+                    if (*(uint32_t*)raw == 0x52454758 /*REGX*/) {
+                        return ts_value_make_string(((TsRegExp*)raw)->GetFlags());
+                    }
+                    static const struct { const char* prop; char flag; } kFlags[] = {
+                        { "hasIndices", 'd' }, { "global", 'g' },
+                        { "ignoreCase", 'i' }, { "multiline", 'm' },
+                        { "dotAll", 's' }, { "unicode", 'u' },
+                        { "unicodeSets", 'v' }, { "sticky", 'y' },
+                    };
+                    char out[9]; int n = 0;
+                    for (const auto& f : kFlags) {
+                        TsValue* v = ts_object_get_property(raw, f.prop);
+                        if (v && ts_value_to_bool(v)) out[n++] = f.flag;
+                    }
+                    out[n] = 0;
+                    return ts_value_make_string(TsString::Create(out));
                 });
                 addAccessorGetter(reproto, "global", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
                     bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
