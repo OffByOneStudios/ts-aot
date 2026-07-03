@@ -1205,16 +1205,21 @@ extern "C" {
                     "offset is out of bounds"));
                 return ts_value_make_undefined();
             }
+            // Element stores route through the type-aware helper: BigInt
+            // targets take raw int64 slots (Number elements TypeError),
+            // number targets ToNumber-coerce (BigInt elements TypeError).
+            extern void ts_ta_store_value(void* taRaw, size_t i, TsValue* v);
             if (sm0 == TsArray::MAGIC) {
                 TsArray* srcArr = (TsArray*)src;
                 for (int64_t i = 0; i < srcLen; i++) {
-                    ta->Set((size_t)(offset + i), srcArr->GetElementDouble(i));
+                    TsValue* ev = (TsValue*)srcArr->GetElementBoxed((size_t)i);
+                    ts_ta_store_value((void*)ta, (size_t)(offset + i), ev);
                 }
             } else {
                 for (int64_t i = 0; i < srcLen; i++) {
                     char key[24]; snprintf(key, sizeof(key), "%lld", (long long)i);
                     TsValue* ev = ts_object_get_property(src, key);
-                    ta->Set((size_t)(offset + i), ev ? ts_to_number(ev) : 0.0);
+                    ts_ta_store_value((void*)ta, (size_t)(offset + i), ev);
                 }
             }
         }
@@ -1459,6 +1464,28 @@ extern "C" {
         TsArray* arr = require_array_or_throw(ctx, "sort");
         if (!arr) return ts_value_make_undefined();
         void* comparator = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        // %TypedArray%.prototype.sort default order is NUMERIC ascending.
+        // BigInt receivers sort their raw int64/uint64 slots directly —
+        // the materialized-temp path compares boxed BigInts with the
+        // string comparator and scrambles them.
+        if (!comparator || ts_value_is_undefined((TsValue*)comparator)) {
+            void* orig = arr->originalReceiver;
+            if (orig && (uintptr_t)orig >= 4096 &&
+                *(uint32_t*)((char*)orig + 16) == 0x54415252 /* TARR */) {
+                TsTypedArray* ta = (TsTypedArray*)orig;
+                TypedArrayType tt = ta->GetType();
+                if (tt == TypedArrayType::BigInt64) {
+                    int64_t* d = (int64_t*)ta->GetData();
+                    if (d) std::sort(d, d + ta->GetLength());
+                    return ts_value_make_object(orig);
+                }
+                if (tt == TypedArrayType::BigUint64) {
+                    uint64_t* d = (uint64_t*)ta->GetData();
+                    if (d) std::sort(d, d + ta->GetLength());
+                    return ts_value_make_object(orig);
+                }
+            }
+        }
         void* result = ts_array_sort(arr, comparator);
         arraylike_writeback(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);

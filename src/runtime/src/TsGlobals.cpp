@@ -5900,25 +5900,42 @@ void* ts_get_global_TypedArray() {
 // BigInt-element store for the constructor dispatcher: BigInt TAs hold raw
 // two's-complement int64 slots. A non-BigInt element value is a TypeError
 // per InitializeTypedArrayFromList (ToBigInt on a Number throws).
-static void ta_new_store_elem(void* taRaw, size_t i, TsValue* v) {
+extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v);
+static void ta_new_store_elem(void* taRaw, size_t i, TsValue* v) { ts_ta_store_value(taRaw, i, v); }
+extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v) {
     TsTypedArray* ta = (TsTypedArray*)taRaw;
     TypedArrayType tt = ta->GetType();
     if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
+        // ES 7.1.13 ToBigInt: BigInt passes; booleans map to 0n/1n; objects
+        // run ToPrimitive FIRST (a poisoned valueOf's abrupt completion
+        // propagates as-is); everything else is a TypeError.
         uint64_t nb = nanbox_from_tsvalue_ptr(v);
         void* raw = (v && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
-        if (raw && (uintptr_t)raw >= 4096 && *(uint32_t*)raw == 0x42494749 /*BIGI*/) {
-            uint8_t* data = ta->GetData();
-            if (data && i < ta->GetLength())
-                ((int64_t*)data)[i] = ts_bigint_to_i64(raw);
+        if (raw && (uintptr_t)raw >= 4096 &&
+            *(uint32_t*)raw != 0x42494749 /*BIGI*/ &&
+            *(uint32_t*)raw != 0x53545247 /*STRG*/ &&
+            *(uint32_t*)raw != TsConsString::MAGIC) {
+            extern TsValue* ts_to_primitive(TsValue* v, int hint);
+            v = ts_to_primitive(v, 1 /* number hint */);
+            nb = nanbox_from_tsvalue_ptr(v);
+            raw = (v && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
+        }
+        int64_t iv = 0;
+        if (raw && (uintptr_t)raw >= 4096 && *(uint32_t*)raw == 0x42494749) {
+            iv = ts_bigint_to_i64(raw);
+        } else if (nanbox_is_true(nb)) {
+            iv = 1;
+        } else if (nanbox_is_false(nb)) {
+            iv = 0;
+        } else if (!v || ts_value_is_undefined(v)) {
+            iv = 0;   // constructor holes; Set-path callers pre-validate
+        } else {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a non-BigInt value to a BigInt"));
             return;
         }
-        if (!v || ts_value_is_undefined(v)) {   // holes/undefined -> 0n
-            uint8_t* data = ta->GetData();
-            if (data && i < ta->GetLength()) ((int64_t*)data)[i] = 0;
-            return;
-        }
-        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-            "Cannot convert a non-BigInt value to a BigInt"));
+        uint8_t* data = ta->GetData();
+        if (data && i < ta->GetLength()) ((int64_t*)data)[i] = iv;
         return;
     }
     double d = v ? ts_to_number(v) : 0;
