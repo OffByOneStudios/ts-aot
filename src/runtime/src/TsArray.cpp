@@ -1360,6 +1360,7 @@ extern "C" {
         return (TsArray*)arr;
     }
 
+    extern TsValue* ts_ta_get_boxed(TsTypedArray* ta, size_t index);  // TsObject_Builtins.cpp
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         void* raw = unboxRaw(arr);
         if (!raw) return (void*)ts_value_make_undefined();
@@ -1373,9 +1374,9 @@ extern "C" {
             if (index < 0 || (size_t)index >= ta->GetLength()) {
                 return (void*)ts_value_make_undefined();
             }
-            double val = ta->Get((size_t)index);
-            // Return as NaN-boxed double
-            return (void*)ts_value_make_double(val);
+            // BigInt element types box a TsBigInt from the raw 64-bit slot
+            // (the double path would round large values and break typeof).
+            return (void*)ts_ta_get_boxed(ta, (size_t)index);
         }
 
         // If `raw` is not actually a TsArray ("ARRY" magic at offset 0) -- e.g. a
@@ -1430,11 +1431,32 @@ extern "C" {
         TsTypedArray* ta = asTypedArray(raw);
         if (ta) {
             if (index < 0 || (size_t)index >= ta->GetLength()) return;
-            // Decode value to double
             TsValue decoded = nanbox_to_tagged((TsValue*)value);
+            TypedArrayType tt = ta->GetType();
+            if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
+                // BigInt store: raw 64-bit two's-complement slot; a Number
+                // value is a TypeError (ToBigInt on Number throws).
+                if (decoded.type == ValueType::BIGINT_PTR && decoded.ptr_val) {
+                    extern int64_t ts_bigint_to_i64(void* bi);
+                    uint8_t* data = ta->GetData();
+                    if (data) ((int64_t*)data)[(size_t)index] =
+                        ts_bigint_to_i64(decoded.ptr_val);
+                } else if (decoded.type == ValueType::NUMBER_INT ||
+                           decoded.type == ValueType::NUMBER_DBL) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot convert a Number to a BigInt"));
+                }
+                return;
+            }
+            // Decode value to double
             double dval = 0;
             if (decoded.type == ValueType::NUMBER_DBL) dval = decoded.d_val;
             else if (decoded.type == ValueType::NUMBER_INT) dval = (double)decoded.i_val;
+            else if (decoded.type == ValueType::BIGINT_PTR) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a BigInt value to a number"));
+                return;
+            }
             ta->Set((size_t)index, dval);
             return;
         }
