@@ -215,6 +215,68 @@ static struct NativePropsScanner {
 
 extern "C" uint8_t ts_integrity_get(void* raw);  // weak integrity side-table (TsObject_ObjectStatics.cpp)
 
+// ---- #66: dynamic Object.prototype inheritance (dirty-bit) ----------------
+// g_object_proto_map is the real %Object.prototype% TsMap (published and
+// GC-rooted by ts_get_global_Object in TsGlobals.cpp). The dirty bit flips
+// only when USER code writes/defines a property on it, so the fallbacks
+// below are free for every normal program. Each fallback fires ONLY when
+// the receiver does not OWN the key in any form — a data entry holding
+// undefined or a set-only accessor must SHADOW the inherited property.
+extern "C" void* g_object_proto_map = nullptr;
+extern "C" bool g_object_proto_dirty = false;
+
+// recv (boxed, may be null → getter sees undefined this) is only used when
+// the inherited entry is an accessor. NO std::string locals here: the getter
+// call below can ts_throw/longjmp and a std::string in this frame corrupts
+// the MSVC unwinder (see longjmp-stdstring-frame rule).
+extern "C" TsValue* ts_object_proto_dynamic_lookup_recv(const char* key, TsValue* recv) {
+    if (!g_object_proto_dirty || !g_object_proto_map || !key) return nullptr;
+    TsMap* proto = (TsMap*)g_object_proto_map;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned(key);
+    TsValue v = proto->Get(k);
+    if (v.type != ValueType::UNDEFINED) return nanbox_from_tagged(v);
+    // Accessor form (__getter_<key>): invoke with the real receiver.
+    char gk[280];
+    if (strlen(key) > 260) return nullptr;
+    snprintf(gk, sizeof(gk), "__getter_%s", key);
+    k.ptr_val = TsString::GetInterned(gk);
+    TsValue gv = proto->Get(k);
+    if ((gv.type == ValueType::FUNCTION_PTR || gv.type == ValueType::OBJECT_PTR) &&
+        gv.ptr_val) {
+        TsValue* fn = ts_value_make_object(gv.ptr_val);
+        return ts_function_call_with_this(fn, recv, 0, nullptr);
+    }
+    return nullptr;
+}
+
+extern "C" TsValue* ts_object_proto_dynamic_lookup(const char* key) {
+    return ts_object_proto_dynamic_lookup_recv(key, nullptr);
+}
+
+// Own-presence in ANY form: data value (even undefined), getter, or setter.
+static bool objproto_map_owns_key(TsMap* m, const char* key) {
+    if (!m || !key) return false;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned(key);
+    if (m->Has(k)) return true;
+    std::string gk = std::string("__getter_") + key;
+    k.ptr_val = TsString::GetInterned(gk.c_str());
+    if (m->Has(k)) return true;
+    std::string sk = std::string("__setter_") + key;
+    k.ptr_val = TsString::GetInterned(sk.c_str());
+    return m->Has(k);
+}
+
+// HasProperty on the dynamic %Object.prototype%: any of the three storage
+// forms counts (data entry, __getter_, __setter_). Consumed by the array
+// hole-read chain (TsArray.cpp), where a set-only accessor still makes
+// HasProperty true.
+extern "C" bool ts_object_proto_dynamic_owns(const char* key) {
+    if (!g_object_proto_dirty || !g_object_proto_map || !key) return false;
+    return objproto_map_owns_key((TsMap*)g_object_proto_map, key);
+}
+
 TsMap* getNativeProps(void* obj) {
     auto it = g_native_object_props.find(obj);
     return (it != g_native_object_props.end()) ? it->second : nullptr;
@@ -1687,7 +1749,30 @@ void* ts_create_arguments_from_params(
         return dv;
     }
 
+    static TsValue* ts_object_get_property_impl(void* obj, const char* keyStr);
+
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
+        TsValue* r = ts_object_get_property_impl(obj, keyStr);
+        // #66: dynamic Object.prototype inheritance for plain-map receivers.
+        if (g_object_proto_dirty && obj && keyStr &&
+            (!r || ts_value_is_undefined(r))) {
+            void* raw = ts_value_get_object((TsValue*)obj);
+            if (!raw) raw = obj;
+            if (raw && raw != g_object_proto_map &&
+                (uintptr_t)raw >= 4096 &&
+                (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL &&
+                *(uint32_t*)((char*)raw + 16) == 0x4D415053 /*MAPS@16*/) {
+                TsMap* m = (TsMap*)raw;
+                if (!m->HasNullPrototype() && !objproto_map_owns_key(m, keyStr)) {
+                    if (TsValue* pv = ts_object_proto_dynamic_lookup_recv(
+                            keyStr, ts_value_make_object(raw))) return pv;
+                }
+            }
+        }
+        return r;
+    }
+
+    static TsValue* ts_object_get_property_impl(void* obj, const char* keyStr) {
         if (!obj) {
             return ts_value_make_undefined();
         }
@@ -4949,6 +5034,12 @@ void* ts_create_arguments_from_params(
                         void* octor = ts_get_global_Object();
                         if (octor) return ts_value_make_function_object(octor);
                     }
+                    // #66: dynamic Object.prototype inheritance (owns-key
+                    // gated; Object.create(null) returned earlier).
+                    if ((void*)map != g_object_proto_map &&
+                        !objproto_map_owns_key(map, k)) {
+                        if (TsValue* pv = ts_object_proto_dynamic_lookup_recv(k, obj)) return pv;
+                    }
                 }
             }
             return ts_value_make_undefined();
@@ -5016,6 +5107,12 @@ void* ts_create_arguments_from_params(
                                     int strict, int* violated);
 
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
+        // #66: user write targeting %Object.prototype% flips the dirty bit.
+        if (g_object_proto_map && obj) {
+            void* r0 = ts_value_get_object((TsValue*)obj);
+            if (!r0) r0 = (void*)obj;
+            if (r0 == g_object_proto_map) g_object_proto_dirty = true;
+        }
         bool strictW = g_strictWritePending;
         g_strictWritePending = false;
         if (!obj || !key || !value) return;
@@ -5890,7 +5987,8 @@ void* ts_create_arguments_from_params(
             if (ts_flat_object_has_property(rawObj, k)) return true;
             // Inherited from Object.prototype (flat objects have no explicit
             // prototype link, so the chain walk below never reaches it).
-            return is_object_prototype_member(k);
+            // #66: user-added dynamic entries count too.
+            return is_object_prototype_member(k) || ts_object_proto_dynamic_owns(k);
         }
 
         // Non-TsObject types at offset 0 — return early without dynamic_cast
@@ -6086,7 +6184,9 @@ void* ts_create_arguments_from_params(
             // for Object.create(null) — it genuinely has no prototype.
             if (!map->HasNullPrototype()) {
                 if (const char* k = keyStr->ToUtf8()) {
-                    if (is_object_prototype_member(k)) return true;
+                    // #66: user-added dynamic entries count too.
+                    if (is_object_prototype_member(k) ||
+                        ts_object_proto_dynamic_owns(k)) return true;
                 }
             }
             return false;

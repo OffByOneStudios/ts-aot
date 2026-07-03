@@ -71,6 +71,13 @@ extern "C" void ts_array_prototype_bump_version() {
     g_array_prototype_version++;
 }
 
+// #66: dynamic Object.prototype inheritance (TsObject.cpp). Array.prototype's
+// [[Prototype]] is %Object.prototype%, so an index absent on the array AND on
+// Array.prototype still inherits a user-added Object.prototype property.
+extern "C" TsValue* ts_object_proto_dynamic_lookup(const char* key);
+extern "C" TsValue* ts_object_proto_dynamic_lookup_recv(const char* key, TsValue* recv);
+extern "C" bool ts_object_proto_dynamic_owns(const char* key);
+
 extern "C" bool ts_array_is_prototype_map(void* maybeMap) {
     return maybeMap && maybeMap == (void*)g_array_prototype_map;
 }
@@ -130,7 +137,9 @@ bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     if (g_array_prototype_map->Has(sk)) return true;
     TsValue dk; dk.type = ValueType::STRING_PTR;
     dk.ptr_val = TsString::Create(idxKey);
-    return g_array_prototype_map->Has(dk);
+    if (g_array_prototype_map->Has(dk)) return true;
+    // #66: inherited from a user-modified Object.prototype.
+    return ts_object_proto_dynamic_owns(idxKey);
 }
 
 // extern "C" shim so other TUs (e.g. the `in` operator in TsObject.cpp) can
@@ -150,6 +159,12 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     }
     // Inherited via Array.prototype.
     TsValue* v = array_proto_get_at((void*)arr, i);
+    if (!v) {
+        // #66: next link in the chain — user-modified Object.prototype.
+        char idxKey[24];
+        snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
+        v = ts_object_proto_dynamic_lookup_recv(idxKey, ts_value_make_object(arr));
+    }
     return v ? v : ts_value_make_undefined();
 }
 

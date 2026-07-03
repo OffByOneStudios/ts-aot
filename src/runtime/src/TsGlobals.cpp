@@ -54,6 +54,7 @@ extern "C" void ts_gc_pop_tenure();
 // reference is on the stack at GC time (e.g. `String` passed as a param across
 // a forced GC → its memory reused → typeof "string", uncallable).
 extern "C" void ts_gc_register_root(void** location);
+extern "C" { extern void* g_object_proto_map; }  // #66 (defined in TsObject.cpp)
 namespace { struct TenureScope { TenureScope() { ts_gc_push_tenure(); } ~TenureScope() { ts_gc_pop_tenure(); } }; }
 
 extern "C" {
@@ -329,6 +330,9 @@ void* ts_get_global_Object() {
 
     // Object.prototype — a TsMap that serves as the base prototype
     TsMap* proto = TsMap::Create();
+    // #66: publish the real %Object.prototype% for dynamic inheritance.
+    g_object_proto_map = proto;
+    { static bool _r = false; if (!_r) { _r = true; ts_gc_register_root(&g_object_proto_map); } }
     // hasOwnProperty(key): use the canonical implementation from TsObject.cpp
     // which handles TsClosure/TsFunction properties TsMap (for .length/.name
     // after delete). The old inline lambda used ts_object_has_property which
