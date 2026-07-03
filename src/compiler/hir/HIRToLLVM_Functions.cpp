@@ -387,6 +387,19 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
         builder_->CreateCondBr(isResumed, barrierBB, agenDispatchBB);
 
         builder_->SetInsertPoint(barrierBB);
+        // Spill the async context to a stack slot BEFORE setjmp. The reject
+        // block runs after a longjmp, which restores callee-saved registers
+        // to their setjmp-time values — an SSA use of asyncContext_ there
+        // can read a clobbered register (observed: a NaN-boxed constant in
+        // RBX passed to ts_agen_complete_reject as the ctx -> AV). A
+        // volatile stack reload survives the longjmp.
+        llvm::AllocaInst* agenCtxSpill = nullptr;
+        {
+            llvm::IRBuilder<> entryB(&generatorImplFunc_->getEntryBlock(),
+                                     generatorImplFunc_->getEntryBlock().begin());
+            agenCtxSpill = entryB.CreateAlloca(getGCPtrTy(), nullptr, "agen_ctx_spill");
+        }
+        builder_->CreateStore(asyncContext_, agenCtxSpill)->setVolatile(true);
         auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
             getGCPtrTy(), {});
         llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
@@ -428,7 +441,12 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
         llvm::Value* exc = builder_->CreateCall(getExcFn, {});
         auto rejectFn = getOrDeclareRuntimeFunction("ts_agen_complete_reject",
             builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
-        builder_->CreateCall(rejectFn, { asyncContext_, exc });
+        // Reload ctx from the pre-setjmp spill (see comment above) — do NOT
+        // use the SSA value here.
+        llvm::LoadInst* ctxReload = builder_->CreateLoad(getGCPtrTy(), agenCtxSpill,
+                                                         "agen_ctx_reload");
+        ctxReload->setVolatile(true);
+        builder_->CreateCall(rejectFn, { ctxReload, exc });
         auto clearExcFn = getOrDeclareRuntimeFunction("ts_set_exception",
             builder_->getVoidTy(), { getGCPtrTy() });
         builder_->CreateCall(clearExcFn,
