@@ -650,7 +650,13 @@ static TsValue* string_proto_method(const char* methodName, void* ctx, int argc,
             }
         }
         if (!isAlreadyString) {
-            void* str = ts_string_from_value(target);
+            // Hook-invoking ToString(this): an object receiver's
+            // toString/valueOf runs and its throw PROPAGATES (the
+            // this-value-object-tostring-err families across ~25 String
+            // prototype methods). This frame is std::string-free, so the
+            // hook's longjmp is safe. Wrapper objects were unwrapped above.
+            extern void* ts_to_string_spec(TsValue* val);
+            void* str = ts_to_string_spec(target);
             if (!str) return ts_value_make_undefined();
             target = ts_value_make_string(str);
         }
