@@ -529,7 +529,7 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "splice" && !receiverIsObject && !receiverIsAny) {
+    if ((methodName == "splice" || methodName == "toSpliced") && !receiverIsObject && !receiverIsAny) {
         // splice(start, deleteCount, ...items)
         // Guard (mirrors push/unshift): a statically-known Object/any receiver
         // with its own `splice` method (e.g. a lodash lazy-wrapper) must fall
@@ -588,6 +588,29 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             }
         }
 
+        if (methodName == "toSpliced") {
+            // ts_array_toSpliced(arr, start, deleteCount, items, itemCount).
+            // Previously toSpliced had NO packer: the raw first item landed
+            // in the `items` slot (a nanbox as a TsArray* — CDB'd) and the
+            // second item's value became itemCount. Untyped inserts were
+            // silently dropped by the runtime guard.
+            int64_t itemCount = inst->operands.size() > 4
+                ? (int64_t)(inst->operands.size() - 4) : 0;
+            auto tsFt = llvm::FunctionType::get(
+                getGCPtrTy(),
+                { getGCPtrTy(), builder_->getInt64Ty(),
+                  builder_->getInt64Ty(), getGCPtrTy(),
+                  builder_->getInt64Ty() },
+                false);
+            auto tsFn = module_->getOrInsertFunction("ts_array_toSpliced", tsFt);
+            llvm::Value* result = builder_->CreateCall(tsFt, tsFn.getCallee(),
+                { obj, startV, delCnt, itemsArr,
+                  llvm::ConstantInt::get(builder_->getInt64Ty(), itemCount) });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
         // ts_array_splice(arr, start, deleteCount, items) -> ptr (deleted elements)
         auto spliceFt = llvm::FunctionType::get(
             getGCPtrTy(),
