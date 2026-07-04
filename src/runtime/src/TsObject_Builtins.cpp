@@ -127,6 +127,13 @@ extern "C" {
             ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return ts_value_make_string(TsString::Create(""));  // unreachable
         }
+        // ES B.2.3.2.1 CreateHTML step 2: ToString(this) runs the user's
+        // toString/valueOf hooks — a poisoned receiver must THROW here.
+        // Coerce BEFORE any C++ locals exist (longjmp rule).
+        {
+            extern TsValue* ts_to_primitive(TsValue* val, int hint);
+            self = (void*)ts_to_primitive((TsValue*)self, 2);
+        }
         void* strPtr = ts_string_from_value((TsValue*)self);
         TsString* s = strPtr ? ts_ensure_flat(strPtr) : TsString::Create("");
         std::string out;
@@ -137,8 +144,8 @@ extern "C" {
         return ts_value_make_string(TsString::Create(out.c_str()));
     }
 
-    // Annex B.2.3: HTML wrapper with a single attribute. Per spec the attr
-    // value is NOT escaped — quotes in the arg appear literally (legacy behavior).
+    // Annex B.2.3: HTML wrapper with a single attribute. CreateHTML step
+    // 4.b: every 0x22 (") in the attribute VALUE is replaced with &quot;.
     static TsValue* string_html_wrap_attr(void* ctx, int argc, TsValue** argv,
                                           const char* tag, const char* attr,
                                           const char* methodName) {
@@ -152,12 +159,21 @@ extern "C" {
             ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return ts_value_make_string(TsString::Create(""));
         }
+        // CreateHTML: ToString(this) THEN ToString(arg), both with user
+        // hooks (poisoned values must throw). Coerce before C++ locals.
+        TsValue* argPrim = nullptr;
+        {
+            extern TsValue* ts_to_primitive(TsValue* val, int hint);
+            self = (void*)ts_to_primitive((TsValue*)self, 2);
+            if (argc >= 1 && argv && argv[0])
+                argPrim = ts_to_primitive(argv[0], 2);
+        }
         void* strPtr = ts_string_from_value((TsValue*)self);
         TsString* s = strPtr ? ts_ensure_flat(strPtr) : TsString::Create("");
         // ToString on argument; default to "undefined" per spec when absent
         TsString* argStr = nullptr;
-        if (argc >= 1 && argv && argv[0]) {
-            void* argPtr = ts_string_from_value(argv[0]);
+        if (argPrim) {
+            void* argPtr = ts_string_from_value(argPrim);
             if (argPtr) argStr = ts_ensure_flat(argPtr);
         }
         if (!argStr) argStr = TsString::Create("undefined");
@@ -166,7 +182,11 @@ extern "C" {
         out += ' ';
         out += attr;
         out += "=\"";
-        out += argStr->ToUtf8();
+        // CreateHTML 4.b: escape 0x22 in the attribute value as &quot;
+        for (const char* q = argStr->ToUtf8(); q && *q; ++q) {
+            if (*q == '\"') out += "&quot;";
+            else out += *q;
+        }
         out += "\">";
         if (s) out += s->ToUtf8();
         out += "</";
