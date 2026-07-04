@@ -1937,6 +1937,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // error (boxed)
             .build());
 
+    reg.registerLowering("ts_global_parseFloat",
+        lowering("ts_global_parseFloat")
+            .returnsPtr()
+            .ptrArg()
+            .build());
+
     reg.registerLowering("ts_module_mark_namespace",
         lowering("ts_module_mark_namespace")
             .returnsVoid()

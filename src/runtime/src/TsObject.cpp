@@ -7266,6 +7266,12 @@ void* ts_create_arguments_from_params(
     extern "C" TsValue* globalThis = nullptr;  // ES2020: alias for global
     // parseFloat(value) - global JS function
     // Called from untyped JS as: call ptr @parseFloat(ptr)
+    // Namespaced alias: the compiler's direct-call path used the BARE
+    // `parseFloat` symbol, which resolves to a wrong target in the shared-
+    // runtime link (every call returned undefined; parseInt via the same
+    // path was fine — symbol-specific collision). Calls now route here.
+    extern "C" TsValue* ts_global_parseFloat(TsValue* arg);
+
     extern "C" TsValue* parseFloat(TsValue* arg) {
         if (!arg) return ts_value_make_double(NAN);
 
@@ -7286,6 +7292,14 @@ void* ts_create_arguments_from_params(
             if (ptr) {
                 if (ts_is_any_string(ptr)) {
                     str = ts_ensure_flat(ptr);
+                } else {
+                    // ES 19.2.4 step 1: ToString(value) — user toString/
+                    // valueOf hooks run (and may throw; only POD locals are
+                    // live here, longjmp-safe).
+                    extern TsValue* ts_to_primitive(TsValue* val, int hint);
+                    TsValue* prim = ts_to_primitive(arg, 2 /* string */);
+                    void* sp = prim ? ts_string_from_value(prim) : nullptr;
+                    if (sp) str = ts_ensure_flat(sp);
                 }
             }
         }
@@ -7360,6 +7374,10 @@ void* ts_create_arguments_from_params(
     }
 
     // Typed versions for BuiltinRegistry
+    extern "C" TsValue* ts_global_parseFloat(TsValue* arg) {
+        return parseFloat(arg);
+    }
+
     extern "C" double ts_number_parseFloat(TsValue* arg) {
         TsValue* result = parseFloat(arg);
         return ts_value_get_double(result);

@@ -1589,7 +1589,6 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "Math" ||
                 ident->name == "JSON" ||
                 ident->name == "parseInt" ||
-                ident->name == "parseFloat" ||
                 ident->name == "isNaN" ||
                 ident->name == "isFinite" ||
                 ident->name == "eval" ||
@@ -1618,6 +1617,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "fetch" ||
                 ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions
+            }
+            else if (ident->name == "parseFloat") {
+                // The bare `parseFloat` symbol mis-binds in the shared-runtime
+                // link (returned undefined for every input); use the alias.
+                callName = "ts_global_parseFloat";
             }
             // Otherwise keep the mangled name (already set above)
         }
