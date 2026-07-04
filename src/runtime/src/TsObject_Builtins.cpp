@@ -695,6 +695,54 @@ extern "C" {
     // Sets go to the ORIGINAL object. Write the temp's elements and length
     // back. POD frame: a setter on the original may throw.
     extern "C" void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+    // ES 10.4.2.4 ArraySetLength via Set(O, "length", v, true): every
+    // length-writing mutator (pop/push/shift/unshift/splice) must throw
+    // TypeError when the receiver is FROZEN (integrity side-table) or its
+    // `length` was made non-writable via defineProperty — or when the
+    // materialized receiver is a STRING (its length is never writable).
+    static void array_require_length_writable(TsArray* arr, const char* method) {
+        if (!arr) return;
+        extern uint8_t ts_integrity_get(void* raw);
+        bool blocked = ts_integrity_get((void*)arr) >= 3;
+        if (!blocked && arr->properties) {
+            TsValue lk; lk.type = ValueType::STRING_PTR;
+            lk.ptr_val = TsString::GetInterned("length");
+            if (arr->properties->Has(lk) &&
+                !(arr->properties->GetPropertyAttrs(lk) & 0x02)) {
+                blocked = true;
+            }
+        }
+        if (!blocked && arr->originalReceiver &&
+            arr->originalReceiver != (void*)arr) {
+            void* orig = arr->originalReceiver;
+            if ((uintptr_t)orig >= 4096 &&
+                (uintptr_t)orig < 0x0000800000000000ULL) {
+                uint32_t m0 = *(uint32_t*)orig;
+                if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC) {
+                    blocked = true;
+                } else if (*(uint32_t*)((char*)orig + 16) == 0x4D415053) {
+                    // String WRAPPER object (the materializer boxes string
+                    // receivers): its length is never writable either.
+                    TsMap* wm = (TsMap*)orig;
+                    TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                    sdKey.ptr_val = TsString::GetInterned("__StringData");
+                    if (wm->Get(sdKey).type == ValueType::STRING_PTR)
+                        blocked = true;
+                    else if (ts_integrity_get(orig) >= 3)
+                        blocked = true;
+                } else if (ts_integrity_get(orig) >= 3) {
+                    blocked = true;
+                }
+            }
+        }
+        if (blocked) {
+            char msg[96];
+            snprintf(msg, sizeof(msg),
+                     "Cannot %s: array length is not writable", method);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        }
+    }
+
     static void arraylike_writeback(TsArray* arr) {
         if (!arr) return;
         void* orig = arr->originalReceiver;
@@ -997,6 +1045,7 @@ extern "C" {
     }
     TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "push");
+        array_require_length_writable(arr, "push");
         if (!arr) return ts_value_make_undefined();
         for (int i = 0; i < argc; i++) {
             ts_array_push(arr, (void*)argv[i]);
@@ -1006,6 +1055,7 @@ extern "C" {
     }
     TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "pop");
+        array_require_length_writable(arr, "pop");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_pop(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
@@ -1598,6 +1648,7 @@ extern "C" {
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "splice");
+        array_require_length_writable(arr, "splice");
         if (!arr) return ts_value_make_undefined();
         // Use toInteger so Symbol args throw TypeError per spec.
         int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
@@ -1763,12 +1814,14 @@ extern "C" {
     }
     TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "shift");
+        array_require_length_writable(arr, "shift");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_shift(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "unshift");
+        array_require_length_writable(arr, "unshift");
         if (!arr) return ts_value_make_undefined();
         for (int i = argc - 1; i >= 0; i--) {
             ts_array_unshift(arr, (void*)argv[i]);
