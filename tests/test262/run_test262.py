@@ -109,8 +109,8 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "caller",
     "Float16Array",
 
-    # We don't support eval
-    "eval",
+    # eval is supported since EVAL-001 (runtime tree-walking interpreter,
+    # indirect/global-scope semantics).
 }
 
 # Flags that indicate tests we should skip
@@ -141,14 +141,12 @@ os.environ.setdefault("TS_SCRIPT_GOAL", "1")
 #    specification from ECMA-262 and outside this project's conformance
 #    matrices. (Intl.* feature tags were already skipped; this excludes
 #    the remainder that tests base-Intl plumbing.)
-#  - language/eval-code, built-ins/eval: tests OF direct-eval semantics.
-#    AOT compilation has no interpreter tier; the body-scan below already
-#    skips tests that merely USE eval.
+#  - language/eval-code and built-ins/eval run since EVAL-001 (runtime
+#    tree-walking interpreter; direct-eval caller-scope tests will fail
+#    honestly rather than skip).
 SKIPPED_PREFIXES = (
     ("staging/", "out of scope: test262 staging incubator (SpiderMonkey suite)"),
     ("intl402/", "out of scope: ECMA-402 Internationalization API"),
-    ("language/eval-code/", "out of scope: direct-eval semantics (AOT)"),
-    ("built-ins/eval", "out of scope: direct-eval semantics (AOT)"),
 )
 
 SKIPPED_PATHS: Set[str] = {
@@ -663,17 +661,8 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
     if skip_reason:
         return TestResult(test_path, "skip", skip_reason), None
 
-    # Check for dynamic-code usage in the test body — eval() and the
-    # Function("source") constructor both require an interpreter tier an
-    # AOT compiler doesn't have. (Tests merely REFERENCING Function, e.g.
-    # `x instanceof Function`, don't match: only call/construct with a
-    # leading `new ` or bare `Function(`.)
-    test_body_start = source.find('---*/')
-    test_body = source[test_body_start:] if test_body_start != -1 else source
-    if 'eval(' in test_body and 'eval' not in [f for f in meta.features]:
-        return TestResult(test_path, "skip", "uses eval"), None
-    if _DYNAMIC_FN_RE.search(test_body):
-        return TestResult(test_path, "skip", "uses Function() dynamic code"), None
+    # Dynamic code (eval / Function ctor) runs on the runtime tree-walking
+    # interpreter since EVAL-001 — no body-scan gating anymore.
 
     full_source = build_test_source(test_path, meta)
 

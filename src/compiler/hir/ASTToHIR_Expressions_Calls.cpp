@@ -1259,6 +1259,19 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        if (ident->name == "eval") {
+            // eval(x) — EVAL-001: route through the tree-walking interpreter
+            // with an explicitly BOXED argument. The generic untyped path
+            // passes number literals as raw doubles into the varargs @eval
+            // symbol, which the nanboxed runtime side cannot decode.
+            std::shared_ptr<HIRValue> evalArg = args.empty()
+                ? builder_.createConstUndefined()
+                : boxValueIfNeeded(args[0]);
+            lastValue_ = builder_.createCall("ts_indirect_eval_value",
+                                             {evalArg}, HIRType::makeAny());
+            return;
+        }
+
         if (ident->name == "Function") {
             // Function(p1, ..., pn, body) — EVAL-001: pass ALL arguments so
             // the runtime can assemble "(function anonymous(p1,...,pn){body})"

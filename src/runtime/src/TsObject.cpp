@@ -7544,26 +7544,25 @@ void* ts_create_arguments_from_params(
         return ts_value_make_bool(true);
     }
 
-    // Direct eval is not supported in AOT — there is no JS source-level
-    // interpreter to invoke at runtime. Per ECMA-262 §19.2.1, indirect
-    // eval of a non-string returns its argument unchanged; for any other
-    // input we throw a TypeError so callers get a clean exception instead
-    // of an "undefined symbol: eval_any" linker error.
+    // eval() — EVAL-001: string sources run on the runtime tree-walking
+    // interpreter (src/interp/TsInterp.cpp) with INDIRECT-eval semantics
+    // (global scope; the AOT caller's SSA locals are unreachable by design —
+    // see docs/tickets/EVAL-001-treewalker-eval.md §3). Per ECMA-262 19.2.1,
+    // eval of a non-string returns the argument unchanged. This frame holds
+    // no destructor-owning locals; ts_indirect_eval_cstr throws SyntaxError /
+    // user exceptions from its own clean frame.
+    extern "C" TsValue* ts_indirect_eval_value(TsValue* arg) {
+        if (!arg) return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
+        void* sraw = ts_value_get_string(arg);
+        if (!sraw) return arg;   // non-string: return unchanged
+        extern TsValue* ts_indirect_eval_cstr(const char* src);
+        const char* src = ((TsString*)sraw)->ToUtf8();
+        return ts_indirect_eval_cstr(src ? src : "");
+    }
+
+    // Legacy varargs-lowered call sites still emit @eval directly.
     extern "C" TsValue* eval(TsValue* arg) {
-        if (arg) {
-            uint64_t nb = nanbox_from_tsvalue_ptr(arg);
-            // Non-string primitives: return arg unchanged (indirect eval
-            // semantics). Strings and objects fall through to the throw.
-            if (nanbox_is_int32(nb) || nanbox_is_double(nb) ||
-                nanbox_is_bool(nb) || nanbox_is_null(nb) ||
-                nanbox_is_undefined(nb)) {
-                return arg;
-            }
-        }
-        TsValue* err = (TsValue*)ts_error_create(
-            (void*)TsString::Create("eval is not supported by the AOT compiler"));
-        ts_throw(err);
-        return nullptr;  // unreachable
+        return ts_indirect_eval_value(arg);
     }
 
     // isNaN(value) - global JS function for untyped code
