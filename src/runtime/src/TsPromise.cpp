@@ -3447,6 +3447,19 @@ TsValue* ts_async_context_get_this(AsyncContext* ctx) {
     return nullptr;
 }
 
+void ts_async_context_set_closure(AsyncContext* ctx, void* closure) {
+    if (ctx) {
+        ctx->closureObj = closure;
+    }
+}
+
+void* ts_async_context_get_closure(AsyncContext* ctx) {
+    if (ctx) {
+        return ctx->closureObj;
+    }
+    return nullptr;
+}
+
 void ts_async_context_set_data(AsyncContext* ctx, void* data) {
     if (ctx) {
         ctx->data = data;
