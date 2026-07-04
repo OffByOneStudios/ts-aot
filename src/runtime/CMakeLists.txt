@@ -44,7 +44,36 @@ set_property(CACHE TS_ICU_MODE PROPERTY STRINGS "FULL" "SMALL" "NONE")
 # Fat Runtime: Merge all dependencies into a single tsruntime.lib
 option(TS_FAT_RUNTIME "Merge all dependencies into tsruntime.lib" OFF)
 
+# ---------------------------------------------------------------------------
+# tsparse: the native TS/JS parser compiled for the RUNTIME (EVAL-001 Phase 0)
+# ---------------------------------------------------------------------------
+# Reuses the compiler's parser sources verbatim (single source of truth; the
+# compiler still compiles its own copies inside tscompiler_lib — separate
+# binaries, no interference). Objects are archived into tsruntime and
+# tsruntime_shared so eval()/Function(source) can parse at program run time
+# via the extern "C" ts_parse_* ABI (src/interp/TsParse.cpp). The parser is
+# self-contained: std + fmt/spdlog/ICU only — all already runtime deps.
+find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+# NOTE: RegExpEarlyErrors.cpp is NOT here — tsruntime already compiles it
+# (TsRegExp.cpp uses tsaot::validateRegExpLiteral); a second copy would be a
+# duplicate symbol in the DLL link. Parser.cpp resolves it from that copy.
+add_library(tsparse OBJECT
+    ${CMAKE_SOURCE_DIR}/src/compiler/parser/Lexer.cpp
+    ${CMAKE_SOURCE_DIR}/src/compiler/parser/Parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/compiler/parser/Parser_Expressions.cpp
+    ${CMAKE_SOURCE_DIR}/src/compiler/parser/Parser_TypeAnnotations.cpp
+    src/interp/TsParse.cpp
+)
+target_link_libraries(tsparse PRIVATE
+    fmt::fmt
+    spdlog::spdlog
+    ICU::uc
+    ICU::i18n
+)
+
 add_library(tsruntime STATIC
+    $<TARGET_OBJECTS:tsparse>
     src/Core.cpp
     src/Memory.cpp
     src/EventLoop.cpp

@@ -1538,6 +1538,12 @@ static TsValue* ts_return_ctx_value_native(void* ctx, int argc, TsValue** argv) 
     return (TsValue*)ctx;
 }
 
+// Runtime-linked parser boundary (src/interp/TsParse.cpp, EVAL-001).
+extern "C" void* ts_parse_program(const char* source, const char* file_name,
+                                  int as_module);
+extern "C" const char* ts_parse_error(void* handle);
+extern "C" void ts_parse_free(void* handle);
+
 // Function(source) — AOT pattern-matcher (no interpreter tier). Exact-match
 // the safe literal idioms; throw EvalError for real dynamic source, the same
 // class of error a CSP-restricted host throws. A silent wrong function
@@ -1548,6 +1554,16 @@ void* ts_function_constructor_stub(TsValue* body) {
     if (body) {
         void* raw = ts_value_get_string(body);
         if (raw) s = ((TsString*)raw)->ToUtf8();
+    }
+    // EVAL-001 Phase 0 smoke hook (env-gated, no default behavior change):
+    // proves the runtime-linked parser (src/interp/TsParse.cpp) parses and
+    // reports errors end-to-end. Phase 3 replaces this stub with
+    // parse-then-interpret.
+    if (getenv("TS_PARSE_SMOKE")) {
+        void* h = ts_parse_program(s ? s : "", "<function>", 0);
+        const char* perr = ts_parse_error(h);
+        fprintf(stderr, "[tsparse] %s\n", perr ? perr : "ok");
+        ts_parse_free(h);
     }
     if (!body || (body && ts_value_is_undefined(body)))
         return ts_value_make_native_function((void*)ts_noop_undefined_native, nullptr);

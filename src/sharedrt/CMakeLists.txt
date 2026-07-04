@@ -62,6 +62,7 @@ endif()
 # uses ts_net / ts_fetch), and including all of them gives a one-DLL runtime.
 add_library(tsruntime_shared SHARED
     shared_runtime_stubs.cpp
+    $<TARGET_OBJECTS:tsparse>
     $<TARGET_OBJECTS:tsruntime>
     $<TARGET_OBJECTS:nodecore>
     $<TARGET_OBJECTS:ts_assert>
