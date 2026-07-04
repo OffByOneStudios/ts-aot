@@ -657,7 +657,24 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         // Imported files parse with the MODULE goal even when the entry is a
         // script (TS_SCRIPT_GOAL): an `export` in a fixture is otherwise a
         // script-goal SyntaxError and the module silently never bundles.
+        lastParseError_.clear();
         auto nativeAst = parseSourceFile(resolved.path, /*forceModuleGoal=*/true);
+        if (!nativeAst && lastParseError_.find("SyntaxError") != std::string::npos) {
+            // Module-goal EARLY ERROR (duplicate declaration, bad export,
+            // ...). Per spec this must not abort the host: record it and
+            // give the module an empty AST — the Monomorphizer replaces a
+            // dynamic-only module's init with `throw new SyntaxError(msg)`
+            // so import() rejects with the right error class.
+            module->linkError = lastParseError_;
+            module->ast = std::make_shared<ast::Program>();
+            module->analyzed = true;
+            module->isESM = true;
+            // Keep the stub in the pipeline: the Monomorphizer only emits
+            // (and the dynamic-import registry only learns about) modules
+            // in moduleOrder.
+            moduleOrder.push_back(module->path);
+            return module;
+        }
         if (!nativeAst) {
             // Fallback to Node.js parser
             SPDLOG_WARN("Native parser failed for {}, falling back to Node.js", resolved.path);

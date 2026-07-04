@@ -297,6 +297,7 @@ std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path,
         return nativeParser.parse(source, path);
     } catch (const std::exception& e) {
         SPDLOG_WARN("Native parser failed for {}: {}", path, e.what());
+        lastParseError_ = e.what();
         return nullptr;
     }
 }
