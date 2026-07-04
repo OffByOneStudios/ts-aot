@@ -259,6 +259,17 @@ private:
     int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement
     std::vector<llvm::Value*> generatorLocalSlots_;      // Pre-created GEPs for local slots (dominate all uses)
 
+    // Shared-capture cellslots inside GENERATOR impls: an entry-block alloca
+    // dies at every yield (each resume re-runs impl_entry and re-nulls it),
+    // so sibling closures created across a yield minted DIFFERENT cells for
+    // the same generator-local. These slots live in the ctx data buffer
+    // instead (after params/locals/spills; ts_alloc zero-fills, so they
+    // start null exactly like the alloca did). Count is an upper bound
+    // (total MakeClosure capture slots) sized in collectGeneratorCounts.
+    int generatorCellSlotCount_ = 0;
+    int generatorNextCellSlotIdx_ = 0;
+    std::map<std::pair<std::string, llvm::Value*>, int> generatorCellSlotIdx_;
+
     // Cross-yield SSA spill state. Populated only for generator/async-generator
     // functions where some HIR SSA value is defined before a yield and used
     // after it. The post-yield resume block is reached directly from impl_entry

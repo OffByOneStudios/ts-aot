@@ -982,7 +982,42 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     // which keeps the alloca in memory (no mem2reg) so the conservative GC
     // stack scanner sees — and pins — the live cell across GC points.
     auto getOrCreateCellSlot =
-        [&](const std::pair<std::string, llvm::Value*>& key) -> llvm::AllocaInst* {
+        [&](const std::pair<std::string, llvm::Value*>& key) -> llvm::Value* {
+        // GENERATOR impl: an entry-block alloca dies at every yield (each
+        // resume re-runs impl_entry and re-nulls it), so sibling closures
+        // created across a yield minted DIFFERENT cells for the same
+        // generator-local. Put the slot in the ctx data buffer instead —
+        // it lives as long as the generator instance and ts_alloc
+        // zero-fills it, so it starts null exactly like the alloca did.
+        // The GEP is re-emitted at each use point (only the INDEX is
+        // cached) so dominance is never an issue across state blocks.
+        if (generatorDataBuf_ && currentHIRFunction_ &&
+            currentHIRFunction_->isGenerator) {
+            int idx;
+            auto git = generatorCellSlotIdx_.find(key);
+            if (git != generatorCellSlotIdx_.end()) {
+                idx = git->second;
+            } else {
+                idx = generatorNextCellSlotIdx_++;
+                generatorCellSlotIdx_[key] = idx;
+            }
+            size_t base = currentHIRFunction_->params.size() +
+                          (size_t)generatorLocalCount_ +
+                          crossYieldSpillIds_.size();
+            llvm::Value* gep = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(),
+                                         (int64_t)(base + idx)) },
+                key.first + "$genslot");
+            // Callers pass the slot straight to runtime calls typed `ptr`
+            // (addrspace 0) -- same shape the entry-block alloca had. The
+            // GEP is re-derived at every use, so the laundered pointer is
+            // never live across a GC point.
+            if (gep->getType() != builder_->getPtrTy()) {
+                gep = builder_->CreateAddrSpaceCast(gep, builder_->getPtrTy(),
+                                                    key.first + "$genslot.raw");
+            }
+            return gep;
+        }
         auto it = capturedVarCellSlots_.find(key);
         if (it != capturedVarCellSlots_.end()) return it->second;
         llvm::AllocaInst* slot;
@@ -1027,6 +1062,36 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         std::string capVarName;
         if (i < captureNames.size()) {
             capVarName = captureNames[i];
+        }
+
+        // Transitive capture (annotated by ASTToHIR): this slot re-captures a
+        // variable that is ITSELF one of the current function's captures.
+        // Alias the parent's cell directly instead of copying the value —
+        // the old value-copy is why closures created inside methods/getters
+        // mutated a private snapshot (probe: `{ m(){ return ()=>x++ } }`).
+        // The value-based chain-walk below can't recover this case once the
+        // load was unboxed to a raw double/i64, so resolve it by NAME against
+        // the enclosing function's capture list (same rule as LoadCapture).
+        if (i < inst->captureFromParent.size() &&
+            !inst->captureFromParent[i].empty() && closureParam_ &&
+            currentHIRFunction_) {
+            int64_t parentIdx = -1;
+            for (size_t k = 0; k < currentHIRFunction_->captures.size(); ++k) {
+                if (currentHIRFunction_->captures[k].first ==
+                    inst->captureFromParent[i]) {
+                    parentIdx = static_cast<int64_t>(k);
+                    break;
+                }
+            }
+            if (parentIdx >= 0) {
+                llvm::Value* parentCell = builder_->CreateCall(
+                    getCellFt, getCell.getCallee(),
+                    { closureParam_,
+                      llvm::ConstantInt::get(builder_->getInt64Ty(), parentIdx) });
+                builder_->CreateCall(setCellFt, setCell.getCallee(),
+                    { gcPtrToRaw(closure), indexVal, parentCell });
+                continue;
+            }
         }
 
         // For cell sharing, identify the source variable: if the captured value
@@ -1132,7 +1197,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             // Publish into the cross-block slot so sibling closures that capture
             // the same variable in OTHER basic blocks converge on this same cell.
             if (!capVarName.empty()) {
-                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                llvm::Value* slot = getOrCreateCellSlot(cellKey);
                 builder_->CreateStore(existingCellFromChain, slot);
                 capturedVarCells_[cellKey] = { existingCellFromChain, currentBB };
             }
@@ -1153,7 +1218,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                     { gcPtrToRaw(closure), indexVal, existingCell });
             } else {
                 llvm::Value* boxedValue = boxCapturedValue(capturedValue);
-                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                llvm::Value* slot = getOrCreateCellSlot(cellKey);
                 builder_->CreateCall(shareCellFt, shareCell.getCallee(),
                     { gcPtrToRaw(closure), indexVal, slot, boxedValue });
                 llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { gcPtrToRaw(closure), indexVal });
@@ -1171,7 +1236,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { gcPtrToRaw(closure), indexVal, boxedValue });
             if (!capVarName.empty()) {
                 llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { gcPtrToRaw(closure), indexVal });
-                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                llvm::Value* slot = getOrCreateCellSlot(cellKey);
                 builder_->CreateStore(cell, slot);
                 capturedVarCells_[cellKey] = { cell, currentBB };
             }

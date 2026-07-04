@@ -3,9 +3,9 @@
 // CHECK: define
 // OUTPUT: Alice
 // OUTPUT: Bob
-// OUTPUT: 1
-// NOTE: Counter outputs 1 (not 3) because getter self-mutation doesn't persist.
-//       This is a known JS slow-path limitation.
+// OUTPUT: 3
+// NOTE: The two bare `counter.count;` statements run the getter (observable
+//       side effect), and getter self-mutation of `this._count` persists.
 
 var person = {
     _name: "Alice",

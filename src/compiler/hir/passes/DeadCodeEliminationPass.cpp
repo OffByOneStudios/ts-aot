@@ -304,18 +304,18 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
                 if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
                     if (*valPtr && (*valPtr)->type) {
                         auto kind = (*valPtr)->type->kind;
-                        if (kind == HIRTypeKind::Object ||
-                            kind == HIRTypeKind::Class ||
-                            kind == HIRTypeKind::Array ||
-                            kind == HIRTypeKind::String ||
-                            kind == HIRTypeKind::Map ||
-                            kind == HIRTypeKind::Set ||
+                        // Object-like kinds are NOT safe: object literals
+                        // (Map), class instances, arrays, functions and Sets
+                        // can all carry accessors, so an unused `o.g;` read
+                        // must still run the getter (observable side effect).
+                        // Only primitives (and raw Ptr) can't dispatch a user
+                        // getter through a static property read here.
+                        if (kind == HIRTypeKind::String ||
                             kind == HIRTypeKind::Int64 ||
                             kind == HIRTypeKind::Float64 ||
                             kind == HIRTypeKind::Bool ||
                             kind == HIRTypeKind::BigInt ||
                             kind == HIRTypeKind::Symbol ||
-                            kind == HIRTypeKind::Function ||
                             kind == HIRTypeKind::Ptr) {
                             return false;  // Known non-nullable — safe to eliminate
                         }

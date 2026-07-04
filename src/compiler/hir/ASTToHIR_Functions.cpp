@@ -498,7 +498,16 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             }
         }
 
-        auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+        // Transitive-capture annotation: a slot whose variable is ITSELF an
+        // outer capture of the current function must alias the parent's cell
+        // (not copy the value) so mutations stay shared across every level.
+        std::vector<std::string> capFromParent;
+        for (const auto& cap : innerCaptures) {
+            size_t cfpIdx = 0;
+            capFromParent.push_back(
+                isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
+        }
+        auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
 
         // Mark captured variables as "captured by nested" and register the
         // closure cell so later writes can propagate. When a variable is
@@ -953,7 +962,16 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 }
             }
         }
-        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+        // Transitive-capture annotation: a slot whose variable is ITSELF an
+        // outer capture of the current function must alias the parent's cell
+        // (not copy the value) so mutations stay shared across every level.
+        std::vector<std::string> capFromParent;
+        for (const auto& cap : innerCaptures) {
+            size_t cfpIdx = 0;
+            capFromParent.push_back(
+                isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
+        }
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
 
         // Mark each captured variable in the outer scope as "captured by nested"
         // so subsequent reads/writes in the outer function also use the cell.
@@ -1444,7 +1462,16 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 }
             }
         }
-        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+        // Transitive-capture annotation: a slot whose variable is ITSELF an
+        // outer capture of the current function must alias the parent's cell
+        // (not copy the value) so mutations stay shared across every level.
+        std::vector<std::string> capFromParent;
+        for (const auto& cap : innerCaptures) {
+            size_t cfpIdx = 0;
+            capFromParent.push_back(
+                isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
+        }
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
 
         // Mark each captured variable in the outer scope as "captured by nested"
         // so subsequent reads/writes in the outer function also use the cell.
@@ -1771,7 +1798,16 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
                 }
             }
         }
-        auto methodClosure = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+        // Transitive-capture annotation: a slot whose variable is ITSELF an
+        // outer capture of the current function must alias the parent's cell
+        // (not copy the value) so mutations stay shared across every level.
+        std::vector<std::string> capFromParent;
+        for (const auto& cap : innerCaptures) {
+            size_t cfpIdx = 0;
+            capFromParent.push_back(
+                isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
+        }
+        auto methodClosure = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
 
         // Redirect the enclosing scope's reads/writes of each captured variable
         // through this method's closure cell, so a mutation inside the method

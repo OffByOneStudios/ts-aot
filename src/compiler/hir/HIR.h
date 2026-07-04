@@ -367,6 +367,14 @@ struct HIRInstruction {
     // scopes (push + setjmp targeting the SAME catch blocks) on resume.
     std::vector<HIRBlock*> tryCatchTargets;
 
+    // For MakeClosure only: parallel to the capture operands. A non-empty
+    // entry names the ENCLOSING function's own capture that this slot
+    // re-captures transitively (decided by ASTToHIR's scope resolution, so
+    // shadowing is already accounted for). Codegen then aliases the new
+    // closure's cell to ts_closure_get_cell(__closure, <that index>) instead
+    // of copying the value — mutations stay shared across every level.
+    std::vector<std::string> captureFromParent;
+
     // Escape analysis
     bool escapes = true;            // Conservative default: object escapes function scope
     bool scalarReplaceable = false;  // True if all uses are GetPropStatic/SetPropStatic (SROA)

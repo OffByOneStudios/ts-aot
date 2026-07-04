@@ -1101,9 +1101,13 @@ public:
     // Create a closure object from a function and captured values
     // Returns a closure object pointer that can be called indirectly
     // funcType: The function type (with return type info) - used for CallIndirect type inference
+    // captureFromParent (optional): parallel to `captures`; a non-empty entry
+    // names the ENCLOSING function's own capture this slot re-captures, so
+    // codegen aliases the parent's cell instead of copying the value.
     std::shared_ptr<HIRValue> createMakeClosure(const std::string& funcName,
                                                  const std::vector<std::shared_ptr<HIRValue>>& captures,
-                                                 std::shared_ptr<HIRType> funcType = nullptr) {
+                                                 std::shared_ptr<HIRType> funcType = nullptr,
+                                                 const std::vector<std::string>* captureFromParent = nullptr) {
         // Use function type if provided, otherwise fall back to generic pointer
         auto result = createValue(funcType ? funcType : HIRType::makePtr());
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::MakeClosure);
@@ -1111,6 +1115,9 @@ public:
         inst->operands.push_back(funcName);
         for (auto& cap : captures) {
             inst->operands.push_back(cap);
+        }
+        if (captureFromParent) {
+            inst->captureFromParent = *captureFromParent;
         }
         emit(std::move(inst));
         return result;

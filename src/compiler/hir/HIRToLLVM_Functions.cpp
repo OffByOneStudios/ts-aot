@@ -7,6 +7,7 @@ std::pair<int, int> HIRToLLVM::collectGeneratorCounts(HIRFunction* fn) {
     // First, count the number of yields and allocas to create resume blocks and local storage
     int yieldCount = 0;
     int allocaCount = 0;
+    int cellSlotCount = 0;
     for (auto& block : fn->blocks) {
         for (auto& inst : block->instructions) {
             if (inst->opcode == HIROpcode::Yield || inst->opcode == HIROpcode::YieldStar) {
@@ -15,10 +16,18 @@ std::pair<int, int> HIRToLLVM::collectGeneratorCounts(HIRFunction* fn) {
             if (inst->opcode == HIROpcode::Alloca) {
                 allocaCount++;
             }
+            if (inst->opcode == HIROpcode::MakeClosure) {
+                // Upper bound on shared-capture cellslots the body may need
+                // (one per capture operand; unused slots are harmless).
+                cellSlotCount += static_cast<int>(inst->operands.size()) - 1;
+            }
         }
     }
     generatorLocalCount_ = allocaCount;
     generatorNextLocalIndex_ = 0;
+    generatorCellSlotCount_ = cellSlotCount;
+    generatorNextCellSlotIdx_ = 0;
+    generatorCellSlotIdx_.clear();
     return { yieldCount, allocaCount };
 }
 
@@ -203,11 +212,36 @@ void HIRToLLVM::emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
             { asyncCtx, capturedThis });
     }
 
+    // Capture the generator function's own __closure (like `this` above).
+    // Without it the impl runs with NO closure context, so LoadCapture/
+    // StoreCapture on outer variables silently no-op (probe: a generator
+    // mutating a captured `x` never wrote back; closures created inside
+    // the body couldn't capture at all).
+    {
+        bool wrapHiddenClosure =
+            (!fn->params.empty() && fn->params[0].first == "__closure__");
+        bool wrapImplicitClosure = !fn->captures.empty() && !wrapHiddenClosure;
+        if ((wrapImplicitClosure || wrapHiddenClosure) &&
+            llvmFunc->arg_size() > 0) {
+            // In both conventions the closure is physical argument 0.
+            llvm::Value* closureArg = &*llvmFunc->arg_begin();
+            llvm::FunctionType* setClosFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { getGCPtrTy(), getGCPtrTy() },
+                false);
+            llvm::FunctionCallee setClosFn = module_->getOrInsertFunction(
+                "ts_async_context_set_closure", setClosFt);
+            builder_->CreateCall(setClosFt, setClosFn.getCallee(),
+                { asyncCtx, closureArg });
+        }
+    }
+
     // Store function parameters (and reserve space for locals) in ctx->data
     {
         // Allocate a buffer for params + locals + cross-yield spill slots (8 bytes each)
         size_t numParams = fn->params.empty() ? 0 : fn->params.size();
-        size_t totalSlots = numParams + allocaCount + crossYieldSpillCount;
+        size_t totalSlots = numParams + allocaCount + crossYieldSpillCount +
+                            (size_t)generatorCellSlotCount_;
         llvm::FunctionType* allocFt = llvm::FunctionType::get(
             getGCPtrTy(), { builder_->getInt64Ty() }, false);
         llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
@@ -295,6 +329,27 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
     // Create entry block with state dispatch
     llvm::BasicBlock* implEntry = llvm::BasicBlock::Create(context_, "impl_entry", generatorImplFunc_);
     builder_->SetInsertPoint(implEntry);
+
+    // Rebind the closure context from the ctx (stored by the wrapper).
+    // impl_entry dominates every state block, so LoadCapture/StoreCapture
+    // anywhere in the body sees the generator function's own shared cells.
+    // Without this closureParam_ still points at the WRAPPER's argument
+    // (a cross-function reference) or is null — either way captures break.
+    {
+        bool implHiddenClosure =
+            (!fn->params.empty() && fn->params[0].first == "__closure__");
+        if (!fn->captures.empty() || implHiddenClosure) {
+            llvm::FunctionType* getClosFt = llvm::FunctionType::get(
+                getGCPtrTy(), { getGCPtrTy() }, false);
+            llvm::FunctionCallee getClosFn = module_->getOrInsertFunction(
+                "ts_async_context_get_closure", getClosFt);
+            closureParam_ = builder_->CreateCall(
+                getClosFt, getClosFn.getCallee(), { asyncContext_ },
+                "closure_ctx");
+        } else {
+            closureParam_ = nullptr;
+        }
+    }
 
     // Load state: ctx->state (offset 16 in AsyncContext after TsObject base)
     llvm::FunctionType* getStateFt = llvm::FunctionType::get(

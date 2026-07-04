@@ -40,6 +40,12 @@ struct AsyncContext : public TsObject {
                                   // array-shaped "iterator-likes" (GEN-001
                                   // Stage 4b, ts_agen_delegate_step). Reset to
                                   // 0 whenever a new delegate iterator is set.
+    void* closureObj = nullptr;   // The generator function's own closure
+                                  // (TsClosure*), captured at gen() time like
+                                  // thisValue. The impl (state machine) loads
+                                  // it on every resume so LoadCapture/
+                                  // StoreCapture reach the SHARED outer cells
+                                  // instead of having no closure at all.
 
     AsyncContext();
 };
@@ -190,6 +196,11 @@ extern "C" {
     // restore it via ts_set_call_this() before invoking the impl.
     void ts_async_context_set_this(AsyncContext* ctx, TsValue* thisArg);
     TsValue* ts_async_context_get_this(AsyncContext* ctx);
+
+    // Closure capture: the generator wrapper stores its own __closure so the
+    // impl's LoadCapture/StoreCapture reach the shared outer cells.
+    void ts_async_context_set_closure(AsyncContext* ctx, void* closure);
+    void* ts_async_context_get_closure(AsyncContext* ctx);
 
     // ES2024 Promise.withResolvers()
     TsValue* ts_promise_withResolvers();
