@@ -1232,7 +1232,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             // additionally export the binding under the name "default"
             // (defaultLocals records the local each "default" aliases).
             std::string defaultLocal;
-            auto collectExportedNames = [&defaultLocal](
+            bool defaultIsHoistedFn = false;
+            auto collectExportedNames = [&defaultLocal, &defaultIsHoistedFn](
                                            const std::vector<std::unique_ptr<ast::Statement>>& stmts,
                                            std::vector<std::string>& names) {
                 for (const auto& stmt : stmts) {
@@ -1246,14 +1247,23 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         if (funcDecl->isExported && !funcDecl->name.empty()) {
                             names.push_back(funcDecl->name);
                         }
-                        if (funcDecl->isDefaultExport && !funcDecl->name.empty()) {
+                        if (funcDecl->isDefaultExport) {
+                            // `export default function() {}` parses as an
+                            // ANONYMOUS FunctionDeclaration — without a name
+                            // there was no defaultLocal, so exports.default
+                            // was never populated at all. Name it here.
+                            if (funcDecl->name.empty())
+                                funcDecl->name = "__dflt_export";
                             defaultLocal = funcDecl->name;
+                            defaultIsHoistedFn = true;
                         }
                     } else if (auto* classDecl = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
                         if (classDecl->isExported && !classDecl->name.empty()) {
                             names.push_back(classDecl->name);
                         }
-                        if (classDecl->isDefaultExport && !classDecl->name.empty()) {
+                        if (classDecl->isDefaultExport) {
+                            if (classDecl->name.empty())
+                                classDecl->name = "__dflt_export";
                             defaultLocal = classDecl->name;
                         }
                     }
@@ -1279,7 +1289,17 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 assignExpr->right = std::move(nameRef);
                 auto exprStmt = std::make_unique<ast::ExpressionStatement>();
                 exprStmt->expression = std::move(assignExpr);
-                moduleInit->body.push_back(std::move(exprStmt));
+                if (defaultIsHoistedFn) {
+                    // Function declarations hoist (closure created at init
+                    // entry), so the pair-form can run FIRST — a self-import
+                    // binding at any source position then reads a populated
+                    // exports.default. Classes stay end-injected (TDZ).
+                    moduleInit->body.insert(
+                        moduleInit->body.begin() + (nsExportInsertPos++),
+                        std::move(exprStmt));
+                } else {
+                    moduleInit->body.push_back(std::move(exprStmt));
+                }
             }
 
             // Also check module->exports symbol table for re-exports.
@@ -1518,6 +1538,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
 
         // fmt::print("Module init now has {} statements\n", moduleInit->body.size());
+        if (getenv("TS_MONO_DBG")) {
+            fprintf(stderr, "[MONO_DBG] module=%s init stmts:\n", path.c_str());
+            for (size_t di = 0; di < moduleInit->body.size(); ++di)
+                fprintf(stderr, "  [%zu] %s\n", di,
+                        moduleInit->body[di]->getKind().c_str());
+            fprintf(stderr, "[MONO_DBG] newBody stmts:\n");
+            for (size_t di = 0; di < newBody.size(); ++di)
+                fprintf(stderr, "  [%zu] %s\n", di, newBody[di]->getKind().c_str());
+        }
         module->ast->body = std::move(newBody);
 
         std::string mangledName = Monomorphizer::generateMangledName(initName, { std::make_shared<Type>(TypeKind::Any) }, {});
