@@ -709,6 +709,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         const bool isJavaScriptModule = (module->type == ModuleType::UntypedJavaScript || 
                                          module->type == ModuleType::TypedJavaScript);
 
+        // Namespace exports are HOISTED (ES 9.4.6: the export LIST is a
+        // static property of the namespace): placeholder + live-binding
+        // getter injections go at THIS index — after the preamble, BEFORE
+        // any user statement — so a self-importing module sees its own
+        // exports ('x' in ns, for-in, TDZ ReferenceError) mid-evaluation.
+        size_t nsExportInsertPos = moduleInit->body.size();
+
         std::vector<std::unique_ptr<ast::Statement>> newBody;
         // Log raw body for JS modules to trace how identifiers like Object are parsed
         SPDLOG_DEBUG("[RAW] module={} isJS={} type={} bodySize={}", path, isJavaScriptModule, (int)module->type, module->ast->body.size());
@@ -1377,7 +1384,14 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                 auto exprStmt = std::make_unique<ast::ExpressionStatement>();
                 exprStmt->expression = std::move(assignExpr);
-                moduleInit->body.push_back(std::move(exprStmt));
+                if (mutableLocals.count(rhsLocal)) {
+                    // Hoist the placeholder (front-insert, order-preserving).
+                    moduleInit->body.insert(
+                        moduleInit->body.begin() + (nsExportInsertPos++),
+                        std::move(exprStmt));
+                } else {
+                    moduleInit->body.push_back(std::move(exprStmt));
+                }
 
                 // Live-binding accessor for mutable locals:
                 //   exports["__getter_<name>"] = function() { return <local>; };
@@ -1407,7 +1421,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                     auto gStmt = std::make_unique<ast::ExpressionStatement>();
                     gStmt->expression = std::move(gAssign);
-                    moduleInit->body.push_back(std::move(gStmt));
+                    moduleInit->body.insert(
+                        moduleInit->body.begin() + (nsExportInsertPos++),
+                        std::move(gStmt));
                 }
             }
 
