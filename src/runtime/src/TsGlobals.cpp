@@ -2096,6 +2096,16 @@ void* ts_get_global_RegExp() {
                 addAccessorGetter(reproto, "flags", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
                     if (!ctx) ctx = ts_get_call_this();
                     void* raw = ts_nanbox_safe_unbox(ctx);
+                    // Primitives (numbers/booleans unbox to null; string/
+                    // symbol/bigint unbox to their value objects) are NOT
+                    // Objects -- ES 22.2.6.4 step 2 TypeError.
+                    if (raw) {
+                        uint32_t m0 = *(uint32_t*)raw;
+                        if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC ||
+                            m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/) {
+                            raw = nullptr;
+                        }
+                    }
                     if (!raw) {
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                             "RegExp.prototype.flags getter called on non-object"));

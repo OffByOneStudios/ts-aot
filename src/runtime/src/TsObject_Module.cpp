@@ -473,7 +473,9 @@ void* ts_builtin_lookup_special(const char* name) {
             ts_pop_exception_handler();
             return out;
         }
-        ts_pop_exception_handler();
+        // NO pop here: ts_throw pops the handler itself before the longjmp.
+        // A second pop removed the CALLER'S handler (the async-fn prologue),
+        // so a later rejection had no handler and reported FATAL uncaught.
         *errOut = ts_get_exception();
         ts_set_exception(nullptr);
         return nullptr;
@@ -494,7 +496,7 @@ void* ts_builtin_lookup_special(const char* name) {
         auto rejectWith = [&](const char* msg) -> TsValue* {
             ts_promise_reject_internal(promise,
                 (TsValue*)ts_error_create_typed("TypeError", msg));
-            return ts_value_make_object(promise);
+            return ts_value_make_promise(promise);
         };
         // ToString(specifier) — runs user hooks; an abrupt completion becomes
         // a REJECTION with the thrown value (spec: IfAbruptRejectPromise).
@@ -502,7 +504,7 @@ void* ts_builtin_lookup_special(const char* name) {
         TsString* sstr = module_spec_to_string(spec, &toStrErr);
         if (toStrErr) {
             ts_promise_reject_internal(promise, toStrErr);
-            return ts_value_make_object(promise);
+            return ts_value_make_promise(promise);
         }
         const char* specC = sstr ? sstr->ToUtf8() : nullptr;
         if (!specC || !*specC) {
@@ -513,7 +515,7 @@ void* ts_builtin_lookup_special(const char* name) {
         if (is_builtin_module_name(specStr)) {
             TsValue* mod = create_builtin_module(specStr);
             ts_promise_resolve_internal(promise, mod);
-            return ts_value_make_object(promise);
+            return ts_value_make_promise(promise);
         }
         // Canonicalize a relative/absolute file specifier against the
         // importing module's directory (mirrors the compile-time resolver).
@@ -554,7 +556,7 @@ void* ts_builtin_lookup_special(const char* name) {
         // Memoized evaluation error: reject with the SAME error object.
         if (TsValue* initErr = ts_module_get_init_error(record)) {
             ts_promise_reject_internal(promise, initErr);
-            return ts_value_make_object(promise);
+            return ts_value_make_promise(promise);
         }
         // The cache holds the module RECORD ({exports: ...}); the import()
         // namespace is its exports object.
@@ -562,7 +564,7 @@ void* ts_builtin_lookup_special(const char* name) {
         TsValue* ns = ts_object_get_dynamic(record, ts_value_make_string(ek));
         if (!ns || ts_value_is_undefined(ns)) ns = record;
         ts_promise_resolve_internal(promise, ns);
-        return ts_value_make_object(promise);
+        return ts_value_make_promise(promise);
     }
 
 }  // extern "C"

@@ -218,7 +218,7 @@ void* ts_dynamic_import(void* moduleSpecifier) {
             if (TsValue* initErr = ts_module_get_init_error(record)) {
                 TsPromise* promise = ts_promise_create();
                 ts_promise_reject_internal(promise, initErr);
-                return ts_value_make_object(promise);
+                return ts_value_make_promise(promise);
             }
         }
         TsValue* exports = ts_module_get_cached(boxedPath);
@@ -226,7 +226,7 @@ void* ts_dynamic_import(void* moduleSpecifier) {
             // Module found in cache — resolve the promise with its exports
             TsPromise* promise = ts_promise_create();
             ts_promise_resolve_internal(promise, exports);
-            return ts_value_make_object(promise);
+            return ts_value_make_promise(promise);
         }
     }
 
@@ -244,7 +244,7 @@ void* ts_dynamic_import(void* moduleSpecifier) {
 
     ts_promise_reject_internal(promise, (TsValue*)error);
 
-    return ts_value_make_object(promise);
+    return ts_value_make_promise(promise);
 }
 
 } // extern "C"

@@ -667,6 +667,19 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
         }
         program->body.push_back(std::move(stmt));
     }
+    // ES 16.2.1 module early error: every local referenced by a from-less
+    // `export { ... }` clause must be a module-level declared name. Checked
+    // against the program scope BEFORE it pops.
+    if (!scriptGoal_ && !moduleExportLocalRefs_.empty() && !lexicalScopes_.empty()) {
+        const auto& top = lexicalScopes_.front().names;
+        for (const auto& [local, line] : moduleExportLocalRefs_) {
+            if (!top.count(local)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: export of undeclared name '{}'",
+                    fileName_, line, local));
+            }
+        }
+    }
     popLexicalScope();
 
     return program;
@@ -4422,6 +4435,24 @@ ast::StmtPtr Parser::parseDebuggerStatement() {
 // Import / Export
 // ============================================================================
 
+void Parser::declareModuleExportName(const std::string& name, int line) {
+    if (scriptGoal_ || name.empty()) return;
+    if (!moduleExportedNames_.insert(name).second) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: duplicate export of name '{}'",
+            fileName_, line, name));
+    }
+}
+
+void Parser::checkModuleImportBinding(const std::string& name, int line) {
+    if (scriptGoal_) return;
+    if (name == "eval" || name == "arguments") {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: '{}' may not be bound by an import "
+            "declaration in a module", fileName_, line, name));
+    }
+}
+
 ast::StmtPtr Parser::parseImportDeclaration() {
     auto startTok = current_;
     // ECMA-262: an ImportDeclaration is only a ModuleItem — illegal in a Script.
@@ -4484,7 +4515,9 @@ ast::StmtPtr Parser::parseImportDeclaration() {
     // import * as ns from 'module'
     if (match(TokenKind::Star)) {
         expect(TokenKind::KW_as, "'as'");
+        int nsLine = current_.line;
         node->namespaceImport = identifierName();
+        checkModuleImportBinding(node->namespaceImport, nsLine);
     }
     // import { a, b } from 'module' or import defaultExport from 'module'
     else if (check(TokenKind::OpenBrace)) {
@@ -4503,13 +4536,25 @@ ast::StmtPtr Parser::parseImportDeclaration() {
                 }
             }
             ast::ImportSpecifier spec;
+            int specLine = current_.line;
             spec.name = identifierName();
             spec.isTypeOnly = specIsTypeOnly;
 
             if (current_.kind == TokenKind::KW_as) {
                 advance();
                 spec.propertyName = spec.name;
+                specLine = current_.line;
                 spec.name = identifierName();
+            }
+            // ES 16.2.1: the LOCAL BoundNames of a module must be unique and
+            // may not be eval/arguments (module code is strict).
+            checkModuleImportBinding(spec.name, specLine);
+            for (const auto& prev : node->namedImports) {
+                if (prev.name == spec.name) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate import binding '{}'",
+                        fileName_, specLine, spec.name));
+                }
             }
             node->namedImports.push_back(spec);
 
@@ -4521,23 +4566,30 @@ ast::StmtPtr Parser::parseImportDeclaration() {
     }
     // import defaultExport or import defaultExport, { named }
     else if (isIdentifierOrKeyword()) {
+        int defLine = current_.line;
         node->defaultImport = identifierName();
+        checkModuleImportBinding(node->defaultImport, defLine);
 
         // import defaultExport, { named } or import defaultExport, * as ns
         if (match(TokenKind::Comma)) {
             if (match(TokenKind::Star)) {
                 expect(TokenKind::KW_as, "'as'");
+                int nsLine2 = current_.line;
                 node->namespaceImport = identifierName();
+                checkModuleImportBinding(node->namespaceImport, nsLine2);
             } else if (check(TokenKind::OpenBrace)) {
                 advance(); // {
                 while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
                     ast::ImportSpecifier spec;
+                    int specLine2 = current_.line;
                     spec.name = identifierName();
                     if (current_.kind == TokenKind::KW_as) {
                         advance();
                         spec.propertyName = spec.name;
+                        specLine2 = current_.line;
                         spec.name = identifierName();
                     }
+                    checkModuleImportBinding(spec.name, specLine2);
                     node->namedImports.push_back(spec);
                     if (!check(TokenKind::CloseBrace)) {
                         expect(TokenKind::Comma, "','");
@@ -4573,6 +4625,7 @@ ast::StmtPtr Parser::parseExportDeclaration() {
 
     // export default
     if (match(TokenKind::KW_default)) {
+        declareModuleExportName("default", startTok.line);
         if (current_.kind == TokenKind::KW_function) {
             return parseFunctionDeclaration(false, true, true);
         }
@@ -4628,7 +4681,9 @@ ast::StmtPtr Parser::parseExportDeclaration() {
         // export * as ns from 'module'
         if (current_.kind == TokenKind::KW_as) {
             advance();
+            int nsLine = current_.line;
             node->namespaceExport = identifierName();
+            declareModuleExportName(node->namespaceExport, nsLine);
         }
 
         expect(TokenKind::KW_from, "'from'");
@@ -4644,15 +4699,20 @@ ast::StmtPtr Parser::parseExportDeclaration() {
         setLocation(node.get(), startTok);
 
         advance(); // {
+        std::vector<int> specLines;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             ast::ExportSpecifier spec;
+            int specLine = current_.line;
             spec.name = identifierName();
             if (current_.kind == TokenKind::KW_as) {
                 advance();
                 spec.propertyName = spec.name;
+                specLine = current_.line;
                 spec.name = identifierName();
             }
             node->namedExports.push_back(spec);
+            specLines.push_back(specLine);
+            declareModuleExportName(spec.name, specLine);
             if (!check(TokenKind::CloseBrace)) {
                 expect(TokenKind::Comma, "','");
             }
@@ -4660,10 +4720,22 @@ ast::StmtPtr Parser::parseExportDeclaration() {
         expect(TokenKind::CloseBrace, "'}'");
 
         // from 'module' (optional)
+        bool hasFrom = false;
         if (current_.kind == TokenKind::KW_from) {
+            hasFrom = true;
             advance();
             node->moduleSpecifier = Lexer::getStringValue(current_.text);
             advance();
+        }
+        if (!hasFrom && !scriptGoal_) {
+            // Locals referenced by a from-less export clause must resolve to
+            // module-level declarations (checked after the whole parse).
+            for (size_t i = 0; i < node->namedExports.size(); i++) {
+                const auto& sp = node->namedExports[i];
+                const std::string& local =
+                    sp.propertyName.empty() ? sp.name : sp.propertyName;
+                moduleExportLocalRefs_.push_back({local, specLines[i]});
+            }
         }
 
         expectSemicolon();
