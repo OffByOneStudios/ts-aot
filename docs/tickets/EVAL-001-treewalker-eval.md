@@ -1,6 +1,10 @@
 # EVAL-001: `eval` / `Function` constructor support via a tree-walking interpreter
 
-**Status:** Refined 2026-07-04 — ready to schedule (see §9-10). Original design 2026-06-17.
+**Status:** IN PROGRESS 2026-07-04 — Phases 0-2 MERGED (parser runtime-linkable
+e88d0cbd; interpreter core + Function(params...,body) 45c98e17, Function family
++24/0 lost); Phase 3 (global eval() wiring + runner un-gating) implemented,
+full-sweep measurement running. Phase 4 = residue grind. Original design
+2026-06-17; refinement §9-10.
 **Author:** design investigation 2026-06-17; refinement 2026-07-04.
 **TL;DR:** Reclaim the *indirect*-eval + `Function`-constructor test262 cluster
 (~100-150 tests) with a small tree-walking interpreter embedded in the runtime
