@@ -1,3 +1,4 @@
+#include <csetjmp>
 #include "TsJSON.h"
 #include "TsNanBox.h"
 #include "TsString.h"
@@ -75,6 +76,38 @@ static TsValue json_to_ts(const json& j) {
 // by ts_json_stringify's catch (a ts_throw from inside the recursion would
 // longjmp through std-object frames and corrupt the unwinder).
 struct JsonRevokedProxyError {};
+
+// Signals an ABRUPT completion (user toJSON/getter threw) during
+// serialization. Same architecture as JsonRevokedProxyError: the user call
+// runs under a setjmp guard (ts_throw pops its own handler — NEVER pop in
+// the landing branch), the longjmp is converted to this C++ exception so
+// unwinding through the nlohmann/std frames is well-defined, and the clean
+// top-level catch re-throws the ORIGINAL error object via ts_throw.
+struct JsonAbruptCompletion { TsValue* error; };
+
+// Invoke a user callback under a longjmp guard. Returns the result, or
+// null with *errOut set when the callee threw. NO C++ objects live in
+// this frame (longjmp rule).
+extern "C" void* ts_push_exception_handler();
+extern "C" void ts_pop_exception_handler();
+extern "C" TsValue* ts_get_exception();
+extern "C" void ts_set_exception(TsValue* e);
+
+static TsValue* json_call_guarded_1(TsValue* fn, TsValue* thisV,
+                                    TsValue* arg, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* r = ts_call_with_this_1(fn, thisV, arg);
+        ts_pop_exception_handler();
+        return r;
+    }
+    // ts_throw already popped the handler before the longjmp.
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return nullptr;
+}
 
 static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited);
 
@@ -209,7 +242,9 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                     visited.insert(p);
                     TsValue* keyArg = ts_value_make_string(TsString::Create(""));
                     TsValue* boxedThis = ts_value_make_object(p);
-                    TsValue* res = ts_call_with_this_1(tj, boxedThis, keyArg);
+                    TsValue* tjErr = nullptr;
+                    TsValue* res = json_call_guarded_1(tj, boxedThis, keyArg, &tjErr);
+                    if (tjErr) throw JsonAbruptCompletion{tjErr};
                     nlohmann::ordered_json out =
                         ts_to_json_internal((void*)(uintptr_t)nanbox_from_tsvalue_ptr(res), visited);
                     visited.erase(p);
@@ -381,6 +416,11 @@ extern "C" {
 
             std::string s = (indent >= 0) ? j.dump(indent) : j.dump();
             return TsString::Create(s.c_str());
+        } catch (const JsonAbruptCompletion& a) {
+            // C++ unwinding cleaned the recursion frames; re-throw the
+            // ORIGINAL user error from this clean frame.
+            ts_throw(a.error);
+            return TsString::Create("null");  // unreachable
         } catch (const JsonRevokedProxyError&) {
             // The C++ exception unwound the nlohmann/std frames; this catch
             // frame is clean, so the ts_throw longjmp is safe here.
