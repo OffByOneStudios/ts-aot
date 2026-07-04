@@ -71,6 +71,14 @@ extern "C" {
     void ts_gc_register_root(void** location);
     void ts_closure_set_not_constructable(TsClosure* closure);
     void* ts_interp_global_ctor_by_name(const char* n);
+
+    TsValue* ts_iterator_get(TsValue* iterable);
+    TsValue* ts_iterator_next(TsValue* iterator, TsValue* value);
+    void ts_iterator_close(TsValue* iter);
+    void* ts_object_for_in_keys(void* obj);
+    void* ts_regexp_create(void* pattern, void* flags);
+    uint8_t ts_integrity_get(void* raw);
+    TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
 }
 
 namespace {
@@ -212,6 +220,50 @@ bool guardToString(TsValue* v, TsValue** out, TsValue** ex) {
     void* buf = ts_push_exception_handler();
     if (setjmp(*(jmp_buf*)buf) == 0) {
         *out = ts_value_make_string(ts_to_string_spec(v));
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardIterGet(TsValue* iterable, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_iterator_get(iterable);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardIterNext(TsValue* iter, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_iterator_next(iter, (TsValue*)(uintptr_t)NANBOX_UNDEFINED);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+// IteratorClose on abrupt exits is best-effort: swallow secondary throws.
+void iterCloseQuiet(TsValue* iter) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        ts_iterator_close(iter);
+        ts_pop_exception_handler();
+    }
+    // landed: ts_throw already popped the handler; drop the exception
+}
+
+bool guardForInKeys(TsValue* obj, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        void* raw = ts_value_get_object(obj);
+        *out = ts_value_make_object(ts_object_for_in_keys(raw ? raw : (void*)obj));
         ts_pop_exception_handler();
         return true;
     }
@@ -529,6 +581,59 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
     TsMap* target = envVarTarget(env);
     bool toGlobal = envIsGlobalVarScope(target);
 
+    // ES 19.2.1.3 EvalDeclarationInstantiation steps 8/10: on the global
+    // record, CanDeclareGlobalVar / CanDeclareGlobalFunction are false for a
+    // NEW binding when the global object is non-extensible -> TypeError
+    // BEFORE any declaration is instantiated.
+    bool globalNonExtensible = false;
+    if (toGlobal) {
+        // The global object is a TsMap: extensibility is the map's OWN flag
+        // (map->PreventExtensions()), NOT the g_obj_integrity side table —
+        // that table only covers non-map receivers.
+        void* graw = ts_value_get_object(globalThis);
+        if (graw) {
+            TsMap* gm = dynamic_cast<TsMap*>((TsObject*)graw);
+            if (gm) globalNonExtensible = !gm->IsExtensible();
+            else    globalNonExtensible = ts_integrity_get(graw) >= 1;
+        }
+        for (auto& name : vars) {
+            bool has = false; TsValue* ex = nullptr;
+            if (!guardHas(globalThis, boxStr(name), &has, &ex)) return thrown(ex);
+            if (!has && globalNonExtensible)
+                return throwTyped("TypeError",
+                    "Cannot declare global variable '" + name +
+                    "': global object is not extensible");
+        }
+        for (auto* fd : fns) {
+            bool has = false; TsValue* ex = nullptr;
+            if (!guardHas(globalThis, boxStr(fd->name), &has, &ex)) return thrown(ex);
+            if (!has && globalNonExtensible)
+                return throwTyped("TypeError",
+                    "Cannot declare global function '" + fd->name +
+                    "': global object is not extensible");
+            if (has) {
+                // ES 9.1.1.4.16 CanDeclareGlobalFunction: an existing OWN
+                // property blocks the declaration unless it is configurable,
+                // or is a writable+enumerable data property.
+                TsValue* desc =
+                    ts_object_getOwnPropertyDescriptor(globalThis, boxStr(fd->name));
+                if (desc && ts_value_get_object(desc)) {
+                    TsValue* cfg = nullptr; TsValue* wr = nullptr;
+                    TsValue* en = nullptr;
+                    if (!guardGet(desc, boxStr("configurable"), &cfg, &ex)) return thrown(ex);
+                    if (!guardGet(desc, boxStr("writable"), &wr, &ex)) return thrown(ex);
+                    if (!guardGet(desc, boxStr("enumerable"), &en, &ex)) return thrown(ex);
+                    bool configurable = cfg && ts_value_to_bool(cfg);
+                    bool dataWritableEnumerable =
+                        wr && ts_value_to_bool(wr) && en && ts_value_to_bool(en);
+                    if (!configurable && !dataWritableEnumerable)
+                        return throwTyped("TypeError",
+                            "Cannot declare global function '" + fd->name + "'");
+                }
+            }
+        }
+    }
+
     for (auto& name : vars) {
         if (toGlobal) {
             bool has = false; TsValue* ex = nullptr;
@@ -634,14 +739,11 @@ TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV) {
         ts_closure_set_not_constructable(c);
         ts_closure_set_no_prototype(c);
     } else {
-        // .prototype = { constructor: fn } with %Object.prototype% as proto.
+        // .prototype = { constructor: fn }. NO explicit [[Prototype]]: AOT
+        // object maps leave prototype null and rely on the dynamic
+        // Object.prototype fallback for gets; an explicit SetPrototype makes
+        // ts_object_for_in_keys enumerate Object.prototype's methods.
         TsMap* proto = (TsMap*)ts_map_create();
-        TsValue* objProtoV = nullptr; TsValue* ex = nullptr;
-        if (guardGet((TsValue*)Object, boxStr("prototype"), &objProtoV, &ex) && objProtoV) {
-            void* raw = ts_value_get_object(objProtoV);
-            TsMap* op = raw ? dynamic_cast<TsMap*>((TsObject*)raw) : nullptr;
-            if (op) proto->SetPrototype(op);
-        }
         proto->Set(key("constructor"), nanbox_to_tagged(boxed));
         TsValue* ex2 = nullptr;
         guardSet(boxed, boxStr("prototype"), boxObj(proto), &ex2);
@@ -767,6 +869,19 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
     if (dynamic_cast<ast::UndefinedLiteral*>(e))
         return normal(jsUndefined());
 
+    if (auto* re = dynamic_cast<ast::RegularExpressionLiteral*>(e)) {
+        // text is the full literal "/pattern/flags"; split at the LAST '/'.
+        const std::string& t = re->text;
+        size_t lastSlash = t.rfind('/');
+        std::string pat = (t.size() >= 2 && t[0] == '/' && lastSlash > 0)
+            ? t.substr(1, lastSlash - 1) : t;
+        std::string flags = (lastSlash != std::string::npos && lastSlash + 1 <= t.size())
+            ? t.substr(lastSlash + 1) : "";
+        void* rx = ts_regexp_create(ts_string_create(pat.c_str()),
+                                    ts_string_create(flags.c_str()));
+        return normal(boxObj(rx));
+    }
+
     if (auto* id = dynamic_cast<ast::Identifier*>(e)) {
         // The parser encodes `this` as an Identifier named "this".
         if (id->name == "this") return normal(thisV ? thisV : jsUndefined());
@@ -817,14 +932,10 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
     }
 
     if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(e)) {
+        // Plain map with NULL [[Prototype]], exactly like AOT object
+        // literals: gets fall back to Object.prototype dynamically, and
+        // for-in enumerates own keys only.
         TsMap* m = (TsMap*)ts_map_create();
-        // Give the literal normal Object.prototype behavior.
-        TsValue* objProtoV = nullptr; TsValue* ex0 = nullptr;
-        if (guardGet((TsValue*)Object, boxStr("prototype"), &objProtoV, &ex0) && objProtoV) {
-            void* raw = ts_value_get_object(objProtoV);
-            TsMap* op = raw ? dynamic_cast<TsMap*>((TsObject*)raw) : nullptr;
-            if (op) m->SetPrototype(op);
-        }
         TsValue* boxed = boxObj(m);
         for (auto& propNode : obj->properties) {
             if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(propNode.get())) {
@@ -1430,6 +1541,96 @@ Cpl execLoopFor(ast::ForStatement* f, TsMap* env, TsValue* thisV,
     return normal(completion);
 }
 
+// Bind the for-of / for-in loop variable for one iteration. The initializer
+// is either a VariableDeclaration (fresh binding per iteration for let/const,
+// var-scope write for var) or a bare identifier assignment target.
+Cpl bindLoopVar(ast::Statement* init, TsValue* v, TsMap* ienv, TsValue* thisV,
+                bool strict) {
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(init)) {
+        auto* id = dynamic_cast<ast::Identifier*>(vd->name.get());
+        if (!id) return unsupported("destructuring loop binding");
+        if (vd->varKind == ast::VarKind::Var) {
+            TsMap* target = envVarTarget(ienv);
+            if (envIsGlobalVarScope(target)) {
+                TsValue* ex = nullptr;
+                if (!guardSet(globalThis, boxStr(id->name), v, &ex)) return thrown(ex);
+            } else {
+                envDefine(target, id->name, v, false);
+            }
+        } else {
+            envDefine(ienv, id->name, v, vd->varKind == ast::VarKind::Const);
+        }
+        return normal();
+    }
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(init)) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(es->expression.get()))
+            return assignIdent(ienv, id->name, v, strict);
+        return assignTo(es->expression.get(), v, ienv, thisV, strict);
+    }
+    return unsupported("loop binding " + std::string(init ? init->getKind() : "null"));
+}
+
+Cpl execForOf(ast::ForOfStatement* fo, TsMap* env, TsValue* thisV, bool strict,
+              const std::string& label) {
+    if (fo->isAwait) return unsupported("for await...of in eval code");
+    Cpl it = evalExpr(fo->expression.get(), env, thisV, strict);
+    if (isAbrupt(it)) return it;
+    if (ts_value_is_nullish(it.v))
+        return throwTyped("TypeError", "undefined is not iterable");
+    TsValue* iter = nullptr; TsValue* ex = nullptr;
+    if (!guardIterGet(it.v, &iter, &ex)) return thrown(ex);
+
+    TsValue* completion = nullptr;
+    for (;;) {
+        TsValue* res = nullptr;
+        if (!guardIterNext(iter, &res, &ex)) return thrown(ex);
+        if (!res) break;
+        TsValue* done = nullptr;
+        if (!guardGet(res, boxStr("done"), &done, &ex)) return thrown(ex);
+        if (done && ts_value_to_bool(done)) break;
+        TsValue* val = nullptr;
+        if (!guardGet(res, boxStr("value"), &val, &ex)) return thrown(ex);
+
+        TsMap* ienv = envNew(env, false);
+        Cpl bind = bindLoopVar(fo->initializer.get(), val ? val : jsUndefined(),
+                               ienv, thisV, strict);
+        if (isAbrupt(bind)) { iterCloseQuiet(iter); return bind; }
+        Cpl b = execStmt(fo->body.get(), ienv, thisV, strict);
+        Cpl out;
+        if (!loopBody(b, label, &out, &completion)) {
+            iterCloseQuiet(iter);   // ES 7.4.8 IteratorClose on abrupt exit
+            return out;
+        }
+    }
+    return normal(completion);
+}
+
+Cpl execForIn(ast::ForInStatement* fi, TsMap* env, TsValue* thisV, bool strict,
+              const std::string& label) {
+    Cpl obj = evalExpr(fi->expression.get(), env, thisV, strict);
+    if (isAbrupt(obj)) return obj;
+    // for-in over null/undefined iterates zero times (ES 14.7.5.6).
+    if (ts_value_is_nullish(obj.v)) return normal();
+    TsValue* keysV = nullptr; TsValue* ex = nullptr;
+    if (!guardForInKeys(obj.v, &keysV, &ex)) return thrown(ex);
+    void* keysRaw = ts_value_get_object(keysV);
+    if (!keysRaw) return normal();
+    int64_t n = ts_array_length(keysRaw);
+
+    TsValue* completion = nullptr;
+    for (int64_t i = 0; i < n; i++) {
+        TsValue* k = ts_array_get_dynamic(keysV, ts_value_make_int(i));
+        TsMap* ienv = envNew(env, false);
+        Cpl bind = bindLoopVar(fi->initializer.get(), k ? k : jsUndefined(),
+                               ienv, thisV, strict);
+        if (isAbrupt(bind)) return bind;
+        Cpl b = execStmt(fi->body.get(), ienv, thisV, strict);
+        Cpl out;
+        if (!loopBody(b, label, &out, &completion)) return out;
+    }
+    return normal(completion);
+}
+
 Cpl execSwitch(ast::SwitchStatement* sw, TsMap* env, TsValue* thisV, bool strict) {
     Cpl d = evalExpr(sw->expression.get(), env, thisV, strict);
     if (isAbrupt(d)) return d;
@@ -1517,6 +1718,10 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
         return execLoopWhile(w, env, thisV, strict, "");
     if (auto* f = dynamic_cast<ast::ForStatement*>(s))
         return execLoopFor(f, env, thisV, strict, "");
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s))
+        return execForOf(fo, env, thisV, strict, "");
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(s))
+        return execForIn(fi, env, thisV, strict, "");
     if (auto* r = dynamic_cast<ast::ReturnStatement*>(s)) {
         Cpl v = r->expression ? evalExpr(r->expression.get(), env, thisV, strict)
                               : normal(jsUndefined());
@@ -1545,6 +1750,10 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
             return execLoopWhile(w, env, thisV, strict, l->label);
         if (auto* f = dynamic_cast<ast::ForStatement*>(inner))
             return execLoopFor(f, env, thisV, strict, l->label);
+        if (auto* fo = dynamic_cast<ast::ForOfStatement*>(inner))
+            return execForOf(fo, env, thisV, strict, l->label);
+        if (auto* fi = dynamic_cast<ast::ForInStatement*>(inner))
+            return execForIn(fi, env, thisV, strict, l->label);
         Cpl c = execStmt(inner, env, thisV, strict);
         if (c.k == Cpl::Brk && c.label == l->label) return normal(c.v);
         return c;
