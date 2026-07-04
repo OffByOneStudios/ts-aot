@@ -64,6 +64,7 @@ void Analyzer::visitProgram(ast::Program* node) {
             }
             if (cls->isDefaultExport && currentModule) {
                 currentModule->exports->defineType("default", classType);
+                currentModule->reDirectExports.insert("default");
             }
         } else if (auto inter = dynamic_cast<ast::InterfaceDeclaration*>(stmt.get())) {
             auto interfaceType = std::make_shared<InterfaceType>(inter->name);
@@ -363,6 +364,7 @@ void Analyzer::visitExportAssignment(ast::ExportAssignment* node) {
     visit(node->expression.get());
     if (currentModule) {
         currentModule->exports->define("default", lastType);
+        currentModule->reDirectExports.insert("default");
     }
 }
 

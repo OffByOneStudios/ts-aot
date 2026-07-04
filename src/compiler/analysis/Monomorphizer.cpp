@@ -1115,7 +1115,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                 // Default import: const X = ts_module_get_default(resolvedPath);
                 // Uses __esModule interop: if exports.__esModule, returns exports.default
-                // Otherwise returns the whole exports object (raw CJS default)
+                // Otherwise returns the whole exports object (raw CJS default).
+                // EXCEPTION: when the source module has a REAL ESM default
+                // export (`export default ...` recorded in reDirectExports —
+                // the CJS Any-fallback in analyzeModule does NOT set it), the
+                // interop dance is wrong: bind exports.default directly, so
+                // `import f from './m'` where m default-exports a function
+                // yields the function, not the whole exports object.
                 if (!importDecl->defaultImport.empty()) {
                     auto varDecl = std::make_unique<ast::VariableDeclaration>();
                     auto varName = std::make_unique<ast::Identifier>();
@@ -1123,16 +1129,34 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     varDecl->name = std::move(varName);
                     varDecl->type = "any";
 
-                    auto call = std::make_unique<ast::CallExpression>();
-                    auto calleeId = std::make_unique<ast::Identifier>();
-                    calleeId->name = "ts_module_get_default";
-                    call->callee = std::move(calleeId);
-                    auto pathLit = std::make_unique<ast::StringLiteral>();
-                    pathLit->value = resolved.path;
-                    call->arguments.push_back(std::move(pathLit));
-                    call->inferredType = std::make_shared<Type>(TypeKind::Any);
-
-                    varDecl->initializer = std::move(call);
+                    bool esmDefault = false;
+                    {
+                        auto mit2 = analyzer.modules.find(resolved.path);
+                        if (mit2 != analyzer.modules.end() &&
+                            mit2->second->reDirectExports.count("default")) {
+                            esmDefault = true;
+                        }
+                    }
+                    if (esmDefault) {
+                        auto propAccess = std::make_unique<ast::PropertyAccessExpression>();
+                        auto objRef = std::make_unique<ast::Identifier>();
+                        objRef->name = exportsVarName;
+                        objRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        propAccess->expression = std::move(objRef);
+                        propAccess->name = "default";
+                        propAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        varDecl->initializer = std::move(propAccess);
+                    } else {
+                        auto call = std::make_unique<ast::CallExpression>();
+                        auto calleeId = std::make_unique<ast::Identifier>();
+                        calleeId->name = "ts_module_get_default";
+                        call->callee = std::move(calleeId);
+                        auto pathLit = std::make_unique<ast::StringLiteral>();
+                        pathLit->value = resolved.path;
+                        call->arguments.push_back(std::move(pathLit));
+                        call->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        varDecl->initializer = std::move(call);
+                    }
                     cjsBindings.push_back(std::move(varDecl));
                 }
 
