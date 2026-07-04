@@ -1932,6 +1932,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // error (boxed)
             .build());
 
+    reg.registerLowering("ts_module_mark_namespace",
+        lowering("ts_module_mark_namespace")
+            .returnsVoid()
+            .ptrArg()          // exports object (boxed)
+            .build());
+
     // Override ext.json matching: ts_module_register must NOT be redirected
     // to ts_module_register_loader (which is a no-op stub for the 'module' API).
     // ts_module_register is an internal function that populates g_module_cache.

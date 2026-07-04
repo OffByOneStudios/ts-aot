@@ -141,6 +141,13 @@ Analyzer::Analyzer() {
     registerType->returnType = std::make_shared<Type>(TypeKind::Void);
     symbols.define("ts_module_register", registerType);
 
+    // Register ts_module_mark_namespace (internal): stamps an ESM exports
+    // object as a module namespace exotic at the end of its init.
+    auto markNsType = std::make_shared<FunctionType>();
+    markNsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    markNsType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("ts_module_mark_namespace", markNsType);
+
     // Register ts_debug_marker (internal)
     auto markerType = std::make_shared<FunctionType>();
     markerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));

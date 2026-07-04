@@ -1438,6 +1438,31 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             injectReExports(newBody);
             injectReExports(moduleInit->body);
             for (auto& s : reExportStmts) moduleInit->body.push_back(std::move(s));
+
+            // ES 10.4.6: stamp the populated exports object as a module
+            // namespace exotic (writes rejected, own deletes rejected,
+            // null prototype, @@toStringTag). ESM modules only — a CJS
+            // exports object must stay freely mutable for require().
+            // Gate on ACTUAL ESM export syntax (exportedNames), not the
+            // resolver's package-based isESM: plain .js fixtures are ESM
+            // by usage. CJS modules (module.exports/exports.foo only) have
+            // no ExportDeclarations, so they never get marked and require()
+            // mutation keeps working.
+            if ((!exportedNames.empty() || module->isESM) &&
+                module->linkError.empty()) {
+                auto markCall = std::make_unique<ast::CallExpression>();
+                auto markId = std::make_unique<ast::Identifier>();
+                markId->name = "ts_module_mark_namespace";
+                markCall->callee = std::move(markId);
+                auto exRef = std::make_unique<ast::Identifier>();
+                exRef->name = "exports";
+                exRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                markCall->arguments.push_back(std::move(exRef));
+                markCall->inferredType = std::make_shared<Type>(TypeKind::Void);
+                auto markStmt = std::make_unique<ast::ExpressionStatement>();
+                markStmt->expression = std::move(markCall);
+                moduleInit->body.push_back(std::move(markStmt));
+            }
         }
 
         // Return module.exports at the end of module init
