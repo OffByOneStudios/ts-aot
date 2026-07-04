@@ -717,6 +717,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         size_t nsExportInsertPos = moduleInit->body.size();
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
+        std::map<const ast::Statement*, size_t> importInitPositions;
         // Log raw body for JS modules to trace how identifiers like Object are parsed
         SPDLOG_DEBUG("[RAW] module={} isJS={} type={} bodySize={}", path, isJavaScriptModule, (int)module->type, module->ast->body.size());
         for (size_t si = 0; si < module->ast->body.size(); si++) {
@@ -727,6 +728,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             SPDLOG_DEBUG("[MONO-BODY]   stmt kind={}", kind);
             // For JavaScript: move FunctionDeclarations to moduleInit (runtime hoisting)
             // For TypeScript: keep FunctionDeclarations in newBody (compile-time processing)
+            // Self-import bindings splice into moduleInit at the position
+            // corresponding to the import's SOURCE location: statements after
+            // the import get APPENDED later, so the current end of
+            // moduleInit->body is exactly that position.
+            if (kind == "ImportDeclaration") {
+                importInitPositions[stmt.get()] = moduleInit->body.size();
+            }
             bool keepInNewBody = false;
             if (kind == "ClassDeclaration" ||
                 kind == "InterfaceDeclaration" ||
@@ -888,6 +896,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         // the named bindings. These get picked up by moduleGlobalVars_ in ASTToHIR.
         {
             std::vector<std::unique_ptr<ast::Statement>> cjsBindings;
+            // SELF-imports (a module importing its own exports — the
+            // eval-export-dflt test262 family) must NOT hoist: the hoisted
+            // copy runs before any export statement executes, so the binding
+            // is permanently stale. Their bindings splice back into newBody
+            // at the import's SOURCE position instead — by then the
+            // in-place `exports.default = ...` (visitExportAssignment) has
+            // run for the source-order-correct cases.
+            std::vector<std::pair<const ast::Statement*,
+                std::vector<std::unique_ptr<ast::Statement>>>> selfImportInserts;
             int cjsCounter = 0;
             for (const auto& stmt : newBody) {
                 if (stmt->getKind() != "ImportDeclaration") continue;
@@ -903,6 +920,67 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                 // Resolve the module to check its type
                 auto resolved = analyzer.getModuleResolver().resolve(modSpec, path);
+                size_t bindMark = cjsBindings.size();
+                auto normPath = [](std::string s) {
+                    for (auto& ch : s) { if (ch == '\\') ch = '/'; ch = (char)tolower((unsigned char)ch); }
+                    return s;
+                };
+                // The entry module's `path` may be the CLI-relative form
+                // while the resolver returns absolute — canonicalize both.
+                bool isSelfImport = false;
+                if (resolved.isValid()) {
+                    std::error_code selfEc;
+                    auto pAbs = std::filesystem::weakly_canonical(path, selfEc);
+                    auto rAbs = std::filesystem::weakly_canonical(resolved.path, selfEc);
+                    isSelfImport =
+                        normPath(pAbs.string()) == normPath(rAbs.string());
+                }
+
+                // SELF-import: the module's own `exports` local is in scope —
+                // bind straight from it (no registry lookup, which may not
+                // even have the entry module under the resolver's path form).
+                // The bindings are recorded with the import's source position
+                // and spliced into moduleInit there (see selfImportInserts):
+                // visitExportAssignment stores exports.default IN PLACE, so a
+                // source-order `export default ...; import f from './self'`
+                // reads the populated slot.
+                if (isSelfImport) {
+                    std::vector<std::unique_ptr<ast::Statement>> selfStmts;
+                    auto makeBinding = [&](const std::string& localName,
+                                           const char* exportedName) {
+                        auto varDecl = std::make_unique<ast::VariableDeclaration>();
+                        auto varName = std::make_unique<ast::Identifier>();
+                        varName->name = localName;
+                        varDecl->name = std::move(varName);
+                        varDecl->type = "any";
+                        auto exRef = std::make_unique<ast::Identifier>();
+                        exRef->name = "exports";
+                        exRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        if (exportedName) {
+                            auto pa = std::make_unique<ast::PropertyAccessExpression>();
+                            pa->expression = std::move(exRef);
+                            pa->name = exportedName;
+                            pa->inferredType = std::make_shared<Type>(TypeKind::Any);
+                            varDecl->initializer = std::move(pa);
+                        } else {
+                            varDecl->initializer = std::move(exRef);
+                        }
+                        selfStmts.push_back(std::move(varDecl));
+                    };
+                    if (!importDecl->defaultImport.empty())
+                        makeBinding(importDecl->defaultImport, "default");
+                    if (!importDecl->namespaceImport.empty())
+                        makeBinding(importDecl->namespaceImport, nullptr);
+                    for (const auto& spec : importDecl->namedImports) {
+                        if (spec.isTypeOnly) continue;
+                        std::string exp = spec.propertyName.empty() ? spec.name
+                                                                    : spec.propertyName;
+                        makeBinding(spec.name, exp.c_str());
+                    }
+                    if (!selfStmts.empty())
+                        selfImportInserts.push_back({stmt.get(), std::move(selfStmts)});
+                    continue;
+                }
                 if (!resolved.isValid() || resolved.type == ModuleType::Builtin ||
                     resolved.type == ModuleType::Declaration) continue;
 
@@ -1207,6 +1285,31 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                 SPDLOG_INFO("Injected {} CJS import bindings from {} for module {}",
                     cjsBindings.size() - (cjsCounter > 0 ? cjsCounter : 0), modSpec, path);
+
+                (void)bindMark;
+            }
+
+            // Splice self-import bindings into moduleInit at the import's
+            // recorded source position (imports themselves stay in newBody
+            // and never execute). Descending order keeps indices valid, and
+            // this runs BEFORE the hoisted-cjs top insertion so relative
+            // positions survive the uniform shift.
+            std::sort(selfImportInserts.begin(), selfImportInserts.end(),
+                [&](const auto& a, const auto& b) {
+                    auto pa = importInitPositions.count(a.first)
+                                  ? importInitPositions[a.first] : 0;
+                    auto pb = importInitPositions.count(b.first)
+                                  ? importInitPositions[b.first] : 0;
+                    return pa > pb;
+                });
+            for (auto& [anchor, stmts] : selfImportInserts) {
+                auto it2 = importInitPositions.find(anchor);
+                size_t pos = (it2 != importInitPositions.end() &&
+                              it2->second <= moduleInit->body.size())
+                                 ? it2->second : moduleInit->body.size();
+                moduleInit->body.insert(moduleInit->body.begin() + pos,
+                                        std::make_move_iterator(stmts.begin()),
+                                        std::make_move_iterator(stmts.end()));
             }
 
             // Insert CJS bindings at the beginning of module init (after preamble declarations)
