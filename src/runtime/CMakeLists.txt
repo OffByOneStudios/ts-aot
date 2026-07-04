@@ -74,6 +74,7 @@ target_link_libraries(tsparse PRIVATE
 
 add_library(tsruntime STATIC
     $<TARGET_OBJECTS:tsparse>
+    src/interp/TsInterp.cpp
     src/Core.cpp
     src/Memory.cpp
     src/EventLoop.cpp

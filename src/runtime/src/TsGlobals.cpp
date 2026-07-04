@@ -7203,6 +7203,14 @@ static void* ts_global_ctor_by_name(const char* n) {
     return nullptr;
 }
 
+// Exported for the eval interpreter (src/interp/TsInterp.cpp): bare-identifier
+// reads of builtin constructors must yield the FIRST-CLASS cached constructor
+// (a globalThis property read yields only the name string, which `new` can't
+// construct — same trap the Function-ctor subclass idiom hit).
+extern "C" void* ts_interp_global_ctor_by_name(const char* n) {
+    return ts_global_ctor_by_name(n);
+}
+
 // `x instanceof Array`: a real TsArray matches by magic (fast path); a
 // `class C extends Array` instance (flat object) matches via the ordinary
 // prototype-chain walk against Array.prototype.

@@ -1,0 +1,1702 @@
+// TsInterp.cpp — tree-walking interpreter for eval'd / Function-constructed
+// code (EVAL-001 Phase 1). Walks the ast::* nodes produced by the runtime-
+// linked parser (TsParse.cpp) and delegates EVERY JavaScript operation to the
+// same extern "C" ts_* runtime ABI the AOT codegen emits — the walker adds
+// only control flow and scope plumbing, never a second implementation of
+// language semantics.
+//
+// Design invariants (see docs/tickets/EVAL-001-treewalker-eval.md §9):
+//  - Values are nanboxed TsValue* throughout, exactly like AOT code.
+//  - Environment records are TsMap objects (GC-visible object graph; no
+//    bespoke rooting). The parent link and metadata live under reserved keys
+//    that start with '\x01' (impossible in an identifier). Lookups use
+//    TsMap::Get/Has directly — own-properties only, so a fresh map with a
+//    null prototype can never leak Object.prototype pollution into a scope.
+//  - The C++ recursion stack is the VM stack. The GC conservatively scans
+//    the native stack (TsGC.cpp gc_push_conservative_stack_roots), so
+//    TsValue* locals in walker frames are roots automatically.
+//  - Exceptions NEVER unwind through walker frames via longjmp. Every ts_*
+//    call that can throw runs under a leaf setjmp guard (guard frames hold
+//    no destructor-owning locals); a caught throw becomes a Thrown
+//    completion that propagates by ordinary C++ returns. At the boundary
+//    back into native/AOT code (trampoline exit, eval entry) a pending
+//    Thrown completion is re-raised with ts_throw from a frame with no
+//    destructor-owning locals (the longjmp-stdstring rule).
+//  - The AST is transient plain-heap C++ owned by parse handles that are
+//    registered here and never freed while the program runs: interpreted
+//    closures keep raw pointers into it.
+//
+// Deferred (throws EvalError naming the construct): classes, generators,
+// async/await, destructuring patterns, for-in/for-of, spread, getters/
+// setters and computed keys in object literals, tagged templates, regex
+// literals, `arguments`, new.target.
+
+#include "../../include/TsObject.h"
+#include "../../include/TsRuntime.h"
+#include "../../include/TsClosure.h"
+#include "../../include/TsCell.h"
+#include "../../include/TsMap.h"
+#include "../../include/TsArray.h"
+#include "../../include/TsString.h"
+#include "../../include/TsError.h"
+#include "../../include/TsNanBox.h"
+#include "../../../compiler/ast/AstNodes.h"
+
+#include <setjmp.h>
+#include <cstring>
+#include <string>
+#include <vector>
+
+// ---------------------------------------------------------------------------
+// Runtime ABI decls not exported through headers we can include cleanly.
+// ---------------------------------------------------------------------------
+extern "C" {
+    void* ts_parse_program(const char* source, const char* file_name, int as_module);
+    const char* ts_parse_error(void* handle);
+    void* ts_parse_get_program(void* handle);
+    void ts_parse_free(void* handle);
+
+    void* ts_get_call_this();
+    bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor);
+    void* ts_to_string_spec(TsValue* val);
+    bool ts_is_callable(void* val);
+    void* ts_string_create(const char* str);
+    void* ts_string_concat(void* a, void* b);
+    bool ts_string_eq(void* a, void* b);
+
+    // Runtime globals (extern "C" definitions live in TsObject.cpp).
+    extern TsValue* globalThis;
+    extern TsValue* Object;
+
+    void ts_gc_register_root(void** location);
+    void ts_closure_set_not_constructable(TsClosure* closure);
+    void* ts_interp_global_ctor_by_name(const char* n);
+}
+
+namespace {
+
+using ast::Expression;
+using ast::Statement;
+
+// --- value shorthands -------------------------------------------------------
+
+inline TsValue* jsUndefined() { return (TsValue*)(uintptr_t)NANBOX_UNDEFINED; }
+inline TsValue* jsNull()      { return (TsValue*)(uintptr_t)NANBOX_NULL; }
+inline TsValue* jsBool(bool b){ return (TsValue*)(uintptr_t)(b ? NANBOX_TRUE : NANBOX_FALSE); }
+
+inline TsValue* boxStr(const std::string& s) {
+    return ts_value_make_string(ts_string_create(s.c_str()));
+}
+inline TsValue* boxObj(void* o) { return ts_value_make_object(o); }
+
+// --- completion records ------------------------------------------------------
+
+struct Cpl {
+    enum K { Normal, Ret, Brk, Cont, Thrown } k = Normal;
+    TsValue* v = nullptr;   // Normal: statement/expression value; Ret: return
+                            // value; Thrown: the exception (boxed error)
+    std::string label;      // Brk/Cont label ("" = unlabeled)
+};
+
+inline Cpl normal(TsValue* v = nullptr) { Cpl c; c.k = Cpl::Normal; c.v = v; return c; }
+inline Cpl thrown(TsValue* ex)          { Cpl c; c.k = Cpl::Thrown; c.v = ex; return c; }
+inline bool isAbrupt(const Cpl& c)      { return c.k != Cpl::Normal; }
+
+Cpl throwTyped(const char* ctor, const std::string& msg) {
+    return thrown((TsValue*)ts_error_create_typed(ctor, msg.c_str()));
+}
+Cpl unsupported(const std::string& what) {
+    return throwTyped("EvalError", "eval: unsupported construct: " + what);
+}
+
+// --- setjmp leaf guards ------------------------------------------------------
+// Each guard frame is trivially destructible (pointers only) so the longjmp
+// landing here never has to unwind destructor-owning state in THIS frame,
+// and no walker frame is ever crossed by a longjmp (the throw happens inside
+// the guarded callee). Returns true on success; false with *ex set on throw.
+
+typedef TsValue* (*OpV)();
+typedef TsValue* (*Op1)(TsValue*);
+typedef TsValue* (*Op2)(TsValue*, TsValue*);
+
+bool guard1(Op1 op, TsValue* a, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = op(a);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guard2(Op2 op, TsValue* a, TsValue* b, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = op(a, b);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardGet(TsValue* obj, TsValue* key, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_object_get_dynamic(obj, key);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardSet(TsValue* obj, TsValue* key, TsValue* val, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        ts_object_set_dynamic(obj, key, val);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardCall(TsValue* fn, TsValue* thisV, int argc, TsValue** argv,
+               TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_function_call_with_this(fn, thisV, argc, argv);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardConstruct(TsValue* fn, TsValue* argsArr, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_construct_apply(fn, argsArr);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardHas(TsValue* obj, TsValue* key, bool* out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_object_has_prop(obj, key);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardDelete(TsValue* obj, TsValue* key, bool* out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_object_delete_prop(obj, key);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardToString(TsValue* v, TsValue** out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_value_make_string(ts_to_string_spec(v));
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+bool guardInstanceof(TsValue* a, TsValue* b, bool* out, TsValue** ex) {
+    void* buf = ts_push_exception_handler();
+    if (setjmp(*(jmp_buf*)buf) == 0) {
+        *out = ts_instanceof_dynamic(a, b);
+        ts_pop_exception_handler();
+        return true;
+    }
+    *ex = ts_get_exception();
+    return false;
+}
+
+// Convenience: run a binary dispatcher under guard, producing a completion.
+Cpl op2(Op2 op, TsValue* a, TsValue* b) {
+    TsValue* out = nullptr; TsValue* ex = nullptr;
+    if (guard2(op, a, b, &out, &ex)) return normal(out);
+    return thrown(ex);
+}
+Cpl op1(Op1 op, TsValue* a) {
+    TsValue* out = nullptr; TsValue* ex = nullptr;
+    if (guard1(op, a, &out, &ex)) return normal(out);
+    return thrown(ex);
+}
+
+// --- environment records ------------------------------------------------------
+// One TsMap per scope. Reserved keys (start with '\x01'):
+//   "\x01p"        parent env (boxed TsMap), absent at chain root
+//   "\x01f"        truthy => function/var scope (var + function-decl target)
+//   "\x01g"        truthy => var-declarations go to globalThis (indirect eval)
+//   "\x01w"        `with` object (boxed): consult before own bindings
+//   "\x01c:"+name  truthy => binding is const
+// A binding in TDZ holds the g_tdzMarker object (a unique TsMap, compared by
+// identity). NANBOX_TDZ itself can't round-trip TsMap's TaggedValue storage.
+
+TsMap* g_tdzMarker = nullptr;   // lazily created, GC-rooted
+
+TsMap* tdzMarker() {
+    if (!g_tdzMarker) {
+        g_tdzMarker = (TsMap*)ts_map_create();
+        ts_gc_register_root((void**)&g_tdzMarker);
+    }
+    return g_tdzMarker;
+}
+
+inline TsValue key(const char* s) { // TaggedValue string key for TsMap
+    return nanbox_to_tagged(boxStr(s));
+}
+inline TsValue key(const std::string& s) { return key(s.c_str()); }
+
+TsMap* envNew(TsMap* parent, bool fnScope) {
+    TsMap* m = (TsMap*)ts_map_create();
+    if (parent) m->Set(key("\x01p"), nanbox_to_tagged(boxObj(parent)));
+    if (fnScope) m->Set(key("\x01f"), nanbox_to_tagged(jsBool(true)));
+    return m;
+}
+
+TsMap* envParent(TsMap* env) {
+    if (!env->Has(key("\x01p"))) return nullptr;
+    TsValue* v = nanbox_from_tagged(env->Get(key("\x01p")));
+    return (TsMap*)ts_value_get_object(v);
+}
+
+TsValue* envWithObject(TsMap* env) {
+    if (!env->Has(key("\x01w"))) return nullptr;
+    return nanbox_from_tagged(env->Get(key("\x01w")));
+}
+
+bool envIsGlobalVarScope(TsMap* env) { return env->Has(key("\x01g")); }
+bool envIsFnScope(TsMap* env) {
+    return env->Has(key("\x01f")) || env->Has(key("\x01g"));
+}
+
+void envDefine(TsMap* env, const std::string& name, TsValue* v, bool isConst) {
+    env->Set(key(name), nanbox_to_tagged(v));
+    if (isConst) env->Set(key("\x01c:" + name), nanbox_to_tagged(jsBool(true)));
+}
+
+bool envHasOwn(TsMap* env, const std::string& name) {
+    return env->Has(key(name));
+}
+TsValue* envGetOwn(TsMap* env, const std::string& name) {
+    return nanbox_from_tagged(env->Get(key(name)));
+}
+bool envIsConst(TsMap* env, const std::string& name) {
+    return env->Has(key("\x01c:" + name));
+}
+bool isTdz(TsValue* v) {
+    return ts_value_get_object(v) == (void*)tdzMarker();
+}
+
+// Find the nearest function-scope env for var/function-decl targeting.
+TsMap* envVarTarget(TsMap* env) {
+    TsMap* e = env;
+    while (e && !envIsFnScope(e)) e = envParent(e);
+    return e ? e : env;
+}
+
+// --- interpreted function data -------------------------------------------------
+
+struct InterpFn {
+    std::vector<std::unique_ptr<ast::Parameter>>* params = nullptr;
+    std::vector<ast::StmtPtr>* body = nullptr;   // block body (borrowed from AST)
+    Expression* exprBody = nullptr;              // arrow concise body
+    std::string name;
+    bool isArrow = false;
+    bool strict = false;
+};
+
+// Registered function data + parse handles live for the program lifetime:
+// interpreted closures hold raw AST pointers. Plain heap, never GC memory.
+std::vector<InterpFn*>& fnRegistry() {
+    static std::vector<InterpFn*> r;
+    return r;
+}
+void retainParseHandle(void* h) {
+    static std::vector<void*> handles;
+    handles.push_back(h);
+}
+
+// Forward decls
+Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict);
+Cpl execStmts(std::vector<ast::StmtPtr>& stmts, TsMap* env, TsValue* thisV, bool strict);
+Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict);
+TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV);
+
+// --- strictness ---------------------------------------------------------------
+
+bool bodyHasUseStrict(std::vector<ast::StmtPtr>& body) {
+    // Scan the directive prologue: leading ExpressionStatements whose
+    // expression is a StringLiteral. Stop at the first non-directive.
+    for (auto& s : body) {
+        auto* es = dynamic_cast<ast::ExpressionStatement*>(s.get());
+        if (!es) return false;
+        auto* sl = dynamic_cast<ast::StringLiteral*>(es->expression.get());
+        if (!sl) return false;
+        if (sl->value == "use strict") return true;
+        // other directive ("use asm", ...) — keep scanning
+    }
+    return false;
+}
+
+// --- identifier resolution -------------------------------------------------------
+
+// Result codes for identifier lookup.
+enum class LookupResult { Found, Tdz, NotFound, Threw };
+
+LookupResult envLookup(TsMap* env, const std::string& name, TsValue** out,
+                       TsValue** ex) {
+    for (TsMap* e = env; e; e = envParent(e)) {
+        if (TsValue* wobj = envWithObject(e)) {
+            bool has = false;
+            if (!guardHas(wobj, boxStr(name), &has, ex)) return LookupResult::Threw;
+            if (has) {
+                if (!guardGet(wobj, boxStr(name), out, ex)) return LookupResult::Threw;
+                return LookupResult::Found;
+            }
+        }
+        if (envHasOwn(e, name)) {
+            TsValue* v = envGetOwn(e, name);
+            if (isTdz(v)) return LookupResult::Tdz;
+            *out = v;
+            return LookupResult::Found;
+        }
+    }
+    // Global object fallback.
+    bool has = false;
+    if (!guardHas(globalThis, boxStr(name), &has, ex)) return LookupResult::Threw;
+    if (has) {
+        if (!guardGet(globalThis, boxStr(name), out, ex)) return LookupResult::Threw;
+        // Builtin-constructor globalThis entries hold only their NAME STRING
+        // (the real constructors are first-class cached singletons — the kTA
+        // trap). Swap in the callable constructor when we read the marker.
+        void* sraw = *out ? ts_value_get_string(*out) : nullptr;
+        if (sraw && ts_string_eq(sraw, ts_string_create(name.c_str()))) {
+            if (void* ctor = ts_interp_global_ctor_by_name(name.c_str()))
+                *out = (TsValue*)ctor;
+        }
+        return LookupResult::Found;
+    }
+    if (void* ctor = ts_interp_global_ctor_by_name(name.c_str())) {
+        *out = (TsValue*)ctor;
+        return LookupResult::Found;
+    }
+    return LookupResult::NotFound;
+}
+
+Cpl readIdent(TsMap* env, const std::string& name, bool forTypeof) {
+    TsValue* out = nullptr; TsValue* ex = nullptr;
+    switch (envLookup(env, name, &out, &ex)) {
+    case LookupResult::Found:   return normal(out);
+    case LookupResult::Threw:   return thrown(ex);
+    case LookupResult::Tdz:
+        return throwTyped("ReferenceError",
+                          "Cannot access '" + name + "' before initialization");
+    case LookupResult::NotFound:
+        if (forTypeof) return normal(jsUndefined());
+        return throwTyped("ReferenceError", name + " is not defined");
+    }
+    return normal(jsUndefined());
+}
+
+Cpl assignIdent(TsMap* env, const std::string& name, TsValue* v, bool strict) {
+    for (TsMap* e = env; e; e = envParent(e)) {
+        if (TsValue* wobj = envWithObject(e)) {
+            bool has = false; TsValue* ex = nullptr;
+            if (!guardHas(wobj, boxStr(name), &has, &ex)) return thrown(ex);
+            if (has) {
+                if (!guardSet(wobj, boxStr(name), v, &ex)) return thrown(ex);
+                return normal(v);
+            }
+        }
+        if (envHasOwn(e, name)) {
+            if (isTdz(envGetOwn(e, name)))
+                return throwTyped("ReferenceError",
+                                  "Cannot access '" + name + "' before initialization");
+            if (envIsConst(e, name))
+                return throwTyped("TypeError", "Assignment to constant variable.");
+            e->Set(key(name), nanbox_to_tagged(v));
+            return normal(v);
+        }
+    }
+    // Unresolved: sloppy creates a global; strict throws (ES 6.2.5.6).
+    if (strict) {
+        bool has = false; TsValue* ex = nullptr;
+        if (!guardHas(globalThis, boxStr(name), &has, &ex)) return thrown(ex);
+        if (!has) return throwTyped("ReferenceError", name + " is not defined");
+    }
+    TsValue* ex = nullptr;
+    if (!guardSet(globalThis, boxStr(name), v, &ex)) return thrown(ex);
+    return normal(v);
+}
+
+// --- hoisting -------------------------------------------------------------------
+// Pre-pass over a function/program body: var declarations bind undefined in
+// the var-scope env; function declarations bind their closure (created over
+// `env`). Descends into nested statements but NOT nested functions.
+
+void hoistCollect(Statement* s, std::vector<std::string>& vars,
+                  std::vector<ast::FunctionDeclaration*>& fns) {
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s)) {
+        if (vd->varKind == ast::VarKind::Var) {
+            if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                vars.push_back(id->name);
+        }
+        return;
+    }
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
+        fns.push_back(fd);
+        return;
+    }
+    if (auto* b = dynamic_cast<ast::BlockStatement*>(s)) {
+        for (auto& st : b->statements) hoistCollect(st.get(), vars, fns);
+        return;
+    }
+    if (auto* i = dynamic_cast<ast::IfStatement*>(s)) {
+        if (i->thenStatement) hoistCollect(i->thenStatement.get(), vars, fns);
+        if (i->elseStatement) hoistCollect(i->elseStatement.get(), vars, fns);
+        return;
+    }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(s)) {
+        if (w->body) hoistCollect(w->body.get(), vars, fns);
+        return;
+    }
+    if (auto* f = dynamic_cast<ast::ForStatement*>(s)) {
+        if (f->initializer) hoistCollect(f->initializer.get(), vars, fns);
+        if (f->body) hoistCollect(f->body.get(), vars, fns);
+        return;
+    }
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s)) {
+        if (fo->initializer) hoistCollect(fo->initializer.get(), vars, fns);
+        if (fo->body) hoistCollect(fo->body.get(), vars, fns);
+        return;
+    }
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(s)) {
+        if (fi->initializer) hoistCollect(fi->initializer.get(), vars, fns);
+        if (fi->body) hoistCollect(fi->body.get(), vars, fns);
+        return;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(s)) {
+        for (auto& st : t->tryBlock) hoistCollect(st.get(), vars, fns);
+        if (t->catchClause)
+            for (auto& st : t->catchClause->block) hoistCollect(st.get(), vars, fns);
+        for (auto& st : t->finallyBlock) hoistCollect(st.get(), vars, fns);
+        return;
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& st : cc->statements) hoistCollect(st.get(), vars, fns);
+            else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& st : dc->statements) hoistCollect(st.get(), vars, fns);
+        }
+        return;
+    }
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(s)) {
+        if (l->statement) hoistCollect(l->statement.get(), vars, fns);
+        return;
+    }
+}
+
+// Declares hoisted names into the var-scope env (or globalThis for indirect
+// sloppy eval). Function declarations are instantiated immediately.
+Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
+              bool strict) {
+    std::vector<std::string> vars;
+    std::vector<ast::FunctionDeclaration*> fns;
+    for (auto& s : body) hoistCollect(s.get(), vars, fns);
+
+    TsMap* target = envVarTarget(env);
+    bool toGlobal = envIsGlobalVarScope(target);
+
+    for (auto& name : vars) {
+        if (toGlobal) {
+            bool has = false; TsValue* ex = nullptr;
+            if (!guardHas(globalThis, boxStr(name), &has, &ex)) return thrown(ex);
+            if (!has && !guardSet(globalThis, boxStr(name), jsUndefined(), &ex))
+                return thrown(ex);
+        } else if (!envHasOwn(target, name)) {
+            envDefine(target, name, jsUndefined(), false);
+        }
+    }
+    for (auto* fd : fns) {
+        auto* data = new InterpFn();
+        data->params = &fd->parameters;
+        data->body = &fd->body;
+        data->name = fd->name;
+        data->strict = strict || bodyHasUseStrict(fd->body);
+        fnRegistry().push_back(data);
+        TsValue* fn = makeInterpClosure(data, env, thisV);
+        if (toGlobal) {
+            TsValue* ex = nullptr;
+            if (!guardSet(globalThis, boxStr(fd->name), fn, &ex)) return thrown(ex);
+        } else {
+            envDefine(target, fd->name, fn, false);
+        }
+    }
+    return normal();
+}
+
+// Pre-declare block-level let/const as TDZ in the block env.
+void predeclareLexical(std::vector<ast::StmtPtr>& stmts, TsMap* env) {
+    for (auto& s : stmts) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s.get())) {
+            if (vd->varKind != ast::VarKind::Var) {
+                if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    env->Set(key(id->name), nanbox_to_tagged(boxObj(tdzMarker())));
+            }
+        }
+    }
+}
+
+// --- interpreted closures ---------------------------------------------------------
+
+// Trampoline convention: rest_param_index = 0 packs the caller's ENTIRE argv
+// into one TsArray, so ts_call_N invokes func_ptr as
+//   FnPad(closure, argsArray, undefined, undefined, undefined)
+// `this` arrives via ts_get_call_this() (set by ts_function_call_with_this).
+
+// Re-raise a Thrown completion into native code. Separate noinline frame with
+// no destructor-owning locals (longjmp-stdstring rule).
+__declspec(noinline) TsValue* interpRethrow(TsValue* ex) {
+    ts_throw(ex);
+    return nullptr; // unreachable
+}
+
+Cpl runFunctionBody(InterpFn* fd, TsMap* defEnv, TsValue* thisV, TsArray* args);
+
+TsValue* interpTramp(void* closurePtr, TsValue* argsArrBoxed, TsValue*, TsValue*, TsValue*) {
+    TsClosure* c = (TsClosure*)closurePtr;
+    TsMap* env = (TsMap*)ts_value_get_object(ts_cell_get(c->getCell(0)));
+    InterpFn* fd = (InterpFn*)(intptr_t)ts_value_get_int(ts_cell_get(c->getCell(1)));
+
+    TsValue* thisV;
+    if (fd->isArrow) {
+        thisV = ts_cell_get(c->getCell(2));
+    } else {
+        thisV = (TsValue*)ts_get_call_this();
+        // OrdinaryCallBindThis: sloppy callee coerces nullish this to
+        // globalThis; strict callee keeps it as-is.
+        if (!fd->strict && (!thisV || ts_value_is_nullish(thisV)))
+            thisV = globalThis;
+    }
+
+    TsArray* args = argsArrBoxed
+        ? (TsArray*)ts_value_get_object(argsArrBoxed) : nullptr;
+
+    Cpl r = runFunctionBody(fd, env, thisV, args);
+    if (r.k == Cpl::Thrown) return interpRethrow(r.v);
+    if (r.k == Cpl::Ret && r.v) return r.v;
+    return jsUndefined();
+}
+
+TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV) {
+    TsClosure* c = ts_closure_create((void*)interpTramp, 3);
+    ts_closure_init_capture(c, 0, boxObj(env));
+    ts_closure_init_capture(c, 1, ts_value_make_int((int64_t)(intptr_t)fd));
+    ts_closure_init_capture(c, 2, fd->isArrow && thisV ? thisV : jsUndefined());
+    ts_closure_set_rest_index(c, 0);
+
+    // .length: params before the first default/rest (ES 10.2.9).
+    int32_t arity = 0;
+    if (fd->params) {
+        for (auto& p : *fd->params) {
+            if (p->isRest || p->initializer) break;
+            ++arity;
+        }
+    }
+    ts_closure_set_arity(c, arity);
+    if (!fd->name.empty())
+        ts_closure_set_name(c, ts_string_create(fd->name.c_str()));
+
+    TsValue* boxed = boxObj(c);
+    if (fd->isArrow) {
+        ts_closure_set_not_constructable(c);
+        ts_closure_set_no_prototype(c);
+    } else {
+        // .prototype = { constructor: fn } with %Object.prototype% as proto.
+        TsMap* proto = (TsMap*)ts_map_create();
+        TsValue* objProtoV = nullptr; TsValue* ex = nullptr;
+        if (guardGet((TsValue*)Object, boxStr("prototype"), &objProtoV, &ex) && objProtoV) {
+            void* raw = ts_value_get_object(objProtoV);
+            TsMap* op = raw ? dynamic_cast<TsMap*>((TsObject*)raw) : nullptr;
+            if (op) proto->SetPrototype(op);
+        }
+        proto->Set(key("constructor"), nanbox_to_tagged(boxed));
+        TsValue* ex2 = nullptr;
+        guardSet(boxed, boxStr("prototype"), boxObj(proto), &ex2);
+    }
+    return boxed;
+}
+
+Cpl runFunctionBody(InterpFn* fd, TsMap* defEnv, TsValue* thisV, TsArray* args) {
+    TsMap* fenv = envNew(defEnv, /*fnScope*/true);
+    bool strict = fd->strict;
+
+    // Named function expression: the name binds to the function itself in an
+    // intermediate immutable binding; approximated as a normal binding here.
+    // (Set lazily from the closure the caller boxed — recovered via env chain
+    // when needed; skipped in this milestone: recursion resolves through the
+    // outer binding for declarations, which covers the common cases.)
+
+    int64_t argc = args ? ts_array_length((void*)args) : 0;
+    int64_t argIdx = 0;
+    if (fd->params) {
+        for (auto& p : *fd->params) {
+            auto* id = dynamic_cast<ast::Identifier*>(p->name.get());
+            if (!id) return unsupported("destructuring parameter");
+            if (p->isRest) {
+                TsArray* rest = TsArray::Create((size_t)(argc > argIdx ? argc - argIdx : 0));
+                for (int64_t i = argIdx; i < argc; i++) {
+                    TsValue* el = ts_array_get_dynamic(boxObj(args), ts_value_make_int(i));
+                    ts_array_push_any((void*)rest, el);
+                }
+                envDefine(fenv, id->name, boxObj(rest), false);
+                break;
+            }
+            TsValue* v = (argIdx < argc)
+                ? ts_array_get_dynamic(boxObj(args), ts_value_make_int(argIdx))
+                : jsUndefined();
+            argIdx++;
+            if (p->initializer && ts_value_is_undefined(v)) {
+                Cpl d = evalExpr((Expression*)p->initializer.get(), fenv, thisV, strict);
+                if (isAbrupt(d)) return d;
+                v = d.v;
+            }
+            envDefine(fenv, id->name, v, false);
+        }
+    }
+
+    if (fd->exprBody) {
+        Cpl r = evalExpr(fd->exprBody, fenv, thisV, strict);
+        if (isAbrupt(r)) return r;
+        Cpl ret; ret.k = Cpl::Ret; ret.v = r.v;
+        return ret;
+    }
+
+    Cpl h = hoistInto(*fd->body, fenv, thisV, strict);
+    if (isAbrupt(h)) return h;
+    Cpl r = execStmts(*fd->body, fenv, thisV, strict);
+    if (r.k == Cpl::Brk || r.k == Cpl::Cont)
+        return throwTyped("SyntaxError", "Illegal break/continue in function body");
+    return r;
+}
+
+// --- function/arrow expression evaluation ----------------------------------------
+
+InterpFn* fnDataForFunctionExpr(ast::FunctionExpression* fe, bool outerStrict) {
+    auto* d = new InterpFn();
+    d->params = &fe->parameters;
+    d->body = &fe->body;
+    d->name = fe->name;
+    d->strict = outerStrict || bodyHasUseStrict(fe->body);
+    fnRegistry().push_back(d);
+    return d;
+}
+
+// --- expression evaluation ---------------------------------------------------------
+
+// Evaluates a property key expression to a boxed key value (string/symbol/number).
+Cpl evalKey(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
+    return evalExpr(e, env, thisV, strict);
+}
+
+// Member access target decomposition for assignment / calls.
+struct MemberRef {
+    TsValue* obj = nullptr;
+    TsValue* keyV = nullptr;
+};
+
+Cpl evalMemberRef(Expression* e, TsMap* env, TsValue* thisV, bool strict,
+                  MemberRef* out) {
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(e)) {
+        Cpl o = evalExpr(pa->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        out->obj = o.v;
+        out->keyV = boxStr(pa->name);
+        return normal();
+    }
+    if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(e)) {
+        Cpl o = evalExpr(ea->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        Cpl k = evalKey(ea->argumentExpression.get(), env, thisV, strict);
+        if (isAbrupt(k)) return k;
+        out->obj = o.v;
+        out->keyV = k.v;
+        return normal();
+    }
+    return unsupported("assignment target " + e->getKind());
+}
+
+Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict);
+Cpl evalBinary(ast::BinaryExpression* be, TsMap* env, TsValue* thisV, bool strict);
+Cpl evalAssignment(ast::AssignmentExpression* ae, TsMap* env, TsValue* thisV, bool strict);
+Cpl runProgramInEnv(ast::Program* prog, TsMap* env, TsValue* thisV, bool callerStrict);
+
+Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
+    if (!e) return normal(jsUndefined());
+
+    if (auto* n = dynamic_cast<ast::NumericLiteral*>(e))
+        return normal(ts_value_make_double(n->value));
+    if (auto* s = dynamic_cast<ast::StringLiteral*>(e))
+        return normal(boxStr(s->value));
+    if (auto* b = dynamic_cast<ast::BooleanLiteral*>(e))
+        return normal(jsBool(b->value));
+    if (dynamic_cast<ast::NullLiteral*>(e))
+        return normal(jsNull());
+    if (dynamic_cast<ast::UndefinedLiteral*>(e))
+        return normal(jsUndefined());
+
+    if (auto* id = dynamic_cast<ast::Identifier*>(e)) {
+        // The parser encodes `this` as an Identifier named "this".
+        if (id->name == "this") return normal(thisV ? thisV : jsUndefined());
+        if (id->name == "undefined") return normal(jsUndefined());
+        if (id->name == "globalThis") return normal(globalThis);
+        return readIdent(env, id->name, /*forTypeof*/false);
+    }
+
+    if (dynamic_cast<ast::SuperExpression*>(e))
+        return unsupported("super");
+
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(e))
+        return evalExpr(p->expression.get(), env, thisV, strict);
+    if (auto* a = dynamic_cast<ast::AsExpression*>(e))
+        return evalExpr(a->expression.get(), env, thisV, strict);
+    if (auto* nn = dynamic_cast<ast::NonNullExpression*>(e))
+        return evalExpr(nn->expression.get(), env, thisV, strict);
+
+    if (auto* t = dynamic_cast<ast::TemplateExpression*>(e)) {
+        TsValue* acc = boxStr(t->head);
+        for (auto& span : t->spans) {
+            Cpl v = evalExpr(span.expression.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            TsValue* sv = nullptr; TsValue* ex = nullptr;
+            if (!guardToString(v.v, &sv, &ex)) return thrown(ex);
+            acc = ts_value_make_string(
+                ts_string_concat(ts_value_get_string(acc), ts_value_get_string(sv)));
+            if (!span.literal.empty())
+                acc = ts_value_make_string(
+                    ts_string_concat(ts_value_get_string(acc),
+                                     ts_string_create(span.literal.c_str())));
+        }
+        return normal(acc);
+    }
+
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(e)) {
+        TsArray* a = TsArray::Create(arr->elements.size());
+        for (auto& el : arr->elements) {
+            if (dynamic_cast<ast::OmittedExpression*>(el.get()))
+                return unsupported("array hole in eval code");
+            if (dynamic_cast<ast::SpreadElement*>(el.get()))
+                return unsupported("spread element");
+            Cpl v = evalExpr(el.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            ts_array_push_any((void*)a, v.v);
+        }
+        return normal(boxObj(a));
+    }
+
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(e)) {
+        TsMap* m = (TsMap*)ts_map_create();
+        // Give the literal normal Object.prototype behavior.
+        TsValue* objProtoV = nullptr; TsValue* ex0 = nullptr;
+        if (guardGet((TsValue*)Object, boxStr("prototype"), &objProtoV, &ex0) && objProtoV) {
+            void* raw = ts_value_get_object(objProtoV);
+            TsMap* op = raw ? dynamic_cast<TsMap*>((TsObject*)raw) : nullptr;
+            if (op) m->SetPrototype(op);
+        }
+        TsValue* boxed = boxObj(m);
+        for (auto& propNode : obj->properties) {
+            if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(propNode.get())) {
+                TsValue* keyV;
+                if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
+                    Cpl k = evalExpr(cpn->expression.get(), env, thisV, strict);
+                    if (isAbrupt(k)) return k;
+                    keyV = k.v;
+                } else {
+                    keyV = boxStr(pa->name);
+                }
+                Cpl v = evalExpr(pa->initializer.get(), env, thisV, strict);
+                if (isAbrupt(v)) return v;
+                TsValue* ex = nullptr;
+                if (!guardSet(boxed, keyV, v.v, &ex)) return thrown(ex);
+            } else if (auto* sp = dynamic_cast<ast::ShorthandPropertyAssignment*>(propNode.get())) {
+                Cpl v = readIdent(env, sp->name, false);
+                if (isAbrupt(v)) return v;
+                TsValue* ex = nullptr;
+                if (!guardSet(boxed, boxStr(sp->name), v.v, &ex)) return thrown(ex);
+            } else if (auto* md = dynamic_cast<ast::MethodDefinition*>(propNode.get())) {
+                if (md->isGetter || md->isSetter || md->isAsync || md->isGenerator)
+                    return unsupported("object literal accessor/generator method");
+                auto* d = new InterpFn();
+                d->params = &md->parameters;
+                d->body = &md->body;
+                d->name = md->name;
+                d->strict = strict || bodyHasUseStrict(md->body);
+                fnRegistry().push_back(d);
+                TsValue* fn = makeInterpClosure(d, env, thisV);
+                TsValue* ex = nullptr;
+                if (!guardSet(boxed, boxStr(md->name), fn, &ex)) return thrown(ex);
+            } else {
+                return unsupported("object literal member " + propNode->getKind());
+            }
+        }
+        return normal(boxed);
+    }
+
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(e)) {
+        Cpl o = evalExpr(pa->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        if (pa->isOptional && ts_value_is_nullish(o.v)) return normal(jsUndefined());
+        if (ts_value_is_nullish(o.v))
+            return throwTyped("TypeError",
+                "Cannot read properties of " +
+                std::string(ts_value_is_null(o.v) ? "null" : "undefined") +
+                " (reading '" + pa->name + "')");
+        TsValue* out = nullptr; TsValue* ex = nullptr;
+        if (!guardGet(o.v, boxStr(pa->name), &out, &ex)) return thrown(ex);
+        return normal(out ? out : jsUndefined());
+    }
+
+    if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(e)) {
+        Cpl o = evalExpr(ea->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        if (ea->isOptional && ts_value_is_nullish(o.v)) return normal(jsUndefined());
+        Cpl k = evalKey(ea->argumentExpression.get(), env, thisV, strict);
+        if (isAbrupt(k)) return k;
+        if (ts_value_is_nullish(o.v))
+            return throwTyped("TypeError", "Cannot read properties of null or undefined");
+        TsValue* out = nullptr; TsValue* ex = nullptr;
+        if (!guardGet(o.v, k.v, &out, &ex)) return thrown(ex);
+        return normal(out ? out : jsUndefined());
+    }
+
+    if (auto* ce = dynamic_cast<ast::CallExpression*>(e))
+        return evalCall(ce, env, thisV, strict);
+
+    if (auto* ne = dynamic_cast<ast::NewExpression*>(e)) {
+        Cpl f = evalExpr(ne->expression.get(), env, thisV, strict);
+        if (isAbrupt(f)) return f;
+        TsArray* argsArr = TsArray::Create(ne->arguments.size());
+        for (auto& a : ne->arguments) {
+            if (dynamic_cast<ast::SpreadElement*>(a.get()))
+                return unsupported("spread in new()");
+            Cpl v = evalExpr(a.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            ts_array_push_any((void*)argsArr, v.v);
+        }
+        TsValue* out = nullptr; TsValue* ex = nullptr;
+        if (!guardConstruct(f.v, boxObj(argsArr), &out, &ex)) return thrown(ex);
+        return normal(out ? out : jsUndefined());
+    }
+
+    if (auto* be = dynamic_cast<ast::BinaryExpression*>(e))
+        return evalBinary(be, env, thisV, strict);
+
+    if (auto* cond = dynamic_cast<ast::ConditionalExpression*>(e)) {
+        Cpl c = evalExpr(cond->condition.get(), env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        return evalExpr(ts_value_to_bool(c.v) ? cond->whenTrue.get()
+                                              : cond->whenFalse.get(),
+                        env, thisV, strict);
+    }
+
+    if (auto* ae = dynamic_cast<ast::AssignmentExpression*>(e))
+        return evalAssignment(ae, env, thisV, strict);
+
+    if (auto* pre = dynamic_cast<ast::PrefixUnaryExpression*>(e)) {
+        const std::string& op = pre->op;
+        if (op == "typeof") {
+            // typeof on a bare unresolvable identifier is "undefined".
+            if (auto* id = dynamic_cast<ast::Identifier*>(pre->operand.get())) {
+                Cpl v = readIdent(env, id->name, /*forTypeof*/true);
+                if (isAbrupt(v)) return v;
+                return normal(ts_value_make_string(ts_value_typeof(v.v)));
+            }
+            Cpl v = evalExpr(pre->operand.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            return normal(ts_value_make_string(ts_value_typeof(v.v)));
+        }
+        if (op == "void") {
+            Cpl v = evalExpr(pre->operand.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            return normal(jsUndefined());
+        }
+        if (op == "++" || op == "--") {
+            if (auto* id = dynamic_cast<ast::Identifier*>(pre->operand.get())) {
+                Cpl v = readIdent(env, id->name, false);
+                if (isAbrupt(v)) return v;
+                Cpl nv = op1(op == "++" ? ts_value_inc : ts_value_dec, v.v);
+                if (isAbrupt(nv)) return nv;
+                Cpl a = assignIdent(env, id->name, nv.v, strict);
+                if (isAbrupt(a)) return a;
+                return normal(nv.v);
+            }
+            MemberRef ref;
+            Cpl m = evalMemberRef(pre->operand.get(), env, thisV, strict, &ref);
+            if (isAbrupt(m)) return m;
+            TsValue* cur = nullptr; TsValue* ex = nullptr;
+            if (!guardGet(ref.obj, ref.keyV, &cur, &ex)) return thrown(ex);
+            Cpl nv = op1(op == "++" ? ts_value_inc : ts_value_dec, cur);
+            if (isAbrupt(nv)) return nv;
+            if (!guardSet(ref.obj, ref.keyV, nv.v, &ex)) return thrown(ex);
+            return normal(nv.v);
+        }
+        Cpl v = evalExpr(pre->operand.get(), env, thisV, strict);
+        if (isAbrupt(v)) return v;
+        if (op == "!") return normal(jsBool(!ts_value_to_bool(v.v)));
+        if (op == "-") return op1(ts_value_neg, v.v);
+        if (op == "+") return op1(ts_value_pos, v.v);
+        if (op == "~") return op1(ts_value_bitnot, v.v);
+        return unsupported("unary operator " + op);
+    }
+
+    if (auto* post = dynamic_cast<ast::PostfixUnaryExpression*>(e)) {
+        const std::string& op = post->op;
+        if (auto* id = dynamic_cast<ast::Identifier*>(post->operand.get())) {
+            Cpl v = readIdent(env, id->name, false);
+            if (isAbrupt(v)) return v;
+            // Postfix returns the OLD value coerced to number: x++ is
+            // ToNumeric(oldValue). ts_value_pos performs ToNumber (throws for
+            // BigInt mix exactly like the dispatcher).
+            Cpl oldNum = op1(ts_value_pos, v.v);
+            if (isAbrupt(oldNum)) return oldNum;
+            Cpl nv = op1(op == "++" ? ts_value_inc : ts_value_dec, v.v);
+            if (isAbrupt(nv)) return nv;
+            Cpl a = assignIdent(env, id->name, nv.v, strict);
+            if (isAbrupt(a)) return a;
+            return normal(oldNum.v);
+        }
+        MemberRef ref;
+        Cpl m = evalMemberRef(post->operand.get(), env, thisV, strict, &ref);
+        if (isAbrupt(m)) return m;
+        TsValue* cur = nullptr; TsValue* ex = nullptr;
+        if (!guardGet(ref.obj, ref.keyV, &cur, &ex)) return thrown(ex);
+        Cpl oldNum = op1(ts_value_pos, cur);
+        if (isAbrupt(oldNum)) return oldNum;
+        Cpl nv = op1(op == "++" ? ts_value_inc : ts_value_dec, cur);
+        if (isAbrupt(nv)) return nv;
+        if (!guardSet(ref.obj, ref.keyV, nv.v, &ex)) return thrown(ex);
+        return normal(oldNum.v);
+    }
+
+    if (auto* del = dynamic_cast<ast::DeleteExpression*>(e)) {
+        Expression* target = del->expression.get();
+        if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(target))
+            target = p->expression.get();
+        MemberRef ref;
+        if (dynamic_cast<ast::PropertyAccessExpression*>(target) ||
+            dynamic_cast<ast::ElementAccessExpression*>(target)) {
+            Cpl m = evalMemberRef(target, env, thisV, strict, &ref);
+            if (isAbrupt(m)) return m;
+            bool out = false; TsValue* ex = nullptr;
+            if (!guardDelete(ref.obj, ref.keyV, &out, &ex)) return thrown(ex);
+            return normal(jsBool(out));
+        }
+        if (auto* id = dynamic_cast<ast::Identifier*>(target)) {
+            // delete on a bare name: only a global property can be deleted.
+            bool out = false; TsValue* ex = nullptr;
+            if (!guardDelete(globalThis, boxStr(id->name), &out, &ex)) return thrown(ex);
+            return normal(jsBool(out));
+        }
+        Cpl v = evalExpr(target, env, thisV, strict); // evaluate for effect
+        if (isAbrupt(v)) return v;
+        return normal(jsBool(true));
+    }
+
+    if (auto* fe = dynamic_cast<ast::FunctionExpression*>(e)) {
+        if (fe->isAsync || fe->isGenerator)
+            return unsupported("async/generator function in eval code");
+        InterpFn* d = fnDataForFunctionExpr(fe, strict);
+        return normal(makeInterpClosure(d, env, thisV));
+    }
+
+    if (auto* af = dynamic_cast<ast::ArrowFunction*>(e)) {
+        if (af->isAsync) return unsupported("async arrow in eval code");
+        auto* d = new InterpFn();
+        d->params = &af->parameters;
+        d->isArrow = true;
+        d->strict = strict;
+        if (auto* blk = dynamic_cast<ast::BlockStatement*>(af->body.get())) {
+            d->body = &blk->statements;
+            if (bodyHasUseStrict(blk->statements)) d->strict = true;
+        } else {
+            d->exprBody = dynamic_cast<Expression*>(af->body.get());
+            if (!d->exprBody) { delete d; return unsupported("arrow body"); }
+        }
+        fnRegistry().push_back(d);
+        return normal(makeInterpClosure(d, env, thisV));
+    }
+
+    return unsupported(e->getKind());
+}
+
+// Assign a computed value back to an lvalue expression (identifier/member).
+Cpl assignTo(Expression* lhs, TsValue* v, TsMap* env, TsValue* thisV, bool strict) {
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(lhs))
+        lhs = p->expression.get();
+    if (auto* id = dynamic_cast<ast::Identifier*>(lhs))
+        return assignIdent(env, id->name, v, strict);
+    MemberRef ref;
+    Cpl m = evalMemberRef(lhs, env, thisV, strict, &ref);
+    if (isAbrupt(m)) return m;
+    TsValue* ex = nullptr;
+    if (!guardSet(ref.obj, ref.keyV, v, &ex)) return thrown(ex);
+    return normal(v);
+}
+
+// Sequence/comma, short-circuit, AND compound assignment (`+=` etc.) are all
+// BinaryExpression ops in this AST (the parser desugars compound assignment
+// to a BinaryExpression whose op keeps the '=' suffix).
+Cpl evalBinary(ast::BinaryExpression* be, TsMap* env, TsValue* thisV, bool strict) {
+    const std::string& op = be->op;
+
+    // Logical assignment short-circuits BEFORE evaluating the RHS.
+    if (op == "&&=" || op == "||=" || op == "??=") {
+        Cpl l = evalExpr(be->left.get(), env, thisV, strict);
+        if (isAbrupt(l)) return l;
+        bool doAssign = (op == "&&=") ? ts_value_to_bool(l.v)
+                      : (op == "||=") ? !ts_value_to_bool(l.v)
+                                      : ts_value_is_nullish(l.v);
+        if (!doAssign) return l;
+        Cpl r = evalExpr(be->right.get(), env, thisV, strict);
+        if (isAbrupt(r)) return r;
+        Cpl a = assignTo(be->left.get(), r.v, env, thisV, strict);
+        if (isAbrupt(a)) return a;
+        return normal(r.v);
+    }
+
+    // Compound assignment: compute `left op right`, assign back, yield value.
+    if (op.size() >= 2 && op.back() == '=' &&
+        op != "==" && op != "!=" && op != "===" && op != "!==" &&
+        op != "<=" && op != ">=") {
+        std::string inner = op.substr(0, op.size() - 1);
+        Op2 f = nullptr;
+        if      (inner == "+")   f = ts_value_add;
+        else if (inner == "-")   f = ts_value_sub;
+        else if (inner == "*")   f = ts_value_mul;
+        else if (inner == "/")   f = ts_value_div;
+        else if (inner == "%")   f = ts_value_mod;
+        else if (inner == "**")  f = ts_value_pow;
+        else if (inner == "&")   f = ts_value_and;
+        else if (inner == "|")   f = ts_value_or;
+        else if (inner == "^")   f = ts_value_xor;
+        else if (inner == "<<")  f = ts_value_shl;
+        else if (inner == ">>")  f = ts_value_sar;
+        else if (inner == ">>>") f = ts_value_ushr;
+        if (f) {
+            Cpl l = evalExpr(be->left.get(), env, thisV, strict);
+            if (isAbrupt(l)) return l;
+            Cpl r = evalExpr(be->right.get(), env, thisV, strict);
+            if (isAbrupt(r)) return r;
+            Cpl v = op2(f, l.v, r.v);
+            if (isAbrupt(v)) return v;
+            Cpl a = assignTo(be->left.get(), v.v, env, thisV, strict);
+            if (isAbrupt(a)) return a;
+            return normal(v.v);
+        }
+        return unsupported("compound assignment " + op);
+    }
+
+    if (op == "&&" || op == "||" || op == "??") {
+        Cpl l = evalExpr(be->left.get(), env, thisV, strict);
+        if (isAbrupt(l)) return l;
+        if (op == "&&") {
+            if (!ts_value_to_bool(l.v)) return l;
+        } else if (op == "||") {
+            if (ts_value_to_bool(l.v)) return l;
+        } else {
+            if (!ts_value_is_nullish(l.v)) return l;
+        }
+        return evalExpr(be->right.get(), env, thisV, strict);
+    }
+    if (op == ",") {
+        Cpl l = evalExpr(be->left.get(), env, thisV, strict);
+        if (isAbrupt(l)) return l;
+        return evalExpr(be->right.get(), env, thisV, strict);
+    }
+
+    Cpl l = evalExpr(be->left.get(), env, thisV, strict);
+    if (isAbrupt(l)) return l;
+    Cpl r = evalExpr(be->right.get(), env, thisV, strict);
+    if (isAbrupt(r)) return r;
+
+    if (op == "+")   return op2(ts_value_add, l.v, r.v);
+    if (op == "-")   return op2(ts_value_sub, l.v, r.v);
+    if (op == "*")   return op2(ts_value_mul, l.v, r.v);
+    if (op == "/")   return op2(ts_value_div, l.v, r.v);
+    if (op == "%")   return op2(ts_value_mod, l.v, r.v);
+    if (op == "**")  return op2(ts_value_pow, l.v, r.v);
+    if (op == "&")   return op2(ts_value_and, l.v, r.v);
+    if (op == "|")   return op2(ts_value_or, l.v, r.v);
+    if (op == "^")   return op2(ts_value_xor, l.v, r.v);
+    if (op == "<<")  return op2(ts_value_shl, l.v, r.v);
+    if (op == ">>")  return op2(ts_value_sar, l.v, r.v);
+    if (op == ">>>") return op2(ts_value_ushr, l.v, r.v);
+    if (op == "<")   return op2(ts_value_lt, l.v, r.v);
+    if (op == "<=")  return op2(ts_value_lte, l.v, r.v);
+    if (op == ">")   return op2(ts_value_gt, l.v, r.v);
+    if (op == ">=")  return op2(ts_value_gte, l.v, r.v);
+    if (op == "==")  return op2(ts_value_eq, l.v, r.v);
+    if (op == "!=") {
+        Cpl c = op2(ts_value_eq, l.v, r.v);
+        if (isAbrupt(c)) return c;
+        return normal(jsBool(!ts_value_to_bool(c.v)));
+    }
+    if (op == "===") return normal(jsBool(ts_value_strict_eq_bool(l.v, r.v)));
+    if (op == "!==") return normal(jsBool(!ts_value_strict_eq_bool(l.v, r.v)));
+    if (op == "instanceof") {
+        bool out = false; TsValue* ex = nullptr;
+        if (!guardInstanceof(l.v, r.v, &out, &ex)) return thrown(ex);
+        return normal(jsBool(out));
+    }
+    if (op == "in") {
+        if (ts_value_is_nullish(r.v) || !ts_value_get_object(r.v))
+            return throwTyped("TypeError",
+                              "Cannot use 'in' operator to search in non-object");
+        bool out = false; TsValue* ex = nullptr;
+        if (!guardHas(r.v, l.v, &out, &ex)) return thrown(ex);
+        return normal(jsBool(out));
+    }
+    return unsupported("binary operator " + op);
+}
+
+Cpl evalAssignment(ast::AssignmentExpression* ae, TsMap* env, TsValue* thisV,
+                   bool strict) {
+    // The parser encodes compound assignment as op on the AssignmentExpression?
+    // In this AST, AssignmentExpression is plain '='; compound forms arrive as
+    // BinaryExpression with ops like "+=" — handle both defensively.
+    Cpl r = evalExpr(ae->right.get(), env, thisV, strict);
+    if (isAbrupt(r)) return r;
+
+    Expression* lhs = ae->left.get();
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(lhs))
+        lhs = p->expression.get();
+
+    if (auto* id = dynamic_cast<ast::Identifier*>(lhs))
+        return assignIdent(env, id->name, r.v, strict);
+
+    if (dynamic_cast<ast::PropertyAccessExpression*>(lhs) ||
+        dynamic_cast<ast::ElementAccessExpression*>(lhs)) {
+        MemberRef ref;
+        Cpl m = evalMemberRef(lhs, env, thisV, strict, &ref);
+        if (isAbrupt(m)) return m;
+        if (ts_value_is_nullish(ref.obj))
+            return throwTyped("TypeError", "Cannot set properties of null or undefined");
+        TsValue* ex = nullptr;
+        if (!guardSet(ref.obj, ref.keyV, r.v, &ex)) return thrown(ex);
+        return normal(r.v);
+    }
+    return unsupported("assignment target " + lhs->getKind());
+}
+
+Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
+    Expression* callee = ce->callee.get();
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(callee))
+        callee = p->expression.get();
+
+    // Direct eval inside eval'd code: run in the CURRENT interpreter scope —
+    // the one place ts-aot can honor direct-eval semantics, because
+    // interpreted frames have real environment records.
+    if (auto* id = dynamic_cast<ast::Identifier*>(callee)) {
+        if (id->name == "eval" && !ce->arguments.empty()) {
+            Cpl a0 = evalExpr(ce->arguments[0].get(), env, thisV, strict);
+            if (isAbrupt(a0)) return a0;
+            void* sraw = ts_value_get_string(a0.v);
+            if (!sraw) return normal(a0.v); // non-string argument returns as-is
+            const char* src = ((TsString*)sraw)->ToUtf8();
+            void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+            const char* perr = ts_parse_error(h);
+            if (perr) {
+                std::string msg(perr);
+                ts_parse_free(h);
+                return throwTyped("SyntaxError", msg);
+            }
+            retainParseHandle(h);
+            auto* prog = (ast::Program*)ts_parse_get_program(h);
+            return runProgramInEnv(prog, env, thisV, strict);
+        }
+    }
+
+    TsValue* fnV = nullptr;
+    TsValue* thisArg = jsUndefined();
+
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(callee)) {
+        Cpl o = evalExpr(pa->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        if ((pa->isOptional || ce->isOptional) && ts_value_is_nullish(o.v))
+            return normal(jsUndefined());
+        if (ts_value_is_nullish(o.v))
+            return throwTyped("TypeError",
+                "Cannot read properties of null or undefined (reading '" + pa->name + "')");
+        TsValue* ex = nullptr;
+        if (!guardGet(o.v, boxStr(pa->name), &fnV, &ex)) return thrown(ex);
+        thisArg = o.v;
+        if (ce->isOptional && (!fnV || ts_value_is_nullish(fnV)))
+            return normal(jsUndefined());
+        if (!fnV || ts_value_is_nullish(fnV) || !ts_is_callable(fnV))
+            return throwTyped("TypeError", pa->name + " is not a function");
+    } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(callee)) {
+        Cpl o = evalExpr(ea->expression.get(), env, thisV, strict);
+        if (isAbrupt(o)) return o;
+        if ((ea->isOptional || ce->isOptional) && ts_value_is_nullish(o.v))
+            return normal(jsUndefined());
+        Cpl k = evalKey(ea->argumentExpression.get(), env, thisV, strict);
+        if (isAbrupt(k)) return k;
+        if (ts_value_is_nullish(o.v))
+            return throwTyped("TypeError", "Cannot read properties of null or undefined");
+        TsValue* ex = nullptr;
+        if (!guardGet(o.v, k.v, &fnV, &ex)) return thrown(ex);
+        thisArg = o.v;
+        if (!fnV || ts_value_is_nullish(fnV) || !ts_is_callable(fnV))
+            return throwTyped("TypeError", "value is not a function");
+    } else {
+        Cpl f = evalExpr(callee, env, thisV, strict);
+        if (isAbrupt(f)) return f;
+        fnV = f.v;
+        if (ce->isOptional && ts_value_is_nullish(fnV)) return normal(jsUndefined());
+        if (!fnV || ts_value_is_nullish(fnV) || !ts_is_callable(fnV)) {
+            std::string what = "value";
+            if (auto* id = dynamic_cast<ast::Identifier*>(callee)) what = id->name;
+            return throwTyped("TypeError", what + " is not a function");
+        }
+    }
+
+    std::vector<TsValue*> argv;
+    argv.reserve(ce->arguments.size());
+    for (auto& a : ce->arguments) {
+        if (dynamic_cast<ast::SpreadElement*>(a.get()))
+            return unsupported("spread argument");
+        Cpl v = evalExpr(a.get(), env, thisV, strict);
+        if (isAbrupt(v)) return v;
+        argv.push_back(v.v);
+    }
+
+    TsValue* out = nullptr; TsValue* ex = nullptr;
+    if (!guardCall(fnV, thisArg, (int)argv.size(),
+                   argv.empty() ? nullptr : argv.data(), &out, &ex))
+        return thrown(ex);
+    return normal(out ? out : jsUndefined());
+}
+
+// --- statements ---------------------------------------------------------------
+
+Cpl execVarDecl(ast::VariableDeclaration* vd, TsMap* env, TsValue* thisV, bool strict) {
+    auto* id = dynamic_cast<ast::Identifier*>(vd->name.get());
+    if (!id) return unsupported("destructuring declaration");
+
+    TsValue* v = jsUndefined();
+    if (vd->initializer) {
+        Cpl c = evalExpr(vd->initializer.get(), env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        v = c.v;
+    }
+
+    if (vd->varKind == ast::VarKind::Var) {
+        TsMap* target = envVarTarget(env);
+        if (envIsGlobalVarScope(target)) {
+            // Hoisting already created the slot; only overwrite when an
+            // initializer ran (`var x;` must not clobber an existing global).
+            if (vd->initializer) {
+                TsValue* ex = nullptr;
+                if (!guardSet(globalThis, boxStr(id->name), v, &ex)) return thrown(ex);
+            }
+        } else {
+            if (vd->initializer || !envHasOwn(target, id->name))
+                envDefine(target, id->name, v, false);
+        }
+        return normal();
+    }
+    // let/const: initialize the (pre-declared TDZ) binding in the CURRENT env.
+    envDefine(env, id->name, v, vd->varKind == ast::VarKind::Const);
+    return normal();
+}
+
+Cpl execBlock(ast::BlockStatement* b, TsMap* env, TsValue* thisV, bool strict) {
+    if (b->withHead) {
+        if (strict) return throwTyped("SyntaxError",
+                                      "Strict mode code may not include a with statement");
+        Cpl h = evalExpr(b->withHead.get(), env, thisV, strict);
+        if (isAbrupt(h)) return h;
+        if (ts_value_is_nullish(h.v))
+            return throwTyped("TypeError", "Cannot convert undefined or null to object");
+        TsMap* wenv = envNew(env, false);
+        wenv->Set(key("\x01w"), nanbox_to_tagged(h.v));
+        predeclareLexical(b->statements, wenv);
+        return execStmts(b->statements, wenv, thisV, strict);
+    }
+    TsMap* benv = b->isSynthetic ? env : envNew(env, false);
+    if (!b->isSynthetic) predeclareLexical(b->statements, benv);
+    return execStmts(b->statements, benv, thisV, strict);
+}
+
+Cpl execStmts(std::vector<ast::StmtPtr>& stmts, TsMap* env, TsValue* thisV,
+              bool strict) {
+    TsValue* completion = nullptr;
+    for (auto& s : stmts) {
+        Cpl c = execStmt(s.get(), env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        if (c.v) completion = c.v;   // track statement completion values
+    }
+    return normal(completion);
+}
+
+// Loop-body completion handling: returns true when the loop should CONTINUE
+// after this body completion, false when the caller must return `out`.
+bool loopBody(const Cpl& c, const std::string& label, Cpl* out, TsValue** completion) {
+    if (c.k == Cpl::Normal) { if (c.v) *completion = c.v; return true; }
+    if (c.k == Cpl::Cont && (c.label.empty() || c.label == label)) return true;
+    if (c.k == Cpl::Brk && (c.label.empty() || c.label == label)) {
+        *out = normal(*completion);
+        return false;
+    }
+    *out = c;
+    return false;
+}
+
+Cpl execLoopWhile(ast::WhileStatement* w, TsMap* env, TsValue* thisV,
+                  bool strict, const std::string& label) {
+    TsValue* completion = nullptr;
+    if (w->isDoWhile) {
+        for (;;) {
+            Cpl b = execStmt(w->body.get(), env, thisV, strict);
+            Cpl out;
+            if (!loopBody(b, label, &out, &completion)) return out;
+            Cpl c = evalExpr(w->condition.get(), env, thisV, strict);
+            if (isAbrupt(c)) return c;
+            if (!ts_value_to_bool(c.v)) break;
+        }
+        return normal(completion);
+    }
+    for (;;) {
+        Cpl c = evalExpr(w->condition.get(), env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        if (!ts_value_to_bool(c.v)) break;
+        Cpl b = execStmt(w->body.get(), env, thisV, strict);
+        Cpl out;
+        if (!loopBody(b, label, &out, &completion)) return out;
+    }
+    return normal(completion);
+}
+
+Cpl execLoopFor(ast::ForStatement* f, TsMap* env, TsValue* thisV,
+                bool strict, const std::string& label) {
+    TsMap* fenv = envNew(env, false);
+    if (f->initializer) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(f->initializer.get())) {
+            if (vd->varKind != ast::VarKind::Var) {
+                if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    fenv->Set(key(id->name), nanbox_to_tagged(boxObj(tdzMarker())));
+            }
+        }
+        Cpl i = execStmt(f->initializer.get(), fenv, thisV, strict);
+        if (isAbrupt(i)) return i;
+    }
+    TsValue* completion = nullptr;
+    for (;;) {
+        if (f->condition) {
+            Cpl c = evalExpr(f->condition.get(), fenv, thisV, strict);
+            if (isAbrupt(c)) return c;
+            if (!ts_value_to_bool(c.v)) break;
+        }
+        Cpl b = execStmt(f->body.get(), fenv, thisV, strict);
+        Cpl out;
+        if (!loopBody(b, label, &out, &completion)) return out;
+        if (f->incrementor) {
+            Cpl inc = evalExpr(f->incrementor.get(), fenv, thisV, strict);
+            if (isAbrupt(inc)) return inc;
+        }
+    }
+    return normal(completion);
+}
+
+Cpl execSwitch(ast::SwitchStatement* sw, TsMap* env, TsValue* thisV, bool strict) {
+    Cpl d = evalExpr(sw->expression.get(), env, thisV, strict);
+    if (isAbrupt(d)) return d;
+    TsMap* senv = envNew(env, false);
+
+    // Find the matching clause (=== on case expressions, in order), else default.
+    int64_t start = -1;
+    int64_t defaultIdx = -1;
+    for (size_t i = 0; i < sw->clauses.size(); i++) {
+        if (auto* cc = dynamic_cast<ast::CaseClause*>(sw->clauses[i].get())) {
+            Cpl cv = evalExpr(cc->expression.get(), senv, thisV, strict);
+            if (isAbrupt(cv)) return cv;
+            if (ts_value_strict_eq_bool(d.v, cv.v)) { start = (int64_t)i; break; }
+        } else {
+            if (defaultIdx < 0) defaultIdx = (int64_t)i;
+        }
+    }
+    if (start < 0) start = defaultIdx;
+    if (start < 0) return normal();
+
+    TsValue* completion = nullptr;
+    for (size_t i = (size_t)start; i < sw->clauses.size(); i++) {
+        std::vector<ast::StmtPtr>* stmts = nullptr;
+        if (auto* cc = dynamic_cast<ast::CaseClause*>(sw->clauses[i].get()))
+            stmts = &cc->statements;
+        else if (auto* dc = dynamic_cast<ast::DefaultClause*>(sw->clauses[i].get()))
+            stmts = &dc->statements;
+        if (!stmts) continue;
+        for (auto& s : *stmts) {
+            Cpl c = execStmt(s.get(), senv, thisV, strict);
+            if (c.k == Cpl::Brk && c.label.empty()) return normal(completion);
+            if (isAbrupt(c)) return c;
+            if (c.v) completion = c.v;
+        }
+    }
+    return normal(completion);
+}
+
+Cpl execTry(ast::TryStatement* t, TsMap* env, TsValue* thisV, bool strict) {
+    TsMap* tenv = envNew(env, false);
+    predeclareLexical(t->tryBlock, tenv);
+    Cpl r = execStmts(t->tryBlock, tenv, thisV, strict);
+
+    if (r.k == Cpl::Thrown && t->catchClause) {
+        TsMap* cenv = envNew(env, false);
+        if (t->catchClause->variable) {
+            if (auto* id = dynamic_cast<ast::Identifier*>(t->catchClause->variable.get()))
+                envDefine(cenv, id->name, r.v ? r.v : jsUndefined(), false);
+            else
+                return unsupported("destructuring catch binding");
+        }
+        predeclareLexical(t->catchClause->block, cenv);
+        r = execStmts(t->catchClause->block, cenv, thisV, strict);
+    }
+
+    if (!t->finallyBlock.empty()) {
+        TsMap* fenv = envNew(env, false);
+        predeclareLexical(t->finallyBlock, fenv);
+        Cpl f = execStmts(t->finallyBlock, fenv, thisV, strict);
+        if (isAbrupt(f)) return f;   // finally overrides try/catch completion
+    }
+    return r;
+}
+
+Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
+    if (!s) return normal();
+
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(s)) {
+        Cpl v = evalExpr(es->expression.get(), env, thisV, strict);
+        if (isAbrupt(v)) return v;
+        return normal(v.v); // statement completion value (eval result)
+    }
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s))
+        return execVarDecl(vd, env, thisV, strict);
+    if (auto* b = dynamic_cast<ast::BlockStatement*>(s))
+        return execBlock(b, env, thisV, strict);
+    if (auto* i = dynamic_cast<ast::IfStatement*>(s)) {
+        Cpl c = evalExpr(i->condition.get(), env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        if (ts_value_to_bool(c.v)) return execStmt(i->thenStatement.get(), env, thisV, strict);
+        if (i->elseStatement)      return execStmt(i->elseStatement.get(), env, thisV, strict);
+        return normal();
+    }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(s))
+        return execLoopWhile(w, env, thisV, strict, "");
+    if (auto* f = dynamic_cast<ast::ForStatement*>(s))
+        return execLoopFor(f, env, thisV, strict, "");
+    if (auto* r = dynamic_cast<ast::ReturnStatement*>(s)) {
+        Cpl v = r->expression ? evalExpr(r->expression.get(), env, thisV, strict)
+                              : normal(jsUndefined());
+        if (isAbrupt(v)) return v;
+        Cpl ret; ret.k = Cpl::Ret; ret.v = v.v ? v.v : jsUndefined();
+        return ret;
+    }
+    if (auto* br = dynamic_cast<ast::BreakStatement*>(s)) {
+        Cpl c; c.k = Cpl::Brk; c.label = br->label; return c;
+    }
+    if (auto* co = dynamic_cast<ast::ContinueStatement*>(s)) {
+        Cpl c; c.k = Cpl::Cont; c.label = co->label; return c;
+    }
+    if (auto* th = dynamic_cast<ast::ThrowStatement*>(s)) {
+        Cpl v = evalExpr(th->expression.get(), env, thisV, strict);
+        if (isAbrupt(v)) return v;
+        return thrown(v.v);
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(s))
+        return execTry(t, env, thisV, strict);
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s))
+        return execSwitch(sw, env, thisV, strict);
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(s)) {
+        Statement* inner = l->statement.get();
+        if (auto* w = dynamic_cast<ast::WhileStatement*>(inner))
+            return execLoopWhile(w, env, thisV, strict, l->label);
+        if (auto* f = dynamic_cast<ast::ForStatement*>(inner))
+            return execLoopFor(f, env, thisV, strict, l->label);
+        Cpl c = execStmt(inner, env, thisV, strict);
+        if (c.k == Cpl::Brk && c.label == l->label) return normal(c.v);
+        return c;
+    }
+    if (dynamic_cast<ast::FunctionDeclaration*>(s))
+        return normal(); // instantiated during hoisting
+    if (dynamic_cast<ast::InterfaceDeclaration*>(s) ||
+        dynamic_cast<ast::TypeAliasDeclaration*>(s))
+        return normal(); // type-only
+
+    return unsupported(s->getKind());
+}
+
+// --- program entry ----------------------------------------------------------------
+
+Cpl runProgramInEnv(ast::Program* prog, TsMap* env, TsValue* thisV,
+                    bool callerStrict) {
+    bool strict = callerStrict || prog->isStrict;
+    TsMap* penv;
+    if (strict) {
+        // Strict eval gets its OWN var scope (ES 19.2.1.1 step 12).
+        penv = envNew(env, /*fnScope*/true);
+    } else {
+        penv = envNew(env, false);
+    }
+    predeclareLexical(prog->body, penv);
+    Cpl h = hoistInto(prog->body, penv, thisV, strict);
+    if (isAbrupt(h)) return h;
+    Cpl r = execStmts(prog->body, penv, thisV, strict);
+    if (r.k == Cpl::Ret)
+        return throwTyped("SyntaxError", "'return' statement is not allowed in eval code");
+    if (r.k == Cpl::Brk || r.k == Cpl::Cont)
+        return throwTyped("SyntaxError", "Illegal break/continue in eval code");
+    if (r.k == Cpl::Normal && !r.v) r.v = jsUndefined();
+    return r;
+}
+
+// Root env for indirect eval / Function-constructed code: global scope only.
+// var declarations go straight to globalThis.
+TsMap* makeGlobalRootEnv() {
+    TsMap* root = (TsMap*)ts_map_create();
+    root->Set(key("\x01g"), nanbox_to_tagged(jsBool(true)));
+    return root;
+}
+
+// Builds the interpreted closure for Function(params..., bodySource). Returns
+// nullptr with *errOut set (boxed SyntaxError) on parse failure. All
+// std::string work happens HERE so the extern "C" boundary frame that
+// ts_throw's holds no destructor-owning locals.
+void* fctorBuild(const char* paramsUtf8, const char* bodyUtf8, TsValue** errOut) {
+    std::string src = "(function anonymous(";
+    src += paramsUtf8 ? paramsUtf8 : "";
+    src += "\n) {\n";
+    src += bodyUtf8 ? bodyUtf8 : "";
+    src += "\n})";
+    void* h = ts_parse_program(src.c_str(), "<Function>", 0);
+    const char* perr = ts_parse_error(h);
+    if (perr) {
+        *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
+        ts_parse_free(h);
+        return nullptr;
+    }
+    auto* prog = (ast::Program*)ts_parse_get_program(h);
+    ast::FunctionExpression* fe = nullptr;
+    if (prog->body.size() == 1) {
+        if (auto* es = dynamic_cast<ast::ExpressionStatement*>(prog->body[0].get())) {
+            Expression* inner = es->expression.get();
+            if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(inner))
+                inner = p->expression.get();
+            fe = dynamic_cast<ast::FunctionExpression*>(inner);
+        }
+    }
+    if (!fe) {
+        *errOut = (TsValue*)ts_error_create_typed(
+            "SyntaxError", "Function constructor body did not parse to a function");
+        ts_parse_free(h);
+        return nullptr;
+    }
+    retainParseHandle(h);
+    InterpFn* d = fnDataForFunctionExpr(fe, /*outerStrict*/false);
+    d->name = "anonymous";
+    return makeInterpClosure(d, makeGlobalRootEnv(), nullptr);
+}
+
+TsValue* indirectEvalImpl(const char* src, TsValue** errOut, Cpl* abrupt) {
+    void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+    const char* perr = ts_parse_error(h);
+    if (perr) {
+        *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
+        ts_parse_free(h);
+        return nullptr;
+    }
+    retainParseHandle(h);
+    auto* prog = (ast::Program*)ts_parse_get_program(h);
+    Cpl r = runProgramInEnv(prog, makeGlobalRootEnv(), globalThis,
+                            /*callerStrict*/false);
+    if (r.k == Cpl::Thrown) { *abrupt = r; return nullptr; }
+    return r.v ? r.v : jsUndefined();
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Public entry points. These frames hold no destructor-owning locals so a
+// ts_throw here is longjmp-safe (longjmp-stdstring rule).
+// ---------------------------------------------------------------------------
+
+// Function(body) — used by ts_function_constructor_stub's fallback.
+// Returns a boxed interpreted closure or throws SyntaxError.
+extern "C" void* ts_interp_function_ctor(const char* bodyUtf8) {
+    TsValue* err = nullptr;
+    void* fn = fctorBuild("", bodyUtf8, &err);
+    if (!fn) ts_throw(err);
+    return fn;
+}
+
+// Function(p1, ..., pn, body) with n >= 2 pre-coerced string arguments in a
+// TsArray (built by ts_function_constructor_args). Joins params with commas,
+// assembles, parses, and returns the interpreted closure or throws.
+namespace {
+void* fctorBuildJoin(TsArray* strArr, int64_t n, TsValue** errOut) {
+    std::string params;
+    for (int64_t i = 0; i + 1 < n; i++) {
+        TsValue* el = ts_array_get_dynamic(boxObj(strArr), ts_value_make_int(i));
+        void* sraw = ts_value_get_string(el);
+        if (!sraw) continue;
+        if (!params.empty()) params += ",";
+        const char* u = ((TsString*)sraw)->ToUtf8();
+        params += u ? u : "";
+    }
+    TsValue* bodyEl = ts_array_get_dynamic(boxObj(strArr), ts_value_make_int(n - 1));
+    void* braw = ts_value_get_string(bodyEl);
+    const char* body = braw ? ((TsString*)braw)->ToUtf8() : "";
+    return fctorBuild(params.c_str(), body ? body : "", errOut);
+}
+} // namespace
+
+extern "C" void* ts_function_ctor_from_strings(void* strArr, int64_t n) {
+    TsValue* err = nullptr;
+    void* fn = fctorBuildJoin((TsArray*)strArr, n, &err);
+    if (!fn) ts_throw(err);
+    return fn;
+}
+
+// Indirect eval: parse `src` as a Program and run it in global scope.
+// Returns the completion value or throws (SyntaxError / whatever the code threw).
+extern "C" TsValue* ts_indirect_eval_cstr(const char* src) {
+    TsValue* err = nullptr;
+    Cpl abrupt;
+    abrupt.k = Cpl::Normal;
+    TsValue* r = indirectEvalImpl(src, &err, &abrupt);
+    if (err) ts_throw(err);
+    if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
+    return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
