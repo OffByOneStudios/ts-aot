@@ -1634,10 +1634,42 @@ void* ts_function_constructor_stub(TsValue* body) {
             }
         }
     }
-    ts_throw((TsValue*)ts_error_create_typed("EvalError",
-        "Function constructor with dynamic source is not supported in "
-        "AOT-compiled code (only the literal 'return this' idiom)"));
-    return nullptr;  // unreachable
+    // EVAL-001: general dynamic source runs on the tree-walking interpreter
+    // (src/interp/TsInterp.cpp). The literal idioms above stay first so the
+    // long-standing fast paths (and their exact semantics) are preserved.
+    // ts_interp_function_ctor throws SyntaxError itself on a parse failure.
+    extern void* ts_interp_function_ctor(const char* bodyUtf8);
+    return ts_interp_function_ctor(s ? s : "");
+}
+
+// Function(p1, ..., pn, body) with ALL arguments (EVAL-001). n <= 1 delegates
+// to the stub above (pattern-matcher first). n > 1 coerces every argument to
+// a string FIRST — ts_to_string_spec can ts_throw, and this frame deliberately
+// holds no destructor-owning locals — then hands the string array to the
+// interpreter for "(function anonymous(p1,...,pn){body})" assembly + parse.
+void* ts_function_constructor_args(void* argsArrV) {
+    extern void* ts_function_ctor_from_strings(void* strArr, int64_t n);
+    extern void* ts_to_string_spec(TsValue* val);
+
+    void* raw = ts_value_get_object((TsValue*)argsArrV);
+    if (!raw) raw = argsArrV;
+    TsArray* arr = (TsArray*)raw;
+    int64_t n = arr ? ts_array_length(arr) : 0;
+
+    if (n <= 0)
+        return ts_function_constructor_stub(ts_value_make_undefined());
+    if (n == 1) {
+        TsValue* body = ts_array_get_dynamic((TsValue*)argsArrV, ts_value_make_int(0));
+        return ts_function_constructor_stub(body);
+    }
+
+    void* strArr = ts_array_create();
+    for (int64_t i = 0; i < n; i++) {
+        TsValue* el = ts_array_get_dynamic((TsValue*)argsArrV, ts_value_make_int(i));
+        void* s = ts_to_string_spec(el);   // may ts_throw — no locals to corrupt
+        ts_array_push_any(strArr, ts_value_make_string(s));
+    }
+    return ts_function_ctor_from_strings(strArr, n);
 }
 
 }

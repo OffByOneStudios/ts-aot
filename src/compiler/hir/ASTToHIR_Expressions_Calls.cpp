@@ -1260,17 +1260,19 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
 
         if (ident->name == "Function") {
-            // Function(source...) — AOT has no interpreter. The runtime
-            // pattern-matches the safe literal idioms ("return this" — the
-            // lodash/polyfill global-detection pattern — and empty bodies)
-            // and throws EvalError for anything else (the CSP-host
-            // precedent), instead of silently returning a wrong function.
-            // The LAST argument is the body per 20.2.1.1.
-            std::shared_ptr<HIRValue> body = args.empty()
-                ? builder_.createConstUndefined()
-                : boxValueIfNeeded(args.back());
-            lastValue_ = builder_.createCall("ts_function_constructor_stub",
-                                             {body}, HIRType::makeAny());
+            // Function(p1, ..., pn, body) — EVAL-001: pass ALL arguments so
+            // the runtime can assemble "(function anonymous(p1,...,pn){body})"
+            // for the tree-walking interpreter (params were previously
+            // dropped; body = LAST argument per 20.2.1.1).
+            auto fcArgs = builder_.createCall(
+                "ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+            for (auto& a : args) {
+                auto boxed = boxValueIfNeeded(a);
+                builder_.createCall("ts_array_push", {fcArgs, boxed},
+                                    HIRType::makeInt64());
+            }
+            lastValue_ = builder_.createCall("ts_function_constructor_args",
+                                             {fcArgs}, HIRType::makeAny());
             return;
         }
 
@@ -1964,19 +1966,18 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
-    // `new Function(source...)` — same AOT pattern-matcher as the call
-    // form: literal "return this"/empty match, EvalError otherwise (never
-    // a silent wrong function). Body = LAST argument per 20.2.1.1.
+    // `new Function(p1, ..., pn, body)` — EVAL-001: pass ALL arguments (same
+    // path as the call form). Body = LAST argument per 20.2.1.1.
     if (className == "Function") {
-        std::shared_ptr<HIRValue> fbody;
-        if (node->arguments.empty()) {
-            fbody = builder_.createConstUndefined();
-        } else {
-            fbody = boxValueIfNeeded(
-                lowerExpression(node->arguments.back().get()));
+        auto fcArgs = builder_.createCall(
+            "ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+        for (auto& a : node->arguments) {
+            auto boxed = boxValueIfNeeded(lowerExpression(a.get()));
+            builder_.createCall("ts_array_push", {fcArgs, boxed},
+                                HIRType::makeInt64());
         }
-        lastValue_ = builder_.createCall("ts_function_constructor_stub",
-                                         {fbody}, HIRType::makeAny());
+        lastValue_ = builder_.createCall("ts_function_constructor_args",
+                                         {fcArgs}, HIRType::makeAny());
         return;
     }
 
