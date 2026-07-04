@@ -52,6 +52,20 @@ Run the golden IR test suite to validate compiler correctness and prevent regres
 
 Search for symbol definitions using ctags. Preferred over grep for finding function/class definitions.
 
+### Strategy Skills (`.claude/skills/`)
+
+These encode the project's proven working methods. Load the matching skill
+BEFORE improvising your own approach to the same problem:
+
+| Skill | Load when |
+|-------|-----------|
+| `measure-first-drill` | choosing what to work on; starting any fix cycle; resuming a banked/planned task |
+| `differential-probes` | a test fails for unclear reasons; a fix "should work" but doesn't |
+| `gate-battery` | validating and merging ANY runtime/compiler change |
+| `regression-triage` | a rerun reports LOST tests |
+| `anchor-patch` | an edit touches 3+ sites or multiple files together |
+| `cycle-checkpoints` | running multi-cycle autonomous work (/loop, overnight sets) |
+
 ## Project Structure
 
 ```
@@ -140,6 +154,17 @@ See `.claude/rules/` for detailed language-specific standards:
 - Use code references in format: `file_path:line_number`
 - Don't create unnecessary files (especially markdown documentation)
 - Prioritize technical accuracy over validation
+- **Lead with the number.** The first line of any status or result is the
+  measured outcome ("+42 / 0 lost, gates clean"), then the root cause in one
+  clause. Method details go in the commit message, not the chat.
+- **Numbers over adjectives.** "+8" not "significant progress"; "0 lost"
+  not "no issues".
+- **Correct your own numbers publicly.** If a later measurement shows an
+  earlier claim was wrong (overlapping family counts, stale baseline), state
+  the corrected figure and amend the durable records — never let a wrong
+  number stand because it was already reported.
+- Report failures plainly with the output. "Dropped: net-0 after triage" is
+  a complete, respectable result; do not pad it.
 
 ## Key Technical Notes
 
@@ -172,11 +197,63 @@ Rules in `.claude/rules/` are automatically applied based on file paths:
 - Files matching `src/compiler/codegen/**` → llvm-ir-patterns.md
 - Files matching `examples/**/*.ts` → typescript-conventions.md
 
-## Notes on AI Assistance
+## Working Discipline
 
-- Use TodoWrite tool frequently to track progress
-- Mark todos as completed immediately after finishing
-- Ask questions via AskUserQuestion tool when clarification needed
-- Use parallel tool calls when operations are independent
-- Always investigate to find truth before confirming user beliefs
-- Provide objective guidance even when it disagrees with user assumptions
+How to think, in priority order. These override default habits.
+
+### Evidence before action
+- **Never start from a description of a problem — start from a fresh
+  measurement.** Plans, memory notes, and task lists go stale; two entire
+  planned workstreams here turned out already-fixed. A two-minute probe
+  before committing to a diagnosis is always worth it. When a note proves
+  stale, correct it immediately in the durable record.
+- **Probe behavior before reading source.** A minimal tmp/ program that
+  isolates one semantic answers in seconds what an hour of code-reading
+  guesses at. Prefer differential pairs that vary exactly one thing.
+- **Hypothesis budget: two.** After two failed guesses at a mechanism, stop
+  theorizing and instrument (env-gated fprintf, --dump-ir, existing TS_*
+  traces). "I'm looping on speculation" is the cue — say it and switch.
+- When two explanations remain, bisect: one build at the midpoint of the
+  suspect window settles attribution cheaper than any amount of reasoning.
+
+### Fix forward
+- A regression report is a triage input, not a revert trigger. Losses
+  decompose into honest exposures / genuine regressions / stale flakes,
+  each with a different correct response (see `regression-triage`).
+- A golden test that "regresses" because it encoded old broken behavior
+  gets its expectation updated with a comment — never weaken the fix.
+- When dropping work (net-0, out of scope, blocked): **bank the diagnosis**
+  — commit WIP to a named branch with a commit message stating exactly what
+  was verified working and what blocks it, checkpoint memory, and leave
+  master clean. A banked diagnosis lets the next session resume from the
+  blocker, not from scratch.
+
+### Autonomy
+- For reversible work that follows from the standing request: act. Do not
+  ask "Should I…?" mid-task — the user is often away. Stop only for
+  destructive actions, scope changes, or decisions explicitly reserved to
+  the user (e.g. annexB scope).
+- Finish the cycle you start: measure → fix → gate → merge → baseline →
+  checkpoint. A turn must not end on a plan, a promise, or an unrun gate.
+- Know when a vein is dry: if the biggest coherent group is under ~8 tests
+  or the remaining work needs user input, say so and move on or wind down —
+  don't grind singles to look busy.
+
+### Honest accounting
+- Every merge states its measured delta, including "+0 measured" when a
+  zero-risk correctness fix moves no tests. The claim in the commit message
+  must match the family diff, not the hope.
+- Distinguish "verified" (probes + gates ran) from "should work" — never
+  write the former meaning the latter.
+- Always investigate to find truth before confirming user beliefs; provide
+  objective guidance even when it disagrees with user assumptions.
+
+### Mechanics
+- Use the task tools to track multi-step work; mark items complete
+  immediately, not in batches.
+- Use parallel tool calls when operations are independent; delegate broad
+  architecture-mapping to Explore agents while probing locally yourself.
+- Ask via AskUserQuestion only for decisions that are genuinely the user's;
+  pick the conventional default otherwise and note it.
+- `cwd` resets between shell calls — `cd` to the repo root first, every
+  time. Commit with explicit file paths from the repo root.
