@@ -1295,6 +1295,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 }
             }
 
+            // Mutable (var/let) module-level locals: their exports must be
+            // LIVE bindings (ES 8.1.1.5) — `x = 2` after import must be
+            // visible through the namespace. The data snapshot below stays
+            // (enumeration/hasOwnProperty), but a `__getter_<name>` accessor
+            // closure over the local shadows it on reads: the runtime
+            // property-get walk consults __getter_ slots first, and the
+            // closure rides the shared-cell capture machinery (#73), so it
+            // always sees the current value.
+            std::set<std::string> mutableLocals;
+            {
+                auto scanForVars = [&](const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
+                    for (const auto& s : stmts) {
+                        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s.get())) {
+                            if (vd->varKind == ast::VarKind::Const) continue;
+                            if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                                mutableLocals.insert(id->name);
+                            }
+                        }
+                    }
+                };
+                scanForVars(moduleInit->body);
+                scanForVars(newBody);
+            }
+
             // Inject: exports.<name> = <local>; for each exported name
             // (uses the 'exports' local = module.exports, created in the preamble)
             for (const auto& name : exportedNames) {
@@ -1311,15 +1335,56 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 assignExpr->left = std::move(exportsAccess);
 
                 // RHS: the local binding (differs from the exported name for
-                // rename clauses).
+                // rename clauses). For MUTABLE locals the data entry is an
+                // UNDEFINED placeholder (enumeration/hasOwnProperty only):
+                // the dynamic get path returns a non-undefined OWN data slot
+                // BEFORE scanning __getter_ accessors (own data must shadow
+                // INHERITED getters), so a real snapshot here would shadow
+                // the live-binding getter installed below. This mirrors the
+                // static-class-accessor convention (undefined placeholder +
+                // __getter_ slot).
                 auto rn = renameLocals.find(name);
+                const std::string& rhsLocal =
+                    (rn != renameLocals.end()) ? rn->second : name;
                 auto nameRef = std::make_unique<ast::Identifier>();
-                nameRef->name = (rn != renameLocals.end()) ? rn->second : name;
+                nameRef->name = mutableLocals.count(rhsLocal) ? "undefined"
+                                                              : rhsLocal;
                 assignExpr->right = std::move(nameRef);
 
                 auto exprStmt = std::make_unique<ast::ExpressionStatement>();
                 exprStmt->expression = std::move(assignExpr);
                 moduleInit->body.push_back(std::move(exprStmt));
+
+                // Live-binding accessor for mutable locals:
+                //   exports["__getter_<name>"] = function() { return <local>; };
+                const std::string& localName2 =
+                    (rn != renameLocals.end()) ? rn->second : name;
+                if (mutableLocals.count(localName2)) {
+                    auto gAssign = std::make_unique<ast::AssignmentExpression>();
+                    auto gTarget = std::make_unique<ast::ElementAccessExpression>();
+                    auto gExports = std::make_unique<ast::Identifier>();
+                    gExports->name = "exports";
+                    gExports->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    gTarget->expression = std::move(gExports);
+                    auto gKey = std::make_unique<ast::StringLiteral>();
+                    gKey->value = "__getter_" + name;
+                    gKey->inferredType = std::make_shared<Type>(TypeKind::String);
+                    gTarget->argumentExpression = std::move(gKey);
+                    gTarget->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    gAssign->left = std::move(gTarget);
+
+                    auto gFn = std::make_unique<ast::FunctionExpression>();
+                    auto gRet = std::make_unique<ast::ReturnStatement>();
+                    auto gLocal = std::make_unique<ast::Identifier>();
+                    gLocal->name = localName2;
+                    gRet->expression = std::move(gLocal);
+                    gFn->body.push_back(std::move(gRet));
+                    gAssign->right = std::move(gFn);
+
+                    auto gStmt = std::make_unique<ast::ExpressionStatement>();
+                    gStmt->expression = std::move(gAssign);
+                    moduleInit->body.push_back(std::move(gStmt));
+                }
             }
 
             // Named re-exports WITH a specifier:
@@ -1490,7 +1555,19 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         auto objLit = std::make_unique<ast::ObjectLiteralExpression>();
         auto prop = std::make_unique<ast::PropertyAssignment>();
         prop->name = "exports";
-        prop->initializer = std::make_unique<ast::ObjectLiteralExpression>();
+        // The exports object must be a real TsMap, not a FLAT object: live
+        // export bindings install `__getter_<name>` accessor slots, and the
+        // FLAT read path returns an inline data slot BEFORE probing
+        // accessors, while the TsMap chain walk is getter-first. An empty
+        // `{}` literal lowers FLAT, so build the map explicitly.
+        {
+            auto mapCall = std::make_unique<ast::CallExpression>();
+            auto mapId = std::make_unique<ast::Identifier>();
+            mapId->name = "ts_map_create";
+            mapCall->callee = std::move(mapId);
+            mapCall->inferredType = std::make_shared<Type>(TypeKind::Any);
+            prop->initializer = std::move(mapCall);
+        }
         objLit->properties.push_back(std::move(prop));
         modDecl->initializer = std::move(objLit);
         userMain->body.push_back(std::move(modDecl));
