@@ -5295,6 +5295,21 @@ void* ts_create_arguments_from_params(
                                     int strict, int* violated);
 
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
+        // ES 10.4.6.9 module namespace [[Set]]: ALWAYS false — silent no-op
+        // in sloppy code, TypeError when the write came from strict code
+        // (the pending flag is consumed here exactly like the frozen path).
+        {
+            void* nsRaw = obj ? ts_value_get_object((TsValue*)obj) : nullptr;
+            if (!nsRaw) nsRaw = obj;
+            if (nsRaw && (uintptr_t)nsRaw >= 4096 &&
+                *(uint32_t*)((char*)nsRaw + 16) == 0x4D415053 /*MAPS*/ &&
+                ((TsMap*)nsRaw)->IsModuleNamespace()) {
+                bool strict = g_strictWritePending;
+                g_strictWritePending = false;
+                if (strict) throw_strict_readonly();
+                return;
+            }
+        }
         // #66: user write targeting %Object.prototype% flips the dirty bit.
         if (g_object_proto_map && obj) {
             void* r0 = ts_value_get_object((TsValue*)obj);
@@ -6802,6 +6817,24 @@ void* ts_create_arguments_from_params(
         // Decode key via nanbox
         TsString* keyStr = ts_property_key_string((TsValue*)keyArg);
         if (!keyStr) return 0;
+
+        // ES 10.4.6.10 module namespace [[Delete]]: false for any OWN export
+        // (data slot or live-binding getter); true for a key it doesn't have.
+        if (map->IsModuleNamespace()) {
+            TsValue dk; dk.type = ValueType::STRING_PTR;
+            dk.ptr_val = keyStr;
+            bool own = map->Has(dk);
+            if (!own) {
+                const char* kc = keyStr->ToUtf8();
+                if (kc) {
+                    TsValue gk; gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned(
+                        (std::string("__getter_") + kc).c_str());
+                    own = map->Has(gk);
+                }
+            }
+            return own ? 0 : 1;
+        }
 
         // `delete Array.prototype[Symbol.iterator]` removes the default array
         // iterator, which is served from a built-in fast path (not stored in

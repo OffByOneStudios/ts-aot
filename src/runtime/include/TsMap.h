@@ -69,6 +69,13 @@ public:
     void SetExplicitMap(bool value) { isExplicitMap = value; }
     bool IsExplicitMap() const { return isExplicitMap; }
 
+    // ES 10.4.6 module namespace exotic object: [[Set]] always returns
+    // false (strict write -> TypeError), [[Delete]] of an own export is
+    // false, non-extensible, null [[Prototype]]. Set by
+    // ts_module_mark_namespace at the end of an ESM module's init.
+    void SetModuleNamespace(bool value) { isModuleNamespace = value; }
+    bool IsModuleNamespace() const { return isModuleNamespace; }
+
     // true for `Object.create(null)` — a genuinely prototype-less object.
     // Distinguished from a plain `{}` (whose `prototype` is also nullptr but
     // logically inherits Object.prototype, which we don't materialize). Used
@@ -92,7 +99,8 @@ private:
     bool frozen = false;
     bool sealed = false;
     bool extensible = true;
-    bool isExplicitMap = false;  // true for new Map(), false for plain objects
+    bool isExplicitMap = false;
+    bool isModuleNamespace = false;  // true for new Map(), false for plain objects
     bool nullPrototype = false;  // true for Object.create(null)
 };
 

@@ -43,6 +43,14 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
     void* target = reflect_require_object(targetArg,
         "Reflect.set called on non-object");
 
+    // ES 10.4.6.9: a module namespace exotic's [[Set]] returns false for
+    // every key, regardless of receiver.
+    if ((uintptr_t)target >= 4096 &&
+        *(uint32_t*)((char*)target + 16) == 0x4D415053 /*MAPS*/ &&
+        ((TsMap*)target)->IsModuleNamespace()) {
+        return 0;
+    }
+
     // ES 10.4.5.5 [[Set]] with an explicit DIFFERENT receiver: the exotic
     // element-set (and its ToNumber coercion — "valueOf is not called") is
     // bypassed. An invalid canonical index returns true untouched; a valid

@@ -422,6 +422,31 @@ void* ts_builtin_lookup_special(const char* name) {
     // compiler wraps such (dynamically-reachable-only) inits in a catch that
     // records the error here; import() then rejects with the SAME error
     // object every time (spec: the evaluation error is memoized).
+    // ES 10.4.6: stamp the ESM exports object as a module namespace exotic.
+    // Injected by the Monomorphizer at the END of each ESM module's init
+    // (after the export/re-export population), so ordinary writes during
+    // init are unaffected. Idempotent.
+    void ts_module_mark_namespace(TsValue* exportsBoxed) {
+        if (!exportsBoxed) return;
+        void* raw = ts_value_get_object(exportsBoxed);
+        if (!raw) raw = exportsBoxed;
+        if ((uintptr_t)raw < 4096) return;
+        if (*(uint32_t*)((char*)raw + 16) != 0x4D415053 /*MAPS*/) return;
+        TsMap* m = (TsMap*)raw;
+        // @@toStringTag = "Module" (non-writable, non-enumerable,
+        // non-configurable). Stored under the bracket-string key the
+        // well-known-symbol property paths use. MUST be stored before
+        // PreventExtensions — a non-extensible map refuses new keys.
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue v; v.type = ValueType::STRING_PTR;
+        v.ptr_val = TsString::Create("Module");
+        m->SetWithAttrs(k, v, 0);
+        m->SetModuleNamespace(true);
+        m->SetNullPrototype(true);
+        m->PreventExtensions();
+    }
+
     void ts_module_set_init_error(TsValue* path, TsValue* err) {
         TsString* s = (TsString*)ts_value_get_string(path);
         if (!s) return;
@@ -560,6 +585,8 @@ void* ts_builtin_lookup_special(const char* name) {
         }
         // The cache holds the module RECORD ({exports: ...}); the import()
         // namespace is its exports object.
+        // (Marked as a namespace exotic by ts_module_mark_namespace, injected
+        // at the end of the ESM module's init.)
         TsString* ek = TsString::GetInterned("exports");
         TsValue* ns = ts_object_get_dynamic(record, ts_value_make_string(ek));
         if (!ns || ts_value_is_undefined(ns)) ns = record;
