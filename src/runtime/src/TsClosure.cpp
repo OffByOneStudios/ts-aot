@@ -327,6 +327,10 @@ void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
     }
 }
 
+void ts_closure_set_gen_kind(TsClosure* closure, int32_t kind) {
+    if (closure) closure->genKind = (uint8_t)kind;
+}
+
 void ts_closure_set_rest_index(TsClosure* closure, int32_t idx) {
     if (closure) {
         closure->rest_param_index = idx;

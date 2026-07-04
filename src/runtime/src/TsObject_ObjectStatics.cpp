@@ -672,6 +672,9 @@ extern "C" {
     }
 
     // Object.getPrototypeOf(obj) - returns the prototype of an object
+    extern "C" void* ts_get_generator_fn_prototype();       // TsPromise.cpp
+    extern "C" void* ts_get_async_generator_fn_prototype();  // TsPromise.cpp
+
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError
         // Proxy: route through the getPrototypeOf trap (ES 10.5.1); a
@@ -683,6 +686,23 @@ extern "C" {
                     return px->getPrototypeOfTrap();
             }
         }
+        // Generator / async-generator FUNCTION (a TsClosure tagged at
+        // MakeClosure time): ES 27.3.3/27.4.3 — its [[Prototype]] is
+        // %(Async)GeneratorFunction.prototype%, whose `prototype` property
+        // is the object prototype instances use. Every
+        // (Async)GeneratorPrototype test acquires the intrinsic this way.
+        {
+            void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
+            if (raw0 && (uintptr_t)raw0 >= 4096 &&
+                *(uint32_t*)((char*)raw0 + 16) == 0x434C5352 /* CLSR */) {
+                TsClosure* cl = (TsClosure*)raw0;
+                if (cl->genKind == 1)
+                    return ts_value_make_object(ts_get_generator_fn_prototype());
+                if (cl->genKind == 2)
+                    return ts_value_make_object(ts_get_async_generator_fn_prototype());
+            }
+        }
+
         // Subclass-of-builtin instance: its recorded [[Prototype]]
         // (Subclass.prototype from ts_subclass_builtin_alloc) wins over the
         // per-magic builtin dispatch below.
@@ -814,7 +834,9 @@ extern "C" {
             extern void* ts_temporal_get_zoneddatetime_ctor();
             return getCtorPrototype(ts_temporal_get_zoneddatetime_ctor());
         }
-        if (magic == 0x4D415053) { // TsMap::MAGIC
+        if (magic == 0x4D415053 ||   // TsMap::MAGIC
+            magic == 0x47454E52 ||   // TsGenerator "GENR" (TsMap subclass)
+            magic == 0x4147454E) {   // TsAsyncGenerator "AGEN" (TsMap subclass)
             TsMap* objMap = (TsMap*)objRaw;
             // Object.create(null): a genuinely prototype-less object.
             if (objMap->HasNullPrototype()) {

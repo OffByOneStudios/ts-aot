@@ -61,6 +61,195 @@ TsValue* create_generator_result(TsValue value, bool done) {
 
 extern "C" TsValue* Generator_return(TsValue* genVal, TsValue* value);   // defined below
 extern "C" TsValue* Generator_throw(TsValue* genVal, TsValue* exception); // defined below
+TsValue* AsyncGenerator_return(TsValue* genVal, TsValue* value);          // defined below
+TsValue* AsyncGenerator_throw(TsValue* genVal, TsValue* exc);             // defined below
+extern "C" TsValue* ts_make_named_native_function(void* funcPtr, void* context,
+                                                  const char* name, int arity);
+extern "C" void* getIteratorPrototypeBoxed();  // TsMap.cpp — %IteratorPrototype%
+
+// ---------------------------------------------------------------------------
+// %GeneratorPrototype% / %AsyncGeneratorPrototype% (ES 27.5.1 / 27.6.1).
+// Generator instances carry their methods as OWN properties (dispatch
+// worked), but Object.getPrototypeOf(instance) was null — the intrinsic
+// prototype objects never existed, so every test walking the chain
+// (AsyncGeneratorPrototype.next.length, @@toStringTag, ...) died on null.
+// The natives here dispatch on the RECEIVER so they also work when pulled
+// off the prototype and .call()ed.
+// ---------------------------------------------------------------------------
+static void* genproto_receiver(void* ctx, uint32_t magic16) {
+    void* self = ctx;
+    if (!self) self = ts_get_call_this();
+    // A primitive receiver (number/string/boolean) is a tagged value —
+    // dereferencing it for the magic read crashes. Validate the nanbox
+    // is a real heap pointer first (the this-val-not-object tests).
+    if (self) {
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)self);
+        if (nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (raw && (uintptr_t)raw >= 4096 &&
+                (uintptr_t)raw < 0x0000800000000000ULL &&
+                *(uint32_t*)((char*)raw + 16) == magic16) {
+                return raw;
+            }
+        }
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "Generator method called on incompatible receiver"));
+    return nullptr;  // unreachable
+}
+static TsValue* genproto_next_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsGenerator::MAGIC);
+    return Generator_next_internal(g, (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* genproto_return_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsGenerator::MAGIC);
+    return Generator_return(ts_value_make_object(g),
+                            (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* genproto_throw_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsGenerator::MAGIC);
+    return Generator_throw(ts_value_make_object(g),
+                           (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* agenproto_next_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsAsyncGenerator::MAGIC);
+    return AsyncGenerator_next_internal(g, (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* agenproto_return_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsAsyncGenerator::MAGIC);
+    return AsyncGenerator_return(ts_value_make_object(g),
+                                 (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* agenproto_throw_native(void* ctx, int argc, TsValue** argv) {
+    void* g = genproto_receiver(ctx, TsAsyncGenerator::MAGIC);
+    return AsyncGenerator_throw(ts_value_make_object(g),
+                                (argc >= 1 && argv) ? argv[0] : nullptr);
+}
+static TsValue* proto_self_native(void* ctx, int argc, TsValue** argv) {
+    void* self = ctx ? ctx : ts_get_call_this();
+    return (TsValue*)self;
+}
+
+static void proto_add(TsMap* m, const char* key, TsValue* fn, uint8_t attrs) {
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned(key);
+    m->SetWithAttrs(k, nanbox_to_tagged(fn), attrs);
+}
+static void proto_add_tag(TsMap* m, const char* tag) {
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue v; v.type = ValueType::STRING_PTR;
+    v.ptr_val = TsString::Create(tag);
+    m->SetWithAttrs(k, v, 0x04 /* configurable only */);
+}
+
+static TsMap* g_generator_prototype = nullptr;
+static TsMap* g_async_iterator_prototype = nullptr;
+static TsMap* g_async_generator_prototype = nullptr;
+
+static TsMap* getGeneratorObjectPrototype() {
+    if (!g_generator_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        constexpr uint8_t WC = 0x02 | 0x04;  // writable+configurable, non-enum
+        proto_add(proto, "next",
+            ts_make_named_native_function((void*)genproto_next_native, nullptr, "next", 1), WC);
+        proto_add(proto, "return",
+            ts_make_named_native_function((void*)genproto_return_native, nullptr, "return", 1), WC);
+        proto_add(proto, "throw",
+            ts_make_named_native_function((void*)genproto_throw_native, nullptr, "throw", 1), WC);
+        proto_add_tag(proto, "Generator");
+        if (void* ip = ts_value_get_object((TsValue*)getIteratorPrototypeBoxed()))
+            proto->SetPrototype((TsMap*)ip);
+        g_generator_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_generator_prototype);
+    }
+    return g_generator_prototype;
+}
+
+static TsMap* getAsyncIteratorPrototype() {
+    if (!g_async_iterator_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        proto_add(proto, "[Symbol.asyncIterator]",
+            ts_make_named_native_function((void*)proto_self_native, nullptr,
+                                          "[Symbol.asyncIterator]", 0),
+            0x02 | 0x04);
+        g_async_iterator_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_async_iterator_prototype);
+    }
+    return g_async_iterator_prototype;
+}
+
+static TsMap* g_generator_fn_prototype = nullptr;
+static TsMap* g_async_generator_fn_prototype = nullptr;
+static TsMap* getGeneratorObjectPrototype();
+static TsMap* getAsyncGeneratorObjectPrototype();
+
+// %GeneratorFunction.prototype% / %AsyncGeneratorFunction.prototype%
+// (ES 27.3.3 / 27.4.3): what Object.getPrototypeOf(<generator fn>) returns.
+// Its `prototype` data property is the OBJECT prototype the instances use —
+// the acquisition path every AsyncGeneratorPrototype test walks:
+//   Object.getPrototypeOf(g).prototype
+static TsMap* getGeneratorFnPrototype() {
+    if (!g_generator_fn_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("prototype");
+        proto->SetWithAttrs(k, nanbox_to_tagged(
+            ts_value_make_object(getGeneratorObjectPrototype())), 0x04);
+        proto_add_tag(proto, "GeneratorFunction");
+        g_generator_fn_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_generator_fn_prototype);
+    }
+    return g_generator_fn_prototype;
+}
+static TsMap* getAsyncGeneratorFnPrototype() {
+    if (!g_async_generator_fn_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("prototype");
+        proto->SetWithAttrs(k, nanbox_to_tagged(
+            ts_value_make_object(getAsyncGeneratorObjectPrototype())), 0x04);
+        proto_add_tag(proto, "AsyncGeneratorFunction");
+        g_async_generator_fn_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_async_generator_fn_prototype);
+    }
+    return g_async_generator_fn_prototype;
+}
+// Cross-TU accessors (ts_object_getPrototypeOf in TsObject_ObjectStatics.cpp).
+extern "C" void* ts_get_generator_fn_prototype() {
+    return (void*)getGeneratorFnPrototype();
+}
+extern "C" void* ts_get_async_generator_fn_prototype() {
+    return (void*)getAsyncGeneratorFnPrototype();
+}
+
+static TsMap* getAsyncGeneratorObjectPrototype() {
+    if (!g_async_generator_prototype) {
+        ts_gc_push_tenure();
+        TsMap* proto = TsMap::Create();
+        constexpr uint8_t WC = 0x02 | 0x04;
+        proto_add(proto, "next",
+            ts_make_named_native_function((void*)agenproto_next_native, nullptr, "next", 1), WC);
+        proto_add(proto, "return",
+            ts_make_named_native_function((void*)agenproto_return_native, nullptr, "return", 1), WC);
+        proto_add(proto, "throw",
+            ts_make_named_native_function((void*)agenproto_throw_native, nullptr, "throw", 1), WC);
+        proto_add_tag(proto, "AsyncGenerator");
+        proto->SetPrototype(getAsyncIteratorPrototype());
+        g_async_generator_prototype = proto;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_async_generator_prototype);
+    }
+    return g_async_generator_prototype;
+}
 
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
@@ -91,12 +280,10 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
         }, this));
     this->Set(TsString::Create("throw"), thrFunc);
 
-    // Link the generator's [[Prototype]] to %IteratorPrototype% so it inherits
-    // the iterator helpers (map/filter/take/drop/flatMap/toArray/...). The own
-    // next/@@iterator above still shadow the inherited ones. Was null before,
-    // so `gen.map(...)` / `Object.getPrototypeOf(gen)` returned undefined/null.
-    if (void* ip = ts_value_get_object((TsValue*)getIteratorPrototypeBoxed()))
-        this->SetPrototype((TsMap*)ip);
+    // Link the generator's [[Prototype]] to %GeneratorPrototype% (which
+    // chains to %IteratorPrototype%, so the iterator helpers still
+    // inherit). The own next/@@iterator above shadow the prototype's.
+    this->SetPrototype(getGeneratorObjectPrototype());
 }
 
 TsValue* TsGenerator::next(TsValue* value) {
@@ -146,6 +333,10 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
         return ts_value_make_object(ctx);
     }, this));
     this->Set(TsString::Create("[Symbol.asyncIterator]"), iterFunc);
+
+    // ES 27.6.1: async generator instances inherit from
+    // %AsyncGeneratorPrototype% (was null — every getPrototypeOf walk died).
+    this->SetPrototype(getAsyncGeneratorObjectPrototype());
 }
 
 // ---------------------------------------------------------------------------

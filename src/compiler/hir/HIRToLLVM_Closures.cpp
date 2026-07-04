@@ -947,6 +947,30 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         }
     }
 
+    // Tag generator/async-generator FUNCTION closures so the runtime's
+    // getPrototypeOf(fn) can route to %(Async)GeneratorFunction.prototype%.
+    {
+        HIRFunction* targetFn = nullptr;
+        for (const auto& hirFn : hirModule_->functions) {
+            if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                targetFn = hirFn.get();
+                break;
+            }
+        }
+        if (targetFn && targetFn->isGenerator) {
+            auto setKindFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { getGCPtrTy(), builder_->getInt32Ty() },
+                false);
+            auto setKind = module_->getOrInsertFunction(
+                "ts_closure_set_gen_kind", setKindFt);
+            builder_->CreateCall(setKindFt, setKind.getCallee(),
+                { gcPtrToRaw(closure),
+                  llvm::ConstantInt::get(builder_->getInt32Ty(),
+                                         targetFn->isAsync ? 2 : 1) });
+        }
+    }
+
     // ts_closure_set_cell(TsClosure* closure, int64_t index, TsCell* cell) -> void
     auto setCellFt = llvm::FunctionType::get(
         builder_->getVoidTy(),

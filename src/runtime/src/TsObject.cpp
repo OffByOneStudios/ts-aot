@@ -831,6 +831,11 @@ void* ts_create_arguments_from_params(
     // delete, and Object.defineProperty all work through standard TsMap
     // property machinery. Per ES spec, Function.length and Function.name
     // are {writable:false, enumerable:false, configurable:true}.
+    // Cross-TU access for prototype builders (TsPromise.cpp generator
+    // prototypes need natives with correct .name/.length).
+    extern "C" TsValue* ts_make_named_native_function(void* funcPtr, void* context,
+                                                      const char* name, int arity);
+
     static TsValue* makeNamedNativeFunction(void* funcPtr, void* context, const char* name, int arity) {
         TsValue* fn = ts_value_make_native_function(funcPtr, context);
         TsFunction* func = (TsFunction*)fn;
@@ -853,6 +858,11 @@ void* ts_create_arguments_from_params(
         TsValue nameVal; nameVal.type = ValueType::STRING_PTR; nameVal.ptr_val = func->name;
         func->properties->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_CONFIGURABLE);
         return fn;
+    }
+
+    extern "C" TsValue* ts_make_named_native_function(void* funcPtr, void* context,
+                                                      const char* name, int arity) {
+        return makeNamedNativeFunction(funcPtr, context, name, arity);
     }
 
     // Built-in function wrappers for first-class value use

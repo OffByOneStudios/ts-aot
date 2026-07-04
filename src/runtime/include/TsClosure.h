@@ -41,6 +41,8 @@ public:
     bool constructable = true;
     TsMap* properties = nullptr;  // For storing properties like .prototype
     int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
+    uint8_t genKind = 0;         // 0 = plain, 1 = generator fn, 2 = async generator fn
+                                 // (drives getPrototypeOf(fn) -> %(Async)GeneratorFunction.prototype%)
     // PHYSICAL user param count (the compiled trampoline's positional params,
     // i.e. counting params WITH defaults — unlike `arity`/.length which stops at
     // the first default). Used to dispatch >10-param calls with the exact arg
@@ -101,6 +103,7 @@ extern "C" {
 
     // Set the arity (user-visible parameter count) on a TsClosure
     void ts_closure_set_arity(TsClosure* closure, int32_t arity);
+    void ts_closure_set_gen_kind(TsClosure* closure, int32_t kind);
     // Set the PHYSICAL user param count (counts params with defaults too).
     void ts_closure_set_num_params(TsClosure* closure, int32_t n);
 
