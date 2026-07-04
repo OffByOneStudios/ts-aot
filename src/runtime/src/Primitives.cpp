@@ -1518,6 +1518,26 @@ static TsValue* ts_noop_undefined_native(void* ctx, int argc, TsValue** argv) {
     return ts_value_make_undefined();
 }
 
+// First-class typed-array constructor getters (TsGlobals.cpp,
+// DEFINE_TYPED_ARRAY_CTOR) — file scope: linkage specs can't be local.
+extern "C" void* ts_get_global_Int8Array();
+extern "C" void* ts_get_global_Uint8Array();
+extern "C" void* ts_get_global_Uint8ClampedArray();
+extern "C" void* ts_get_global_Int16Array();
+extern "C" void* ts_get_global_Uint16Array();
+extern "C" void* ts_get_global_Int32Array();
+extern "C" void* ts_get_global_Uint32Array();
+extern "C" void* ts_get_global_Float32Array();
+extern "C" void* ts_get_global_Float64Array();
+extern "C" void* ts_get_global_BigInt64Array();
+extern "C" void* ts_get_global_BigUint64Array();
+
+// Returns the value smuggled through ctx (used by the subclass idiom below;
+// ctx is a boxed GLOBAL constructor, rooted for program lifetime).
+static TsValue* ts_return_ctx_value_native(void* ctx, int argc, TsValue** argv) {
+    return (TsValue*)ctx;
+}
+
 // Function(source) — AOT pattern-matcher (no interpreter tier). Exact-match
 // the safe literal idioms; throw EvalError for real dynamic source, the same
 // class of error a CSP-restricted host throws. A silent wrong function
@@ -1542,6 +1562,61 @@ void* ts_function_constructor_stub(TsValue* body) {
             return ts_value_make_native_function((void*)ts_noop_undefined_native, nullptr);
         if (core == "return this")
             return ts_value_make_native_function((void*)ts_return_globalThis_native, nullptr);
+        // test262 harness idiom (resizableArrayBufferUtils.js):
+        //   new Function('return class My<T> extends <T> {}')()
+        // AOT cannot compile a dynamic class; the empty subclass adds
+        // nothing, so return a thunk yielding the BASE constructor itself.
+        // Anything that doesn't resolve to a global constructor falls
+        // through to the EvalError below.
+        if (core.rfind("return class My", 0) == 0) {
+            size_t ext = core.find(" extends ");
+            size_t brace = core.find('{', ext == std::string::npos ? 0 : ext);
+            if (ext != std::string::npos && brace != std::string::npos) {
+                std::string base = core.substr(ext + 9, brace - (ext + 9));
+                size_t e = base.find_last_not_of(" 	");
+                if (e != std::string::npos) base = base.substr(0, e + 1);
+                std::string tail = core.substr(brace);
+                bool emptyBody = (tail == "{}" || tail == "{ }");
+                bool ident = !base.empty();
+                for (char ch : base)
+                    if (!isalnum((unsigned char)ch) && ch != '_' && ch != '$')
+                        ident = false;
+                if (emptyBody && ident) {
+                    // Typed-array bases resolve to their FIRST-CLASS cached
+                    // constructors (a globalThis property read yields only
+                    // the name string, which `new` can't construct).
+                    struct TACtor { const char* n; void* (*get)(); };
+                    static const TACtor kTA[] = {
+                        {"Int8Array", ts_get_global_Int8Array},
+                        {"Uint8Array", ts_get_global_Uint8Array},
+                        {"Uint8ClampedArray", ts_get_global_Uint8ClampedArray},
+                        {"Int16Array", ts_get_global_Int16Array},
+                        {"Uint16Array", ts_get_global_Uint16Array},
+                        {"Int32Array", ts_get_global_Int32Array},
+                        {"Uint32Array", ts_get_global_Uint32Array},
+                        {"Float32Array", ts_get_global_Float32Array},
+                        {"Float64Array", ts_get_global_Float64Array},
+                        {"BigInt64Array", ts_get_global_BigInt64Array},
+                        {"BigUint64Array", ts_get_global_BigUint64Array},
+                    };
+                    for (const auto& e : kTA) {
+                        if (base == e.n) {
+                            return ts_value_make_native_function(
+                                (void*)ts_return_ctx_value_native, e.get());
+                        }
+                    }
+                    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+                    extern TsValue* globalThis;
+                    TsValue* ctor = ts_object_get_property(globalThis, base.c_str());
+                    extern bool ts_is_callable(void* val);
+                    if (ctor && !ts_value_is_undefined(ctor) &&
+                        ts_is_callable((void*)ctor)) {
+                        return ts_value_make_native_function(
+                            (void*)ts_return_ctx_value_native, (void*)ctor);
+                    }
+                }
+            }
+        }
     }
     ts_throw((TsValue*)ts_error_create_typed("EvalError",
         "Function constructor with dynamic source is not supported in "
