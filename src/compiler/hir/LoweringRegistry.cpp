@@ -510,6 +510,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
     regTypedArrayNew("ts_typed_array_new_u32");
     regTypedArrayNew("ts_typed_array_new_f32");
     regTypedArrayNew("ts_typed_array_new_f64");
+    // BigInt TAs were MISSING here — an unregistered call takes the boxed
+    // default convention, so `new BigInt64Array(buf, 0, 1)` passed boxed
+    // doubles as the raw int64 byteOffset/length (spurious RangeError).
+    regTypedArrayNew("ts_typed_array_new_i64");
+    regTypedArrayNew("ts_typed_array_new_u64");
     reg.registerLowering("ts_typed_array_create_i16",
         lowering("ts_typed_array_create_i16")
             .returnsPtr()
