@@ -2587,9 +2587,20 @@ extern "C" {
             TsValue* boxedRx = (TsValue*)ts_value_make_object(rx);
             TsValue* sArg = (TsValue*)sBoxed;
             TsValue* result = ts_function_call_with_this(exec, boxedRx, 1, &sArg);
-            if (!result || ts_value_is_null(result) || ts_value_is_undefined(result))
+            // Spec: the result must be an Object or NULL -- undefined (and
+            // every other primitive) is a TypeError, not a no-match.
+            if (!result || ts_value_is_null(result))
                 return nullptr;
             void* robj = ts_value_get_object(result);
+            if (robj) {
+                // Primitive values that unbox to a pointer (strings/symbols/
+                // bigints) are NOT Objects either.
+                uint32_t m0 = *(uint32_t*)robj;
+                if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC ||
+                    m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/) {
+                    robj = nullptr;
+                }
+            }
             if (!robj) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "RegExp exec method returned a non-object"));
@@ -2642,10 +2653,26 @@ extern "C" {
     // Receiver must be an OBJECT (generic @@-method contract shared by
     // @@match / @@search / @@split): returns the raw pointer or throws.
     static void* regexp_generic_receiver(void* ctx, const char* what) {
-        void* recv = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
-        if (!recv) recv = ctx;
-        uintptr_t ra = (uintptr_t)recv;
-        if (!recv || ra < 4096 || (ra >> 48) != 0) {
+        // The generic @@-method contract accepts any OBJECT -- but PRIMITIVES
+        // (numbers, booleans, string/symbol/bigint values) must throw, not
+        // slip through as their boxed TsValue pointer (this-val-non-obj
+        // crashed on property gets against a boxed string).
+        void* recv = nullptr;
+        if (ctx) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_ptr(nb) && !nanbox_is_string_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                uintptr_t ra = (uintptr_t)raw;
+                if (raw && ra >= 4096 && (ra >> 48) == 0) {
+                    uint32_t m0 = *(uint32_t*)raw;
+                    if (m0 != 0x53594D42 /*SYMB*/ && m0 != 0x42494749 /*BIGI*/ &&
+                        m0 != 0x53545247 /*STRG*/ && m0 != TsConsString::MAGIC) {
+                        recv = raw;
+                    }
+                }
+            }
+        }
+        if (!recv) {
             char buf[128];
             snprintf(buf, sizeof(buf),
                      "RegExp.prototype[%s] called on incompatible receiver", what);

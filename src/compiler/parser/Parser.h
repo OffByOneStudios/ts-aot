@@ -188,6 +188,14 @@ private:
         std::unordered_map<std::string, PDeclKind> names;
     };
     std::vector<LexicalScope> lexicalScopes_;
+    // Module-goal early errors (ES 16.2.1): duplicate ExportedNames,
+    // export of an undeclared local, and import BoundNames named
+    // eval/arguments (module code is strict). Only populated when parsing
+    // with the module goal.
+    std::unordered_set<std::string> moduleExportedNames_;
+    std::vector<std::pair<std::string, int>> moduleExportLocalRefs_;
+    void declareModuleExportName(const std::string& name, int line);
+    void checkModuleImportBinding(const std::string& name, int line);
     void pushLexicalScope();
     void popLexicalScope();
     // Returns false if redeclaration conflict. Emits error if conflict.
