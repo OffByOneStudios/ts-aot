@@ -5,6 +5,8 @@
 #include <map>
 #include <vector>
 #include <optional>
+#include <set>
+#include <map>
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
 #include "ModuleResolver.h"
@@ -28,6 +30,16 @@ struct Module {
     // All module-level symbols (including non-exported ones).
     // Used to restore scope when re-analyzing function bodies during monomorphization.
     std::shared_ptr<SymbolTable> moduleSymbols;
+
+    // ES ResolveExport link-error validation (dynamic import() must REJECT
+    // with SyntaxError instead of resolving). Empty linkError = healthy.
+    // The re* fields record the module's export entries in spec form so
+    // circular indirect exports and ambiguous star-exports are detectable
+    // (the eager symbol-copy in visitExportDeclaration loses that shape).
+    std::string linkError;
+    std::set<std::string> reDirectExports;                 // locally declared exports
+    std::map<std::string, std::pair<std::string, std::string>> reNamedIndirect; // name -> (srcPath, srcName)
+    std::vector<std::string> reStarSources;                // `export * from` source paths
 
     Module() : exports(std::make_shared<SymbolTable>()), moduleSymbols(std::make_shared<SymbolTable>()) {}
 };

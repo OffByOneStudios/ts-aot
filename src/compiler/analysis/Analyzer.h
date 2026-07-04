@@ -127,6 +127,11 @@ public:
     // wraps their startup init in a catch that memoizes the evaluation
     // error instead of aborting the program (CONF-P3 phase 2).
     std::set<std::string> staticImportPaths;
+
+    // Message of the most recent native-parse failure (parseSourceFile).
+    // loadModule turns a SyntaxError here into a module linkError so a
+    // DYNAMIC import() rejects at runtime instead of aborting the compile.
+    std::string lastParseError_;
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
@@ -299,6 +304,13 @@ private:
     void analyzeModule(std::shared_ptr<Module> module);
     void analyzeDeclarationModule(std::shared_ptr<Module> module);
     std::shared_ptr<Module> loadModule(const std::string& specifier);
+    // ES 16.2.1.6.3 ResolveExport (compile-time): follows named indirect
+    // exports and star-exports. Returns 0 FOUND, 1 NOT_FOUND, 2 CIRCULAR,
+    // 3 AMBIGUOUS. definingPath (optional) receives the defining module.
+    int resolveModuleExport(Module* m, const std::string& name,
+                            std::set<std::pair<std::string, std::string>>& visited,
+                            std::string* definingPath = nullptr);
+
     std::unique_ptr<ast::Program> parseSourceFile(const std::string& path,
                                                   bool forceModuleGoal = false);
 

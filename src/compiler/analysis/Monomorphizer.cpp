@@ -558,6 +558,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             continue;
         }
 
+        // Link-error module reachable ONLY through dynamic import(): its
+        // init becomes `throw new SyntaxError(msg)`. The dynamicOnly
+        // try/catch below memoizes it via ts_module_set_init_error, so
+        // import() rejects with a SyntaxError instead of resolving.
+        if (!module->linkError.empty() && path != mainSourceFilePath) {
+            module->ast->body.clear();
+            std::string msg = module->linkError;
+            const std::string prefix = "SyntaxError: ";
+            auto ppos = msg.find(prefix);
+            if (ppos != std::string::npos) msg = msg.substr(ppos + prefix.size());
+            auto thr = std::make_unique<ast::ThrowStatement>();
+            auto ne = std::make_unique<ast::NewExpression>();
+            auto ctor = std::make_unique<ast::Identifier>();
+            ctor->name = "SyntaxError";
+            ne->expression = std::move(ctor);
+            auto msgLit = std::make_unique<ast::StringLiteral>();
+            msgLit->value = msg;
+            msgLit->inferredType = std::make_shared<Type>(TypeKind::String);
+            ne->arguments.push_back(std::move(msgLit));
+            ne->inferredType = std::make_shared<Type>(TypeKind::Any);
+            thr->expression = std::move(ne);
+            module->ast->body.push_back(std::move(thr));
+        }
+
         auto moduleInit = std::make_unique<ast::FunctionDeclaration>();
         std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
         moduleInit->name = initName;
@@ -1565,8 +1589,17 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         // it). Wrap its init in try/catch → ts_module_set_init_error. Static
         // graph modules keep propagating (same behavior as today). Never wrap
         // the LAST init when its result is the synthetic main's return value.
+        bool initHasLinkError = false;
+        {
+            auto lmIt = analyzer.modules.find(path);
+            if (lmIt != analyzer.modules.end() &&
+                !lmIt->second->linkError.empty()) {
+                initHasLinkError = true;
+            }
+        }
         bool dynamicOnly = (path != mainSourceFilePath) &&
-                           !analyzer.staticImportPaths.count(path) &&
+                           (initHasLinkError ||
+                            !analyzer.staticImportPaths.count(path)) &&
                            !(i == moduleInitFunctions.size() - 1 && !userDefinedMain);
         if (dynamicOnly) {
             auto tryStmt = std::make_unique<ast::TryStatement>();

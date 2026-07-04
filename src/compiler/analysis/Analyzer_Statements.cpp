@@ -78,6 +78,7 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     if (node->isExported && currentModule) {
         if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
             currentModule->exports->define(id->name, type);
+            currentModule->reDirectExports.insert(id->name);
         }
     }
 }

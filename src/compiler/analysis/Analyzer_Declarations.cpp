@@ -36,9 +36,11 @@ void Analyzer::visitProgram(ast::Program* node) {
             symbols.define(func->name, funcType);
             if (func->isExported && currentModule) {
                 currentModule->exports->define(func->name, funcType);
+                currentModule->reDirectExports.insert(func->name);
             }
             if (func->isDefaultExport && currentModule) {
                 currentModule->exports->define("default", funcType);
+                currentModule->reDirectExports.insert("default");
             }
         } else if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
             // Hoist variable declarations with their declaration kind so the main pass
@@ -50,6 +52,7 @@ void Analyzer::visitProgram(ast::Program* node) {
             if (var->isExported && currentModule) {
                 if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
                     currentModule->exports->define(id->name, std::make_shared<Type>(TypeKind::Any));
+                    currentModule->reDirectExports.insert(id->name);
                 }
             }
         } else if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
@@ -122,6 +125,69 @@ void Analyzer::visitProgram(ast::Program* node) {
     }
 }
 
+int Analyzer::resolveModuleExport(Module* m, const std::string& name,
+                                  std::set<std::pair<std::string, std::string>>& visited,
+                                  std::string* definingPath) {
+    if (!m) return 1;
+    auto key = std::make_pair(m->path, name);
+    if (visited.count(key)) return 2;  // circular indirect export
+    visited.insert(key);
+
+    // Named indirect export: `export { srcName as name } from srcPath`.
+    auto ni = m->reNamedIndirect.find(name);
+    if (ni != m->reNamedIndirect.end()) {
+        auto srcIt = modules.find(ni->second.first);
+        if (srcIt == modules.end()) return 1;
+        return resolveModuleExport(srcIt->second.get(), ni->second.second,
+                                   visited, definingPath);
+    }
+    // Local declaration wins over star-exports (ES 16.2.1.6.3 step 6).
+    if (m->reDirectExports.count(name)) {
+        if (definingPath) *definingPath = m->path;
+        return 0;
+    }
+    // Star exports: ambiguous when found in 2+ DISTINCT defining modules.
+    if (!m->reStarSources.empty()) {
+        std::set<std::string> definers;
+        for (const auto& srcPath : m->reStarSources) {
+            auto srcIt = modules.find(srcPath);
+            if (srcIt == modules.end()) continue;
+            std::string def;
+            // Fresh visited per branch, seeded with the walked prefix, so
+            // one dead branch doesn't poison a sibling.
+            std::set<std::pair<std::string, std::string>> branch = visited;
+            if (resolveModuleExport(srcIt->second.get(), name, branch, &def) == 0) {
+                definers.insert(def.empty() ? srcPath : def);
+            }
+        }
+        if (definers.size() > 1) return 3;  // ambiguous
+        if (definers.size() == 1) {
+            if (definingPath) *definingPath = *definers.begin();
+            return 0;
+        }
+    }
+    // Fallback: locally-exported names registered through paths that don't
+    // fill reDirectExports (defaults, enums, CJS interop) — be lenient.
+    if (m->exports && (m->exports->lookup(name) || m->exports->lookupType(name))) {
+        if (definingPath) *definingPath = m->path;
+        return 0;
+    }
+    return 1;
+}
+
+// Compose the spec-worded SyntaxError message for a failed ResolveExport.
+static std::string linkErrorMessage(int res, const std::string& name,
+                                    const std::string& fromPath) {
+    if (res == 2)
+        return "SyntaxError: Detected cycle while resolving export '" + name +
+               "' in module '" + fromPath + "'";
+    if (res == 3)
+        return "SyntaxError: The requested module '" + fromPath +
+               "' contains conflicting star exports for name '" + name + "'";
+    return "SyntaxError: The requested module '" + fromPath +
+           "' does not provide an export named '" + name + "'";
+}
+
 void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
     // Type-only imports: still load module for type resolution,
     // but skip runtime symbol definitions for type-only specifiers
@@ -165,6 +231,20 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
 
     for (const auto& spec : node->namedImports) {
         std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+        // ES link-time import binding resolution: an import whose
+        // ResolveExport is circular or ambiguous is a link error of THIS
+        // module (import() of it must reject with SyntaxError). Only the
+        // two definitive failure classes are flagged; NOT_FOUND keeps the
+        // legacy lenient handling below (CJS/type-only interop).
+        if (module->ast && !module->isJsonModule && !node->isTypeOnly && !spec.isTypeOnly) {
+            std::set<std::pair<std::string, std::string>> visited;
+            int rres = resolveModuleExport(module.get(), name, visited);
+            if ((rres == 2 || rres == 3) && currentModule &&
+                currentModule->linkError.empty()) {
+                currentModule->linkError =
+                    linkErrorMessage(rres, name, node->moduleSpecifier);
+            }
+        }
         auto sym = module->exports->lookup(name);
         if (sym) {
             SPDLOG_DEBUG("Importing symbol {} as {} from {}", name, spec.name, node->moduleSpecifier);
@@ -205,12 +285,14 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
         // ES2020: export * as ns from "module"
         if (!node->namespaceExport.empty()) {
             auto nsType = std::make_shared<NamespaceType>(module);
+            currentModule->reDirectExports.insert(node->namespaceExport);
             currentModule->exports->define(node->namespaceExport, nsType);
             SPDLOG_DEBUG("Namespace re-export {} from {} in {}", node->namespaceExport, node->moduleSpecifier, currentModule->path);
             return;
         }
 
         if (node->isStarExport) {
+            currentModule->reStarSources.push_back(module->path);
             // Re-export all from module
             for (auto& [name, sym] : module->exports->getGlobalSymbols()) {
                 currentModule->exports->define(name, sym->type);
@@ -223,6 +305,27 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
 
         for (const auto& spec : node->namedExports) {
             std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+            // ES 16.2.1: an indirect export entry must RESOLVE — circular
+            // chains and ambiguous star-exports are link errors. Record the
+            // entry first (so a later back-edge sees it), then resolve.
+            currentModule->reNamedIndirect[spec.name] = {module->path, name};
+            if (module->ast && !module->isJsonModule) {
+                std::set<std::pair<std::string, std::string>> visited;
+                int rres = resolveModuleExport(module.get(), name, visited);
+                // CIRCULAR/AMBIGUOUS are definitive link errors; NOT_FOUND
+                // stays lenient for CJS interop (dynamic exports).
+                if (rres == 1 && !module->isESM &&
+                    module->type == ModuleType::UntypedJavaScript) {
+                    rres = 0;
+                }
+                if (rres != 0) {
+                    if (currentModule->linkError.empty()) {
+                        currentModule->linkError =
+                            linkErrorMessage(rres, name, node->moduleSpecifier);
+                    }
+                    continue;  // no binding; init stub will throw
+                }
+            }
             auto sym = module->exports->lookup(name);
             if (sym) {
                 SPDLOG_DEBUG("Re-exporting symbol {} from {} in {}", name, node->moduleSpecifier, currentModule->path);
@@ -241,6 +344,7 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
 
     for (const auto& spec : node->namedExports) {
         std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+        currentModule->reDirectExports.insert(spec.name);
         auto sym = symbols.lookup(name);
         if (sym) {
             currentModule->exports->define(spec.name, sym->type);

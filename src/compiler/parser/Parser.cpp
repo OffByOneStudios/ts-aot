@@ -673,7 +673,7 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     if (!scriptGoal_ && !moduleExportLocalRefs_.empty() && !lexicalScopes_.empty()) {
         const auto& top = lexicalScopes_.front().names;
         for (const auto& [local, line] : moduleExportLocalRefs_) {
-            if (!top.count(local)) {
+            if (!top.count(local) && !moduleImportBindings_.count(local)) {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: SyntaxError: export of undeclared name '{}'",
                     fileName_, line, local));
@@ -894,6 +894,15 @@ bool Parser::declareLexicalName(const std::string& name, PDeclKind kind) {
         // (commit 50566e3) work without regressing this pattern.
         if ((existing == PDeclKind::Var && kind == PDeclKind::Function) ||
             (existing == PDeclKind::Function && kind == PDeclKind::Var)) {
+            // MODULE goal, top level: FunctionDeclarations are
+            // LexicallyDeclaredNames (ES 16.2.1), so `var x; function x(){}`
+            // IS a duplicate there (it's only legal in scripts/function
+            // bodies, where fn-decls hoist into VarDeclaredNames).
+            if (!scriptGoal_ && lexicalScopes_.size() == 1) {
+                throw std::runtime_error(fmt::format(
+                    "{}: SyntaxError: Identifier '{}' has already been "
+                    "declared", fileName_, name));
+            }
             // Promote the slot to Function (the fn-decl wins; later var
             // re-declarations are fine since var+fn is allowed).
             scope.names[name] = PDeclKind::Function;
@@ -4446,6 +4455,10 @@ void Parser::declareModuleExportName(const std::string& name, int line) {
 
 void Parser::checkModuleImportBinding(const std::string& name, int line) {
     if (scriptGoal_) return;
+    // Import bindings are module-level declarations: the post-parse
+    // export-resolvability check must accept `import * as ns ...;
+    // export { ns };`.
+    moduleImportBindings_.insert(name);
     if (name == "eval" || name == "arguments") {
         throw std::runtime_error(fmt::format(
             "{}:{}: SyntaxError: '{}' may not be bound by an import "

@@ -138,9 +138,11 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         symbols.define(node->name, funcType);
         if (node->isExported && currentModule) {
             currentModule->exports->define(node->name, funcType);
+            currentModule->reDirectExports.insert(node->name);
         }
         if (node->isDefaultExport && currentModule) {
             currentModule->exports->define("default", funcType);
+            currentModule->reDirectExports.insert("default");
         }
     } else {
         // Update the hoisted type with the real one (or just use the hoisted one)

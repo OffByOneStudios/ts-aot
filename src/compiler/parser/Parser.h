@@ -193,6 +193,7 @@ private:
     // eval/arguments (module code is strict). Only populated when parsing
     // with the module goal.
     std::unordered_set<std::string> moduleExportedNames_;
+    std::unordered_set<std::string> moduleImportBindings_;  // import-declared locals
     std::vector<std::pair<std::string, int>> moduleExportLocalRefs_;
     void declareModuleExportName(const std::string& name, int line);
     void checkModuleImportBinding(const std::string& name, int line);
