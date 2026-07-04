@@ -287,6 +287,27 @@ bool array_generic_absent_index(const TsArray* self, size_t i) {
     return !ts_object_has_prop(objB, keyB);
 }
 
+// Live per-index VALUE for a generic array-like receiver. The materialized
+// temp array is a SNAPSHOT taken before iteration; per spec every visit does
+// a fresh Get(O, k) — observable when a getter visited earlier mutates a
+// later index (delete + prototype fallthrough, redefine, etc.). Returns the
+// snapshot untouched for normal arrays / string / typed-array receivers, so
+// the common path pays one pointer-null check.
+TsValue* array_generic_live_value(const TsArray* self, size_t i, TsValue* snapshot) {
+    void* orig = self->originalReceiver;
+    if (!orig || orig == (const void*)self) return snapshot;
+    uintptr_t oa = (uintptr_t)orig;
+    if (oa < 0x1000 || oa >= 0x0000800000000000ULL) return snapshot;
+    uint32_t m = *(uint32_t*)orig;
+    if (m == 0x53545247 /* STRG */ || m == TsConsString::MAGIC) return snapshot;
+    if (*(uint32_t*)((char*)orig + 16) == 0x54415252 /* TARR */) return snapshot;
+    extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    TsValue* objB = ts_value_make_object(orig);
+    TsValue* keyB = ts_value_make_int((int64_t)i);
+    TsValue* live = ts_object_get_dynamic(objB, keyB);
+    return live ? live : snapshot;
+}
+
 bool TsArray::IsHole(size_t index) const {
     if (index >= length) return true;
     // An accessor defined via Object.defineProperty makes the index a PRESENT

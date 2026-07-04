@@ -1680,6 +1680,8 @@ extern "C" {
         return ts_value_make_object(norm);
     }
 
+    extern "C" bool ts_flat_object_retire_slot(void* obj, const char* key);
+
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // #66: defineProperty on %Object.prototype% flips the dirty bit.
         if (g_object_proto_map && obj) {
@@ -1768,12 +1770,14 @@ extern "C" {
         // visible on subsequent reads. The overflow map is already checked
         // by ts_flat_object_get_property (for value properties), and we
         // teach it below to also invoke __getter_<key> from overflow.
+        void* flatObjOriginal = nullptr;
         if (is_flat_object(rawPtr)) {
             uint32_t shapeId = flat_object_shape_id(rawPtr);
             ShapeDescriptor* desc = ts_shape_lookup(shapeId);
             if (!desc) {
                 rawPtr = ts_flat_object_to_map(rawPtr);
             } else {
+                flatObjOriginal = rawPtr;
                 void** overflowPtr = flat_object_overflow_ptr(rawPtr, desc->numSlots);
                 if (!*overflowPtr) {
                     TsMap* newMap = TsMap::Create();
@@ -2572,6 +2576,51 @@ extern "C" {
                 sk.type = ValueType::STRING_PTR;
                 sk.ptr_val = TsString::GetInterned(setterKey.c_str());
                 map->Set(sk, setter);
+            }
+        }
+
+        // Converting an existing DATA property to an ACCESSOR must retire the
+        // data value: the read paths return a non-undefined OWN data slot
+        // BEFORE consulting __getter_ (own data shadows inherited accessors),
+        // so a stale value would shadow the new getter forever. Keep the key
+        // as an UNDEFINED placeholder (the class-accessor convention) so
+        // enumeration/hasOwnProperty still see the property.
+        {
+            bool accessorInstalled = false;
+            if (descMap->Has(getKey)) {
+                TsValue g2 = descMap->Get(getKey);
+                if (g2.type != ValueType::UNDEFINED) accessorInstalled = true;
+            }
+            if (!accessorInstalled && descMap->Has(setKey)) {
+                TsValue s2 = descMap->Get(setKey);
+                if (s2.type != ValueType::UNDEFINED) accessorInstalled = true;
+            }
+            if (accessorInstalled) {
+                TsValue dataK;
+                dataK.type = ValueType::STRING_PTR;
+                dataK.ptr_val = TsString::GetInterned(propName);
+                if (map->Has(dataK)) {
+                    TsValue ev = map->Get(dataK);
+                    if (ev.type != ValueType::UNDEFINED) {
+                        TsValue und; und.type = ValueType::UNDEFINED;
+                        und.ptr_val = nullptr;
+                        uint8_t keep = map->GetPropertyAttrs(dataK);
+                        map->SetWithAttrs(dataK, und, keep);
+                    }
+                }
+                // FLAT receiver: the shadowing data lives in an INLINE slot,
+                // not the overflow map `map` points at. Tombstone the slot
+                // (reads fall through to the overflow __getter_) and keep an
+                // undefined placeholder under the plain key so hasOwnProperty
+                // and enumeration still see the property.
+                if (flatObjOriginal) {
+                    ts_flat_object_retire_slot(flatObjOriginal, propName);
+                    if (!map->Has(dataK)) {
+                        TsValue und2; und2.type = ValueType::UNDEFINED;
+                        und2.ptr_val = nullptr;
+                        map->Set(dataK, und2);
+                    }
+                }
             }
         }
 

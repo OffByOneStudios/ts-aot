@@ -424,6 +424,23 @@ extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
     overflow->Set(TsValue(keyStr), tv);
 }
 
+// Retire an inline data slot when defineProperty converts the key to an
+// ACCESSOR: the flat read path returns inline slots BEFORE probing overflow
+// __getter_ entries, so a stale data value would shadow the accessor
+// forever. Returns true when a live slot was tombstoned.
+extern "C" bool ts_flat_object_retire_slot(void* obj, const char* key) {
+    if (!obj || !key) return false;
+    uint32_t shapeId = flat_object_shape_id(obj);
+    ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+    if (!desc) return false;
+    int slot = flat_find_slot(desc, key);
+    if (slot < 0) return false;
+    uint64_t* p = (uint64_t*)((char*)obj + 16 + slot * 8);
+    if (*p == NANBOX_DELETED) return false;
+    *p = NANBOX_DELETED;
+    return true;
+}
+
 extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
     if (!obj || !key) return false;
 
