@@ -1883,7 +1883,11 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 } else if (argVal->type->kind == HIRTypeKind::String ||
                            argVal->type->kind == HIRTypeKind::Any ||
                            argVal->type->kind == HIRTypeKind::Array ||
-                           argVal->type->kind == HIRTypeKind::Object) {
+                           argVal->type->kind == HIRTypeKind::Object ||
+                           argVal->type->kind == HIRTypeKind::Map ||
+                           argVal->type->kind == HIRTypeKind::Set ||
+                           argVal->type->kind == HIRTypeKind::Class ||
+                           argVal->type->kind == HIRTypeKind::Function) {
                     // String/Any/Array/Object: route through the dispatcher,
                     // which ToNumber-coerces a string and copies array-likes.
                     // (A string-TYPED arg previously matched no branch and the

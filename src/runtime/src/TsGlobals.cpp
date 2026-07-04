@@ -6121,9 +6121,9 @@ extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v) {
             iv = 1;
         } else if (nanbox_is_false(nb)) {
             iv = 0;
-        } else if (!v || ts_value_is_undefined(v)) {
-            iv = 0;   // constructor holes; Set-path callers pre-validate
         } else {
+            // ES 7.1.13: ToBigInt(undefined/null/number/symbol) throws —
+            // INCLUDING construction holes (`new BigInt64Array([1n,,3n])`).
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot convert a non-BigInt value to a BigInt"));
             return;
@@ -6132,7 +6132,19 @@ extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v) {
         if (data && i < ta->GetLength()) ((int64_t*)data)[i] = iv;
         return;
     }
-    double d = v ? ts_to_number(v) : 0;
+    // Holes / undefined: ToNumber(undefined) = NaN. Float types store the
+    // NaN; integer types take ToIntegerOrInfinity(NaN) = +0 explicitly (a
+    // raw (int)NaN cast is UB — the old path leaked INT64_MIN garbage).
+    double d;
+    if (!v || ts_value_is_undefined(v) ||
+        (uint64_t)(uintptr_t)v == (uint64_t)NANBOX_HOLE) {
+        d = std::numeric_limits<double>::quiet_NaN();
+    } else {
+        d = ts_to_number(v);
+    }
+    if (d != d && tt != TypedArrayType::Float32 && tt != TypedArrayType::Float64) {
+        d = 0;
+    }
     ta->Set(i, d);
 }
 
@@ -6144,6 +6156,58 @@ extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v) {
 //   - new TA(arrayLike)            — copy via .length + indexed reads
 // byteOffset/byteLength are honored only for the ArrayBuffer form; -1
 // byteLength means "rest of buffer".
+// ES 23.2.5.1 step 6.b.i IterableToList for `new TA(object)`: when the
+// source has a callable @@iterator, the CONSTRUCTOR must drive the iterator
+// protocol — poisoned next()/value-getter abrupt completions propagate, and
+// Sets/Maps/custom iterables produce their iteration order (the length-based
+// path saw `length === undefined` and produced an empty TA). Returns a dense
+// TsArray of the yielded values, or nullptr when the source has no callable
+// @@iterator (caller falls through to the array-like path).
+static TsArray* ta_iterable_collect(void* rawSrc) {
+    // The DYNAMIC get path handles Set/Map receivers (their @@iterator lives
+    // behind magic dispatch the static-key path doesn't reach).
+    extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    TsValue* iterKey = ts_value_make_string(TsString::GetInterned("[Symbol.iterator]"));
+    TsValue* iterMethod = ts_object_get_dynamic(ts_value_make_object(rawSrc), iterKey);
+    if (!iterMethod || ts_value_is_undefined(iterMethod) ||
+        ts_value_is_null(iterMethod) || !ts_is_callable((void*)iterMethod)) {
+        return nullptr;
+    }
+    TsValue* srcBoxed = ts_value_make_object(rawSrc);
+    TsValue* iter = ts_call_with_this_0(iterMethod, srcBoxed);
+    void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+    if (!iterRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Result of the Symbol.iterator method is not an object"));
+        return nullptr;
+    }
+    // GetIteratorDirect: cache `next` once (re-reading each step is a spec
+    // violation and an accessor-loop hazard).
+    TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+    if (!nextFn || !ts_is_callable((void*)nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not a function"));
+        return nullptr;
+    }
+    TsArray* out = TsArray::Create();
+    const int64_t MAX_ITER = 1 << 20;
+    for (int64_t guard = 0; guard < MAX_ITER; guard++) {
+        TsValue* res = ts_function_call_with_this(nextFn, iter, 0, nullptr);
+        void* resRaw = res ? ts_value_get_object(res) : nullptr;
+        if (!resRaw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator result is not an object"));
+            return nullptr;
+        }
+        TsValue* doneV = ts_object_get_property(resRaw, "done");
+        if (doneV && ts_value_to_bool(doneV)) break;
+        // Get(result, "value") — a poisoned value getter throws HERE.
+        TsValue* val = ts_object_get_property(resRaw, "value");
+        ts_array_push(out, val ? val : (TsValue*)ts_value_make_undefined());
+    }
+    return out;
+}
+
 #define DEFINE_TYPED_ARRAY_NEW(Suffix, CreateFn, ElemSize, Clamped, TypeEnum)            \
 extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                               \
                                              int64_t byteOffset,                         \
@@ -6204,7 +6268,12 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 int64_t n = (int64_t)srcArr->Length();                                   \
                 void* result = CreateFn(n);                                              \
                 for (int64_t i = 0; i < n; i++) {                                        \
-                    TsValue* ev = (TsValue*)srcArr->GetElementBoxed((size_t)i);                      \
+                    /* Holes surface the raw NANBOX_HOLE sentinel from       */          \
+                    /* GetElementBoxed — normalize to undefined so the       */          \
+                    /* element store applies spec ToNumber/ToBigInt.         */          \
+                    TsValue* ev = srcArr->IsHole((size_t)i)                              \
+                        ? (TsValue*)ts_value_make_undefined()                            \
+                        : (TsValue*)srcArr->GetElementBoxed((size_t)i);                  \
                     ta_new_store_elem(result, (size_t)i, ev);                          \
                 }                                                                        \
                 return result;                                                           \
@@ -6216,6 +6285,17 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 void* result = CreateFn(n);                                              \
                 for (int64_t i = 0; i < n; i++) {                                        \
                     ((TsTypedArray*)result)->Set((size_t)i, srcTa->Get((size_t)i));      \
+                }                                                                        \
+                return result;                                                           \
+            }                                                                            \
+            /* Iterable (Set/Map/custom/poisoned): drive the iterator     */            \
+            /* protocol per IterableToList; abrupt completions propagate. */            \
+            if (TsArray* itList = ta_iterable_collect(rawSrc)) {                         \
+                int64_t n = (int64_t)itList->Length();                                   \
+                void* result = CreateFn(n);                                              \
+                for (int64_t i = 0; i < n; i++) {                                        \
+                    TsValue* ev = (TsValue*)itList->GetElementBoxed((size_t)i);          \
+                    ta_new_store_elem(result, (size_t)i, ev);                            \
                 }                                                                        \
                 return result;                                                           \
             }                                                                            \
