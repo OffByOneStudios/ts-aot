@@ -906,7 +906,32 @@ extern "C" {
     extern TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv);
     extern TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv);
 
+    // ES 10.4.2.4: every length-writing mutator throws TypeError when the
+    // array is FROZEN (integrity side-table) or `length` was made
+    // non-writable via defineProperty. The compiler fast-paths call these
+    // entries directly, so the guard lives here (the *_native wrappers in
+    // TsObject_Builtins carry the same check for dynamic dispatch).
+    static void arr_require_len_writable(void* arrRaw, const char* method) {
+        extern uint8_t ts_integrity_get(void* raw);
+        if (!arrRaw || *(uint32_t*)arrRaw != 0x41525259 /*ARRY*/) return;
+        if (ts_integrity_get(arrRaw) < 3) {
+            TsArray* a = (TsArray*)arrRaw;
+            if (!a->properties) return;
+            TsValue lk; lk.type = ValueType::STRING_PTR;
+            lk.ptr_val = TsString::GetInterned("length");
+            if (!a->properties->Has(lk) ||
+                (a->properties->GetPropertyAttrs(lk) & 0x02)) {
+                return;
+            }
+        }
+        char msg[96];
+        snprintf(msg, sizeof(msg),
+                 "Cannot %s: array length is not writable", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     void ts_array_push(void* arr, void* value) {
+        arr_require_len_writable(arr, "push");
         // Unbox arr if it's a NaN-boxed TsValue* pointing to an array
         void* rawArr = arr;
         if (arr) {
@@ -1057,6 +1082,7 @@ extern "C" {
     }
 
     void* ts_array_pop(void* arr) {
+        arr_require_len_writable(arr, "pop");
         return (void*)((TsArray*)arr)->Pop();
     }
 
@@ -1067,6 +1093,7 @@ extern "C" {
     // when this returned void the typed call read a garbage register (e.g.
     // `[1,2,3].unshift(0)` returned a huge bogus number instead of 4).
     int64_t ts_array_unshift(void* arr, void* value) {
+        arr_require_len_writable(arr, "unshift");
         // Guard non-TsArray receivers (same lowering bug as join/push/concat;
         // see HIRToLLVM.cpp:6209). Plain TsMap / primitive receivers would
         // read garbage fields if cast to TsArray*.
@@ -1088,6 +1115,7 @@ extern "C" {
     }
 
     void* ts_array_shift(void* arr) {
+        arr_require_len_writable(arr, "shift");
         return (void*)((TsArray*)arr)->Shift();
     }
 
@@ -2216,6 +2244,7 @@ extern "C" {
     extern TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv);
 
     void* ts_array_splice(void* arr, int64_t start, int64_t deleteCount, void* items) {
+        arr_require_len_writable(arr, "splice");
         if (!arr) return ts_array_create();
         // Guard non-TsArray receivers (compiler Any-path lowering bug;
         // see HIRToLLVM.cpp:6285). Delegate to native wrapper which
