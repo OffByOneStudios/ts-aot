@@ -1368,6 +1368,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             if (classDecl->name.empty())
                                 classDecl->name = "__dflt_export";
                             defaultLocal = classDecl->name;
+                            // The deferred class flush runs BEFORE
+                            // __module_init, so the ctor closure exists at
+                            // init entry — front-injection is safe here too.
+                            defaultIsHoistedFn = true;
                         }
                     }
                 }
@@ -1641,15 +1645,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
 
         // fmt::print("Module init now has {} statements\n", moduleInit->body.size());
-        if (getenv("TS_MONO_DBG")) {
-            fprintf(stderr, "[MONO_DBG] module=%s init stmts:\n", path.c_str());
-            for (size_t di = 0; di < moduleInit->body.size(); ++di)
-                fprintf(stderr, "  [%zu] %s\n", di,
-                        moduleInit->body[di]->getKind().c_str());
-            fprintf(stderr, "[MONO_DBG] newBody stmts:\n");
-            for (size_t di = 0; di < newBody.size(); ++di)
-                fprintf(stderr, "  [%zu] %s\n", di, newBody[di]->getKind().c_str());
-        }
         module->ast->body = std::move(newBody);
 
         std::string mangledName = Monomorphizer::generateMangledName(initName, { std::make_shared<Type>(TypeKind::Any) }, {});
