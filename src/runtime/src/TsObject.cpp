@@ -6339,7 +6339,10 @@ void* ts_create_arguments_from_params(
                     }
                 }
             }
-            TsString* keyStr2 = (TsString*)ts_value_get_string(key);
+            // Symbol keys must route through the symbol-aware coercion —
+            // ts_value_get_string THROWS for symbols (spec ToString), which
+            // broke `sym in argumentsObject` (lodash baseGetTag startup).
+            TsString* keyStr2 = ts_property_key_string(key);
             if (!keyStr2) return false;
             const char* k = keyStr2->ToUtf8();
             if (!k) return false;
