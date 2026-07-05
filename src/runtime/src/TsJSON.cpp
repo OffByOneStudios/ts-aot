@@ -77,6 +77,11 @@ static TsValue json_to_ts(const json& j) {
 // longjmp through std-object frames and corrupt the unwinder).
 struct JsonRevokedProxyError {};
 
+// Signals a TypeError to raise from the clean top-level catch (unwinding
+// through nlohmann/std frames first): circular structure, or a BigInt value
+// (ECMA-262 25.5.2 SerializeJSONProperty — BigInt is a TypeError).
+struct JsonTypeErrorSignal { const char* msg; };
+
 // Signals an ABRUPT completion (user toJSON/getter threw) during
 // serialization. Same architecture as JsonRevokedProxyError: the user call
 // runs under a setjmp guard (ts_throw pops its own handler — NEVER pop in
@@ -203,7 +208,7 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
 
     if (magic == TsArray::MAGIC) {
         if (visited.find(p) != visited.end()) {
-            throw std::runtime_error("Circular reference in JSON.stringify");
+            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
         }
         visited.insert(p);
         TsArray* arr = (TsArray*)p;
@@ -257,7 +262,7 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
     // Flat inline-slot object (magic at offset 0)
     if (magic == FLAT_MAGIC) {
         if (visited.find(p) != visited.end()) {
-            throw std::runtime_error("Circular reference in JSON.stringify");
+            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
         }
         visited.insert(p);
         uint32_t shapeId = flat_object_shape_id(p);
@@ -301,7 +306,7 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
     // TsMap is TsObject-derived, magic at offset 16
     if (magic_offset16 == TsMap::MAGIC) {
         if (visited.find(p) != visited.end()) {
-            throw std::runtime_error("Circular reference in JSON.stringify");
+            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
         }
         visited.insert(p);
         TsMap* map = (TsMap*)p;
@@ -427,6 +432,12 @@ extern "C" {
             extern void* ts_error_create_typed(const char* type, const char* message);
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot serialize a revoked Proxy with JSON.stringify"));
+            return TsString::Create("null");  // unreachable
+        } catch (const JsonTypeErrorSignal& s) {
+            // Circular structure or BigInt: raise a JS TypeError from this
+            // clean frame (the swallowing catch(...) below returned "null").
+            extern void* ts_error_create_typed(const char* type, const char* message);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", s.msg));
             return TsString::Create("null");  // unreachable
         } catch (...) {
             return TsString::Create("null");
