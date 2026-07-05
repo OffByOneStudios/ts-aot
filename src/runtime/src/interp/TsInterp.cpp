@@ -395,6 +395,9 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict);
 Cpl execStmts(std::vector<ast::StmtPtr>& stmts, TsMap* env, TsValue* thisV, bool strict);
 Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict);
 TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV);
+enum class BindMode { Let, Const, Var, Param };
+Cpl bindPattern(ast::Node* target, TsValue* v, TsMap* env, TsValue* thisV,
+                bool strict, BindMode mode);
 
 // --- strictness ---------------------------------------------------------------
 
@@ -1014,14 +1017,18 @@ Cpl runFunctionBody(InterpFn* fd, TsMap* defEnv, TsValue* thisV, TsArray* args) 
     if (fd->params) {
         for (auto& p : *fd->params) {
             auto* id = dynamic_cast<ast::Identifier*>(p->name.get());
-            if (!id) return unsupported("destructuring parameter");
             if (p->isRest) {
                 TsArray* rest = TsArray::Create((size_t)(argc > argIdx ? argc - argIdx : 0));
                 for (int64_t i = argIdx; i < argc; i++) {
                     TsValue* el = ts_array_get_dynamic(boxObj(args), ts_value_make_int(i));
                     ts_array_push_any((void*)rest, el);
                 }
-                envDefine(fenv, id->name, boxObj(rest), false);
+                if (id) envDefine(fenv, id->name, boxObj(rest), false);
+                else {
+                    Cpl bc = bindPattern(p->name.get(), boxObj(rest), fenv, thisV,
+                                         strict, BindMode::Param);
+                    if (isAbrupt(bc)) return bc;
+                }
                 break;
             }
             TsValue* v = (argIdx < argc)
@@ -1033,7 +1040,11 @@ Cpl runFunctionBody(InterpFn* fd, TsMap* defEnv, TsValue* thisV, TsArray* args) 
                 if (isAbrupt(d)) return d;
                 v = d.v;
             }
-            envDefine(fenv, id->name, v, false);
+            if (id) envDefine(fenv, id->name, v, false);
+            else {
+                Cpl bc = bindPattern(p->name.get(), v, fenv, thisV, strict, BindMode::Param);
+                if (isAbrupt(bc)) return bc;
+            }
         }
     }
 
@@ -1660,15 +1671,165 @@ Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
 
 // --- statements ---------------------------------------------------------------
 
+// --- destructuring binding patterns -----------------------------------------
+// One recursive binder shared by declarators, parameters, for-of/in heads and
+// catch clauses. `mode` (declared up top) decides how a leaf is created.
+Cpl bindLeaf(const std::string& name, TsValue* v, TsMap* env, BindMode mode) {
+    if (mode == BindMode::Var) {
+        TsMap* target = envVarTarget(env);
+        if (envIsGlobalVarScope(target)) {
+            TsValue* ex = nullptr;
+            if (!guardSet(globalThis, boxStr(name), v, &ex)) return thrown(ex);
+        } else {
+            envDefine(target, name, v, false);
+        }
+    } else {
+        envDefine(env, name, v, mode == BindMode::Const);
+    }
+    return normal();
+}
+
+// Property key of an object binding element (computed / explicit / shorthand).
+Cpl bindElemKey(ast::BindingElement* be, TsMap* env, TsValue* thisV, bool strict,
+                TsValue** outKey) {
+    if (be->computedPropertyName) {
+        if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(be->computedPropertyName.get())) {
+            Cpl k = evalExpr(cpn->expression.get(), env, thisV, strict);
+            if (isAbrupt(k)) return k;
+            *outKey = k.v; return normal();
+        }
+    }
+    if (!be->propertyName.empty()) { *outKey = boxStr(be->propertyName); return normal(); }
+    if (auto* id = dynamic_cast<ast::Identifier*>(be->name.get())) {
+        *outKey = boxStr(id->name); return normal();
+    }
+    *outKey = boxStr(""); return normal();
+}
+
+// Pull one value from an array-pattern iterator; sets *done when exhausted.
+bool patNext(TsValue* iter, bool* done, TsValue** valOut, TsValue** ex) {
+    *valOut = jsUndefined();
+    if (*done) return true;
+    TsValue* res = nullptr;
+    if (!guardIterNext(iter, &res, ex)) return false;
+    if (!res) { *done = true; return true; }
+    TsValue* dn = nullptr;
+    if (!guardGet(res, boxStr("done"), &dn, ex)) return false;
+    if (dn && ts_value_to_bool(dn)) { *done = true; return true; }
+    TsValue* vv = nullptr;
+    if (!guardGet(res, boxStr("value"), &vv, ex)) return false;
+    *valOut = vv ? vv : jsUndefined();
+    return true;
+}
+
+Cpl bindPattern(ast::Node* target, TsValue* v, TsMap* env, TsValue* thisV,
+                bool strict, BindMode mode) {
+    if (!v) v = jsUndefined();
+    if (auto* id = dynamic_cast<ast::Identifier*>(target))
+        return bindLeaf(id->name, v, env, mode);
+
+    if (auto* obp = dynamic_cast<ast::ObjectBindingPattern*>(target)) {
+        if (ts_value_is_nullish(v))
+            return throwTyped("TypeError",
+                "Cannot destructure a nullish value.");
+        std::set<std::string> seen;
+        for (auto& elp : obp->elements) {
+            auto* be = dynamic_cast<ast::BindingElement*>(elp.get());
+            if (!be) continue;
+            if (be->isSpread) {
+                // Rest: own enumerable string keys of v not already consumed.
+                TsValue* boxedRest = boxObj((TsMap*)ts_map_create());
+                TsValue* keysV = ts_object_keys(v);
+                void* keysRaw = ts_value_get_object(keysV);
+                int64_t n = keysRaw ? ts_array_length(keysRaw) : 0;
+                for (int64_t i = 0; i < n; i++) {
+                    TsValue* kk = ts_array_get_dynamic(keysV, ts_value_make_int(i));
+                    TsString* ks = (TsString*)ts_value_get_string(kk);
+                    if (ks && seen.count(ks->ToUtf8())) continue;
+                    TsValue* pv = nullptr; TsValue* ex = nullptr;
+                    if (!guardGet(v, kk, &pv, &ex)) return thrown(ex);
+                    if (!guardSet(boxedRest, kk, pv ? pv : jsUndefined(), &ex)) return thrown(ex);
+                }
+                Cpl r = bindPattern(be->name.get(), boxedRest, env, thisV, strict, mode);
+                if (isAbrupt(r)) return r;
+                continue;
+            }
+            TsValue* keyV = nullptr;
+            Cpl kc = bindElemKey(be, env, thisV, strict, &keyV);
+            if (isAbrupt(kc)) return kc;
+            if (TsString* ks = (TsString*)ts_value_get_string(keyV)) seen.insert(ks->ToUtf8());
+            TsValue* pv = nullptr; TsValue* ex = nullptr;
+            if (!guardGet(v, keyV, &pv, &ex)) return thrown(ex);
+            if ((!pv || ts_value_is_undefined(pv)) && be->initializer) {
+                Cpl d = evalExpr(be->initializer.get(), env, thisV, strict);
+                if (isAbrupt(d)) return d;
+                pv = d.v;
+            }
+            Cpl r = bindPattern(be->name.get(), pv, env, thisV, strict, mode);
+            if (isAbrupt(r)) return r;
+        }
+        return normal();
+    }
+
+    if (auto* abp = dynamic_cast<ast::ArrayBindingPattern*>(target)) {
+        if (ts_value_is_nullish(v))
+            return throwTyped("TypeError", "value is not iterable");
+        TsValue* iter = nullptr; TsValue* ex = nullptr;
+        if (!guardIterGet(v, &iter, &ex)) return thrown(ex);
+        bool done = false;
+        for (auto& elp : abp->elements) {
+            auto* be = dynamic_cast<ast::BindingElement*>(elp.get());
+            if (!be) {                      // elision hole: consume one, skip
+                TsValue* skip = nullptr;
+                if (!patNext(iter, &done, &skip, &ex)) return thrown(ex);
+                continue;
+            }
+            if (be->isSpread) {
+                TsArray* arr = TsArray::Create(0);
+                TsValue* boxedArr = boxObj(arr);
+                TsValue* val = nullptr;
+                while (!done) {
+                    if (!patNext(iter, &done, &val, &ex)) return thrown(ex);
+                    if (done) break;
+                    ts_array_push_any((void*)arr, val);
+                }
+                Cpl r = bindPattern(be->name.get(), boxedArr, env, thisV, strict, mode);
+                if (isAbrupt(r)) return r;
+                continue;
+            }
+            TsValue* val = nullptr;
+            if (!patNext(iter, &done, &val, &ex)) return thrown(ex);
+            if (ts_value_is_undefined(val) && be->initializer) {
+                Cpl d = evalExpr(be->initializer.get(), env, thisV, strict);
+                if (isAbrupt(d)) return d;
+                val = d.v;
+            }
+            Cpl r = bindPattern(be->name.get(), val, env, thisV, strict, mode);
+            if (isAbrupt(r)) return r;
+        }
+        if (!done) iterCloseQuiet(iter);
+        return normal();
+    }
+
+    return unsupported("destructuring target " +
+                       std::string(target ? target->getKind() : "null"));
+}
+
 Cpl execVarDecl(ast::VariableDeclaration* vd, TsMap* env, TsValue* thisV, bool strict) {
     auto* id = dynamic_cast<ast::Identifier*>(vd->name.get());
-    if (!id) return unsupported("destructuring declaration");
 
     TsValue* v = jsUndefined();
     if (vd->initializer) {
         Cpl c = evalExpr(vd->initializer.get(), env, thisV, strict);
         if (isAbrupt(c)) return c;
         v = c.v;
+    }
+
+    if (!id) {
+        BindMode m = vd->varKind == ast::VarKind::Var ? BindMode::Var
+                   : vd->varKind == ast::VarKind::Const ? BindMode::Const
+                   : BindMode::Let;
+        return bindPattern(vd->name.get(), v, env, thisV, strict, m);
     }
 
     if (vd->varKind == ast::VarKind::Var) {
@@ -1800,7 +1961,12 @@ Cpl bindLoopVar(ast::Statement* init, TsValue* v, TsMap* ienv, TsValue* thisV,
                 bool strict) {
     if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(init)) {
         auto* id = dynamic_cast<ast::Identifier*>(vd->name.get());
-        if (!id) return unsupported("destructuring loop binding");
+        if (!id) {
+            BindMode m = vd->varKind == ast::VarKind::Var ? BindMode::Var
+                       : vd->varKind == ast::VarKind::Const ? BindMode::Const
+                       : BindMode::Let;
+            return bindPattern(vd->name.get(), v, ienv, thisV, strict, m);
+        }
         if (vd->varKind == ast::VarKind::Var) {
             TsMap* target = envVarTarget(ienv);
             if (envIsGlobalVarScope(target)) {
@@ -1941,10 +2107,10 @@ Cpl execTry(ast::TryStatement* t, TsMap* env, TsValue* thisV, bool strict) {
     if (r.k == Cpl::Thrown && t->catchClause) {
         TsMap* cenv = envNew(env, false);
         if (t->catchClause->variable) {
-            if (auto* id = dynamic_cast<ast::Identifier*>(t->catchClause->variable.get()))
-                envDefine(cenv, id->name, r.v ? r.v : jsUndefined(), false);
-            else
-                return unsupported("destructuring catch binding");
+            Cpl bc = bindPattern(t->catchClause->variable.get(),
+                                 r.v ? r.v : jsUndefined(), cenv, thisV, strict,
+                                 BindMode::Let);
+            if (isAbrupt(bc)) return bc;
         }
         predeclareLexical(t->catchClause->block, cenv);
         instantiateBlockFns(t->catchClause->block, cenv, thisV, strict);
