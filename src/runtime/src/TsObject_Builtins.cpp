@@ -2624,8 +2624,19 @@ extern "C" {
     // RegExp.prototype.compile (Annex B B.2.3.1): recompile `this` in place from
     // a new pattern/flags, then return `this`.
     extern "C" TsValue* ts_regexp_compile_native(void* ctx, int argc, TsValue** argv) {
-        TsRegExp* re = (TsRegExp*)ctx;
-        if (!re) return (TsValue*)ts_value_make_undefined();
+        // B.2.5.1 step 2: `this` must be an Object with a [[RegExpMatcher]]
+        // slot — anything else (undefined/null/number/plain object) is a
+        // TypeError, not a blind cast into ICU (which crashed).
+        void* raw = ts_value_get_object((TsValue*)ctx);
+        if (!raw) raw = ctx;
+        if (!raw || (uintptr_t)raw < 4096 ||
+            (uintptr_t)raw > 0x00007FFFFFFFFFFFULL ||
+            *(uint32_t*)raw != 0x52454758 /* REGX */) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Method RegExp.prototype.compile called on incompatible receiver"));
+            return (TsValue*)ts_value_make_undefined();
+        }
+        TsRegExp* re = (TsRegExp*)raw;
         extern void* ts_string_from_value(TsValue* val);
         std::string pat, fl;
         bool flagsGiven = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
@@ -3039,6 +3050,7 @@ extern "C" {
     // `limit`.
     extern "C" TsValue* ts_regexp_symbol_split_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void ts_object_set_property_strict(void* obj, void* key, void* value);
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
         extern void* ts_string_from_value(TsValue* val);
@@ -3086,20 +3098,26 @@ extern "C" {
                 }
             }
         }
-        TsRegExp* splitter = nullptr;
+        // The splitter is whatever Construct(C, «rx, newFlags») yields — ANY
+        // object (ES 22.2.6.14 step 8). SpeciesConstructor(rx,%RegExp%) with a
+        // custom @@species may hand back a plain object whose `exec` /
+        // `lastIndex` are observed via RegExpExec and Get/Set. Only fall back
+        // to a default RegExp when there is NO custom species.
+        void* splitterRaw = nullptr;
+        TsRegExp* splitterRx = nullptr;   // non-null only when splitter is a real RegExp
         if (speciesFn) {
             TsValue* nfBoxed =
                 (TsValue*)ts_value_make_string(TsString::Create(newFlags.c_str()));
             TsValue* args2[2] = { (TsValue*)ts_value_make_object(recvRaw), nfBoxed };
             TsValue* built = ts_new_from_constructor(speciesFn, 2, args2);
-            void* splitterRaw = built ? ts_value_get_object(built) : nullptr;
+            splitterRaw = built ? ts_value_get_object(built) : nullptr;
             if (!splitterRaw) splitterRaw = built;
             if (splitterRaw && (uintptr_t)splitterRaw >= 4096 &&
+                (uintptr_t)splitterRaw <= 0x00007FFFFFFFFFFFULL &&
                 *(uint32_t*)splitterRaw == 0x52454758 /*REGX*/) {
-                splitter = (TsRegExp*)splitterRaw;
+                splitterRx = (TsRegExp*)splitterRaw;
             }
-        }
-        if (!splitter) {
+        } else {
             // Default construction: a real-RegExp receiver reuses its source;
             // anything else stringifies its `source` (same net effect as
             // `new RegExp(obj, flags)` for the receiver-compat tests).
@@ -3113,8 +3131,26 @@ extern "C" {
                 srcU8 = srcTs ? srcTs->ToUtf8() : "(?:)";
                 if (srcU8 == "undefined") srcU8 = "(?:)";
             }
-            splitter = TsRegExp::Create(srcU8.c_str(), newFlags.c_str());
+            splitterRx = TsRegExp::Create(srcU8.c_str(), newFlags.c_str());
+            splitterRaw = (void*)splitterRx;
         }
+        if (!splitterRaw) {
+            ts_throw((TsValue*)ts_error_create_typed(
+                "TypeError", "RegExp @@split: splitter constructor returned no object"));
+            return (TsValue*)ts_value_make_undefined();
+        }
+        // Set/Get lastIndex: a real RegExp uses its internal slot directly; a
+        // generic splitter routes through observable Set/Get on "lastIndex".
+        TsValue* liKey = (TsValue*)ts_value_make_string(TsString::Create("lastIndex"));
+        auto setLastIndex = [&](int q) {
+            if (splitterRx) splitterRx->SetLastIndex(q);
+            else ts_object_set_property_strict(splitterRaw, liKey,
+                                               (void*)ts_value_make_int(q));
+        };
+        auto getLastIndex = [&]() -> int {
+            if (splitterRx) return (int)splitterRx->GetLastIndex();
+            return (int)ts_to_number(ts_object_get_property(splitterRaw, "lastIndex"));
+        };
         uint32_t lim = 0xFFFFFFFFu;
         if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1]))
             lim = ts_double_to_uint32(ts_to_number(argv[1]));
@@ -3122,18 +3158,18 @@ extern "C" {
         if (lim == 0) return (TsValue*)ts_value_make_object(A);
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
         if (size == 0) {
-            splitter->SetLastIndex(0);
-            if (ts_regexp_exec_observable(splitter, sBoxed))
+            setLastIndex(0);
+            if (ts_regexp_exec_observable(splitterRaw, sBoxed))
                 return (TsValue*)ts_value_make_object(A);
             ts_array_push(A, (void*)ts_value_make_string(sTs));
             return (TsValue*)ts_value_make_object(A);
         }
         int p = 0, q = 0; uint32_t lengthA = 0;
         while (q < size) {
-            splitter->SetLastIndex(q);
-            void* result = ts_regexp_exec_observable(splitter, sBoxed);
+            setLastIndex(q);
+            void* result = ts_regexp_exec_observable(splitterRaw, sBoxed);
             if (!result) { q = ts_regexp_adv_u(S, q, unicodeMatching); continue; }
-            int e = (int)splitter->GetLastIndex();
+            int e = getLastIndex();
             if (e > size) e = size;
             if (e == p) { q = ts_regexp_adv_u(S, q, unicodeMatching); continue; }
             icu::UnicodeString T(S, p, q - p);
