@@ -368,6 +368,14 @@ TsMap* envVarTarget(TsMap* env) {
     return e ? e : env;
 }
 
+// Look up a reserved key (e.g. "\x01h" home object, "\x01sc" super ctor) in the
+// nearest enclosing env that carries it. Returns nullptr if absent.
+TsValue* envLookupReserved(TsMap* env, const char* rk) {
+    for (TsMap* e = env; e; e = envParent(e))
+        if (e->Has(key(rk))) return nanbox_from_tagged(e->Get(key(rk)));
+    return nullptr;
+}
+
 // --- interpreted function data -------------------------------------------------
 
 struct InterpFn {
@@ -377,6 +385,14 @@ struct InterpFn {
     std::string name;
     bool isArrow = false;
     bool strict = false;
+    // Class support (all null/false for ordinary functions):
+    TsValue* homeObject = nullptr;   // [[HomeObject]] for super.prop lookup
+    TsValue* superCtor = nullptr;    // base constructor, for super(...) in a ctor
+    bool isCtor = false;             // this InterpFn is a class constructor
+    bool isDerivedCtor = false;      // derived class ctor (needs super())
+    bool isImplicitCtor = false;     // synthesized default constructor
+    // Instance field initializers, run at construction (borrowed from AST):
+    std::vector<ast::PropertyDefinition*>* fields = nullptr;
 };
 
 // Registered function data + parse handles live for the program lifetime:
@@ -398,6 +414,11 @@ TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV);
 enum class BindMode { Let, Const, Var, Param };
 Cpl bindPattern(ast::Node* target, TsValue* v, TsMap* env, TsValue* thisV,
                 bool strict, BindMode mode);
+Cpl readIdent(TsMap* env, const std::string& name, bool forTypeof);
+Cpl evalClass(const std::string& className, const std::string& baseClassName,
+              std::vector<ast::NodePtr>& members, TsMap* env, TsValue* thisV,
+              bool strict);
+Cpl initInstanceFields(InterpFn* fd, TsMap* env, TsValue* thisV, bool strict);
 
 // --- strictness ---------------------------------------------------------------
 
@@ -921,6 +942,9 @@ void predeclareLexical(std::vector<ast::StmtPtr>& stmts, TsMap* env) {
                 if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
                     env->Set(key(id->name), nanbox_to_tagged(boxObj(tdzMarker())));
             }
+        } else if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(s.get())) {
+            if (!cd->name.empty())   // class binding is lexical (TDZ until eval'd)
+                env->Set(key(cd->name), nanbox_to_tagged(boxObj(tdzMarker())));
         }
     }
 }
@@ -1005,6 +1029,39 @@ TsValue* makeInterpClosure(InterpFn* fd, TsMap* env, TsValue* thisV) {
 Cpl runFunctionBody(InterpFn* fd, TsMap* defEnv, TsValue* thisV, TsArray* args) {
     TsMap* fenv = envNew(defEnv, /*fnScope*/true);
     bool strict = fd->strict;
+
+    // Class-method super support: expose [[HomeObject]] and the base ctor to
+    // the body via reserved env keys, and (for a derived ctor) the field-init
+    // hook so the super() call site can run instance fields afterwards.
+    if (fd->homeObject) fenv->Set(key("\x01h"), nanbox_to_tagged(fd->homeObject));
+    if (fd->superCtor)  fenv->Set(key("\x01sc"), nanbox_to_tagged(fd->superCtor));
+    if (fd->isCtor)
+        fenv->Set(key("\x01" "cf"), ts_value_make_int((int64_t)(intptr_t)fd));
+
+    // Implicit (synthesized) constructor: derived calls super(...args); then
+    // instance fields initialize; the constructor returns `this`.
+    if (fd->isCtor && fd->isImplicitCtor) {
+        if (fd->isDerivedCtor && fd->superCtor) {
+            int64_t argc0 = args ? ts_array_length((void*)args) : 0;
+            std::vector<TsValue*> av((size_t)argc0);
+            for (int64_t i = 0; i < argc0; i++)
+                av[(size_t)i] = ts_array_get_dynamic(boxObj(args), ts_value_make_int(i));
+            TsValue* out = nullptr; TsValue* ex = nullptr;
+            if (!guardCall(fd->superCtor, thisV, (int)argc0,
+                           av.empty() ? nullptr : av.data(), &out, &ex))
+                return thrown(ex);
+        }
+        Cpl fr = initInstanceFields(fd, fenv, thisV, strict);
+        if (isAbrupt(fr)) return fr;
+        Cpl ret; ret.k = Cpl::Ret; ret.v = thisV; return ret;
+    }
+    // Base-class explicit ctor: fields initialize before the body runs. (A
+    // derived ctor initializes fields right after its super() call — handled
+    // at the super() call site.)
+    if (fd->isCtor && !fd->isDerivedCtor) {
+        Cpl fr = initInstanceFields(fd, fenv, thisV, strict);
+        if (isAbrupt(fr)) return fr;
+    }
 
     // Named function expression: the name binds to the function itself in an
     // intermediate immutable binding; approximated as a normal binding here.
@@ -1235,6 +1292,16 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
     }
 
     if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(e)) {
+        // super.prop: read from [[HomeObject]].[[Prototype]] (receiver = this).
+        if (dynamic_cast<ast::SuperExpression*>(pa->expression.get())) {
+            TsValue* home = envLookupReserved(env, "\x01h");
+            if (!home) return throwTyped("SyntaxError", "'super' keyword unexpected here");
+            TsValue* sproto = ts_object_getPrototypeOf(home);
+            if (!sproto || ts_value_is_nullish(sproto)) return normal(jsUndefined());
+            TsValue* out = nullptr; TsValue* ex = nullptr;
+            if (!guardGet(sproto, boxStr(pa->name), &out, &ex)) return thrown(ex);
+            return normal(out ? out : jsUndefined());
+        }
         Cpl o = evalExpr(pa->expression.get(), env, thisV, strict);
         if (isAbrupt(o)) return o;
         if (pa->isOptional && ts_value_is_nullish(o.v)) return normal(jsUndefined());
@@ -1400,6 +1467,9 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
         InterpFn* d = fnDataForFunctionExpr(fe, strict);
         return normal(makeInterpClosure(d, env, thisV));
     }
+
+    if (auto* ce = dynamic_cast<ast::ClassExpression*>(e))
+        return evalClass(ce->name, ce->baseClass, ce->members, env, thisV, strict);
 
     if (auto* af = dynamic_cast<ast::ArrowFunction*>(e)) {
         if (af->isAsync) return unsupported("async arrow in eval code");
@@ -1580,10 +1650,210 @@ Cpl evalAssignment(ast::AssignmentExpression* ae, TsMap* env, TsValue* thisV,
     return unsupported("assignment target " + lhs->getKind());
 }
 
+// --- classes ----------------------------------------------------------------
+// Initialize a class's instance fields on `thisV`. Runs at construction time
+// (base ctor entry, or after super() for a derived ctor). Field initializers
+// evaluate in the class scope with `this` bound to the new instance.
+Cpl initInstanceFields(InterpFn* fd, TsMap* env, TsValue* thisV, bool strict) {
+    if (!fd->fields) return normal();
+    for (auto* pd : *fd->fields) {
+        TsValue* keyV = boxStr(pd->name);
+        if (pd->nameNode)
+            if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pd->nameNode.get())) {
+                Cpl k = evalExpr(cpn->expression.get(), env, thisV, strict);
+                if (isAbrupt(k)) return k;
+                keyV = k.v;
+            }
+        TsValue* val = jsUndefined();
+        if (pd->initializer) {
+            Cpl v = evalExpr(pd->initializer.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            val = v.v;
+        }
+        TsValue* ex = nullptr;
+        if (!guardSet(thisV, keyV, val, &ex)) return thrown(ex);
+    }
+    return normal();
+}
+
+// Build a class: constructor closure + prototype carrying methods, static
+// members on the constructor, and extends/super linkage. Class bodies are
+// always strict. Returns the boxed constructor. Async/generator methods,
+// #private members, static blocks, and decorators are not supported here
+// (documented eval N/A) and skipped.
+Cpl evalClass(const std::string& className, const std::string& baseClassName,
+              std::vector<ast::NodePtr>& members, TsMap* env, TsValue* thisV,
+              bool strict) {
+    TsValue* baseCtor = nullptr;
+    TsValue* baseProto = nullptr;
+    bool derived = !baseClassName.empty();
+    if (derived) {
+        Cpl b = readIdent(env, baseClassName, false);
+        if (isAbrupt(b)) return b;
+        baseCtor = b.v;
+        if (!baseCtor || !ts_is_callable(baseCtor))
+            return throwTyped("TypeError", "Class extends value is not a constructor");
+        TsValue* ex = nullptr;
+        if (!guardGet(baseCtor, boxStr("prototype"), &baseProto, &ex)) return thrown(ex);
+    }
+
+    // Class scope: name binds to the constructor (const) so members can
+    // reference it; ctor + methods capture this env.
+    TsMap* cenv = envNew(env, false);
+
+    ast::MethodDefinition* ctorMD = nullptr;
+    std::vector<ast::MethodDefinition*> methods, statics;
+    auto* fields = new std::vector<ast::PropertyDefinition*>();
+    std::vector<ast::PropertyDefinition*> staticFields;
+    for (auto& mp : members) {
+        if (auto* md = dynamic_cast<ast::MethodDefinition*>(mp.get())) {
+            if (md->isAsync || md->isGenerator) continue;   // eval N/A
+            if (!md->isStatic && md->name == "constructor" && !md->isGetter && !md->isSetter) {
+                ctorMD = md; continue;
+            }
+            (md->isStatic ? statics : methods).push_back(md);
+        } else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(mp.get())) {
+            (pd->isStatic ? staticFields : *fields).push_back(pd);
+        }
+        // StaticBlock / IndexSignature: skipped
+    }
+
+    auto* cdata = new InterpFn();
+    cdata->name = className;
+    cdata->strict = true;
+    cdata->isCtor = true;
+    cdata->isDerivedCtor = derived;
+    cdata->fields = fields;
+    if (ctorMD) { cdata->params = &ctorMD->parameters; cdata->body = &ctorMD->body; }
+    else cdata->isImplicitCtor = true;
+    if (derived) cdata->superCtor = baseCtor;
+    fnRegistry().push_back(cdata);
+    TsValue* ctor = makeInterpClosure(cdata, cenv, thisV);
+
+    TsValue* proto = ts_value_make_object(ts_object_create_empty());
+    { TsValue* ex = nullptr;
+      if (!guardSet(ctor, boxStr("prototype"), proto, &ex)) return thrown(ex); }
+    ts_object_set_method(proto, boxStr("constructor"), ctor);
+    cdata->homeObject = proto;
+
+    auto installMethod = [&](ast::MethodDefinition* md, TsValue* home) -> Cpl {
+        auto* d = new InterpFn();
+        d->params = &md->parameters;
+        d->body = &md->body;
+        d->name = md->name;
+        d->strict = true;
+        d->homeObject = home;
+        if (derived) d->superCtor = baseCtor;
+        fnRegistry().push_back(d);
+        TsValue* fn = makeInterpClosure(d, cenv, thisV);
+        TsValue* keyV = boxStr(md->name);
+        bool computed = false;
+        if (md->nameNode)
+            if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(md->nameNode.get())) {
+                Cpl k = evalExpr(cpn->expression.get(), cenv, thisV, strict);
+                if (isAbrupt(k)) return k;
+                keyV = k.v; computed = true;
+            }
+        if (md->isGetter) {
+            if (computed) ts_class_install_computed_getter(home, keyV, fn);
+            else ts_object_set_method(home, boxStr("__getter_" + md->name), fn);
+        } else if (md->isSetter) {
+            if (computed) ts_class_install_computed_setter(home, keyV, fn);
+            else ts_object_set_method(home, boxStr("__setter_" + md->name), fn);
+        } else {
+            ts_object_set_method(home, keyV, fn);
+        }
+        return normal();
+    };
+    for (auto* md : methods) { Cpl r = installMethod(md, proto); if (isAbrupt(r)) return r; }
+    for (auto* md : statics) { Cpl r = installMethod(md, ctor);  if (isAbrupt(r)) return r; }
+
+    if (derived) {
+        ts_object_setPrototypeOf(proto, baseProto ? baseProto : jsNull());
+        ts_object_setPrototypeOf(ctor, baseCtor);
+    }
+
+    if (!className.empty()) envDefine(cenv, className, ctor, true);
+
+    for (auto* pd : staticFields) {
+        TsValue* keyV = boxStr(pd->name);
+        if (pd->nameNode)
+            if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pd->nameNode.get())) {
+                Cpl k = evalExpr(cpn->expression.get(), cenv, ctor, strict);
+                if (isAbrupt(k)) return k;
+                keyV = k.v;
+            }
+        TsValue* val = jsUndefined();
+        if (pd->initializer) {
+            Cpl v = evalExpr(pd->initializer.get(), cenv, ctor, strict);
+            if (isAbrupt(v)) return v;
+            val = v.v;
+        }
+        TsValue* ex = nullptr;
+        if (!guardSet(ctor, keyV, val, &ex)) return thrown(ex);
+    }
+
+    return normal(ctor);
+}
+
 Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
     Expression* callee = ce->callee.get();
     if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(callee))
         callee = p->expression.get();
+
+    // super(...): call the base constructor with the current `this`, then run
+    // this (derived) class's instance-field initializers.
+    if (dynamic_cast<ast::SuperExpression*>(callee)) {
+        TsValue* sc = envLookupReserved(env, "\x01sc");
+        if (!sc) return throwTyped("SyntaxError", "'super' keyword unexpected here");
+        std::vector<TsValue*> argv;
+        for (auto& a : ce->arguments) {
+            if (dynamic_cast<ast::SpreadElement*>(a.get()))
+                return unsupported("spread in super()");
+            Cpl v = evalExpr(a.get(), env, thisV, strict);
+            if (isAbrupt(v)) return v;
+            argv.push_back(v.v);
+        }
+        TsValue* out = nullptr; TsValue* ex = nullptr;
+        if (!guardCall(sc, thisV, (int)argv.size(),
+                       argv.empty() ? nullptr : argv.data(), &out, &ex))
+            return thrown(ex);
+        // Instance fields initialize immediately after super() returns.
+        if (TsValue* cf = envLookupReserved(env, "\x01" "cf")) {
+            InterpFn* cfd = (InterpFn*)(intptr_t)ts_value_get_int(cf);
+            if (cfd) { Cpl fr = initInstanceFields(cfd, env, thisV, strict);
+                       if (isAbrupt(fr)) return fr; }
+        }
+        return normal(jsUndefined());
+    }
+
+    // super.method(...) / super[expr](...): resolve on [[HomeObject]] proto,
+    // invoke with `this` = current this (not super).
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(callee)) {
+        if (dynamic_cast<ast::SuperExpression*>(pa->expression.get())) {
+            TsValue* home = envLookupReserved(env, "\x01h");
+            if (!home) return throwTyped("SyntaxError", "'super' keyword unexpected here");
+            TsValue* sproto = ts_object_getPrototypeOf(home);
+            TsValue* fnV = nullptr; TsValue* ex = nullptr;
+            if (sproto && !ts_value_is_nullish(sproto) &&
+                !guardGet(sproto, boxStr(pa->name), &fnV, &ex)) return thrown(ex);
+            if (!fnV || !ts_is_callable(fnV))
+                return throwTyped("TypeError", "(intermediate value)." + pa->name + " is not a function");
+            std::vector<TsValue*> argv;
+            for (auto& a : ce->arguments) {
+                if (dynamic_cast<ast::SpreadElement*>(a.get()))
+                    return unsupported("spread argument");
+                Cpl v = evalExpr(a.get(), env, thisV, strict);
+                if (isAbrupt(v)) return v;
+                argv.push_back(v.v);
+            }
+            TsValue* out = nullptr;
+            if (!guardCall(fnV, thisV, (int)argv.size(),
+                           argv.empty() ? nullptr : argv.data(), &out, &ex))
+                return thrown(ex);
+            return normal(out ? out : jsUndefined());
+        }
+    }
 
     // Direct eval inside eval'd code: run in the CURRENT interpreter scope —
     // the one place ts-aot can honor direct-eval semantics, because
@@ -2220,6 +2490,18 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
                     vt->Set(key(fd->name), nanbox_to_tagged(val));
                 }
             }
+        }
+        return normal();
+    }
+    if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(s)) {
+        // A class declaration is lexical (bound in the current env, not the var
+        // scope) and has an EMPTY completion (does not overwrite the running
+        // completion value).
+        Cpl c = evalClass(cd->name, cd->baseClass, cd->members, env, thisV, strict);
+        if (isAbrupt(c)) return c;
+        if (!cd->name.empty()) {
+            // Overwrite the TDZ marker predeclareLexical installed.
+            env->Set(key(cd->name), nanbox_to_tagged(c.v));
         }
         return normal();
     }
