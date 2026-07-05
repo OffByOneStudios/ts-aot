@@ -58,6 +58,8 @@ extern "C" {
     void ts_parse_free(void* handle);
 
     void* ts_get_call_this();
+    void* ts_get_new_target();
+    void* ts_set_new_target(void* v);
     bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor);
     void* ts_to_string_spec(TsValue* val);
     bool ts_is_callable(void* val);
@@ -185,12 +187,17 @@ bool guardCall(TsValue* fn, TsValue* thisV, int argc, TsValue** argv,
 }
 
 bool guardConstruct(TsValue* fn, TsValue* argsArr, TsValue** out, TsValue** ex) {
+    // ts_construct_apply does not set [[NewTarget]]; set it to the constructor
+    // for the duration of the call so new.target resolves inside the ctor.
+    void* prevNT = ts_set_new_target(fn);
     void* buf = ts_push_exception_handler();
     if (setjmp(*(jmp_buf*)buf) == 0) {
         *out = ts_construct_apply(fn, argsArr);
         ts_pop_exception_handler();
+        ts_set_new_target(prevNT);
         return true;
     }
+    ts_set_new_target(prevNT);
     *ex = ts_get_exception();
     return false;
 }
@@ -1292,6 +1299,14 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
     }
 
     if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(e)) {
+        // new.target meta-property parses as PropertyAccess(Identifier"new",
+        // "target"). Read the ambient [[NewTarget]] register.
+        if (pa->name == "target")
+            if (auto* nid = dynamic_cast<ast::Identifier*>(pa->expression.get()))
+                if (nid->name == "new") {
+                    TsValue* nt = (TsValue*)ts_get_new_target();
+                    return normal(nt ? nt : jsUndefined());
+                }
         // super.prop: read from [[HomeObject]].[[Prototype]] (receiver = this).
         if (dynamic_cast<ast::SuperExpression*>(pa->expression.get())) {
             TsValue* home = envLookupReserved(env, "\x01h");
