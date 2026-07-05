@@ -46,6 +46,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <set>
 
 // ---------------------------------------------------------------------------
 // Runtime ABI decls not exported through headers we can include cleanly.
@@ -516,8 +517,11 @@ void hoistCollect(Statement* s, std::vector<std::string>& vars,
         }
         return;
     }
-    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
-        fns.push_back(fd);
+    if (dynamic_cast<ast::FunctionDeclaration*>(s)) {
+        // A function declaration is NOT a var-scope binding here. Direct-body
+        // fns are collected separately (collectTopLevelFns); block-nested fns
+        // are block-scoped + Annex-B promoted (see annexCollectPromoted). Do
+        // not descend into the nested function body (own scope).
         return;
     }
     if (auto* b = dynamic_cast<ast::BlockStatement*>(s)) {
@@ -570,6 +574,199 @@ void hoistCollect(Statement* s, std::vector<std::string>& vars,
     }
 }
 
+// Unwrap labels (transparent for hoisting/scoping purposes).
+inline Statement* unlabel(Statement* s) {
+    while (auto* l = dynamic_cast<ast::LabeledStatement*>(s)) s = l->statement.get();
+    return s;
+}
+
+// Direct-body-level function declarations (var-scoped in a function/eval body).
+// Synthetic blocks and labels are transparent; real blocks are NOT descended.
+void collectTopLevelFns(std::vector<ast::StmtPtr>& body,
+                        std::vector<ast::FunctionDeclaration*>& fns) {
+    for (auto& sp : body) {
+        Statement* s = unlabel(sp.get());
+        if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) { fns.push_back(fd); continue; }
+        if (auto* b = dynamic_cast<ast::BlockStatement*>(s))
+            if (b->isSynthetic) collectTopLevelFns(b->statements, fns);
+    }
+}
+
+// --- Annex B.3.3: block-scoped function declarations in (sloppy) eval code ---
+// A FunctionDeclaration nested in a block / if-branch / loop body / switch
+// clause / try-catch-finally block is block-scoped (R1) and, unless shadowed
+// by an enclosing lexical binding of the same name (R4), is "promoted": a var
+// binding is pre-created at instantiation and the block-local value is copied
+// to the var scope when the declaration statement runs. Strict mode: R1 only.
+
+// Lexical names declared directly in a statement list: let/const/class always,
+// and (when this list is a block, not the var-scope top level) block-level
+// function declarations too.
+void collectLexNamesInList(std::vector<Statement*>& stmts, bool includeFns,
+                           std::set<std::string>& out) {
+    for (Statement* s0 : stmts) {
+        Statement* s = unlabel(s0);
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s)) {
+            if (vd->varKind != ast::VarKind::Var)
+                if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    out.insert(id->name);
+        } else if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(s)) {
+            if (!cd->name.empty()) out.insert(cd->name);
+        } else if (includeFns) {
+            if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s))
+                if (!fd->name.empty()) out.insert(fd->name);
+        }
+    }
+}
+
+void annexWalkStmts(std::vector<Statement*> stmts, std::set<std::string> encl,
+                    bool atTop, std::set<std::string>& promoted);
+void annexDescendScope(Statement* s, const std::set<std::string>& encl,
+                       std::set<std::string>& promoted);
+
+// A branch (if then/else): a bare FunctionDeclaration is a block-level candidate
+// (Annex B.3.2 synthesized block); otherwise descend as an ordinary scope.
+void annexBranchWalk(Statement* s, const std::set<std::string>& encl,
+                     std::set<std::string>& promoted) {
+    if (!s) return;
+    s = unlabel(s);
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
+        if (!fd->name.empty() && !encl.count(fd->name)) promoted.insert(fd->name);
+        return;
+    }
+    annexDescendScope(s, encl, promoted);
+}
+
+void annexDescendScope(Statement* s, const std::set<std::string>& encl,
+                       std::set<std::string>& promoted) {
+    if (!s) return;
+    s = unlabel(s);
+    if (auto* b = dynamic_cast<ast::BlockStatement*>(s)) {
+        std::vector<Statement*> raw;
+        for (auto& st : b->statements) raw.push_back(st.get());
+        annexWalkStmts(raw, encl, /*atTop*/false, promoted);
+        return;
+    }
+    if (auto* i = dynamic_cast<ast::IfStatement*>(s)) {
+        annexBranchWalk(i->thenStatement.get(), encl, promoted);
+        annexBranchWalk(i->elseStatement.get(), encl, promoted);
+        return;
+    }
+    auto headName = [](ast::Statement* init, std::set<std::string>& e) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(init))
+            if (vd->varKind != ast::VarKind::Var)
+                if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    e.insert(id->name);
+    };
+    if (auto* f = dynamic_cast<ast::ForStatement*>(s)) {
+        std::set<std::string> e2 = encl;
+        if (f->initializer) headName(f->initializer.get(), e2);
+        annexDescendScope(f->body.get(), e2, promoted);
+        return;
+    }
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s)) {
+        std::set<std::string> e2 = encl;
+        if (fo->initializer) headName(fo->initializer.get(), e2);
+        annexDescendScope(fo->body.get(), e2, promoted);
+        return;
+    }
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(s)) {
+        std::set<std::string> e2 = encl;
+        if (fi->initializer) headName(fi->initializer.get(), e2);
+        annexDescendScope(fi->body.get(), e2, promoted);
+        return;
+    }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(s)) {
+        annexDescendScope(w->body.get(), encl, promoted);
+        return;
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s)) {
+        // All clauses share ONE lexical scope: flatten clause statements into a
+        // single list so the union of clause lexicals blocks nested candidates.
+        std::vector<Statement*> raw;
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& st : cc->statements) raw.push_back(st.get());
+            else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& st : dc->statements) raw.push_back(st.get());
+        }
+        annexWalkStmts(raw, encl, /*atTop*/false, promoted);
+        return;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(s)) {
+        std::vector<Statement*> traw;
+        for (auto& st : t->tryBlock) traw.push_back(st.get());
+        annexWalkStmts(traw, encl, false, promoted);
+        if (t->catchClause) {
+            std::set<std::string> ce = encl;
+            // B.3.5: a SIMPLE identifier catch param does NOT block; a
+            // destructuring pattern binds names that DO block.
+            if (t->catchClause->variable &&
+                !dynamic_cast<ast::Identifier*>(t->catchClause->variable.get())) {
+                if (auto* obp = dynamic_cast<ast::ObjectBindingPattern*>(
+                        t->catchClause->variable.get()))
+                    for (auto& el : obp->elements)
+                        if (auto* be = dynamic_cast<ast::BindingElement*>(el.get()))
+                            if (auto* id = dynamic_cast<ast::Identifier*>(be->name.get()))
+                                ce.insert(id->name);
+                if (auto* abp = dynamic_cast<ast::ArrayBindingPattern*>(
+                        t->catchClause->variable.get()))
+                    for (auto& el : abp->elements)
+                        if (auto* be = dynamic_cast<ast::BindingElement*>(el.get()))
+                            if (auto* id = dynamic_cast<ast::Identifier*>(be->name.get()))
+                                ce.insert(id->name);
+            }
+            std::vector<Statement*> craw;
+            for (auto& st : t->catchClause->block) craw.push_back(st.get());
+            annexWalkStmts(craw, ce, false, promoted);
+        }
+        std::vector<Statement*> fraw;
+        for (auto& st : t->finallyBlock) fraw.push_back(st.get());
+        annexWalkStmts(fraw, encl, false, promoted);
+        return;
+    }
+}
+
+void annexWalkStmts(std::vector<Statement*> stmts, std::set<std::string> encl,
+                    bool atTop, std::set<std::string>& promoted) {
+    // Direct block-level function declarations promote unless shadowed by an
+    // enclosing lexical binding. At the var-scope top level, fns are var-scoped
+    // (not block candidates).
+    if (!atTop)
+        for (Statement* s0 : stmts) {
+            Statement* s = unlabel(s0);
+            if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s))
+                if (!fd->name.empty() && !encl.count(fd->name)) promoted.insert(fd->name);
+        }
+    // Lexical names introduced at this level are visible to nested scopes.
+    std::set<std::string> here = encl;
+    collectLexNamesInList(stmts, /*includeFns*/!atTop, here);
+    for (Statement* s0 : stmts) {
+        Statement* s = unlabel(s0);
+        // Synthetic blocks add no scope: fold their statements at this level.
+        if (auto* b = dynamic_cast<ast::BlockStatement*>(s))
+            if (b->isSynthetic) {
+                std::vector<Statement*> raw;
+                for (auto& st : b->statements) raw.push_back(st.get());
+                annexWalkStmts(raw, here, atTop, promoted);
+                continue;
+            }
+        annexDescendScope(s, here, promoted);
+    }
+}
+
+void annexCollectPromoted(std::vector<ast::StmtPtr>& body,
+                          std::set<std::string>& promoted) {
+    std::vector<Statement*> raw;
+    for (auto& sp : body) raw.push_back(sp.get());
+    annexWalkStmts(raw, {}, /*atTop*/true, promoted);
+}
+
+// Instantiate block-level function declarations as block-local bindings over
+// `benv` (R1). Runs at block entry; labels are transparent.
+void instantiateBlockFns(std::vector<ast::StmtPtr>& stmts, TsMap* benv,
+                         TsValue* thisV, bool strict);
+
 // Declares hoisted names into the var-scope env (or globalThis for indirect
 // sloppy eval). Function declarations are instantiated immediately.
 Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
@@ -577,6 +774,7 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
     std::vector<std::string> vars;
     std::vector<ast::FunctionDeclaration*> fns;
     for (auto& s : body) hoistCollect(s.get(), vars, fns);
+    collectTopLevelFns(body, fns);
 
     TsMap* target = envVarTarget(env);
     bool toGlobal = envIsGlobalVarScope(target);
@@ -659,7 +857,57 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
             envDefine(target, fd->name, fn, false);
         }
     }
+
+    // Annex B.3.3.3: pre-create var bindings for promoted block-level function
+    // declarations (sloppy only). The block-local binding + copy at the decl
+    // statement are handled at execution time; here we only reserve the var
+    // slot (undefined) and mark the name promoted via "\x01x:" on the target.
+    if (!strict) {
+        std::set<std::string> promoted;
+        annexCollectPromoted(body, promoted);
+        for (auto& name : promoted) {
+            if (toGlobal) {
+                // Own-property check (proto chain lies); leave any existing own
+                // property (value AND attributes) untouched. Non-extensible +
+                // no own property -> skip silently (CanDeclareGlobalVar false).
+                TsValue* desc =
+                    ts_object_getOwnPropertyDescriptor(globalThis, boxStr(name));
+                bool ownExists = desc && ts_value_get_object(desc);
+                if (!ownExists) {
+                    if (globalNonExtensible) continue;
+                    TsValue* ex = nullptr;
+                    if (!guardSet(globalThis, boxStr(name), jsUndefined(), &ex))
+                        return thrown(ex);
+                }
+            } else if (!envHasOwn(target, name)) {
+                envDefine(target, name, jsUndefined(), false);
+            }
+            target->Set(key("\x01x:" + name), nanbox_to_tagged(jsBool(true)));
+        }
+    }
     return normal();
+}
+
+// Instantiate one block-level function declaration as a block-local closure
+// over `benv` (Annex B R1).
+void instantiateBlockFn1(ast::FunctionDeclaration* fd, TsMap* benv,
+                         TsValue* thisV, bool strict) {
+    if (!fd || fd->name.empty()) return;
+    auto* data = new InterpFn();
+    data->params = &fd->parameters;
+    data->body = &fd->body;
+    data->name = fd->name;
+    data->strict = strict || bodyHasUseStrict(fd->body);
+    fnRegistry().push_back(data);
+    envDefine(benv, fd->name, makeInterpClosure(data, benv, thisV), false);
+}
+
+// Instantiate all direct block-level fns of a statement list; labels transparent.
+void instantiateBlockFns(std::vector<ast::StmtPtr>& stmts, TsMap* benv,
+                         TsValue* thisV, bool strict) {
+    for (auto& sp : stmts)
+        instantiateBlockFn1(dynamic_cast<ast::FunctionDeclaration*>(unlabel(sp.get())),
+                            benv, thisV, strict);
 }
 
 // Pre-declare block-level let/const as TDZ in the block env.
@@ -1454,10 +1702,14 @@ Cpl execBlock(ast::BlockStatement* b, TsMap* env, TsValue* thisV, bool strict) {
         TsMap* wenv = envNew(env, false);
         wenv->Set(key("\x01w"), nanbox_to_tagged(h.v));
         predeclareLexical(b->statements, wenv);
+        instantiateBlockFns(b->statements, wenv, thisV, strict);
         return execStmts(b->statements, wenv, thisV, strict);
     }
     TsMap* benv = b->isSynthetic ? env : envNew(env, false);
-    if (!b->isSynthetic) predeclareLexical(b->statements, benv);
+    if (!b->isSynthetic) {
+        predeclareLexical(b->statements, benv);
+        instantiateBlockFns(b->statements, benv, thisV, strict);
+    }
     return execStmts(b->statements, benv, thisV, strict);
 }
 
@@ -1636,6 +1888,17 @@ Cpl execSwitch(ast::SwitchStatement* sw, TsMap* env, TsValue* thisV, bool strict
     if (isAbrupt(d)) return d;
     TsMap* senv = envNew(env, false);
 
+    // The CaseBlock is one lexical scope: TDZ its let/const and instantiate
+    // block-level fns (all clauses) before evaluating case expressions.
+    for (auto& cl : sw->clauses) {
+        std::vector<ast::StmtPtr>* cs = nullptr;
+        if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) cs = &cc->statements;
+        else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) cs = &dc->statements;
+        if (!cs) continue;
+        predeclareLexical(*cs, senv);
+        instantiateBlockFns(*cs, senv, thisV, strict);
+    }
+
     // Find the matching clause (=== on case expressions, in order), else default.
     int64_t start = -1;
     int64_t defaultIdx = -1;
@@ -1672,6 +1935,7 @@ Cpl execSwitch(ast::SwitchStatement* sw, TsMap* env, TsValue* thisV, bool strict
 Cpl execTry(ast::TryStatement* t, TsMap* env, TsValue* thisV, bool strict) {
     TsMap* tenv = envNew(env, false);
     predeclareLexical(t->tryBlock, tenv);
+    instantiateBlockFns(t->tryBlock, tenv, thisV, strict);
     Cpl r = execStmts(t->tryBlock, tenv, thisV, strict);
 
     if (r.k == Cpl::Thrown && t->catchClause) {
@@ -1683,16 +1947,31 @@ Cpl execTry(ast::TryStatement* t, TsMap* env, TsValue* thisV, bool strict) {
                 return unsupported("destructuring catch binding");
         }
         predeclareLexical(t->catchClause->block, cenv);
+        instantiateBlockFns(t->catchClause->block, cenv, thisV, strict);
         r = execStmts(t->catchClause->block, cenv, thisV, strict);
     }
 
     if (!t->finallyBlock.empty()) {
         TsMap* fenv = envNew(env, false);
         predeclareLexical(t->finallyBlock, fenv);
+        instantiateBlockFns(t->finallyBlock, fenv, thisV, strict);
         Cpl f = execStmts(t->finallyBlock, fenv, thisV, strict);
         if (isAbrupt(f)) return f;   // finally overrides try/catch completion
     }
     return r;
+}
+
+// An if/else branch: a lone FunctionDeclaration is a synthetic one-statement
+// block (Annex B.3.2) so it is block-scoped + B.3.3-promoted, not a no-op.
+Cpl execBranch(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
+    if (!s) return normal();
+    Statement* u = unlabel(s);
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(u)) {
+        TsMap* benv = envNew(env, false);
+        instantiateBlockFn1(fd, benv, thisV, strict);
+        return execStmt(u, benv, thisV, strict);
+    }
+    return execStmt(s, env, thisV, strict);
 }
 
 Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
@@ -1710,8 +1989,8 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
     if (auto* i = dynamic_cast<ast::IfStatement*>(s)) {
         Cpl c = evalExpr(i->condition.get(), env, thisV, strict);
         if (isAbrupt(c)) return c;
-        if (ts_value_to_bool(c.v)) return execStmt(i->thenStatement.get(), env, thisV, strict);
-        if (i->elseStatement)      return execStmt(i->elseStatement.get(), env, thisV, strict);
+        if (ts_value_to_bool(c.v)) return execBranch(i->thenStatement.get(), env, thisV, strict);
+        if (i->elseStatement)      return execBranch(i->elseStatement.get(), env, thisV, strict);
         return normal();
     }
     if (auto* w = dynamic_cast<ast::WhileStatement*>(s))
@@ -1758,8 +2037,26 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
         if (c.k == Cpl::Brk && c.label == l->label) return normal(c.v);
         return c;
     }
-    if (dynamic_cast<ast::FunctionDeclaration*>(s))
-        return normal(); // instantiated during hoisting
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
+        // Top-level fns are instantiated during hoisting (no-op here). A
+        // block-level fn has an OWN block-local binding (created at block
+        // entry); if its name was promoted (Annex B.3.3, sloppy), copy the
+        // current block value to the var-scope target when the declaration
+        // statement is reached (R3: written DIRECTLY on the var env).
+        if (!strict && !fd->name.empty() && envHasOwn(env, fd->name)) {
+            TsMap* vt = envVarTarget(env);
+            if (vt && vt->Has(key("\x01x:" + fd->name))) {
+                TsValue* val = envGetOwn(env, fd->name);
+                if (envIsGlobalVarScope(vt)) {
+                    TsValue* ex = nullptr;
+                    if (!guardSet(globalThis, boxStr(fd->name), val, &ex)) return thrown(ex);
+                } else if (!envIsConst(vt, fd->name)) {
+                    vt->Set(key(fd->name), nanbox_to_tagged(val));
+                }
+            }
+        }
+        return normal();
+    }
     if (dynamic_cast<ast::InterfaceDeclaration*>(s) ||
         dynamic_cast<ast::TypeAliasDeclaration*>(s))
         return normal(); // type-only
