@@ -408,15 +408,21 @@ The seam (§14) is the only place boxing/roots reappear.
   `_length`, `_get_f64/_set_f64`, `_get_i64/_set_i64`, `_dispose`. 8-byte slots
   for now (HIR Int64/Float64 widths). Inert (no compiler wiring), so 0
   regression.
-- **2b — compiler integration — NEXT.** Make `NativeArray<T>` usable in fast
-  `.ts`. Pieces: (1) a type for it — either a new `HIRTypeKind` or a recognized
-  builtin class name "NativeArray" (analyzer + `convertTypeFromString`, gated on
-  fastFile_); (2) a `HandlerRegistry` method handler (mirror the Map/Set handler
-  in `HIRToLLVM_CallsMethod.cpp`) lowering `.length` / `.get(i)` / `.set(i,v)` /
-  `.dispose()` to the runtime calls, picking `_f64` vs `_i64` from the element
-  type `T`; (3) `new NativeArray<T>(n, Allocator.Temp)` codegen ->
-  `ts_native_array_new`; (4) `Allocator` enum (Temp=0, Persistent=1). Element
-  get/set via methods first; `arr[i]` indexing sugar later.
+- **2b — compiler integration — DONE** (`2b19a2c2`). `NativeArray<T>` is usable
+  end-to-end in fast `.ts`, all gated on the directive. (1) analyzer registers
+  the `NativeArray` ClassType + ctor + `Allocator{Temp,Persistent}` only when
+  fastFile_ (`Analyzer_Core.cpp`) — undefined outside fast files; (2)
+  `NativeArrayHandler` lowers `.get(i)`/`.set(i,v)`/`.dispose()` to the runtime,
+  picking `_f64` vs `_i64` from the element type carried on the receiver
+  HIRType; (3) `new NativeArray<T>(n[, Allocator.X])` -> `ts_native_array_new`
+  (ASTToHIR + an explicit i64,i64->ptr signature in `HIRToLLVM_Calls.cpp` — the
+  generic all-ptr fallback would mislink the int args); (4) `.length` ->
+  `ts_native_array_length` (`HIRToLLVM_Memory.cpp`, mirroring String.length).
+  Test `tests/fast/test_native_array.ts`. `arr[i]` indexing sugar is deferred
+  (the className "NativeArray" matches the `.find("Array")` indexed-collection
+  check in lowerSetElem/lowerGetElem — wire a NativeArray branch there before
+  enabling `[i]`, else it routes to ts_array_get/set and corrupts). Gates: node
+  300/300, golden no-reg, fast 14/14, 2k 0 lost/0 gained.
 - **2c — no-GC region.** In a fast file, drop write barriers, statepoints, and
   the stack-alloc cap (`HIRToLLVM_Memory.cpp:448`); Temp allocator becomes a
   scope arena with bulk free. This is the marquee perf win.
