@@ -76,6 +76,10 @@ public:
     // Run escape analysis to identify stack-allocatable objects
     void performEscapeAnalysis(ast::Program* program);
 
+    // Phase 0 of "use fast" (docs/design/use-fast.md): when program->isFast,
+    // reject constructs outside the high-performance subset with diagnostics.
+    void performFastCheck(ast::Program* program);
+
     // Get the symbol table (for later passes)
     SymbolTable& getSymbolTable() { return symbols; }
     const SymbolTable& getSymbolTable() const { return symbols; }

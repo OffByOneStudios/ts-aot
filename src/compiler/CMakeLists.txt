@@ -75,6 +75,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Expressions_Async.cpp
     analysis/Analyzer_JSX.cpp
     analysis/Analyzer_Escape.cpp
+    analysis/Analyzer_FastCheck.cpp
     analysis/Monomorphizer.cpp
     Driver.cpp
     codegen/CodeGenerator.cpp

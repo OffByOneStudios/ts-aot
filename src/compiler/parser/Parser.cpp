@@ -249,6 +249,20 @@ bool Parser::processPrologueDirective(const ast::StmtPtr& stmt) {
     if (!exprStmt) return false;
     auto* strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get());
     if (!strLit) return false;
+    if (strLit->value == "use fast") {
+        // "use fast" opts this file into the enforced high-performance subset
+        // (docs/design/use-fast.md) and implies strict mode.
+        sawUseFastDirective_ = true;
+        strictMode_ = true;
+        sawUseStrictDirective_ = true;
+        for (auto& p : pendingPrologueStrings_) {
+            Lexer::validateLegacyOctalEscapes(
+                p.raw, /*isStrict=*/true, /*isTemplate=*/false,
+                p.line, p.column);
+        }
+        pendingPrologueStrings_.clear();
+        return true;
+    }
     if (strLit->value == "use strict") {
         strictMode_ = true;
         sawUseStrictDirective_ = true;
@@ -661,6 +675,7 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
                 // Monomorphizer moves body statements into function specs
                 // before ASTToHIR runs, so the prologue can't be re-scanned.
                 if (strictMode_) program->isStrict = true;
+                if (sawUseFastDirective_) program->isFast = true;
             } else {
                 inPrologue = false;
             }

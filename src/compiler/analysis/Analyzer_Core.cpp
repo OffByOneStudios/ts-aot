@@ -100,6 +100,7 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     moduleOrder.push_back(currentFilePath);
 
     performEscapeAnalysis(program);
+    performFastCheck(program);  // "use fast" subset enforcement (docs/design/use-fast.md)
     activeOptions = prevOptions;  // Strategy B Phase 5e-i: restore profile
 }
 

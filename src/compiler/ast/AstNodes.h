@@ -225,6 +225,11 @@ struct Program : Node {
     // the parser (the Monomorphizer moves body statements into function
     // specs before ASTToHIR runs, so the prologue can't be re-scanned later).
     bool isStrict = false;
+    // "use fast" appeared in the top-level directive prologue: this file opts
+    // into the enforced high-performance subset (see docs/design/use-fast.md).
+    // Implies isStrict. The FastCheck analyzer pass rejects constructs outside
+    // the subset.
+    bool isFast = false;
     std::string getKind() const override { return "Program"; }
     void accept(Visitor* visitor) override { visitor->visitProgram(this); }
 };

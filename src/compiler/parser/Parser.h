@@ -243,6 +243,7 @@ private:
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
+    bool sawUseFastDirective_ = false;  // Did the top-level prologue contain "use fast"? (docs/design/use-fast.md)
     // Raw text of string statements seen so far in the CURRENT directive
     // prologue. A later "use strict" in the same prologue re-validates them
     // (legacy octal escapes become errors retroactively, ECMA-262 11.2.1).
