@@ -1679,6 +1679,25 @@ void* ts_get_global_Number() {
         addMethod(ctorFunc->properties, "isInteger",     (void*)ts_number_isInteger_native,       1);
         addMethod(ctorFunc->properties, "isSafeInteger", (void*)ts_number_isSafeInteger_native,   1);
 
+        // ES 21.1.2.12/13: Number.parseInt and Number.parseFloat ARE the same
+        // function objects as the global parseInt / parseFloat (identity is
+        // observable). Install the cached global singletons, not fresh copies.
+        {
+            extern void* ts_get_builtin_function(void* nameStr);
+            void* piFn = ts_get_builtin_function(TsString::Create("parseInt"));
+            void* pfFn = ts_get_builtin_function(TsString::Create("parseFloat"));
+            if (piFn) {
+                TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("parseInt");
+                TsValue v; v.type = ValueType::OBJECT_PTR; v.ptr_val = piFn;
+                ctorFunc->properties->SetWithAttrs(k, v, 0x02 | 0x04 /* writable|configurable */);
+            }
+            if (pfFn) {
+                TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("parseFloat");
+                TsValue v; v.type = ValueType::OBJECT_PTR; v.ptr_val = pfFn;
+                ctorFunc->properties->SetWithAttrs(k, v, 0x02 | 0x04 /* writable|configurable */);
+            }
+        }
+
         // Number.prototype.constructor = Number. Was unset, so
         // `(new Number(x)).constructor` read undefined and lodash cloneNumber
         // `new value.constructor(value)` failed.

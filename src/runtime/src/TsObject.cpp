@@ -1085,19 +1085,32 @@ void* ts_create_arguments_from_params(
         return ts_value_make_bool(std::isfinite(d));
     }
 
+    // The global function properties (parseInt, isNaN, ...) are SINGLETONS per
+    // spec — `parseInt === parseInt` and `Number.parseInt === parseInt` require
+    // one stable object. Cache each lazily (GC-rooted) instead of minting a
+    // fresh closure on every lookup.
+    static void* cached_builtin_fn(void** slot, void* fn, const char* name, int len) {
+        if (!*slot) {
+            *slot = makeNamedNativeFunction(fn, nullptr, name, len);
+            ts_gc_register_root(slot);
+        }
+        return *slot;
+    }
     void* ts_get_builtin_function(void* nameStr) {
         TsString* name = ts_ensure_flat(nameStr);
         if (!name) return nullptr;
         const char* n = name->ToUtf8();
         if (!n) return nullptr;
-        if (strcmp(n, "encodeURIComponent") == 0) return makeNamedNativeFunction((void*)builtin_encodeURIComponent_native, nullptr, "encodeURIComponent", 1);
-        if (strcmp(n, "decodeURIComponent") == 0) return makeNamedNativeFunction((void*)builtin_decodeURIComponent_native, nullptr, "decodeURIComponent", 1);
-        if (strcmp(n, "encodeURI") == 0) return makeNamedNativeFunction((void*)builtin_encodeURI_native, nullptr, "encodeURI", 1);
-        if (strcmp(n, "decodeURI") == 0) return makeNamedNativeFunction((void*)builtin_decodeURI_native, nullptr, "decodeURI", 1);
-        if (strcmp(n, "parseInt") == 0) return makeNamedNativeFunction((void*)builtin_parseInt_native, nullptr, "parseInt", 2);
-        if (strcmp(n, "parseFloat") == 0) return makeNamedNativeFunction((void*)builtin_parseFloat_native, nullptr, "parseFloat", 1);
-        if (strcmp(n, "isNaN") == 0) return makeNamedNativeFunction((void*)builtin_isNaN_native, nullptr, "isNaN", 1);
-        if (strcmp(n, "isFinite") == 0) return makeNamedNativeFunction((void*)builtin_isFinite_native, nullptr, "isFinite", 1);
+        static void *sEncURIComp=nullptr, *sDecURIComp=nullptr, *sEncURI=nullptr, *sDecURI=nullptr,
+                    *sParseInt=nullptr, *sParseFloat=nullptr, *sIsNaN=nullptr, *sIsFinite=nullptr;
+        if (strcmp(n, "encodeURIComponent") == 0) return cached_builtin_fn(&sEncURIComp, (void*)builtin_encodeURIComponent_native, "encodeURIComponent", 1);
+        if (strcmp(n, "decodeURIComponent") == 0) return cached_builtin_fn(&sDecURIComp, (void*)builtin_decodeURIComponent_native, "decodeURIComponent", 1);
+        if (strcmp(n, "encodeURI") == 0) return cached_builtin_fn(&sEncURI, (void*)builtin_encodeURI_native, "encodeURI", 1);
+        if (strcmp(n, "decodeURI") == 0) return cached_builtin_fn(&sDecURI, (void*)builtin_decodeURI_native, "decodeURI", 1);
+        if (strcmp(n, "parseInt") == 0) return cached_builtin_fn(&sParseInt, (void*)builtin_parseInt_native, "parseInt", 2);
+        if (strcmp(n, "parseFloat") == 0) return cached_builtin_fn(&sParseFloat, (void*)builtin_parseFloat_native, "parseFloat", 1);
+        if (strcmp(n, "isNaN") == 0) return cached_builtin_fn(&sIsNaN, (void*)builtin_isNaN_native, "isNaN", 1);
+        if (strcmp(n, "isFinite") == 0) return cached_builtin_fn(&sIsFinite, (void*)builtin_isFinite_native, "isFinite", 1);
         return nullptr;
     }
 
