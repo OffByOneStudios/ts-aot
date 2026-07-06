@@ -48,6 +48,13 @@ SUITES = [
         'parallel_args': ['-j', '8'],
     },
     {
+        'name': 'Use Fast',
+        'key': 'fast',
+        'script': str(TESTS_DIR / 'fast' / 'run_fast_tests.py'),
+        'args': [],
+        'verbose_flag': None,
+    },
+    {
         'name': 'NPM',
         'key': 'npm',
         'script': str(TESTS_DIR / 'npm' / 'runner.py'),
@@ -138,6 +145,15 @@ def parse_results(output: str, suite_key: str) -> dict:
 
     elif suite_key == 'node':
         # Node runner: "Passed:            N" and "Failed:            N"
+        m = re.search(r'Passed:\s+(\d+)', clean)
+        if m:
+            passed = int(m.group(1))
+        m = re.search(r'Failed:\s+(\d+)', clean)
+        if m:
+            failed = int(m.group(1))
+
+    elif suite_key == 'fast':
+        # Use-fast runner: "Passed: N" and "Failed: N"
         m = re.search(r'Passed:\s+(\d+)', clean)
         if m:
             passed = int(m.group(1))
