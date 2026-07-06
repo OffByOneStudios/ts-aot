@@ -139,7 +139,7 @@ The dispatch heuristic is the largest clusters by 3-segment path prefix:
 | `language/expressions/in` | private-field `#x in y` brand check | Feature (heavy) |
 | `language/statements/for-of` (dstr) | Destructuring elem init | Parser (narrow) |
 | `staging/sm/expressions` | SM-only patterns | Mixed |
-| `annexB/language/eval-code` | Runtime eval | **Skip — AOT incompatible** |
+| `annexB/language/eval-code` | Runtime eval | Runtime interpreter (narrow to medium) — attackable since EVAL-001 (2026-07-04) shipped the tree-walker `eval()`; failures are usually missing interpreter features in `src/runtime` eval code |
 
 After 3 random samples in a cluster, you usually see the same error shape. If the samples diverge wildly, the cluster is heterogeneous — pick a different cluster or sub-bucket.
 

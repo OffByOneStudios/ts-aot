@@ -368,7 +368,13 @@ void ASTToHIR::bindOneParameter(HIRFunction* func,
         builder_.setInsertPoint(defaultBB);
         currentBlock_ = defaultBB;
         auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+        int savedAEF = activeEvalFlags_;
+        HIRFunction* savedAEO = evalFlagsOwner_;
+        activeEvalFlags_ = paramEvalCtxFlags_;
+        evalFlagsOwner_ = func;
         auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+        activeEvalFlags_ = savedAEF;
+        evalFlagsOwner_ = savedAEO;
         // Force box the default value if parameter type is Any. We use
         // forceBoxValue because the expression might be a function call that
         // gets inlined later, changing its type from Any to a concrete type.
@@ -417,7 +423,13 @@ void ASTToHIR::extractDestructuringForParam(HIRFunction* func,
     // Initializer: if the actual argument is undefined, use the default.
     if (auto* defaultExpr = dynamic_cast<ast::Expression*>(defaultInitializer)) {
         auto isUndef = builder_.createIsUndefined(paramValue);
+        int savedAEF = activeEvalFlags_;
+        HIRFunction* savedAEO = evalFlagsOwner_;
+        activeEvalFlags_ = paramEvalCtxFlags_;
+        evalFlagsOwner_ = func;
         auto defaultVal = lowerExpression(defaultExpr);
+        activeEvalFlags_ = savedAEF;
+        evalFlagsOwner_ = savedAEO;
         defaultVal = boxValueIfNeeded(defaultVal);
         paramValue = builder_.createSelect(isUndef, defaultVal, paramValue);
     }

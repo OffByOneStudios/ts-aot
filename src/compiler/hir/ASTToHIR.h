@@ -178,6 +178,19 @@ private:
     // active handler to prevent leaked handlers pointing to destroyed frames.
     int tryDepth_ = 0;
 
+    // Direct-eval-in-parameter-initializer context (ES2025 19.2.1.3 step 5.d).
+    // paramEvalCtxFlags_: value each visitFunction* site computes for its own
+    // params (bit0 = param-init, bit1 = an 'arguments' binding lies on the
+    // eval's lexEnv->varEnv walk: any non-arrow form, or an arrow with a
+    // parameter named 'arguments'). activeEvalFlags_/evalFlagsOwner_: armed by
+    // bindOneParameter/extractDestructuringForParam only while lowering a
+    // default expression; the eval() lowering consumes them only when
+    // evalFlagsOwner_ == currentFunction_, so nested function bodies inside a
+    // default expression never inherit the context.
+    int paramEvalCtxFlags_ = 0;
+    int activeEvalFlags_ = 0;
+    HIRFunction* evalFlagsOwner_ = nullptr;
+
     // GEN-001 Stage 6: parallel stack of enclosing try scopes — the function
     // they belong to plus their catch-dispatch block (visitTryStatement's
     // exceptionDest). Pushed/popped exactly where tryDepth_ changes. Yields
