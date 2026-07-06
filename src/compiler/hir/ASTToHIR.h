@@ -293,6 +293,10 @@ private:
     // entries, which throw TypeError on a blocked write (ES 13.15.2 PutValue
     // with throw = true) instead of silently no-oping.
     bool strictCode_ = false;
+    // True when lowering a "use fast" file: convertTypeFromString only maps the
+    // fixed-width numeric aliases (i32/f64/...) then, keeping non-fast files a
+    // strict TS subset. Set from Program::isFast in lower().
+    bool fastCode_ = false;
 
     // Lexical `with` nesting depth (ES 14.11). Entries are pushed on the
     // runtime with-stack by the with-block lowering; return/break/continue

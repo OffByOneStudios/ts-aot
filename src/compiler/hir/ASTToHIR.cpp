@@ -21,6 +21,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     // body statements into function specs before this runs, so the directive
     // prologue is no longer visible in program->body here).
     strictCode_ = program->isStrict;
+    fastCode_ = program->isFast;
 
     valueCounter_ = 0;
     blockCounter_ = 0;
@@ -75,6 +76,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     module_->sourcePath = program->sourceFile;
     builder_ = HIRBuilder(module_.get());
     strictCode_ = program->isStrict;  // stamped by the parser (see above)
+    fastCode_ = program->isFast;
 
     // Store specializations for lookup during call generation
     specializations_ = &specializations;

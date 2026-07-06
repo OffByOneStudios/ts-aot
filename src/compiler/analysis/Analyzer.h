@@ -147,6 +147,10 @@ public:
     std::map<std::string, std::string> syntheticFunctionOwners;
 
     ModuleType currentModuleType = ModuleType::TypeScript;
+    // True while analyzing a "use fast" file: parseType only recognizes the
+    // fixed-width numeric aliases (i32/f64/...) then, so non-fast files stay a
+    // strict TS subset. Set in analyze()/analyzeModule from Program::isFast.
+    bool fastFile_ = false;
 
     // Module resolution for JSON imports (public for codegen access)
     ResolvedModule resolveModule(const std::string& specifier);

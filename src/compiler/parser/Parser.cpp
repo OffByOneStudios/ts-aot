@@ -1872,10 +1872,14 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
     }
 
     // Contextual `struct Foo {}` — the "use fast" value type
-    // (docs/design/use-fast.md). `struct` is not a reserved word, so only treat
-    // it as a struct declaration when an identifier (the type name) follows;
+    // (docs/design/use-fast.md). ONLY recognized in a "use fast" file (the
+    // top-level prologue is parsed before any body statement, so the flag is
+    // set by now); non-fast files keep `struct` as an ordinary identifier, so
+    // ts-aot stays a strict TS subset outside fast files. `struct` is not
+    // reserved, so also require an identifier (the type name) to follow —
     // `struct = 5` / `struct.foo()` keep their identifier meaning.
-    if (checkContextual("struct") && peekAhead().kind == TokenKind::Identifier) {
+    if (sawUseFastDirective_ && checkContextual("struct") &&
+        peekAhead().kind == TokenKind::Identifier) {
         advance();  // consume the contextual `struct` (pops the name into current_)
         auto stmt = parseClassDeclaration(false, false, false, /*isStruct=*/true);
         if (!decorators.empty()) stmt->decorators = std::move(decorators);

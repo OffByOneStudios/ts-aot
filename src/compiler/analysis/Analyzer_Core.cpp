@@ -15,6 +15,7 @@ namespace ts {
 using namespace ast;
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
     SPDLOG_DEBUG("Analyzer::analyze starting for {}", path);
+    fastFile_ = program && program->isFast;
     currentFilePath = fs::absolute(path).string();
     currentModuleType = moduleResolver.getModuleType(currentFilePath);
     // Strategy B Phase 7b: select profile from module type. The legacy

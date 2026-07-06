@@ -212,9 +212,10 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     }
 
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
-    // "use fast" fixed-width numeric aliases (docs/design/use-fast.md). Mapped
-    // to Int/Double with width+signedness metadata for width-honoring codegen.
-    {
+    // "use fast" fixed-width numeric aliases (docs/design/use-fast.md). Only
+    // recognized inside a "use fast" file — non-fast files stay a strict TS
+    // subset (i32/f64/... fall through to the normal unknown-type handling).
+    if (fastFile_) {
         auto mkInt = [](uint8_t bits, bool uns) {
             auto t = std::make_shared<Type>(TypeKind::Int);
             t->numericBits = bits; t->numericUnsigned = uns; return t;
