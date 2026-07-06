@@ -400,6 +400,27 @@ The seam (§14) is the only place boxing/roots reappear.
   literals (→ point at `NativeArray`), non-discriminated unions, capturing
   closures (→ point at context structs).
 
+### Phase 2 status (2026-07-06)
+
+- **2a — NativeArray runtime container — DONE** (`15c5e6c6`). Unmanaged
+  (malloc-backed, off-GC), contiguous, typed. C ABI in
+  `src/runtime/src/TsNativeArray.cpp`: `ts_native_array_new(length, allocKind)`,
+  `_length`, `_get_f64/_set_f64`, `_get_i64/_set_i64`, `_dispose`. 8-byte slots
+  for now (HIR Int64/Float64 widths). Inert (no compiler wiring), so 0
+  regression.
+- **2b — compiler integration — NEXT.** Make `NativeArray<T>` usable in fast
+  `.ts`. Pieces: (1) a type for it — either a new `HIRTypeKind` or a recognized
+  builtin class name "NativeArray" (analyzer + `convertTypeFromString`, gated on
+  fastFile_); (2) a `HandlerRegistry` method handler (mirror the Map/Set handler
+  in `HIRToLLVM_CallsMethod.cpp`) lowering `.length` / `.get(i)` / `.set(i,v)` /
+  `.dispose()` to the runtime calls, picking `_f64` vs `_i64` from the element
+  type `T`; (3) `new NativeArray<T>(n, Allocator.Temp)` codegen ->
+  `ts_native_array_new`; (4) `Allocator` enum (Temp=0, Persistent=1). Element
+  get/set via methods first; `arr[i]` indexing sugar later.
+- **2c — no-GC region.** In a fast file, drop write barriers, statepoints, and
+  the stack-alloc cap (`HIRToLLVM_Memory.cpp:448`); Temp allocator becomes a
+  scope arena with bulk free. This is the marquee perf win.
+
 ## 16. Phased plan
 
 **Phase 0 — the contract (no codegen change).**
