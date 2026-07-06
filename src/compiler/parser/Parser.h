@@ -29,6 +29,9 @@ private:
     // --- Token manipulation ---
     Token advance();
     Token peek() const { return current_; }
+    // Lex (once) and return the token AFTER current_ without consuming it.
+    // Only valid when current_ is an Identifier (regex-mode assumption below).
+    const Token& peekAhead();
     bool check(TokenKind kind) const { return current_.kind == kind; }
     bool match(TokenKind kind);
     Token expect(TokenKind kind, const char* msg);
@@ -62,7 +65,7 @@ private:
     ast::StmtPtr parseLoopBody();
     ast::StmtPtr parseFunctionDeclaration(bool isAsync, bool isExported, bool isDefaultExport);
     std::vector<ast::StmtPtr> parseVariableDeclarationList(bool isExported);
-    ast::StmtPtr parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport);
+    ast::StmtPtr parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport, bool isStruct = false);
     ast::StmtPtr parseIfStatement();
     ast::StmtPtr parseWhileStatement();
     ast::StmtPtr parseDoWhileStatement();
@@ -216,6 +219,11 @@ private:
     std::unique_ptr<Lexer> lexer_;
     Token current_;
     Token previous_;
+    // One-token lookahead buffer for contextual keywords (e.g. `struct Foo`).
+    // Populated by peekAhead(); consumed by advance(). See peekAhead()'s note
+    // on regex-mode: it is only valid to call when current_ is an identifier.
+    Token lookaheadToken_;
+    bool hasLookahead_ = false;
     std::string fileName_;
     const std::string* source_ = nullptr;
     bool inAsync_ = false;      // Inside async function?

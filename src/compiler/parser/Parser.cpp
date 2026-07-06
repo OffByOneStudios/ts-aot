@@ -769,8 +769,26 @@ Token Parser::advance() {
             break;
     }
 
-    current_ = lexer_->nextToken();
+    if (hasLookahead_) {
+        // A peeked token is already lexed and buffered; pop it.
+        current_ = lookaheadToken_;
+        hasLookahead_ = false;
+    } else {
+        current_ = lexer_->nextToken();
+    }
     return previous_;
+}
+
+const Token& Parser::peekAhead() {
+    if (!hasLookahead_) {
+        // current_ is an Identifier here (the only caller is the `struct`
+        // contextual-keyword dispatch), so the lexer must be in division mode
+        // (regex disallowed) to scan the following token correctly.
+        lexer_->setRegexAllowed(false);
+        lookaheadToken_ = lexer_->nextToken();
+        hasLookahead_ = true;
+    }
+    return lookaheadToken_;
 }
 
 bool Parser::match(TokenKind kind) {
@@ -1853,6 +1871,17 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
         return parseImportDeclaration();
     }
 
+    // Contextual `struct Foo {}` — the "use fast" value type
+    // (docs/design/use-fast.md). `struct` is not a reserved word, so only treat
+    // it as a struct declaration when an identifier (the type name) follows;
+    // `struct = 5` / `struct.foo()` keep their identifier meaning.
+    if (checkContextual("struct") && peekAhead().kind == TokenKind::Identifier) {
+        advance();  // consume the contextual `struct` (pops the name into current_)
+        auto stmt = parseClassDeclaration(false, false, false, /*isStruct=*/true);
+        if (!decorators.empty()) stmt->decorators = std::move(decorators);
+        return stmt;
+    }
+
     // Handle 'declare' keyword (ambient declarations)
     if (current_.kind == TokenKind::KW_declare) {
         advance(); // consume 'declare'
@@ -2679,15 +2708,18 @@ void Parser::parseClassBodyInto(std::vector<ast::NodePtr>& members,
     }
 }
 
-ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport) {
+ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport, bool isStruct) {
     auto startTok = current_;
-    expect(TokenKind::KW_class, "'class'");
+    // `struct Foo {}` (the "use fast" value type) has no `class` keyword — the
+    // caller already consumed the contextual `struct`. `class Foo {}` does.
+    if (!isStruct) expect(TokenKind::KW_class, "'class'");
 
     auto node = std::make_unique<ast::ClassDeclaration>();
     setLocation(node.get(), startTok);
     node->isAbstract = isAbstract;
     node->isExported = isExported;
     node->isDefaultExport = isDefaultExport;
+    node->isStruct = isStruct;
 
     // Name (optional for expressions). Class names are BindingIdentifier
     // and the class body is always strict (ES262 10.2.1), so escape-
