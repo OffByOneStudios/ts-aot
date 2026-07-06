@@ -378,14 +378,23 @@ The seam (§14) is the only place boxing/roots reappear.
     that silently dropped stores). Struct value types now work end-to-end in a
     `use fast` file: fixed-shape unboxed fields, static-offset access, and
     stack-alloc when non-escaping (via the existing escape analysis).
-  - **STILL PENDING — true value/Copy semantics.** `let b = a` currently
-    *aliases* (structs still lower as class references): mutating `b` mutates
-    `a`. Real value semantics needs the assignment / call-argument / return
-    lowering to **memcpy** the shape bytes for struct-typed values. This is the
-    remaining defining piece and a multi-path codegen change.
-  - Also pending: exact machine widths (i32 wraparound / real f32 — HIR has only
-    Int64/Float64 today); guaranteed inline/stack storage (that's Phase 2's
-    no-GC region).
+  - Value/Copy semantics — **DONE** (`81f20a3a`): structs are true value types.
+    Assignment, binding, argument passing, and return COPY the instance via a
+    runtime `ts_flat_object_clone` inserted by `maybeCloneStruct` (only for
+    struct lvalue reads into a value context; a fresh new/call is not cloned).
+    Test `tests/fast/test_struct_value_semantics.ts` covers all four sites.
+  - Also a permanent test suite — **DONE** (`2024c4d3`): `tests/fast/` (13 tests)
+    wired into `run_all.py` as the `fast` suite; positive (numerics, struct
+    fields/params/value-semantics) + negative (each FastCheck rejection) + a
+    non-fast gating test.
+  - Still pending (refinements, not blocking): exact machine widths (i32
+    wraparound / real f32 — HIR has only Int64/Float64); nested-struct DEEP copy
+    (clone is shallow — correct for primitive fields); guaranteed inline/arena
+    storage (that's Phase 2's no-GC region).
+
+  **Phase 1b is functionally complete**: `struct` value types with fixed-width
+  unboxed fields, static-offset access, methods/params/returns, true value
+  semantics, and stack-alloc when non-escaping — all behind `use fast`.
 - **Remaining FastCheck rules** (deferred until the alternatives exist so the
   diagnostic can name them): reject reference-class `new`, managed array/object
   literals (→ point at `NativeArray`), non-discriminated unions, capturing
