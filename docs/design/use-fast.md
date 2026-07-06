@@ -423,9 +423,34 @@ The seam (§14) is the only place boxing/roots reappear.
   check in lowerSetElem/lowerGetElem — wire a NativeArray branch there before
   enabling `[i]`, else it routes to ts_array_get/set and corrupts). Gates: node
   300/300, golden no-reg, fast 14/14, 2k 0 lost/0 gained.
-- **2c — no-GC region.** In a fast file, drop write barriers, statepoints, and
-  the stack-alloc cap (`HIRToLLVM_Memory.cpp:448`); Temp allocator becomes a
-  scope arena with bulk free. This is the marquee perf win.
+- **2c — Temp arena — DONE** (`a75a5500`). **Measure-first finding that
+  reframed 2c:** the original scope (flip statepoints / lift the stack-alloc cap
+  / drop write barriers) delivers almost nothing. A non-escaping local struct is
+  already **scalar-replaced to registers** by existing escape-analysis + SROA in
+  *both* GC modes (probed: 0 heap, 9 `sr.` allocas) — SROA beats stack-alloc for
+  the common case, so the cap/statepoint flip is moot. And write barriers can't
+  be dropped for the managed strings/objects fast code still allocates without
+  breaking the generational GC. The one genuine, self-contained, GC-safe win is
+  the arena, so 2c is scoped to it:
+  - Runtime (`TsNativeArray.cpp`): thread-local chain of 1 MiB bump blocks +
+    LIFO frame markers, off the GC heap. `Allocator.Temp` bump-allocates and
+    `dispose()` is a no-op; `Allocator.Persistent` stays malloc/free.
+    `ts_native_arena_mark()`/`_release(token)` — depth-token+resize is robust to
+    a throw's longjmp bypassing a release (an outer release reclaims it).
+  - Compiler (gated on entry `program->isFast` -> `fastModule_`): mark at each
+    fast function's entry, release on every return / fall-through (no-op for
+    non-fast/async/gen, so non-fast codegen is byte-identical — verified 0 arena
+    calls in non-fast IR).
+  - Semantics (Unity Allocator.Temp): returning a Temp array past its frame is
+    UB; loop-body Temp allocs accumulate until the frame returns (use a helper
+    call per iteration, or Persistent+dispose).
+  - Probes tmp/na1.ts (4 mark/4 release balanced) + tmp/arena_stress.ts (200k
+    Temp calls + 100k Persistent churn, bounded) -> tests/fast/test_arena.ts.
+    Gates: node 300/300, golden no-reg, fast 15/15, 2k 0 lost/0 gained.
+  - **Deferred (were the original 2c):** auto-selecting the conservative-GC
+    (`--no-gc-statepoints`) path + lifting the stack-alloc cap for whole-program
+    fast builds — low value given SROA, revisit only if profiling of a real
+    kernel shows non-SROA flat-object heap traffic dominating.
 
 ## 16. Phased plan
 
