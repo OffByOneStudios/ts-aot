@@ -212,6 +212,30 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     }
 
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
+    // "use fast" fixed-width numeric aliases (docs/design/use-fast.md). Mapped
+    // to Int/Double with width+signedness metadata for width-honoring codegen.
+    {
+        auto mkInt = [](uint8_t bits, bool uns) {
+            auto t = std::make_shared<Type>(TypeKind::Int);
+            t->numericBits = bits; t->numericUnsigned = uns; return t;
+        };
+        auto mkFloat = [](uint8_t bits) {
+            auto t = std::make_shared<Type>(TypeKind::Double);
+            t->numericBits = bits; return t;
+        };
+        if (typeName == "i8")  return mkInt(8, false);
+        if (typeName == "i16") return mkInt(16, false);
+        if (typeName == "i32") return mkInt(32, false);
+        if (typeName == "i64") return mkInt(64, false);
+        if (typeName == "isize") return mkInt(64, false);
+        if (typeName == "u8")  return mkInt(8, true);
+        if (typeName == "u16") return mkInt(16, true);
+        if (typeName == "u32") return mkInt(32, true);
+        if (typeName == "u64") return mkInt(64, true);
+        if (typeName == "usize") return mkInt(64, true);
+        if (typeName == "f32") return mkFloat(32);
+        if (typeName == "f64") return mkFloat(64);
+    }
     if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
     if (typeName == "void") return std::make_shared<Type>(TypeKind::Void);

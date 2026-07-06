@@ -147,6 +147,15 @@ inline const char* elementKindToString(ElementKind kind) {
 struct Type : public std::enable_shared_from_this<Type> {
     TypeKind kind;
 
+    // Fixed-width numeric metadata for the "use fast" subset
+    // (docs/design/use-fast.md): i8/i16/i32/i64, u8/u16/u32/u64, usize/isize,
+    // f32/f64. 0 = unspecified (plain `number`/int). For TypeKind::Int this is
+    // the integer bit width + signedness; for TypeKind::Double, 32 => f32,
+    // 64 => f64. Codegen may honor these for exact-width machine types; the
+    // analyzer treats them as concrete unboxed numerics.
+    uint8_t numericBits = 0;      // 8/16/32/64 when a fixed-width alias is used
+    bool numericUnsigned = false;
+
     Type(TypeKind k) : kind(k) {}
     virtual ~Type() = default;
 
