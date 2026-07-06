@@ -428,6 +428,9 @@ int Driver::run() {
         // "use fast" Phase 2c: enable the NativeArray Temp arena frame when the
         // entry program carried the directive.
         hirToLlvm.setFastModule(program && program->isFast);
+        // Phase 3: --fast-checks makes NativeArray access emit the checked
+        // runtime call instead of an inline load/store.
+        hirToLlvm.setFastChecks(options.fastChecks);
         hirToLlvm.setEmitDebugInfo(options.debug || options.coverage);
         hirToLlvm.setEmitCoverage(options.coverage);
         hirToLlvm.setPreludeObject(options.preludeObject);

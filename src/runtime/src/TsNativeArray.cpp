@@ -18,12 +18,14 @@
 // The arena is UNMANAGED (malloc-backed, off the GC heap): none of the GC
 // rooting rules apply — it deliberately holds no GC pointers, only raw bytes.
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
 
 namespace {
-constexpr uint32_t NARR_MAGIC = 0x4E415252;  // 'NARR'
+constexpr uint32_t NARR_MAGIC    = 0x4E415252;  // 'NARR'
+constexpr uint32_t NARR_DISPOSED = 0x44495350;  // 'DISP' — freed Persistent handle
 
 struct TsNativeArray {
     uint32_t magic;
@@ -32,11 +34,62 @@ struct TsNativeArray {
     // 8-byte element slots follow inline (length * 8 bytes).
 };
 
-inline TsNativeArray* asNarr(void* p) {
-    if (!p) return nullptr;
-    TsNativeArray* a = (TsNativeArray*)p;
-    return (a->magic == NARR_MAGIC) ? a : nullptr;
+//==========================================================================
+// Dev-mode safety checks (docs/design/use-fast.md Phase 3 — the Unity
+// AtomicSafetyHandle analog). Enabled by TS_FAST_CHECKS=1 in the environment;
+// OFF by default so release builds pay nothing beyond the bounds branch that
+// already guards against UB. In dev mode, an out-of-bounds access, a
+// use-after-dispose, or a double-dispose prints a diagnostic and aborts —
+// turning silent corruption into a loud, located failure.
+//==========================================================================
+bool fast_checks_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* e = std::getenv("TS_FAST_CHECKS");
+        cached = (e && e[0] && e[0] != '0') ? 1 : 0;
+    }
+    return cached != 0;
 }
+
+[[noreturn]] void fast_check_fail_msg(const char* op, const char* what) {
+    std::fprintf(stderr, "[use fast] NativeArray.%s: %s\n", op, what);
+    std::fflush(stderr);
+    std::abort();
+}
+
+[[noreturn]] void fast_check_fail_oob(const char* op, int64_t i, int64_t len) {
+    std::fprintf(stderr,
+        "[use fast] NativeArray.%s: index %lld out of bounds [0, %lld)\n",
+        op, (long long)i, (long long)len);
+    std::fflush(stderr);
+    std::abort();
+}
+
+// Resolve a handle for operation `op`. In dev mode, a null / disposed / invalid
+// handle aborts with a diagnostic; in release it silently yields nullptr and
+// the caller's bounds branch degrades to a safe no-op.
+inline TsNativeArray* resolve(void* p, const char* op) {
+    if (!p) {
+        if (fast_checks_enabled()) fast_check_fail_msg(op, "called on a null handle");
+        return nullptr;
+    }
+    TsNativeArray* a = (TsNativeArray*)p;
+    if (a->magic == NARR_MAGIC) return a;
+    if (fast_checks_enabled()) {
+        fast_check_fail_msg(op, a->magic == NARR_DISPOSED
+            ? "used after dispose()" : "called on an invalid handle");
+    }
+    return nullptr;
+}
+
+// Bounds check for element access. Returns true if in range; in dev mode an
+// out-of-range index aborts.
+inline bool in_bounds(TsNativeArray* a, int64_t i, const char* op) {
+    if (i >= 0 && i < a->length) return true;
+    if (fast_checks_enabled()) fast_check_fail_oob(op, i, a->length);
+    return false;
+}
+
 inline uint64_t* slots(TsNativeArray* a) {
     return (uint64_t*)((char*)a + sizeof(TsNativeArray));
 }
@@ -132,44 +185,62 @@ void* ts_native_array_new(int64_t length, int32_t allocKind) {
 }
 
 int64_t ts_native_array_length(void* arr) {
-    TsNativeArray* a = asNarr(arr);
+    TsNativeArray* a = resolve(arr, "length");
     return a ? a->length : 0;
 }
 
 double ts_native_array_get_f64(void* arr, int64_t i) {
-    TsNativeArray* a = asNarr(arr);
-    if (!a || i < 0 || i >= a->length) return 0.0;
+    TsNativeArray* a = resolve(arr, "get");
+    if (!a || !in_bounds(a, i, "get")) return 0.0;
     double v;
     std::memcpy(&v, &slots(a)[i], 8);
     return v;
 }
 
 void ts_native_array_set_f64(void* arr, int64_t i, double v) {
-    TsNativeArray* a = asNarr(arr);
-    if (!a || i < 0 || i >= a->length) return;
+    TsNativeArray* a = resolve(arr, "set");
+    if (!a || !in_bounds(a, i, "set")) return;
     std::memcpy(&slots(a)[i], &v, 8);
 }
 
 int64_t ts_native_array_get_i64(void* arr, int64_t i) {
-    TsNativeArray* a = asNarr(arr);
-    if (!a || i < 0 || i >= a->length) return 0;
+    TsNativeArray* a = resolve(arr, "get");
+    if (!a || !in_bounds(a, i, "get")) return 0;
     return (int64_t)slots(a)[i];
 }
 
 void ts_native_array_set_i64(void* arr, int64_t i, int64_t v) {
-    TsNativeArray* a = asNarr(arr);
-    if (!a || i < 0 || i >= a->length) return;
+    TsNativeArray* a = resolve(arr, "set");
+    if (!a || !in_bounds(a, i, "set")) return;
     slots(a)[i] = (uint64_t)v;
 }
 
 // Dispose a NativeArray. Persistent (1) is freed; Temp (0) is a no-op — its
 // backing lives in the arena and is bulk-released at frame exit, so calling
 // free() on it would corrupt the C heap.
+//
+// Dev mode (TS_FAST_CHECKS=1): a Persistent handle is marked NARR_DISPOSED but
+// NOT freed, so a later use-after-dispose or double-dispose is caught by
+// resolve() instead of reading freed memory. (This intentionally leaks in dev —
+// a debugging trade, like Unity's leak detector.)
 void ts_native_array_dispose(void* arr) {
-    TsNativeArray* a = asNarr(arr);
-    if (!a) return;
-    if (a->allocKind == 1) { a->magic = 0; std::free(a); }
-    // Temp: leave it; ts_native_arena_release reclaims the whole frame.
+    if (!arr) {
+        if (fast_checks_enabled()) fast_check_fail_msg("dispose", "called on a null handle");
+        return;
+    }
+    TsNativeArray* a = (TsNativeArray*)arr;
+    if (a->magic != NARR_MAGIC) {
+        if (fast_checks_enabled())
+            fast_check_fail_msg("dispose", a->magic == NARR_DISPOSED
+                ? "called twice (double dispose)" : "called on an invalid handle");
+        return;
+    }
+    if (a->allocKind == 1) {
+        a->magic = NARR_DISPOSED;
+        if (!fast_checks_enabled()) std::free(a);
+    }
+    // Temp: no-op; ts_native_arena_release reclaims the whole frame. Using a
+    // Temp array after dispose() is legal (valid until frame exit).
 }
 
 }  // extern "C"

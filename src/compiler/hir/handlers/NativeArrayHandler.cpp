@@ -69,13 +69,21 @@ public:
                                          ? lowerer.getOperandValue(inst->operands[2])
                                          : nullptr,
                                      lowerer);
-            const char* rn = isInt ? "ts_native_array_get_i64" : "ts_native_array_get_f64";
+            if (lowerer.fastChecks()) {
+                // Dev build: bounds/dispose-checked runtime call.
+                const char* rn = isInt ? "ts_native_array_get_i64" : "ts_native_array_get_f64";
+                llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
+                                       : (llvm::Type*)builder.getDoubleTy();
+                auto ft = llvm::FunctionType::get(
+                    rt, { builder.getPtrTy(), builder.getInt64Ty() }, false);
+                auto fn = module.getOrInsertFunction(rn, ft);
+                return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
+            }
+            // Release: inline unboxed load. slot ptr = base + 16 + i*8.
+            llvm::Value* slot = slotPtr(arr, idx, lowerer);
             llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
                                    : (llvm::Type*)builder.getDoubleTy();
-            auto ft = llvm::FunctionType::get(
-                rt, { builder.getPtrTy(), builder.getInt64Ty() }, false);
-            auto fn = module.getOrInsertFunction(rn, ft);
-            return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
+            return builder.CreateLoad(rt, slot, "na.get");
         }
 
         if (methodName == "set") {
@@ -86,23 +94,21 @@ public:
             llvm::Value* raw = inst->operands.size() > 3
                                    ? lowerer.getOperandValue(inst->operands[3])
                                    : nullptr;
-            if (isInt) {
-                llvm::Value* v = toI64(raw, lowerer);
+            llvm::Value* v = isInt ? toI64(raw, lowerer) : toF64(raw, lowerer);
+            if (lowerer.fastChecks()) {
+                const char* rn = isInt ? "ts_native_array_set_i64" : "ts_native_array_set_f64";
+                llvm::Type* vt = isInt ? (llvm::Type*)builder.getInt64Ty()
+                                       : (llvm::Type*)builder.getDoubleTy();
                 auto ft = llvm::FunctionType::get(
-                    builder.getVoidTy(),
-                    { builder.getPtrTy(), builder.getInt64Ty(), builder.getInt64Ty() },
+                    builder.getVoidTy(), { builder.getPtrTy(), builder.getInt64Ty(), vt },
                     false);
-                auto fn = module.getOrInsertFunction("ts_native_array_set_i64", ft);
+                auto fn = module.getOrInsertFunction(rn, ft);
                 builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
-            } else {
-                llvm::Value* v = toF64(raw, lowerer);
-                auto ft = llvm::FunctionType::get(
-                    builder.getVoidTy(),
-                    { builder.getPtrTy(), builder.getInt64Ty(), builder.getDoubleTy() },
-                    false);
-                auto fn = module.getOrInsertFunction("ts_native_array_set_f64", ft);
-                builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
+                return llvm::ConstantPointerNull::get(builder.getPtrTy());
             }
+            // Release: inline unboxed store.
+            llvm::Value* slot = slotPtr(arr, idx, lowerer);
+            builder.CreateStore(v, slot);
             return llvm::ConstantPointerNull::get(builder.getPtrTy());
         }
 
@@ -110,6 +116,20 @@ public:
     }
 
 private:
+    // Inline slot address: raw(base) + 16 + i*8. The 16-byte header is
+    // magic(4) + allocKind(4) + length(8); 8-byte element slots follow (matches
+    // TsNativeArray in the runtime). Uses the raw (addrspace 0) handle so the
+    // load/store isn't entangled with GC statepoints — NativeArray memory is
+    // off the GC heap.
+    llvm::Value* slotPtr(llvm::Value* arr, llvm::Value* idx, HIRToLLVM& lowerer) {
+        auto& b = lowerer.builder();
+        llvm::Value* raw = lowerer.toRawPtr(arr);
+        llvm::Value* off = b.CreateAdd(
+            b.CreateMul(idx, llvm::ConstantInt::get(b.getInt64Ty(), 8)),
+            llvm::ConstantInt::get(b.getInt64Ty(), 16));
+        return b.CreateGEP(b.getInt8Ty(), raw, off, "na.slot");
+    }
+
     // Coerce a value to i64 (index / integer slot).
     llvm::Value* toI64(llvm::Value* v, HIRToLLVM& lowerer) {
         auto& b = lowerer.builder();

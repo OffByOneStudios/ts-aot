@@ -75,6 +75,16 @@ public:
     // on each return, so Temp allocations are bulk-freed at frame exit.
     void setFastModule(bool enable) { fastModule_ = enable; }
 
+    // "use fast" Phase 3: dev-mode NativeArray safety. When enabled, element
+    // access lowers to the bounds/dispose-checked runtime CALL; when disabled
+    // (release default), it lowers to an inline unboxed load/store. Public so
+    // the NativeArrayHandler can consult it.
+    void setFastChecks(bool enable) { fastChecks_ = enable; }
+    bool fastChecks() const { return fastChecks_; }
+    // Expose the addrspace(1)->addrspace(0) cast for handlers doing inline
+    // memory access on a NativeArray handle.
+    llvm::Value* toRawPtr(llvm::Value* v) { return gcPtrToRaw(v); }
+
     // Enable debug info emission (CodeView on Windows, DWARF on Linux/Mac).
     // When enabled, source file/line metadata is attached to LLVM IR instructions.
     void setEmitDebugInfo(bool enable) { emitDebugInfo_ = enable; }
@@ -117,6 +127,7 @@ private:
     // GC statepoint infrastructure (experimental)
     bool enableGCStatepoints_ = false;
     bool fastModule_ = false;                // entry program had "use fast"
+    bool fastChecks_ = false;                // dev-mode NativeArray checks (--fast-checks)
     llvm::Value* arenaMarker_ = nullptr;     // per-function ts_native_arena_mark() token
 
     // Debug info emission

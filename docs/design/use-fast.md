@@ -452,6 +452,40 @@ The seam (§14) is the only place boxing/roots reappear.
     fast builds — low value given SROA, revisit only if profiling of a real
     kernel shows non-SROA flat-object heap traffic dominating.
 
+### Phase 3 status (2026-07-06)
+
+- **Dev-mode safety checks — DONE.** The Unity AtomicSafetyHandle analog for
+  `NativeArray`, in two coupled halves:
+  - Runtime (`TsNativeArray.cpp`): `resolve()` + `in_bounds()` gate every
+    access. `TS_FAST_CHECKS=1` (env) turns an out-of-bounds index, a
+    use-after-dispose, or a double-dispose into a located `[use fast]`
+    diagnostic + `abort()`; default is the silent safe guard. In checks mode,
+    `dispose()` of a Persistent array marks it `NARR_DISPOSED` and does **not**
+    free (so use-after-dispose is caught instead of reading freed memory — an
+    intentional dev leak, like Unity's leak detector); release frees as before.
+  - Compiler: `--fast-checks` (`Driver`/`main.cpp` -> `HIRToLLVM::fastChecks_`)
+    selects **which lowering** `.get`/`.set` get. **Release default = inline**
+    unboxed load/store (`base + 16 + i·8`, raw addrspace-0 handle so it's off
+    the GC statepoint path); **`--fast-checks` = the checked runtime call.**
+    This is the RFC's "checks compiled out in release." `.length`/`.dispose`
+    stay calls (cold). Verified: default IR has 0 element calls (inline),
+    non-fast IR unchanged. Probes tmp/oob.ts + tmp/uad.ts (both silent by
+    default; loud abort under `--fast-checks` + `TS_FAST_CHECKS=1`).
+- **SoA benchmark — DONE, with a negative headline.** `examples/benchmarks/soa/`
+  (nbody_fast.ts vs nbody_dynamic.ts, identical checksum, `run.py` harness).
+  **On this workload the fast path is currently ~2.2x SLOWER** (fast ≈2400 ms,
+  dynamic ≈1080 ms, ratio ≈0.45x). Differential probes ruled out the per-access
+  call (inlining moved 2615→2407 ms) and statepoints (`--no-gc-statepoints` no
+  faster). The dynamic typed-`number[]` path is already highly optimized;
+  today's `NativeArray` inline access doesn't beat it. **OPEN FOLLOW-UP** (the
+  real next lever): profile the inner-loop IR of both paths — suspects are
+  redundant handle reloads per access, `Math.sqrt` blocking vectorization, and
+  index-conversion overhead — and close the gap before claiming a SoA win. See
+  the benchmark README for the full write-up.
+- Gates for all Phase 3 changes: node 300/300, golden 267/279 no-reg, fast
+  15/15, 2k 0 lost / 0 gained (the dynamic path is untouched — every change is
+  gated on a `NativeArray` receiver or the fast directive).
+
 ## 16. Phased plan
 
 **Phase 0 — the contract (no codegen change).**
