@@ -441,7 +441,21 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
     if (typeStr == "number") {
         // In TypeScript, 'number' is always IEEE 754 double-precision float
         return HIRType::makeFloat64();
-    } else if (typeStr == "string") {
+    }
+    // "use fast" fixed-width numeric aliases (docs/design/use-fast.md). HIR has
+    // only Int64/Float64 widths today, so integers -> Int64 and floats ->
+    // Float64 (exact machine widths are a later refinement). The point here is
+    // that an f64/i32 class field gets a proper unboxed numeric slot instead of
+    // falling through to makeAny() -> boxed slot (which silently broke stores).
+    if (typeStr == "i8"  || typeStr == "i16" || typeStr == "i32" || typeStr == "i64" ||
+        typeStr == "u8"  || typeStr == "u16" || typeStr == "u32" || typeStr == "u64" ||
+        typeStr == "usize" || typeStr == "isize") {
+        return HIRType::makeInt64();
+    }
+    if (typeStr == "f32" || typeStr == "f64") {
+        return HIRType::makeFloat64();
+    }
+    if (typeStr == "string") {
         return HIRType::makeString();
     } else if (typeStr == "boolean") {
         return HIRType::makeBool();
