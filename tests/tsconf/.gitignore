@@ -1,0 +1,5 @@
+# Vendored upstream corpora — fetched via git clone, not committed (see UPSTREAM.md)
+upstream/
+# Harness artifacts (future)
+build/
+.tsconf_results.jsonl
