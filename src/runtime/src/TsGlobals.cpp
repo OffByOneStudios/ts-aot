@@ -1027,6 +1027,15 @@ static void* makeErrorConstructor(const char* errorName) {
     // Spec: Error.prototype.name is { writable:true, enumerable:false, configurable:true }.
     proto->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 
+    // ES 20.5.3.3 / 20.5.6.3.2: Error.prototype.message and each
+    // NativeError.prototype.message are the empty string, with the same
+    // attributes { writable:true, enumerable:false, configurable:true }.
+    TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
+    msgKey.ptr_val = TsString::GetInterned("message");
+    TsValue msgVal; msgVal.type = ValueType::STRING_PTR;
+    msgVal.ptr_val = TsString::Create("");
+    proto->SetWithAttrs(msgKey, msgVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+
     // ECMA-262 20.5.3.4 Error.prototype.toString: "name: message" (only "name"
     // or "message" if the other is empty). Installed once on Error.prototype so
     // TypeError/RangeError/... inherit it via the prototype chain; without it,
