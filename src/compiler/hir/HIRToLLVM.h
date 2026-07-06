@@ -69,6 +69,12 @@ public:
     // attribute, and calls get "deopt" operand bundles for RS4GC pass.
     void setEnableGCStatepoints(bool enable) { enableGCStatepoints_ = enable; }
 
+    // "use fast" (docs/design/use-fast.md Phase 2c): the entry program carried
+    // a `"use fast"` directive. Enables the NativeArray Temp arena frame:
+    // ts_native_arena_mark() at each function entry, ts_native_arena_release()
+    // on each return, so Temp allocations are bulk-freed at frame exit.
+    void setFastModule(bool enable) { fastModule_ = enable; }
+
     // Enable debug info emission (CodeView on Windows, DWARF on Linux/Mac).
     // When enabled, source file/line metadata is attached to LLVM IR instructions.
     void setEmitDebugInfo(bool enable) { emitDebugInfo_ = enable; }
@@ -110,6 +116,8 @@ private:
 
     // GC statepoint infrastructure (experimental)
     bool enableGCStatepoints_ = false;
+    bool fastModule_ = false;                // entry program had "use fast"
+    llvm::Value* arenaMarker_ = nullptr;     // per-function ts_native_arena_mark() token
 
     // Debug info emission
     bool emitDebugInfo_ = false;
@@ -644,6 +652,9 @@ private:
     void lowerSwitch(HIRInstruction* inst);
     void lowerReturn(HIRInstruction* inst);
     void lowerReturnVoid(HIRInstruction* inst);
+    // "use fast" Phase 2c: emit ts_native_arena_release(arenaMarker_) at the
+    // current insert point if a Temp arena frame is open. No-op otherwise.
+    void emitArenaReleaseIfFast();
     void lowerUnreachable(HIRInstruction* inst);
 
     // Phi and Select

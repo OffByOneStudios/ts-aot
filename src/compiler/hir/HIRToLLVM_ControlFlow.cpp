@@ -111,11 +111,17 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
     SPDLOG_INFO("      lowerReturn: entered, operands.size()={}", inst->operands.size());
     if (inst->operands.empty()) {
         SPDLOG_ERROR("      lowerReturn: no operands!");
+        emitArenaReleaseIfFast();
         builder_->CreateRet(llvm::UndefValue::get(currentFunction_->getReturnType()));
         return;
     }
     llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[0]));
     SPDLOG_INFO("      lowerReturn: val={}", val ? "non-null" : "null");
+
+    // "use fast" Phase 2c: release the Temp arena frame before returning. No-op
+    // unless a frame is open (arenaMarker_ is null for non-fast / async / gen
+    // functions). Returning a Temp NativeArray past this point is UB by design.
+    emitArenaReleaseIfFast();
 
     // Handle null value (e.g., from null HIRValue shared_ptr)
     if (!val) {
@@ -451,6 +457,10 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         builder_->CreateRet(boxedPromise);
         return;
     }
+
+    // "use fast" Phase 2c: release the Temp arena frame on the normal (non-
+    // async/gen) void return. No-op unless a frame is open.
+    emitArenaReleaseIfFast();
 
     // Check if the function's return type is void or non-void
     llvm::Type* expectedRetType = currentFunction_->getReturnType();

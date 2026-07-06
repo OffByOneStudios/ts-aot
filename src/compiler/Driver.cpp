@@ -425,6 +425,9 @@ int Driver::run() {
         hirContext = std::make_unique<llvm::LLVMContext>();
         hir::HIRToLLVM hirToLlvm(*hirContext);
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
+        // "use fast" Phase 2c: enable the NativeArray Temp arena frame when the
+        // entry program carried the directive.
+        hirToLlvm.setFastModule(program && program->isFast);
         hirToLlvm.setEmitDebugInfo(options.debug || options.coverage);
         hirToLlvm.setEmitCoverage(options.coverage);
         hirToLlvm.setPreludeObject(options.preludeObject);

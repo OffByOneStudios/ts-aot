@@ -648,6 +648,14 @@ llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch(
     return builder_->CreateCall(getResumedFn, { asyncContext_ }, "resumed_value");
 }
 
+void HIRToLLVM::emitArenaReleaseIfFast() {
+    if (!arenaMarker_) return;
+    auto ft = llvm::FunctionType::get(builder_->getVoidTy(),
+                                      { builder_->getInt64Ty() }, false);
+    auto fn = module_->getOrInsertFunction("ts_native_arena_release", ft);
+    builder_->CreateCall(ft, fn.getCallee(), { arenaMarker_ });
+}
+
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     SPDLOG_INFO("Lowering function: {}", fn->mangledName);
 
@@ -1307,6 +1315,24 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         }
     }
 
+    // "use fast" Phase 2c: open a NativeArray Temp arena frame at function
+    // entry. ts_native_arena_mark() returns a LIFO token stored in arenaMarker_;
+    // lowerReturn / the terminator safety-net emit ts_native_arena_release(token)
+    // so every Temp array allocated in this frame is bulk-freed on the way out.
+    // Skip async/generator functions (their state-machine returns don't map to
+    // a single balanced frame) — FastCheck rejects those in fast files anyway.
+    arenaMarker_ = nullptr;
+    if (fastModule_ && !isAsyncFunction_ && !isGeneratorFunction_ &&
+        !rpoOrder.empty() && rpoOrder[0]) {
+        if (llvm::BasicBlock* entryBB = getBlock(rpoOrder[0])) {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            builder_->SetInsertPoint(entryBB);  // append after entry allocas
+            auto markFt = llvm::FunctionType::get(builder_->getInt64Ty(), {}, false);
+            auto markFn = module_->getOrInsertFunction("ts_native_arena_mark", markFt);
+            arenaMarker_ = builder_->CreateCall(markFt, markFn.getCallee(), {}, "arena.mark");
+        }
+    }
+
     // Lower each block in RPO order
     for (size_t bi = 0; bi < rpoOrder.size(); ++bi) {
         if (!rpoOrder[bi]) {
@@ -1339,6 +1365,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     if (currentFunction_) {
         llvm::Type* expectedRetType = currentFunction_->getReturnType();
         auto emitDefaultReturn = [&]() {
+            emitArenaReleaseIfFast();  // release the Temp arena frame on fall-through exits
             if (expectedRetType->isVoidTy()) {
                 builder_->CreateRetVoid();
             } else if (expectedRetType->isPointerTy()) {
