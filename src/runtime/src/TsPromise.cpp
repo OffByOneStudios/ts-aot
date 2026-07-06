@@ -517,24 +517,25 @@ TsValue* Generator_next(TsValue* genVal, TsValue* value) {
         return AsyncGenerator_next_internal(raw, value);
     }
 
-    // Check if this is a TsMap-based iterator (has "next" property)
-    // rather than a real TsGenerator
-    if (ts_is_unchecked<TsMap>(raw)) { // TsMap-based iterator
-        // It's a Map-based iterator — look up "next" via prototype chain
-        // (ts_map_get_property only checks own properties, which misses
-        // shared ArrayIteratorPrototype). ts_object_get_dynamic walks the
-        // prototype chain and accepts NaN-boxed TsValue*s.
-        TsValue* nextKey = ts_value_make_string(TsString::Create("next"));
-        TsValue* nextFn = ts_object_get_dynamic(genVal, nextKey);
-        if (nextFn && !ts_value_is_undefined(nextFn)) {
-            // Preserve `this` so native methods that read ts_get_call_this()
-            // (e.g., ArrayIteratorPrototype.next) find the receiver.
-            return ts_call_with_this_0(nextFn, genVal);
-        }
-        return ts_value_make_undefined();
+    // A real sync generator uses the internal resume machinery.
+    if (ts_is_unchecked<TsGenerator>(raw)) {
+        return Generator_next_internal(raw, value);
     }
 
-    return Generator_next_internal(raw, value);
+    // Anything else reaching here is a GENERIC iterator object — a TsMap-based
+    // iterator (Map/Set/Array iterator prototypes), a plain flat-object literal
+    // iterator (`{ next() {...} }`), or any custom iterable's iterator. Dispatch
+    // `next` dynamically via the prototype chain instead of casting to
+    // TsGenerator (which read a null ctx and crashed for flat-object iterators
+    // — the for-of-over-custom-iterable crash cluster).
+    TsValue* nextKey = ts_value_make_string(TsString::Create("next"));
+    TsValue* nextFn = ts_object_get_dynamic(genVal, nextKey);
+    if (nextFn && !ts_value_is_undefined(nextFn)) {
+        // Preserve `this` so native methods that read ts_get_call_this()
+        // (e.g., ArrayIteratorPrototype.next) find the receiver.
+        return ts_call_with_this_0(nextFn, genVal);
+    }
+    return ts_value_make_undefined();
 }
 
 void ts_generator_return(TsGenerator* gen, TsValue* value) {
