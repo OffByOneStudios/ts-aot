@@ -357,6 +357,31 @@ The seam (§14) is the only place boxing/roots reappear.
 
 ---
 
+## 15b. Implementation status (2026-07-06)
+
+- **Phase 0 — DONE** (`0022e6d5`). `"use fast"` prologue directive → `Program::isFast`
+  (implies strict); `Analyzer_FastCheck` pass rejects the out-of-subset
+  constructs (any-annotations, delete, with, for-in, for-await-of, eval,
+  arguments, async/await, generators/yield, dynamic import) with actionable
+  diagnostics. Inert without the directive; gated (node 300/300, golden, 2k).
+- **Phase 1a — DONE** (`366b47a5`). Fixed-width numeric aliases
+  `i8..i64 / u8..u64 / usize / isize / f32 / f64` recognized in `parseType`,
+  mapped to `Int`/`Double` with `numericBits` + `numericUnsigned` metadata on
+  `Type`. Compile via the existing unboxed paths today; width-honoring codegen
+  is a follow-up.
+- **Phase 1b — NEXT (large).** `struct` value types. Requires: (1) parser
+  contextual-keyword support for `struct Foo {}` — the parser is single-token
+  lookahead today, so this needs a 2-token peek (buffer or lexer save/restore);
+  (2) analyzer value semantics on `ClassType::isStruct` (fixed layout, Copy/move,
+  assignment = copy); (3) codegen: static-offset field access via `GEP` (reuse
+  the flat-object shape descriptors), inline/stack/arena storage, no `TsMap`.
+  Non-escaping typed class instances already get flat-object + stack-alloc, so
+  part of the substrate exists.
+- **Remaining FastCheck rules** (deferred until the alternatives exist so the
+  diagnostic can name them): reject reference-class `new`, managed array/object
+  literals (→ point at `NativeArray`), non-discriminated unions, capturing
+  closures (→ point at context structs).
+
 ## 16. Phased plan
 
 **Phase 0 — the contract (no codegen change).**
