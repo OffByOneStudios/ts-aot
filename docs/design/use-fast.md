@@ -369,14 +369,23 @@ The seam (§14) is the only place boxing/roots reappear.
   mapped to `Int`/`Double` with `numericBits` + `numericUnsigned` metadata on
   `Type`. Compile via the existing unboxed paths today; width-honoring codegen
   is a follow-up.
-- **Phase 1b — NEXT (large).** `struct` value types. Requires: (1) parser
-  contextual-keyword support for `struct Foo {}` — the parser is single-token
-  lookahead today, so this needs a 2-token peek (buffer or lexer save/restore);
-  (2) analyzer value semantics on `ClassType::isStruct` (fixed layout, Copy/move,
-  assignment = copy); (3) codegen: static-offset field access via `GEP` (reuse
-  the flat-object shape descriptors), inline/stack/arena storage, no `TsMap`.
-  Non-escaping typed class instances already get flat-object + stack-alloc, so
-  part of the substrate exists.
+- **Phase 1b — IN PROGRESS.**
+  - `struct Foo {}` syntax — **DONE** (`37110393`): contextual keyword via a
+    one-token parser lookahead buffer; sets `ClassDeclaration::isStruct`.
+  - Fixed-width **field/param/var** types — **DONE** (`4e2aa0f2`):
+    `convertTypeFromString` maps the aliases so struct/class fields typed
+    i32/f64 get unboxed Int64/Float64 slots (were falling to a boxed Any slot
+    that silently dropped stores). Struct value types now work end-to-end in a
+    `use fast` file: fixed-shape unboxed fields, static-offset access, and
+    stack-alloc when non-escaping (via the existing escape analysis).
+  - **STILL PENDING — true value/Copy semantics.** `let b = a` currently
+    *aliases* (structs still lower as class references): mutating `b` mutates
+    `a`. Real value semantics needs the assignment / call-argument / return
+    lowering to **memcpy** the shape bytes for struct-typed values. This is the
+    remaining defining piece and a multi-path codegen change.
+  - Also pending: exact machine widths (i32 wraparound / real f32 — HIR has only
+    Int64/Float64 today); guaranteed inline/stack storage (that's Phase 2's
+    no-GC region).
 - **Remaining FastCheck rules** (deferred until the alternatives exist so the
   diagnostic can name them): reject reference-class `new`, managed array/object
   literals (→ point at `NativeArray`), non-discriminated unions, capturing
