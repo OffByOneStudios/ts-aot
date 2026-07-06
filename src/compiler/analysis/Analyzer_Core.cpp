@@ -94,6 +94,42 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         symbols.define("parseInt", parseIntFn);
     }
 
+    // "use fast" Phase 2b: register the NativeArray<T> builtin container type
+    // and constructor ONLY in fast files, so the name is invisible to normal
+    // TS/JS compilation (docs/design/use-fast.md). NativeArray<T> exposes
+    // get(i)/set(i,v)/dispose() methods + a length field; element get/set slots
+    // are chosen from T at HIR-lowering time.
+    if (fastFile_) {
+        auto naClass = std::make_shared<ClassType>("NativeArray");
+        auto naGet = std::make_shared<FunctionType>();
+        naGet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+        naGet->returnType = std::make_shared<Type>(TypeKind::Double);
+        naClass->methods["get"] = naGet;
+
+        auto naSet = std::make_shared<FunctionType>();
+        naSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+        naSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+        naSet->returnType = std::make_shared<Type>(TypeKind::Void);
+        naClass->methods["set"] = naSet;
+
+        auto naDispose = std::make_shared<FunctionType>();
+        naDispose->returnType = std::make_shared<Type>(TypeKind::Void);
+        naClass->methods["dispose"] = naDispose;
+
+        naClass->fields["length"] = std::make_shared<Type>(TypeKind::Double);
+        symbols.defineType("NativeArray", naClass);
+
+        auto naCtor = std::make_shared<FunctionType>();
+        naCtor->returnType = naClass;
+        symbols.define("NativeArray", naCtor);
+
+        // Allocator enum surface: Allocator.Temp (0) / Allocator.Persistent (1).
+        auto allocObj = std::make_shared<ObjectType>();
+        allocObj->fields["Temp"] = std::make_shared<Type>(TypeKind::Double);
+        allocObj->fields["Persistent"] = std::make_shared<Type>(TypeKind::Double);
+        symbols.define("Allocator", allocObj);
+    }
+
     visitProgram(program);
     // symbols.exitScope();
     

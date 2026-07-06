@@ -598,6 +598,16 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
                 setValue(inst->result, result);
                 return;
             }
+            // "use fast" NativeArray.length -> ts_native_array_length()
+            if (*hirVal && (*hirVal)->type &&
+                (*hirVal)->type->kind == HIRTypeKind::Class &&
+                (*hirVal)->type->className == "NativeArray") {
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), {getGCPtrTy()}, false);
+                auto fn = module_->getOrInsertFunction("ts_native_array_length", ft);
+                llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {obj});
+                setValue(inst->result, result);
+                return;
+            }
         }
     }
 

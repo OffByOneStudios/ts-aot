@@ -112,6 +112,7 @@ add_library(tscompiler_lib STATIC
     hir/handlers/PathHandler.cpp
     hir/handlers/GeneratorHandler.cpp
     hir/handlers/RegExpHandler.cpp
+    hir/handlers/NativeArrayHandler.cpp
     hir/passes/HIRPass.cpp
     hir/passes/PassManager.cpp
     hir/passes/MethodResolutionPass.cpp

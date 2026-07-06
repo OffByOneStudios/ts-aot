@@ -13,6 +13,7 @@ std::unique_ptr<BuiltinHandler> createBigIntHandler();
 std::unique_ptr<BuiltinHandler> createPathHandler();
 std::unique_ptr<BuiltinHandler> createGeneratorHandler();
 std::unique_ptr<BuiltinHandler> createRegExpHandler();
+std::unique_ptr<BuiltinHandler> createNativeArrayHandler();
 
 bool HandlerRegistry::builtinsRegistered_ = false;
 
@@ -110,6 +111,9 @@ void HandlerRegistry::registerBuiltinHandlers() {
 
     // Phase 7d: RegExpHandler - RegExp test/exec methods
     reg.registerHandler(createRegExpHandler());
+
+    // "use fast" Phase 2b: NativeArray<T> get/set/dispose methods
+    reg.registerHandler(createNativeArrayHandler());
 
     SPDLOG_DEBUG("HandlerRegistry: builtin handlers registered (count={})",
                  reg.handlerCount());

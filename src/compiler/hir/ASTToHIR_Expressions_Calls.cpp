@@ -1955,6 +1955,64 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // "use fast" NativeArray<T> — unmanaged native container (docs/design/
+    // use-fast.md Phase 2). `new NativeArray<T>(length[, allocator])` lowers to
+    // ts_native_array_new(length, allocKind). Element type T (Int64 -> i64
+    // slots, else f64) is carried on the result HIRType so get/set pick the
+    // right runtime slot accessor. Gated on fastCode_ so the name is inert
+    // outside fast files.
+    if (fastCode_ && className == "NativeArray") {
+        // Element type from the type argument string (i*/u*/int -> Int64,
+        // else Float64). typeArguments are raw source strings here.
+        auto elemType = HIRType::makeFloat64();
+        if (!node->typeArguments.empty()) {
+            const std::string& t = node->typeArguments[0];
+            bool isInt = (t == "int" || t == "isize" || t == "usize" ||
+                          (t.size() >= 2 && (t[0] == 'i' || t[0] == 'u') &&
+                           std::isdigit((unsigned char)t[1])));
+            if (isInt) elemType = HIRType::makeInt64();
+        }
+
+        // Coerce a numeric HIR value to Int64 (length / allocator are i64 in
+        // the ts_native_array_new signature).
+        auto toI64 = [&](std::shared_ptr<HIRValue> v) -> std::shared_ptr<HIRValue> {
+            if (!v || !v->type) return v;
+            if (v->type->kind == HIRTypeKind::Float64) return builder_.createCastF64ToI64(v);
+            if (v->type->kind == HIRTypeKind::Bool) return builder_.createCastBoolToI64(v);
+            return v;  // Int64 (or already integral)
+        };
+
+        // Arg 0 = length. Arg 1 = allocator (Temp=0, Persistent=1); accepts
+        // Allocator.Temp/.Persistent sugar or a plain numeric literal.
+        std::shared_ptr<HIRValue> lengthVal =
+            node->arguments.empty() ? builder_.createConstInt(0)
+                                    : toI64(lowerExpression(node->arguments[0].get()));
+
+        std::shared_ptr<HIRValue> allocVal;
+        if (node->arguments.size() > 1) {
+            auto* argExpr = node->arguments[1].get();
+            int allocConst = -1;
+            if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(argExpr)) {
+                if (auto* baseId = dynamic_cast<ast::Identifier*>(pa->expression.get())) {
+                    if (baseId->name == "Allocator") {
+                        if (pa->name == "Temp") allocConst = 0;
+                        else if (pa->name == "Persistent") allocConst = 1;
+                    }
+                }
+            }
+            allocVal = (allocConst >= 0) ? builder_.createConstInt(allocConst)
+                                         : toI64(lowerExpression(argExpr));
+        } else {
+            allocVal = builder_.createConstInt(0);  // default Allocator.Temp
+        }
+
+        auto naType = HIRType::makeClass("NativeArray");
+        naType->elementType = elemType;
+        lastValue_ = builder_.createCall("ts_native_array_new",
+                                         {lengthVal, allocVal}, naType);
+        return;
+    }
+
     // Handle built-in Map class
     if (className == "Map") {
         if (node->arguments.empty()) {

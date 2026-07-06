@@ -869,6 +869,16 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                 paramTypes.push_back(builder_->getInt64Ty());
                 retType = builder_->getVoidTy();
             }
+            // "use fast" NativeArray ctor: ptr ts_native_array_new(i64 length,
+            // i64 allocKind). The generic all-ptr signature would mislink the
+            // integer args; declare it explicitly. (get/set/dispose/length are
+            // lowered with explicit signatures in their handlers, not here.)
+            if (funcName == "ts_native_array_new") {
+                paramTypes.clear();
+                paramTypes.push_back(builder_->getInt64Ty());
+                paramTypes.push_back(builder_->getInt64Ty());
+                retType = getGCPtrTy();
+            }
             // GC verification-harness builtins (GC-001): doubles / bool / void.
             if (funcName == "ts_gc_dbg_collection_count" ||
                 funcName == "ts_gc_dbg_live_size" ||
