@@ -2598,6 +2598,48 @@ void* fctorBuild(const char* paramsUtf8, const char* bodyUtf8, TsValue** errOut)
     return makeInterpClosure(d, makeGlobalRootEnv(), nullptr);
 }
 
+// Direct eval from a compiled function's PARAMETER INITIALIZER. flags bit0:
+// param-init context — the eval's var scope is a fresh local fn-scope env,
+// NOT globalThis (ES 19.2.1.1: direct eval's varEnv is the running function
+// env). flags bit1: an 'arguments' binding lies on the eval's lexEnv->varEnv
+// walk, so sloppy eval code var/function-declaring 'arguments' throws
+// SyntaxError before any instantiation (ES2025 19.2.1.3 step 5.d).
+TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
+                       Cpl* abrupt) {
+    void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+    const char* perr = ts_parse_error(h);
+    if (perr) {
+        *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
+        ts_parse_free(h);
+        return nullptr;
+    }
+    retainParseHandle(h);
+    auto* prog = (ast::Program*)ts_parse_get_program(h);
+    if (!prog->isStrict && (flags & 2)) {
+        std::vector<std::string> vars;
+        std::vector<ast::FunctionDeclaration*> fns;
+        for (auto& s : prog->body) hoistCollect(s.get(), vars, fns);
+        collectTopLevelFns(prog->body, fns);
+        bool declaresArguments = false;
+        for (auto& n : vars)
+            if (n == "arguments") { declaresArguments = true; break; }
+        for (auto* fd : fns)
+            if (fd && fd->name == "arguments") declaresArguments = true;
+        if (declaresArguments) {
+            *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
+                "Cannot declare 'arguments' in direct eval code within a "
+                "parameter initializer");
+            return nullptr;
+        }
+    }
+    // Local var scope (fn-scope root, no \x01g marker): eval var declarations
+    // stay out of globalThis.
+    Cpl r = runProgramInEnv(prog, envNew(nullptr, /*fnScope*/true), globalThis,
+                            /*callerStrict*/false);
+    if (r.k == Cpl::Thrown) { *abrupt = r; return nullptr; }
+    return r.v ? r.v : jsUndefined();
+}
+
 TsValue* indirectEvalImpl(const char* src, TsValue** errOut, Cpl* abrupt) {
     void* h = ts_parse_program(src ? src : "", "<eval>", 0);
     const char* perr = ts_parse_error(h);
@@ -2665,6 +2707,23 @@ extern "C" TsValue* ts_indirect_eval_cstr(const char* src) {
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
     TsValue* r = indirectEvalImpl(src, &err, &abrupt);
+    if (err) ts_throw(err);
+    if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
+    return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
+// Direct eval lowered from a compiled parameter initializer (flags: see
+// paramEvalImpl). Non-string arguments are returned unchanged (ES 19.2.1.1
+// step 2). This frame holds no destructor-owning locals (longjmp rule).
+extern "C" TsValue* ts_direct_eval_value(TsValue* arg, int64_t flags) {
+    if (!arg) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* sraw = ts_value_get_string(arg);
+    if (!sraw) return arg;
+    const char* src = ((TsString*)sraw)->ToUtf8();
+    TsValue* err = nullptr;
+    Cpl abrupt;
+    abrupt.k = Cpl::Normal;
+    TsValue* r = paramEvalImpl(src ? src : "", flags, &err, &abrupt);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;

@@ -1269,6 +1269,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             std::shared_ptr<HIRValue> evalArg = args.empty()
                 ? builder_.createConstUndefined()
                 : boxValueIfNeeded(args[0]);
+            // Direct eval inside a PARAMETER INITIALIZER: pass context flags so
+            // the interpreter applies ES2025 19.2.1.3 step 5.d (sloppy direct
+            // eval declaring 'arguments' while an arguments binding lies on the
+            // lexEnv->varEnv walk => SyntaxError) and keeps eval var
+            // declarations out of globalThis (the eval's varEnv is the function
+            // env, never the global). Owner check keeps nested function bodies
+            // lowered inside a default expression on the plain path.
+            if (activeEvalFlags_ != 0 && evalFlagsOwner_ == currentFunction_) {
+                lastValue_ = builder_.createCall(
+                    "ts_direct_eval_value",
+                    {evalArg, builder_.createConstInt(activeEvalFlags_)},
+                    HIRType::makeAny());
+                return;
+            }
             lastValue_ = builder_.createCall("ts_indirect_eval_value",
                                              {evalArg}, HIRType::makeAny());
             return;

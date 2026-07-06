@@ -196,6 +196,10 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Register parameters in the scope so they can be looked up.
     // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM.
     preseedParamTDZ(func.get(), node->parameters);
+    // Direct eval in a param default of a non-arrow function always crosses an
+    // 'arguments' binding on the lexEnv->varEnv walk (bit1).
+    int savedPECF = paramEvalCtxFlags_;
+    paramEvalCtxFlags_ = 1 | 2;
     // Strategy B Phase 6a: per-parameter logic factored into bindOneParameter.
     for (size_t i = 0; i < func->params.size(); ++i) {
         ast::Parameter* astParam = (i < node->parameters.size()) ? node->parameters[i].get() : nullptr;
@@ -208,6 +212,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
+    paramEvalCtxFlags_ = savedPECF;
 
     // Async generators (eager-body model): mark the end of the PARAMETER
     // prologue. Param-binding errors before this marker must throw
@@ -772,6 +777,15 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
     // Register parameters in the scope (with default value handling).
     preseedParamTDZ(func.get(), node->parameters);
+    // Arrows have no own 'arguments'; a param-default direct eval only crosses
+    // an 'arguments' binding when a parameter is literally named 'arguments'.
+    int savedPECF = paramEvalCtxFlags_;
+    {
+        bool argsParam = false;
+        for (auto& pr : func->params)
+            if (pr.first == "arguments") { argsParam = true; break; }
+        paramEvalCtxFlags_ = 1 | (argsParam ? 2 : 0);
+    }
     // Strategy B Phase 6c: per-parameter logic factored into bindOneParameter.
     // The slot-0 __closure__ has no AST parameter; user params start at index 1.
     for (size_t i = 0; i < func->params.size(); ++i) {
@@ -787,6 +801,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
+    paramEvalCtxFlags_ = savedPECF;
 
     // Async generators: end of PARAMETER prologue (see site in
     // visitFunctionDeclaration) — body throws after this reject next().
@@ -1187,6 +1202,10 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
 
     // Register parameters in the scope (with default value handling).
     preseedParamTDZ(func.get(), node->parameters);
+    // Non-arrow: a param-default direct eval always crosses an 'arguments'
+    // binding (bit1).
+    int savedPECF = paramEvalCtxFlags_;
+    paramEvalCtxFlags_ = 1 | 2;
     // Strategy B Phase 6b: per-parameter logic factored into bindOneParameter.
     // The slot-0 __closure__ has no AST parameter; user params start at index 1.
     for (size_t i = 0; i < func->params.size(); ++i) {
@@ -1203,6 +1222,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
+    paramEvalCtxFlags_ = savedPECF;
 
     // Async generators: end of PARAMETER prologue — body throws after this
     // reject the first next() promise (ts_agen_should_reject).
@@ -1651,6 +1671,10 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // collide with the SSA IDs reserved for params 0..N.
     func->nextValueId = static_cast<uint32_t>(func->params.size());
     preseedParamTDZ(func.get(), node->parameters);
+    // Non-arrow (method): a param-default direct eval always crosses an
+    // 'arguments' binding (bit1).
+    int savedPECF = paramEvalCtxFlags_;
+    paramEvalCtxFlags_ = 1 | 2;
     for (size_t i = 0; i < func->params.size(); ++i) {
         size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
         ast::Parameter* astParam = (astParamIdx < node->parameters.size())
@@ -1663,6 +1687,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
+    paramEvalCtxFlags_ = savedPECF;
 
     // Create the 'arguments' object if the method body references it (object-
     // literal methods, getters/setters, etc. lowered via this path lacked it).
