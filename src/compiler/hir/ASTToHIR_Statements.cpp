@@ -61,6 +61,9 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
     // caught if parseUrl throws).
     if (node->expression) {
         auto retVal = lowerExpression(node->expression.get());
+        // "use fast" struct value semantics: returning a struct read from an
+        // lvalue yields an independent copy to the caller.
+        retVal = maybeCloneStruct(retVal, node->expression.get());
         for (int i = 0; i < tryDepth_; i++) {
             builder_.createPopHandler();
         }

@@ -9,7 +9,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     if (!node->callee) return;
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
-        args.push_back(lowerExpression(arg.get()));
+        // "use fast" struct value semantics: a struct argument is passed by
+        // value (the callee gets an independent copy).
+        args.push_back(maybeCloneStruct(lowerExpression(arg.get()), arg.get()));
     }
 
     // Spread arguments at the call site (`f(...a, b, ...c)`). Without

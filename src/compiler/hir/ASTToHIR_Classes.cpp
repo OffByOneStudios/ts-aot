@@ -157,6 +157,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Create HIR class
     auto* hirClass = builder_.createClass(node->name);
     if (!hirClass) return;
+    hirClass->isStruct = node->isStruct;  // "use fast" value type
 
     // Track the current class for 'this' handling
     HIRClass* savedClass = currentClass_;

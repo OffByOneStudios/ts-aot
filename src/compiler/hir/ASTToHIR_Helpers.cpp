@@ -432,6 +432,33 @@ void ASTToHIR::extractDestructuringForParam(HIRFunction* func,
 // Type Conversion
 //==============================================================================
 
+bool ASTToHIR::isStructValue(const std::shared_ptr<HIRValue>& v) {
+    if (!v || !v->type || v->type->kind != HIRTypeKind::Class) return false;
+    for (auto& cls : module_->classes)
+        if (cls && cls->name == v->type->className) return cls->isStruct;
+    return false;
+}
+
+std::shared_ptr<HIRValue> ASTToHIR::maybeCloneStruct(std::shared_ptr<HIRValue> v,
+                                                     ast::Expression* src) {
+    if (!fastCode_ || !isStructValue(v) || !src) return v;
+    // Unwrap transparent wrappers to find the real source expression.
+    ast::Expression* s = src;
+    while (true) {
+        if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(s)) { s = p->expression.get(); continue; }
+        if (auto* a = dynamic_cast<ast::AsExpression*>(s))            { s = a->expression.get(); continue; }
+        if (auto* n = dynamic_cast<ast::NonNullExpression*>(s))       { s = n->expression.get(); continue; }
+        break;
+    }
+    // Only an lvalue READ (identifier / member access) needs a copy; a fresh
+    // `new`, call, or object literal already produced an independent value.
+    bool lvalueRead = dynamic_cast<ast::Identifier*>(s) ||
+                      dynamic_cast<ast::PropertyAccessExpression*>(s) ||
+                      dynamic_cast<ast::ElementAccessExpression*>(s);
+    if (!lvalueRead) return v;
+    return builder_.createCall("ts_flat_object_clone", {v}, v->type);
+}
+
 std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& typeStr) {
     if (typeStr.empty()) {
         return HIRType::makeAny();

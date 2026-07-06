@@ -522,6 +522,9 @@ struct HIRShape {
 struct HIRClass {
     std::string name;
     std::shared_ptr<HIRShape> shape;
+    // "use fast" value type (docs/design/use-fast.md): assignment / binding /
+    // argument / return copy the instance instead of aliasing the pointer.
+    bool isStruct = false;
 
     // Methods
     std::map<std::string, HIRFunction*> methods;

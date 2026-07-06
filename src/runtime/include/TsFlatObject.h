@@ -113,6 +113,10 @@ extern "C" {
     // Create a flat object (heap-allocated via GC)
     void* ts_flat_object_create(uint32_t shapeId);
 
+    // "use fast" struct value semantics: independent shallow copy of a flat
+    // object (returns src if not a heap flat object). See TsFlatObject.cpp.
+    void* ts_flat_object_clone(void* src);
+
     // Get property by name from flat object (runtime slow path)
     void* ts_flat_object_get_property(void* obj, const char* key);
 

@@ -1172,6 +1172,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         }
     }
     auto rhs = lowerExpression(node->right.get());
+    // "use fast" struct value semantics: `b = a` copies the struct.
+    rhs = maybeCloneStruct(rhs, node->right.get());
 
     // Handle simple identifier assignment
     auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());

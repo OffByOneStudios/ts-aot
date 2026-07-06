@@ -53,6 +53,27 @@ extern "C" void ts_shape_register(uint32_t shapeId, ShapeDescriptor* desc) {
     }
 }
 
+// "use fast" struct value semantics (docs/design/use-fast.md): produce an
+// independent shallow copy of a flat object. Used at struct assignment /
+// binding / argument / return sites so `let b = a; b.x = 1` does not mutate a.
+// Shallow copy is correct value semantics for structs of primitive fields
+// (i32/f64/...); nested-struct fields would need a deep copy (future work).
+// Returns src unchanged if it is not a real (heap) flat object.
+extern "C" void* ts_flat_object_clone(void* src) {
+    if (!src) return nullptr;
+    if (*(uint32_t*)src != FLAT_MAGIC) return src;  // not a heap flat object
+    uint32_t shapeId = flat_object_shape_id(src);
+    ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+    if (!desc) return src;
+    uint32_t totalSize = 16 + desc->numSlots * 8 + 8;
+    void* mem = ts_gc_alloc_old_gen(totalSize);
+    memcpy(mem, src, totalSize);
+    // Independent overflow map (value semantics). Structs have none, but a
+    // clone must never alias the source's dynamic-property storage.
+    *(uint64_t*)((char*)mem + 16 + desc->numSlots * 8) = 0;
+    return mem;
+}
+
 extern "C" void* ts_flat_object_create(uint32_t shapeId) {
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return nullptr;

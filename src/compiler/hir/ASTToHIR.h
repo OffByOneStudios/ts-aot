@@ -599,6 +599,16 @@ private:
     // Convert a TypeScript type string (e.g. "number", "string") to HIR Type
     std::shared_ptr<HIRType> convertTypeFromString(const std::string& typeStr);
 
+    // "use fast" struct value semantics (docs/design/use-fast.md): true iff the
+    // HIR value is an instance of a `struct` class. maybeCloneStruct wraps a
+    // struct value in ts_flat_object_clone when it is read from an lvalue
+    // (identifier / member access) into a value context — assignment, binding,
+    // argument, or return — so structs copy instead of aliasing. A fresh
+    // new/call already yields an independent value and is not cloned.
+    bool isStructValue(const std::shared_ptr<HIRValue>& v);
+    std::shared_ptr<HIRValue> maybeCloneStruct(std::shared_ptr<HIRValue> v,
+                                               ast::Expression* src);
+
     //==========================================================================
     // SSA Helpers
     //==========================================================================

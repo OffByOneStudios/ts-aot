@@ -2257,6 +2257,8 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         SPDLOG_DEBUG("[VD] initializer kind={} for var={}", node->initializer->getKind(),
             dynamic_cast<ast::Identifier*>(node->name.get()) ? dynamic_cast<ast::Identifier*>(node->name.get())->name : "?");
         initValue = lowerExpression(node->initializer.get());
+        // "use fast" struct value semantics: `const b = a` copies the struct.
+        initValue = maybeCloneStruct(initValue, node->initializer.get());
         pendingClosureDisplayName_.clear();
 
         // Track class expression assignments: const MyClass = class { ... }
