@@ -1751,17 +1751,31 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         if (ts_is_unchecked<TsString>(rawObj)) { // TsString (tag at offset 0)
             TsString* s = (TsString*)rawObj;
             int64_t len = s->Length();  // code-unit length
-            TsArray* arr = (TsArray*)ts_array_create();
+            // Pre-size to code-unit length (>= code-point count) so Push never
+            // grows mid-loop, and REGISTER the raw locals as GC roots: this
+            // loop allocates per code point, a minor GC mid-loop MOVES nursery
+            // objects, and C++ frame locals are not precise roots. Unrooted,
+            // a multi-megabyte string (test262 CharacterClassEscapes builds
+            // ~2.1M-char subjects) corrupted the heap — nondeterministic
+            // 0xC0000409/0xC0000005 crashes that vanish under TS_GC_NURSERY=0.
+            TsArray* arr = TsArray::Create((size_t)(len > 0 ? len : 0));
+            TsString* part = nullptr;
+            ts_gc_register_root((void**)&s);
+            ts_gc_register_root((void**)&arr);
+            ts_gc_register_root((void**)&part);
             int64_t i = 0;
             while (i < len) {
                 int64_t cp = s->CodePointAt(i);
                 int64_t cps[1] = {cp};
-                TsString* part = TsString::FromCodePoint(cps, 1);
+                part = TsString::FromCodePoint(cps, 1);
                 TsValue v; v.type = ValueType::STRING_PTR; v.ptr_val = part;
                 arr->Push((int64_t)(uintptr_t)nanbox_from_tagged(v));
                 // Advance past surrogate pair if needed.
                 i += (cp > 0xFFFF) ? 2 : 1;
             }
+            ts_gc_unregister_root((void**)&part);
+            ts_gc_unregister_root((void**)&arr);
+            ts_gc_unregister_root((void**)&s);
             iterDecoded.type = ValueType::ARRAY_PTR;
             iterDecoded.ptr_val = arr;
         }
