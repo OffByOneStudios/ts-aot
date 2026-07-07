@@ -695,6 +695,10 @@ extern "C" {
     // Sets go to the ORIGINAL object. Write the temp's elements and length
     // back. POD frame: a setter on the original may throw.
     extern "C" void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+    // Non-writable "length" marker probe (TsObject_ObjectStatics.cpp,
+    // ES 10.4.2.4 ArraySetLength step 15).
+    extern bool array_length_is_nonwritable(TsArray* a);
+
     // ES 10.4.2.4 ArraySetLength via Set(O, "length", v, true): every
     // length-writing mutator (pop/push/shift/unshift/splice) must throw
     // TypeError when the receiver is FROZEN (integrity side-table) or its
@@ -704,14 +708,7 @@ extern "C" {
         if (!arr) return;
         extern uint8_t ts_integrity_get(void* raw);
         bool blocked = ts_integrity_get((void*)arr) >= 3;
-        if (!blocked && arr->properties) {
-            TsValue lk; lk.type = ValueType::STRING_PTR;
-            lk.ptr_val = TsString::GetInterned("length");
-            if (arr->properties->Has(lk) &&
-                !(arr->properties->GetPropertyAttrs(lk) & 0x02)) {
-                blocked = true;
-            }
-        }
+        if (!blocked) blocked = array_length_is_nonwritable(arr);
         if (!blocked && arr->originalReceiver &&
             arr->originalReceiver != (void*)arr) {
             void* orig = arr->originalReceiver;
