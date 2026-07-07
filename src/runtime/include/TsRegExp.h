@@ -96,6 +96,14 @@ private:
     uint32_t magic = MAGIC;
     icu::RegexMatcher* matcher = nullptr;
     icu::UnicodeString patternStr;
+    // Stable storage for the CURRENT match subject. RegexMatcher::reset(const
+    // UnicodeString&) stores a REFERENCE to its argument; resetting with a
+    // function-local temporary leaves the matcher pointing at a destroyed
+    // string until the next reset (documented ICU aliasing requirement).
+    // Heap-allocated (not an inline member) so its ADDRESS survives a moving
+    // GC relocating this TsRegExp — the matcher would otherwise hold a
+    // reference into the object's old location. Owned; freed in ~TsRegExp.
+    icu::UnicodeString* subjectStr = nullptr;
     std::string flagsStr;
     int64_t lastIndex = 0;
     bool global = false;

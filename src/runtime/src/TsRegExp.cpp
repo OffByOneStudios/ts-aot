@@ -692,6 +692,7 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
 
 TsRegExp::~TsRegExp() {
     delete matcher;
+    delete subjectStr;
 }
 
 TsString* TsRegExp::GetSource() const {
@@ -706,11 +707,15 @@ TsString* TsRegExp::GetFlags() const {
 
 bool TsRegExp::Test(TsString* str) {
     if (!matcher) return false;
-    
+
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString input = str->ToUnicodeString();
+    // Assign into stable heap storage: matcher->reset() KEEPS A REFERENCE to
+    // the subject (see subjectStr declaration) — a local is a use-after-free.
+    if (!subjectStr) subjectStr = new icu::UnicodeString();
+    *subjectStr = str->ToUnicodeString();
+    const icu::UnicodeString& input = *subjectStr;
     matcher->reset(input);
-    
+
     if (global || sticky) {
         matcher->region(lastIndex, input.length(), status);
     }
@@ -732,7 +737,10 @@ void* TsRegExp::Exec(TsString* str) {
     if (!matcher) return nullptr;
 
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString input = str->ToUnicodeString();
+    // Stable heap storage — matcher->reset() keeps a reference (see Test).
+    if (!subjectStr) subjectStr = new icu::UnicodeString();
+    *subjectStr = str->ToUnicodeString();
+    const icu::UnicodeString& input = *subjectStr;
     matcher->reset(input);
 
     if (global || sticky) {
