@@ -139,6 +139,59 @@ inline void annexBStripShadowedFns(const std::set<std::string>& lexNames,
 }
 
 inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out,
+                                   std::vector<std::string>* fnOut);
+
+// Inline the contents of SYNTHETIC blocks (multi-declarator `let a, b;`
+// wrappers — no new scope) into a flat raw-statement list.
+inline void annexBFlattenSynthetic(const std::vector<ast::StmtPtr>& in,
+                                   std::vector<ast::Statement*>& out) {
+    for (auto& p : in) {
+        auto* s = static_cast<ast::Statement*>(p.get());
+        if (auto* blk = dynamic_cast<ast::BlockStatement*>(s)) {
+            if (blk->isSynthetic) { annexBFlattenSynthetic(blk->statements, out); continue; }
+        }
+        out.push_back(s);
+    }
+}
+
+// Collect hoisted names from a statement list forming ONE lexical block scope
+// (a block body, the union of switch clauses, a try/catch/finally body).
+// Function declarations DIRECTLY in the list are this scope's own promotion
+// candidates (blocked only by outer lexicals, which the parent strips, and
+// this scope's let/const). Names from DEEPER scopes are additionally blocked
+// by this scope's lexical names — its let/const AND its own block-level
+// function names (B.3.3.1: replacing an inner `function f` with `var f`
+// collides with this block's lexical `function f` -> early error -> skip;
+// the block-decl-nested-blocks-with-fun-decl shape).
+inline void annexBCollectScopedList(const std::vector<ast::Statement*>& stmts,
+                                    const std::set<std::string>& extraLex,
+                                    std::vector<std::string>& out,
+                                    std::vector<std::string>* fnOut) {
+    std::vector<std::string> ownVars, ownFns, deepVars, deepFns;
+    std::set<std::string> lex = extraLex;
+    for (ast::Statement* s : stmts) {
+        if (dynamic_cast<ast::FunctionDeclaration*>(s))
+            collectHoistedVarNames(s, ownVars, &ownFns);
+        else
+            collectHoistedVarNames(s, deepVars, &deepFns);
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s))
+            if (vd->varKind != ast::VarKind::Var)
+                if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    lex.insert(idn->name);
+    }
+    std::set<std::string> lexPlusOwnFns = lex;
+    for (auto& n : ownFns) lexPlusOwnFns.insert(n);
+    annexBStripShadowedFns(lexPlusOwnFns, deepVars, deepFns);
+    annexBStripShadowedFns(lex, ownVars, ownFns);
+    out.insert(out.end(), ownVars.begin(), ownVars.end());
+    out.insert(out.end(), deepVars.begin(), deepVars.end());
+    if (fnOut) {
+        fnOut->insert(fnOut->end(), ownFns.begin(), ownFns.end());
+        fnOut->insert(fnOut->end(), deepFns.begin(), deepFns.end());
+    }
+}
+
+inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out,
                                    std::vector<std::string>* fnOut = nullptr) {
     if (!node) return;
     // Stop at nested function bodies — they have their own VariableEnvironment.
@@ -166,19 +219,14 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
         return;
     }
     if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
-        // Collect into fresh lists so the Annex B B.3.3.1 skip can strip
-        // block-level function names shadowed by this block's own lexical
-        // declarations before merging upward. Synthetic blocks add no scope.
-        std::vector<std::string> subVars;
-        std::vector<std::string> subFns;
-        for (auto& s : block->statements) collectHoistedVarNames(s.get(), subVars, &subFns);
-        if (!block->isSynthetic) {
-            std::set<std::string> lex;
-            collectTopLevelLexicalNames(block->statements, lex);
-            annexBStripShadowedFns(lex, subVars, subFns);
+        // Synthetic blocks (multi-declarator wrappers) add no scope.
+        if (block->isSynthetic) {
+            for (auto& s : block->statements) collectHoistedVarNames(s.get(), out, fnOut);
+            return;
         }
-        out.insert(out.end(), subVars.begin(), subVars.end());
-        if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
+        std::vector<ast::Statement*> flat;
+        annexBFlattenSynthetic(block->statements, flat);
+        annexBCollectScopedList(flat, {}, out, fnOut);
         return;
     }
     if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
@@ -253,38 +301,25 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
         return;
     }
     if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
-        // All clauses share ONE block scope: the B.3.3.1 skip applies the
-        // union of clause-level lexical names to functions anywhere within.
-        std::vector<std::string> subVars;
-        std::vector<std::string> subFns;
-        std::set<std::string> lex;
+        // All clauses share ONE block scope: flatten clause statements into a
+        // single list so the union of clause lexicals blocks nested candidates.
+        std::vector<ast::Statement*> flat;
         for (auto& cl : sw->clauses) {
-            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
-                for (auto& s : cc->statements) collectHoistedVarNames(s.get(), subVars, &subFns);
-                collectTopLevelLexicalNames(cc->statements, lex);
-            }
-            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
-                for (auto& s : dc->statements) collectHoistedVarNames(s.get(), subVars, &subFns);
-                collectTopLevelLexicalNames(dc->statements, lex);
-            }
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                annexBFlattenSynthetic(cc->statements, flat);
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                annexBFlattenSynthetic(dc->statements, flat);
         }
-        annexBStripShadowedFns(lex, subVars, subFns);
-        out.insert(out.end(), subVars.begin(), subVars.end());
-        if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
+        annexBCollectScopedList(flat, {}, out, fnOut);
         return;
     }
     if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
         // try / catch / finally bodies are each their own block scope.
         auto scoped = [&](const std::vector<ast::StmtPtr>& stmts,
                           const std::set<std::string>& extraLex) {
-            std::vector<std::string> subVars;
-            std::vector<std::string> subFns;
-            for (auto& s : stmts) collectHoistedVarNames(s.get(), subVars, &subFns);
-            std::set<std::string> lex = extraLex;
-            collectTopLevelLexicalNames(stmts, lex);
-            annexBStripShadowedFns(lex, subVars, subFns);
-            out.insert(out.end(), subVars.begin(), subVars.end());
-            if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
+            std::vector<ast::Statement*> flat;
+            annexBFlattenSynthetic(stmts, flat);
+            annexBCollectScopedList(flat, extraLex, out, fnOut);
         };
         scoped(tryStmt->tryBlock, {});
         if (tryStmt->catchClause) {
