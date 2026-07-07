@@ -2209,6 +2209,15 @@ void* ts_create_arguments_from_params(
                     }
                 }
             }
+            // Chain continues past Date.prototype to Object.prototype —
+            // hasOwnProperty on a Date returned undefined, so 15.2.3.14-6-5's
+            // for-in + hasOwnProperty agreement check saw an empty array.
+            if (strcmp(keyStr, "hasOwnProperty") == 0)
+                return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, obj, "hasOwnProperty", 1);
+            if (strcmp(keyStr, "propertyIsEnumerable") == 0)
+                return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, obj, "propertyIsEnumerable", 1);
+            if (strcmp(keyStr, "isPrototypeOf") == 0)
+                return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, obj, "isPrototypeOf", 1);
             return ts_value_make_undefined();
         }
 
@@ -7919,17 +7928,31 @@ void* ts_create_arguments_from_params(
             }
             // Non-polymorphic header types (magic@0, no vtable, no own hash
             // table). dynamic_cast<TsMap*> below would read magic-as-vtable
-            // and UB in _RTDynamicCast. All of these expose their methods
-            // via the prototype, not as own data properties — hasOwnProperty
-            // is correctly `false` for these objects in JS semantics. Surface
-            // exception: RegExp's `lastIndex` IS an own data property; we
-            // approximate by returning false here, which is a known
-            // narrow-correctness gap (no tests in flight rely on it).
+            // and UB in _RTDynamicCast. Methods live on the prototype, but
+            // dynamically-assigned / defineProperty'd own props live in the
+            // g_native_object_props side-map — the same source Object.keys,
+            // for-in, and gOPD consult (15.2.3.14-6-5: for-in +
+            // hasOwnProperty over a Date with assigned props must agree).
+            // Hidden bookkeeping keys ("\x01...", "__proto__") stay invisible.
+            // Surface exception: RegExp's `lastIndex` IS an own data property;
+            // approximated as false — a known narrow-correctness gap.
             if (m0 == 0x53545247 ||  // TsString "STRG"
                 m0 == 0x44415445 ||  // TsDate "DATE"
                 m0 == 0x52454758 ||  // TsRegExp "REGX"
                 m0 == 0x42494749 ||  // TsBigInt "BIGI"
                 m0 == 0x53594D42) {  // TsSymbol "SYMB"
+                if (m0 == 0x44415445 || m0 == 0x52454758 || m0 == 0x42494749) {
+                    if (TsMap* side = getNativeProps(obj)) {
+                        TsValue keyTV = nanbox_to_tagged(argv[0]);
+                        if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                            const char* kc = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                            bool hidden = !kc || kc[0] == '\x01' ||
+                                          (kc[0] == '_' && kc[1] == '_');
+                            if (!hidden && side->Has(keyTV))
+                                return ts_value_make_bool(true);
+                        }
+                    }
+                }
                 return ts_value_make_bool(false);
             }
         }
