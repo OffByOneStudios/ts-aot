@@ -626,6 +626,10 @@ int64_t TsArray::Get(size_t index) {
     return readSlot(index);
 }
 
+// Non-writable "length" marker probe (defined in TsObject_ObjectStatics.cpp,
+// ES 10.4.2.4 ArraySetLength step 15).
+extern "C" bool array_length_is_nonwritable(TsArray* arr);
+
 void TsArray::Set(size_t index, int64_t value) {
     if (elementSize != 8) {
         // Specialized (non-8-byte) arrays stay dense; preserve legacy behavior.
@@ -638,6 +642,10 @@ void TsArray::Set(size_t index, int64_t value) {
         writeSlot(index, value);
         return;
     }
+    // ES 10.4.2.1 step 2.c: storing at an index >= length extends length,
+    // which is REJECTED when "length" is non-writable (defineProperty
+    // marker). Sloppy-mode assignment fails silently: no element, no growth.
+    if (array_length_is_nonwritable(this)) return;
     if (index == length && length < kMaxDenseElements) {
         Push(value);
         return;
@@ -664,6 +672,11 @@ int64_t TsArray::Length() {
 
 bool TsArray::SetLength(size_t newLength) {
     if (newLength == length) return true;
+    // ES 10.4.2.4 step 3.f/3.g: a non-writable "length" (defineProperty
+    // marker) rejects any length change. defineProperty's own length path
+    // applies its value BEFORE recording the marker, so this only gates
+    // LATER mutations (assignment, push/splice growth).
+    if (array_length_is_nonwritable(this)) return false;
     if (newLength < length) {
         // Truncate. Elements above newLength become unreachable; GC will
         // collect them. We just decrement length; the slots stay in the
@@ -914,15 +927,9 @@ extern "C" {
     static void arr_require_len_writable(void* arrRaw, const char* method) {
         extern uint8_t ts_integrity_get(void* raw);
         if (!arrRaw || *(uint32_t*)arrRaw != 0x41525259 /*ARRY*/) return;
-        if (ts_integrity_get(arrRaw) < 3) {
-            TsArray* a = (TsArray*)arrRaw;
-            if (!a->properties) return;
-            TsValue lk; lk.type = ValueType::STRING_PTR;
-            lk.ptr_val = TsString::GetInterned("length");
-            if (!a->properties->Has(lk) ||
-                (a->properties->GetPropertyAttrs(lk) & 0x02)) {
-                return;
-            }
+        if (ts_integrity_get(arrRaw) < 3 &&
+            !array_length_is_nonwritable((TsArray*)arrRaw)) {
+            return;
         }
         char msg[96];
         snprintf(msg, sizeof(msg),

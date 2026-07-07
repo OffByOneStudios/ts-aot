@@ -525,19 +525,25 @@ extern "C" {
         // Same bits = same value (except for doubles: NaN and -0)
         if (nb1 == nb2) return true;
 
-        // Both int32: already handled by nb1==nb2
-        // Both double: need special NaN/-0 handling
-        if (nanbox_is_double(nb1) && nanbox_is_double(nb2)) {
-            double d1 = nanbox_to_double(nb1);
-            double d2 = nanbox_to_double(nb2);
-            // NaN === NaN in SameValue
-            if (d1 != d1 && d2 != d2) return true;
-            if (d1 != d1 || d2 != d2) return false;
-            // +0 !== -0 in SameValue
-            if (d1 == 0.0 && d2 == 0.0) {
-                return (1.0 / d1) > 0.0 == (1.0 / d2) > 0.0;
+        // Numbers: SameValue is VALUE-based, not representation-based — an
+        // int32-boxed 5 equals a double-boxed 5.0. NaN equals NaN; +0 != -0
+        // (an int32 zero is +0).
+        {
+            bool isN1 = nanbox_is_int32(nb1) || nanbox_is_double(nb1);
+            bool isN2 = nanbox_is_int32(nb2) || nanbox_is_double(nb2);
+            if (isN1 && isN2) {
+                double d1 = nanbox_is_int32(nb1) ? (double)nanbox_to_int32(nb1)
+                                                 : nanbox_to_double(nb1);
+                double d2 = nanbox_is_int32(nb2) ? (double)nanbox_to_int32(nb2)
+                                                 : nanbox_to_double(nb2);
+                if (d1 != d1 && d2 != d2) return true;   // NaN, NaN
+                if (d1 != d1 || d2 != d2) return false;
+                if (d1 == 0.0 && d2 == 0.0) {
+                    return ((1.0 / d1) > 0.0) == ((1.0 / d2) > 0.0);
+                }
+                return d1 == d2;
             }
-            return d1 == d2;
+            if (isN1 != isN2) return false;
         }
 
         // Both string pointers: compare by content
@@ -1704,6 +1710,26 @@ extern "C" {
 
     extern "C" bool ts_flat_object_retire_slot(void* obj, const char* key);
 
+    // Array "length" non-writable marker (ES 10.4.2.4 ArraySetLength step 15).
+    // Presence of the __arr_-prefixed side-map key = length is non-writable;
+    // the prefix keeps it out of every enumeration path (own-keys filters it).
+    // Consumed by the defineProperty invariants below, gOPD's length
+    // descriptor, and TsArray::Set/SetLength extend gates.
+    bool array_length_is_nonwritable(TsArray* arr) {
+        if (!arr || !arr->properties) return false;
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("__arr_length_nonwritable");
+        return arr->properties->Has(k);
+    }
+    static void array_length_set_nonwritable(TsArray* arr) {
+        if (!arr) return;
+        if (!arr->properties) arr->properties = TsMap::Create();
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("__arr_length_nonwritable");
+        TsValue v; v.type = ValueType::BOOLEAN; v.i_val = 1;
+        arr->properties->Set(k, v);
+    }
+
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // #66: defineProperty on %Object.prototype% flips the dirty bit.
         if (g_object_proto_map && obj) {
@@ -1914,6 +1940,24 @@ extern "C" {
                                         "Cannot redefine array length as an accessor"));
                                     return ts_value_make_undefined();
                                 }
+                                // Value-less descriptor touching `writable`:
+                                // apply it here (ES 10.4.2.4 step 2 -> ordinary
+                                // OrdinaryDefineOwnProperty on length).
+                                // writable:false records the marker;
+                                // writable:true on a non-writable length is
+                                // TypeError (10.1.6.3, non-configurable).
+                                TsValue wkO; wkO.type = ValueType::STRING_PTR;
+                                wkO.ptr_val = TsString::GetInterned("writable");
+                                if (dm->Has(wkO)) {
+                                    bool w = ts_value_to_bool(nanbox_from_tagged(dm->Get(wkO)));
+                                    if (w && array_length_is_nonwritable(arr)) {
+                                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                            "Cannot redefine property: length"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    if (!w) array_length_set_nonwritable(arr);
+                                    return obj;
+                                }
                             }
                             if (dm->Has(vk)) {
                                 double num = ts_to_number(nanbox_from_tagged(dm->Get(vk)));
@@ -1956,16 +2000,23 @@ extern "C" {
                                 }
                             }
                                 // Honor a non-writable length set by a prior
-                                // defineProperty(arr,"length",{writable:false})
-                                // — recorded in the props map (ATTR_WRITABLE=0x02).
+                                // defineProperty(arr,"length",{writable:false}).
                                 // ECMA-262 10.4.2.4 step 3.f/3.g: changing the
-                                // length of a non-writable length is a TypeError.
-                                if (arr->properties) {
-                                    TsValue lk; lk.type = ValueType::STRING_PTR;
-                                    lk.ptr_val = TsString::GetInterned("length");
-                                    if (arr->properties->Has(lk) &&
-                                        !(arr->properties->GetPropertyAttrs(lk) & 0x02) &&
-                                        (size_t)u != arr->Length()) {
+                                // length of a non-writable length is a
+                                // TypeError, as is writable false -> true
+                                // (10.1.6.3 on a non-configurable property).
+                                {
+                                    bool nonWritable = array_length_is_nonwritable(arr);
+                                    TsValue wkT; wkT.type = ValueType::STRING_PTR;
+                                    wkT.ptr_val = TsString::GetInterned("writable");
+                                    if (nonWritable && dm->Has(wkT) &&
+                                        ts_value_to_bool(nanbox_from_tagged(dm->Get(wkT)))) {
+                                        ts_throw((TsValue*)ts_error_create_typed(
+                                            "TypeError",
+                                            "Cannot redefine property: length"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    if (nonWritable && (size_t)u != arr->Length()) {
                                         ts_throw((TsValue*)ts_error_create_typed(
                                             "TypeError",
                                             "Cannot redefine property: length"));
@@ -1994,6 +2045,17 @@ extern "C" {
                                     }
                                 }
                                 arr->SetLength((size_t)u);
+                                // ES 10.4.2.4 steps 12-15: the length change
+                                // applies FIRST, then writable:false is
+                                // recorded (so this same call's value took
+                                // effect but later extensions are rejected).
+                                {
+                                    TsValue wkR; wkR.type = ValueType::STRING_PTR;
+                                    wkR.ptr_val = TsString::GetInterned("writable");
+                                    if (dm->Has(wkR) &&
+                                        !ts_value_to_bool(nanbox_from_tagged(dm->Get(wkR))))
+                                        array_length_set_nonwritable(arr);
+                                }
                                 return obj;
                             }
                         }
@@ -2012,15 +2074,11 @@ extern "C" {
                         // length EXTENDS length; when length is non-writable
                         // (prior defineProperty(arr,"length",{writable:false}))
                         // that is a TypeError and nothing is defined.
-                        if ((size_t)idx >= arr->Length() && arr->properties) {
-                            TsValue lkNW; lkNW.type = ValueType::STRING_PTR;
-                            lkNW.ptr_val = TsString::GetInterned("length");
-                            if (arr->properties->Has(lkNW) &&
-                                !(arr->properties->GetPropertyAttrs(lkNW) & 0x02)) {
-                                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                                    "Cannot define property: array length is not writable"));
-                                return ts_value_make_undefined();
-                            }
+                        if ((size_t)idx >= arr->Length() &&
+                            array_length_is_nonwritable(arr)) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "Cannot define property: array length is not writable"));
+                            return ts_value_make_undefined();
                         }
                         // Canonical array index. ECMA-262 10.4.2.1 Array
                         // [[DefineOwnProperty]]: a DATA descriptor's `value` is
@@ -2744,11 +2802,12 @@ extern "C" {
                 if (descMap->Has(valueKeyChk)) {
                     TsValue newV = descMap->Get(valueKeyChk);
                     TsValue oldV = map->Get(propKey);
-                    // Simple inequality check — SameValue is over-engineered
-                    // for this. If either pointer/int/double differs, reject.
-                    bool sameType = (newV.type == oldV.type);
-                    bool sameBits = (newV.i_val == oldV.i_val);
-                    if (!(sameType && sameBits)) {
+                    // ES 10.1.6.3 step 4.a.ii: compare with SameValue. Bit
+                    // equality wrongly rejected equal-content strings at
+                    // different pointers and int32-vs-double encodings of
+                    // the same number, and mishandled NaN.
+                    if (!ts_object_is(nanbox_from_tagged(newV),
+                                      nanbox_from_tagged(oldV))) {
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                             "Cannot redefine property: non-configurable (value)"));
                         return ts_value_make_undefined();
@@ -3272,7 +3331,9 @@ extern "C" {
                 if (strcmp(keyCStr, "length") == 0) {
                     TsValue lenVal; lenVal.type = ValueType::NUMBER_INT;
                     lenVal.i_val = (int64_t)arr->Length();
-                    return buildDataDesc(lenVal, true, false, false);
+                    return buildDataDesc(lenVal,
+                                         !array_length_is_nonwritable(arr),
+                                         false, false);
                 }
                 // Numeric index (strict ECMA array-index test; must match the
                 // defineProperty/hasOwnProperty branches so define and readback
