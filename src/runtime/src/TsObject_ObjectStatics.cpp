@@ -152,6 +152,35 @@ extern "C" {
             return ts_value_make_array(arr);
         }
 
+        // Native-branded receivers (Date, RegExp, other non-TsMap builtins):
+        // assigned / defineProperty'd own properties live in the
+        // g_native_object_props side-map (same source gOPD consults).
+        // Object.keys must surface its ENUMERABLE string keys — without this,
+        // Object.defineProperties(target, dateWithProps) defined nothing
+        // (15.2.3.7-5-a Date/RegExp bag tests). Skip hidden bookkeeping
+        // ("\x01...", "__proto__", accessor storage).
+        if (magic0 != 0x41525259 /*ARRY*/ &&
+            *(uint32_t*)((char*)rawPtr + 16) != 0x4D415053 /*MAPS*/) {
+            if (TsMap* side = getNativeProps(rawPtr)) {
+                TsArray* skeys = (TsArray*)side->GetKeys();
+                TsArray* outK = TsArray::Create();
+                int64_t sn = skeys ? skeys->Length() : 0;
+                for (int64_t i = 0; i < sn; i++) {
+                    TsValue* kb = (TsValue*)(uintptr_t)skeys->Get((size_t)i);
+                    void* ksRaw = kb ? ts_value_get_string(kb) : nullptr;
+                    if (!ksRaw) continue;
+                    const char* kc = ts_ensure_flat((TsString*)ksRaw)->ToUtf8();
+                    if (!kc || kc[0] == '\x01') continue;
+                    if (strncmp(kc, "__", 2) == 0) continue;
+                    TsValue kk; kk.type = ValueType::STRING_PTR;
+                    kk.ptr_val = (TsString*)ksRaw;
+                    if (!(side->GetPropertyAttrs(kk) & 0x01)) continue;
+                    outK->Push((int64_t)(uintptr_t)kb);
+                }
+                return ts_value_make_array(outK);
+            }
+        }
+
         // Check array (magic at offset 0). Own enumerable keys = present index
         // strings (holes skipped, per ECMA-262 Object.keys) followed by custom
         // string-keyed own properties from the side map (`arr.foo = 1`). Without
@@ -2382,27 +2411,23 @@ extern "C" {
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
         if (descMagic == 0x46554E43) { // TsFunction
             TsFunction* fnDesc = (TsFunction*)descRaw;
-            if (!fnDesc->properties) {
-                // Function with no user-set properties — empty
-                // descriptor. Per spec, an empty descriptor is a
-                // generic descriptor (no fields), so defineProperty
-                // becomes a no-op.
-                return obj;
-            }
-            descRaw = fnDesc->properties;
+            descRaw = fnDesc->properties ? (void*)fnDesc->properties
+                                         : (void*)TsMap::Create();
             descMagic = 0x4D415053;
         } else if (descMagic == 0x434C5352) { // TsClosure
             TsClosure* closDesc = (TsClosure*)descRaw;
-            if (!closDesc->properties) {
-                return obj;
-            }
-            descRaw = closDesc->properties;
+            descRaw = closDesc->properties ? (void*)closDesc->properties
+                                           : (void*)TsMap::Create();
             descMagic = 0x4D415053;
         }
         if (descMagic != 0x4D415053) {
-            // Object that isn't a TsMap (TsArray, TsString, etc.) — preserve
-            // the legacy silent no-op rather than throw.
-            return obj;
+            // Non-TsMap descriptor object (Array, Date, RegExp, Arguments,
+            // String wrapper, ...): ECMA-262 10.1.6.3/ToPropertyDescriptor
+            // reads the six fields with HasProperty/Get on ANY object.
+            // Materialize into a fresh map — the loop below populates it from
+            // the ORIGINAL descriptor (prototype-walking, accessor-invoking).
+            // Previously a silent no-op, so the property was never defined.
+            descRaw = TsMap::Create();
         }
 
         // Spec ToPropertyDescriptor step: data and accessor descriptor fields
@@ -2925,7 +2950,36 @@ extern "C" {
         }
 
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
+        if (descMagic == 0x46554E43) { // TsFunction bag: route via its props
+            TsMap* fp = ((TsFunction*)descRaw)->properties;
+            if (!fp) return obj;  // no own keys -> no-op per 20.1.2.3.1
+            descRaw = fp; descMagic = 0x4D415053;
+        } else if (descMagic == 0x434C5352) { // TsClosure bag
+            TsMap* cp = ((TsClosure*)descRaw)->properties;
+            if (!cp) return obj;
+            descRaw = cp; descMagic = 0x4D415053;
+        }
         if (descMagic != 0x4D415053) {
+            // Generic Properties bag (Array, Date, RegExp, arguments, ...):
+            // ES 20.1.2.3.1 steps 3-5 — own ENUMERABLE keys (Object.keys
+            // semantics), each descriptor read with [[Get]] on the ORIGINAL
+            // bag, then defined via ts_object_defineProperty (which now
+            // materializes non-map descriptor objects too). Previously a
+            // silent no-op. POD locals only (defineProperty can ts_throw).
+            TsValue* keysV = ts_object_keys(descriptors);
+            void* keysRaw = keysV ? ts_value_get_object(keysV) : nullptr;
+            if (keysRaw && *(uint32_t*)keysRaw == 0x41525259 /*ARRY*/) {
+                TsArray* karr = (TsArray*)keysRaw;
+                int64_t n = karr->Length();
+                for (int64_t i = 0; i < n; i++) {
+                    TsValue* kBoxed = (TsValue*)(uintptr_t)karr->Get((size_t)i);
+                    void* ks = kBoxed ? ts_value_get_string(kBoxed) : nullptr;
+                    if (!ks) continue;
+                    TsValue* dv = ts_object_get_property(
+                        descRaw, ts_ensure_flat((TsString*)ks)->ToUtf8());
+                    if (dv) ts_object_defineProperty(obj, kBoxed, dv);
+                }
+            }
             return obj;
         }
 
