@@ -1085,6 +1085,19 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             if (!localIsFunction) {
                 SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
                 lastValue_ = builder_.createLoadGlobal(node->name);
+                // ES 14.11: inside a with body the with-object shadows ANY
+                // same-named builtin (`with({parseInt(){}}){ parseInt }` must
+                // yield the with-object's property — exposed by the builtin-
+                // singleton change; two fresh closures previously !== by
+                // accident). Wrap the static value: the runtime returns the
+                // innermost with-object's property when present, else the
+                // fallback unchanged. typeof keeps static semantics.
+                if (withScopeActive() && !inTypeofOperand_) {
+                    auto nameC = builder_.createConstString(node->name);
+                    lastValue_ = builder_.createCall("ts_with_shadow_or",
+                        {nameC, boxValueIfNeeded(lastValue_)},
+                        HIRType::makeAny());
+                }
                 return;
             }
             SPDLOG_DEBUG("[IDENT] local fn shadows builtin: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
