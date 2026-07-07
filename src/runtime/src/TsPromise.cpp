@@ -4,6 +4,7 @@
 #include "TsMap.h"
 #include "TsGC.h"
 #include "TsError.h"
+#include "TsConsString.h"
 #include <uv.h>
 #include <vector>
 #include <iostream>
@@ -1565,8 +1566,14 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         if (maybeStr) {
             uint32_t m = *(uint32_t*)maybeStr;
             if (m == 0x53545247) rawObj = maybeStr;  // TsString::MAGIC
+            else if (ts_is_cons_string(maybeStr)) rawObj = ts_ensure_flat(maybeStr);
         }
     }
+    // A concat result >= 64 chars is a TsConsString ROPE (magic "CONS"), which
+    // no branch below recognizes — for-of over one threw "iterator method
+    // returned a non-object" (post-guard; previously an infinite loop).
+    // Flatten so the TsString branch fires.
+    if (rawObj && ts_is_cons_string(rawObj)) rawObj = ts_ensure_flat(rawObj);
 
     // Check if we have a TsMap-based object (TsMap, TsGenerator, TsAsyncGenerator)
     if (rawObj) {

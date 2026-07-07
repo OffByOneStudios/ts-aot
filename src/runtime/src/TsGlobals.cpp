@@ -6987,6 +6987,23 @@ void* ts_with_ref(void* nameStr) {
     return ts_value_make_int(0);
 }
 
+// Identifier READ of a builtin-global name inside a with body (ES 14.11: the
+// object environment shadows builtins — `with({parseInt(){}}) { parseInt }`
+// must yield the with-object's property). With-stack walk first (innermost
+// wins); a miss returns the statically-lowered builtin value unchanged.
+void* ts_with_shadow_or(void* nameStr, void* fallback) {
+    if (nameStr && !g_withStack.empty()) {
+        TsValue* key = ts_value_make_string(nameStr);
+        for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
+            if (*it && ts_object_has_property(*it, (void*)key)) {
+                const char* wn = ((TsString*)nameStr)->ToUtf8();
+                return (void*)ts_object_get_property(*it, wn);
+            }
+        }
+    }
+    return fallback;
+}
+
 // Store through a snapshot from ts_with_ref. Returns true when the snapshot
 // named a with-object (the caller's static store is skipped).
 // ES 9.1.1.2.5 SetMutableBinding (object env): the binding is RE-CHECKED at

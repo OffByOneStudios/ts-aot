@@ -1151,17 +1151,16 @@ extern "C" {
         int64_t argc = ts_value_length(argsArray);
         if (argc < 0) argc = 0;
 
-        // call_dispatch_n handles up to 16 params (call_closure_exact for 11..16);
-        // only cap above that.
-        int64_t cappedArgc = argc > 16 ? 16 : argc;
-        std::vector<TsValue*> argv(static_cast<size_t>(cappedArgc), ts_value_make_undefined());
-        for (int64_t i = 0; i < cappedArgc; ++i) {
+        // Pass the FULL argument list. NATIVE callees receive (ctx, argc, argv)
+        // verbatim — the old 16-arg cap silently corrupted e.g.
+        // String.fromCodePoint.apply(null, [10k points]) (test262 buildString).
+        // Closure paths bound their own reads (padded10 / exact / rest-pack),
+        // so oversize argc is safe there too.
+        std::vector<TsValue*> argv(static_cast<size_t>(argc), ts_value_make_undefined());
+        for (int64_t i = 0; i < argc; ++i) {
             argv[static_cast<size_t>(i)] = (TsValue*)ts_value_get_element(argsArray, i);
         }
-        if (argc > 16) {
-            SPDLOG_WARN("ts_function_apply truncated args from {} to 16", argc);
-        }
-        return ts_function_call_with_this(boxedFunc, thisArg, static_cast<int>(cappedArgc), argv.data());
+        return ts_function_call_with_this(boxedFunc, thisArg, static_cast<int>(argc), argv.data());
     }
 
 }  // extern "C"
