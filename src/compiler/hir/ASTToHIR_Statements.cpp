@@ -1152,7 +1152,12 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
         }
     }
 
-    // Generate code for each case
+    // Generate code for each case. ES 14.12: ALL clauses share ONE lexical
+    // block scope — without it, a block-level `function f(){}` in a clause
+    // leaked its binding into the function scope (annexB skip-early-err-switch:
+    // reading `f` after the switch must throw ReferenceError). Scope state is
+    // lexical/compile-time, orthogonal to the basic-block juggling below.
+    pushScope();
     size_t blockIdx = 0;
     for (auto& clause : node->clauses) {
         auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
@@ -1185,6 +1190,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
 
         blockIdx++;
     }
+    popScope();
 
     switchStack_.pop();
     breakTargetStack_.pop();
@@ -1258,11 +1264,21 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
         auto exception = builder_.createGetException();
         builder_.createClearException();
 
+        // ES 14.15.2: the catch parameter and catch-body declarations live in
+        // their own lexical scope — without it, a block-level `function f(){}`
+        // in the catch body leaked into the function scope (annexB
+        // skip-early-err-try: reading `f` after the try must throw).
+        pushScope();
+
         // Bind exception to catch variable if present
         if (node->catchClause->variable) {
             // The variable could be an Identifier or a binding pattern
             if (auto* id = dynamic_cast<ast::Identifier*>(node->catchClause->variable.get())) {
                 defineVariable(id->name, exception);
+                // B.3.5: a simple catch param is transparent to the Annex B
+                // var-copy of a block-level function in the catch body.
+                if (auto* vi = lookupVariableInfo(id->name))
+                    vi->isSimpleCatchParam = true;
             } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(node->catchClause->variable.get())) {
                 lowerObjectBindingPattern(objPat, exception);
             } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(node->catchClause->variable.get())) {
@@ -1275,6 +1291,7 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
             if (hasTerminator()) break;  // Stop if block already terminated
             lowerStatement(stmt.get());
         }
+        popScope();
 
         // Branch to finally/merge
         if (currentBlock_->getTerminator() == nullptr) {

@@ -102,6 +102,11 @@ private:
         // declaration runs; reads are wrapped in ts_tdz_check (ReferenceError
         // on read-before-initialization).
         bool isTDZ = false;
+        // Binding created for a SIMPLE identifier catch parameter. Annex B
+        // B.3.5: such a binding does NOT block the B.3.3.1 var-copy of a
+        // block-level function declared in the catch body — the copy-site
+        // hoist-slot walk may step past it (and ONLY it).
+        bool isSimpleCatchParam = false;
         // Declared with `const`: assignment expressions to this binding throw
         // TypeError (ES 13.15.2 PutValue on an immutable binding). Set at
         // declaration lowering; checked at assignment/destructuring-assignment

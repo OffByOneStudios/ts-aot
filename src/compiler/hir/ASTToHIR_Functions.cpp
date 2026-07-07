@@ -558,6 +558,27 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             }
         }
         auto* existingInfo = lookupVariableInfo(node->name);
+        // Annex B B.3.3.1 step 3.a.ii: the var-copy targets the FUNCTION-SCOPE
+        // hoist slot even when a SIMPLE catch parameter shadows the name at
+        // the declaration site (B.3.5 — the no-skip-try family). ONLY such
+        // params are transparent: any other intervening binding (an outer
+        // block's own `function f` lexical, a let/const) means promotion was
+        // suppressed and NO var-copy happens (nested-blocks-with-fun-decl).
+        if (fdInBlock && (!existingInfo || !existingInfo->isFnHoist)) {
+            VariableInfo* hoist = nullptr;
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->isFunctionBoundary && it->owningFunction &&
+                    it->owningFunction != currentFunction_) break;
+                auto found = it->variables.find(node->name);
+                if (found != it->variables.end()) {
+                    if (found->second.isFnHoist) { hoist = &found->second; break; }
+                    if (!found->second.isSimpleCatchParam) break;
+                    // simple catch param: transparent, keep walking outward
+                }
+                if (it->isFunctionBoundary) break;
+            }
+            if (hoist) existingInfo = hoist;
+        }
         bool storeToExisting = existingInfo && existingInfo->isAlloca &&
                                (!fdInBlock || existingInfo->isFnHoist);
         if (storeToExisting) {
@@ -617,6 +638,23 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             }
         }
         auto* existingInfo = lookupVariableInfo(node->name);
+        // Annex B B.3.3.1 step 3.a.ii: target the FUNCTION-SCOPE hoist slot
+        // past a SIMPLE catch parameter only (B.3.5; see the captures variant
+        // above — any other intervening binding suppresses the var-copy).
+        if (fdInBlock && (!existingInfo || !existingInfo->isFnHoist)) {
+            VariableInfo* hoist = nullptr;
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->isFunctionBoundary && it->owningFunction &&
+                    it->owningFunction != currentFunction_) break;
+                auto found = it->variables.find(node->name);
+                if (found != it->variables.end()) {
+                    if (found->second.isFnHoist) { hoist = &found->second; break; }
+                    if (!found->second.isSimpleCatchParam) break;
+                }
+                if (it->isFunctionBoundary) break;
+            }
+            if (hoist) existingInfo = hoist;
+        }
         bool storeToExisting = existingInfo && existingInfo->isAlloca &&
                                (!fdInBlock || existingInfo->isFnHoist);
         if (storeToExisting) {

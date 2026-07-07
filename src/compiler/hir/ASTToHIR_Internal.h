@@ -106,11 +106,88 @@ inline void scanConstructorBodyForProperties(
 inline void collectTopLevelLexicalNames(const std::vector<ast::StmtPtr>& body,
                                         std::set<std::string>& out) {
     for (auto& stmt : body) {
+        // Multi-declarator `let a, b;` parses as a SYNTHETIC block wrapping one
+        // VariableDeclaration per declarator — no new scope, so descend.
+        if (auto* blk = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
+            if (blk->isSynthetic) collectTopLevelLexicalNames(blk->statements, out);
+            continue;
+        }
         if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
             if (vd->varKind == ast::VarKind::Var) continue;
             if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get()))
                 out.insert(idn->name);
         }
+    }
+}
+
+// Annex B B.3.3.1 skip: a lexical binding declared in an enclosing scope blocks
+// the function-scope var-promotion of a same-named block-level `function f`
+// collected from a nested scope ("would produce an early error" clause). Strip
+// such names from a sub-scope's collected lists BEFORE merging into the parent
+// so an outer var/function of the same name stays hoisted. Only names that are
+// function-hoist candidates are stripped — plain vars clashing with a lexical
+// are a SyntaxError elsewhere, not this helper's business.
+inline void annexBStripShadowedFns(const std::set<std::string>& lexNames,
+                                   std::vector<std::string>& vars,
+                                   std::vector<std::string>& fns) {
+    if (lexNames.empty() || fns.empty()) return;
+    for (const auto& name : lexNames) {
+        if (std::find(fns.begin(), fns.end(), name) == fns.end()) continue;
+        fns.erase(std::remove(fns.begin(), fns.end(), name), fns.end());
+        vars.erase(std::remove(vars.begin(), vars.end(), name), vars.end());
+    }
+}
+
+inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out,
+                                   std::vector<std::string>* fnOut);
+
+// Inline the contents of SYNTHETIC blocks (multi-declarator `let a, b;`
+// wrappers — no new scope) into a flat raw-statement list.
+inline void annexBFlattenSynthetic(const std::vector<ast::StmtPtr>& in,
+                                   std::vector<ast::Statement*>& out) {
+    for (auto& p : in) {
+        auto* s = static_cast<ast::Statement*>(p.get());
+        if (auto* blk = dynamic_cast<ast::BlockStatement*>(s)) {
+            if (blk->isSynthetic) { annexBFlattenSynthetic(blk->statements, out); continue; }
+        }
+        out.push_back(s);
+    }
+}
+
+// Collect hoisted names from a statement list forming ONE lexical block scope
+// (a block body, the union of switch clauses, a try/catch/finally body).
+// Function declarations DIRECTLY in the list are this scope's own promotion
+// candidates (blocked only by outer lexicals, which the parent strips, and
+// this scope's let/const). Names from DEEPER scopes are additionally blocked
+// by this scope's lexical names — its let/const AND its own block-level
+// function names (B.3.3.1: replacing an inner `function f` with `var f`
+// collides with this block's lexical `function f` -> early error -> skip;
+// the block-decl-nested-blocks-with-fun-decl shape).
+inline void annexBCollectScopedList(const std::vector<ast::Statement*>& stmts,
+                                    const std::set<std::string>& extraLex,
+                                    std::vector<std::string>& out,
+                                    std::vector<std::string>* fnOut) {
+    std::vector<std::string> ownVars, ownFns, deepVars, deepFns;
+    std::set<std::string> lex = extraLex;
+    for (ast::Statement* s : stmts) {
+        if (dynamic_cast<ast::FunctionDeclaration*>(s))
+            collectHoistedVarNames(s, ownVars, &ownFns);
+        else
+            collectHoistedVarNames(s, deepVars, &deepFns);
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s))
+            if (vd->varKind != ast::VarKind::Var)
+                if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    lex.insert(idn->name);
+    }
+    std::set<std::string> lexPlusOwnFns = lex;
+    for (auto& n : ownFns) lexPlusOwnFns.insert(n);
+    annexBStripShadowedFns(lexPlusOwnFns, deepVars, deepFns);
+    annexBStripShadowedFns(lex, ownVars, ownFns);
+    out.insert(out.end(), ownVars.begin(), ownVars.end());
+    out.insert(out.end(), deepVars.begin(), deepVars.end());
+    if (fnOut) {
+        fnOut->insert(fnOut->end(), ownFns.begin(), ownFns.end());
+        fnOut->insert(fnOut->end(), deepFns.begin(), deepFns.end());
     }
 }
 
@@ -142,7 +219,14 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
         return;
     }
     if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
-        for (auto& s : block->statements) collectHoistedVarNames(s.get(), out, fnOut);
+        // Synthetic blocks (multi-declarator wrappers) add no scope.
+        if (block->isSynthetic) {
+            for (auto& s : block->statements) collectHoistedVarNames(s.get(), out, fnOut);
+            return;
+        }
+        std::vector<ast::Statement*> flat;
+        annexBFlattenSynthetic(block->statements, flat);
+        annexBCollectScopedList(flat, {}, out, fnOut);
         return;
     }
     if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
@@ -163,56 +247,99 @@ inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& ou
         return;
     }
     if (auto* forStmt = dynamic_cast<ast::ForStatement*>(node)) {
-        collectHoistedVarNames(forStmt->initializer.get(), out, fnOut);
-        collectHoistedVarNames(forStmt->body.get(), out, fnOut);
+        // Annex B B.3.3.1: the loop head's own let/const binding blocks
+        // promotion of a same-named block-level function in the body. Scoped
+        // to THIS loop's collections so an outer var stays hoisted.
+        std::vector<std::string> subVars;
+        std::vector<std::string> subFns;
+        collectHoistedVarNames(forStmt->initializer.get(), subVars, &subFns);
+        collectHoistedVarNames(forStmt->body.get(), subVars, &subFns);
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(forStmt->initializer.get())) {
+            if (vd->varKind != ast::VarKind::Var) {
+                if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                    std::set<std::string> lex{idn->name};
+                    annexBStripShadowedFns(lex, subVars, subFns);
+                }
+            }
+        }
+        out.insert(out.end(), subVars.begin(), subVars.end());
+        if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
         return;
     }
     if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
-        collectHoistedVarNames(forOf->initializer.get(), out, fnOut);
-        collectHoistedVarNames(forOf->body.get(), out, fnOut);
-        // Annex B B.3.3.1: the var-copy of a block-level `function f` is
-        // SKIPPED when it would clash with a lexical binding — here, the
-        // loop's own let/const binding. Strip it back out of both lists.
+        std::vector<std::string> subVars;
+        std::vector<std::string> subFns;
+        collectHoistedVarNames(forOf->initializer.get(), subVars, &subFns);
+        collectHoistedVarNames(forOf->body.get(), subVars, &subFns);
         if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(forOf->initializer.get())) {
             if (vd->varKind != ast::VarKind::Var) {
                 if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get())) {
-                    out.erase(std::remove(out.begin(), out.end(), idn->name), out.end());
-                    if (fnOut) fnOut->erase(std::remove(fnOut->begin(), fnOut->end(), idn->name), fnOut->end());
+                    std::set<std::string> lex{idn->name};
+                    annexBStripShadowedFns(lex, subVars, subFns);
                 }
             }
         }
+        out.insert(out.end(), subVars.begin(), subVars.end());
+        if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
         return;
     }
     if (auto* forIn = dynamic_cast<ast::ForInStatement*>(node)) {
-        collectHoistedVarNames(forIn->initializer.get(), out, fnOut);
-        collectHoistedVarNames(forIn->body.get(), out, fnOut);
+        std::vector<std::string> subVars;
+        std::vector<std::string> subFns;
+        collectHoistedVarNames(forIn->initializer.get(), subVars, &subFns);
+        collectHoistedVarNames(forIn->body.get(), subVars, &subFns);
         if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(forIn->initializer.get())) {
             if (vd->varKind != ast::VarKind::Var) {
                 if (auto* idn = dynamic_cast<ast::Identifier*>(vd->name.get())) {
-                    out.erase(std::remove(out.begin(), out.end(), idn->name), out.end());
-                    if (fnOut) fnOut->erase(std::remove(fnOut->begin(), fnOut->end(), idn->name), fnOut->end());
+                    std::set<std::string> lex{idn->name};
+                    annexBStripShadowedFns(lex, subVars, subFns);
                 }
             }
         }
+        out.insert(out.end(), subVars.begin(), subVars.end());
+        if (fnOut) fnOut->insert(fnOut->end(), subFns.begin(), subFns.end());
         return;
     }
     if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+        // All clauses share ONE block scope: flatten clause statements into a
+        // single list so the union of clause lexicals blocks nested candidates.
+        std::vector<ast::Statement*> flat;
         for (auto& cl : sw->clauses) {
-            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
-                for (auto& s : cc->statements) collectHoistedVarNames(s.get(), out, fnOut);
-            }
-            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
-                for (auto& s : dc->statements) collectHoistedVarNames(s.get(), out, fnOut);
-            }
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                annexBFlattenSynthetic(cc->statements, flat);
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                annexBFlattenSynthetic(dc->statements, flat);
         }
+        annexBCollectScopedList(flat, {}, out, fnOut);
         return;
     }
     if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
-        for (auto& s : tryStmt->tryBlock) collectHoistedVarNames(s.get(), out, fnOut);
+        // try / catch / finally bodies are each their own block scope.
+        auto scoped = [&](const std::vector<ast::StmtPtr>& stmts,
+                          const std::set<std::string>& extraLex) {
+            std::vector<ast::Statement*> flat;
+            annexBFlattenSynthetic(stmts, flat);
+            annexBCollectScopedList(flat, extraLex, out, fnOut);
+        };
+        scoped(tryStmt->tryBlock, {});
         if (tryStmt->catchClause) {
-            for (auto& s : tryStmt->catchClause->block) collectHoistedVarNames(s.get(), out, fnOut);
+            // B.3.5: a SIMPLE identifier catch parameter does NOT block the
+            // var-copy; a destructuring pattern's bound names DO.
+            std::set<std::string> catchLex;
+            ast::Node* v = tryStmt->catchClause->variable.get();
+            if (v && !dynamic_cast<ast::Identifier*>(v)) {
+                auto addElems = [&](const std::vector<ast::NodePtr>& elems) {
+                    for (auto& el : elems)
+                        if (auto* be = dynamic_cast<ast::BindingElement*>(el.get()))
+                            if (auto* idn = dynamic_cast<ast::Identifier*>(be->name.get()))
+                                catchLex.insert(idn->name);
+                };
+                if (auto* obp = dynamic_cast<ast::ObjectBindingPattern*>(v)) addElems(obp->elements);
+                if (auto* abp = dynamic_cast<ast::ArrayBindingPattern*>(v)) addElems(abp->elements);
+            }
+            scoped(tryStmt->catchClause->block, catchLex);
         }
-        for (auto& s : tryStmt->finallyBlock) collectHoistedVarNames(s.get(), out, fnOut);
+        scoped(tryStmt->finallyBlock, {});
         return;
     }
     if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(node)) {
