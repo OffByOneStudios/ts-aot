@@ -563,6 +563,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg()      // initial_capacity
             .build());
 
+    reg.registerLowering("ts_object_delete_property_strict",
+        lowering("ts_object_delete_property_strict")
+            .returnsBool()
+            .ptrArg()      // object (boxed)
+            .ptrArg()      // key (boxed)
+            .build());
+
     reg.registerLowering("ts_array_isArray",
         lowering("ts_array_isArray")
             .returnsBool()

@@ -2111,7 +2111,13 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
         // with ptr return type, causing it to be silently unlinked.
         auto obj = lowerExpression(propAccess->expression.get());
         auto key = builder_.createConstString(propAccess->name);
-        lastValue_ = builder_.createDeleteProp(obj, key);
+        // ES 13.5.1.2: strict code throws TypeError when [[Delete]] fails.
+        if (strictCode_) {
+            lastValue_ = builder_.createCall("ts_object_delete_property_strict",
+                {boxValueIfNeeded(obj), key}, HIRType::makeBool());
+        } else {
+            lastValue_ = builder_.createDeleteProp(obj, key);
+        }
         return;
     }
 
@@ -2119,7 +2125,12 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
         // delete obj["prop"] or delete obj[key]
         auto obj = lowerExpression(elemAccess->expression.get());
         auto key = lowerExpression(elemAccess->argumentExpression.get());
-        lastValue_ = builder_.createDeleteProp(obj, key);
+        if (strictCode_) {
+            lastValue_ = builder_.createCall("ts_object_delete_property_strict",
+                {boxValueIfNeeded(obj), boxValueIfNeeded(key)}, HIRType::makeBool());
+        } else {
+            lastValue_ = builder_.createDeleteProp(obj, key);
+        }
         return;
     }
 

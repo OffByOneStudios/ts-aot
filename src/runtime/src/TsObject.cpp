@@ -6839,6 +6839,19 @@ void* ts_create_arguments_from_params(
         return ts_object_has_prop(obj, key);
     }
 
+    // Strict-mode delete: ES 13.5.1.2 — a [[Delete]] returning false in
+    // strict code throws TypeError (non-configurable prop, valid TypedArray
+    // index, frozen receiver...). POD frame: ts_throw longjmps out.
+    int ts_object_delete_property(void* objArg, void* keyArg);  // fwd
+    int ts_object_delete_property_strict(void* objArg, void* keyArg) {
+        int r = ts_object_delete_property(objArg, keyArg);
+        if (!r) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot delete property"));
+        }
+        return r;
+    }
+
     // Wrapper for delete operator: removes property from object
     // Args are NaN-boxed TsValue* pointers
     int ts_object_delete_property(void* objArg, void* keyArg) {
