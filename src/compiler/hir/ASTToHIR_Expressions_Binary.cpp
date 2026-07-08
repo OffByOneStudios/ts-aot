@@ -247,7 +247,12 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // for private members).
         if (auto* lhsLit = dynamic_cast<ast::StringLiteral*>(node->left.get());
             lhsLit && lhsLit->isPrivateBrand) {
-            auto keyStr = builder_.createConstString(resolvePrivateKey(lhsLit->value));
+            // Brand PRESENCE always probes the hidden storage form — even for
+            // methods/accessors (resolvePrivateKey returns their plain
+            // dispatch key for writes, but has_prop brand matching expects
+            // "#m@Cls"; private-field-presence-method-shadowed).
+            auto keyStr = builder_.createConstString(
+                std::string(1, static_cast<char>(0x01)) + resolvePrivateName(lhsLit->value));
             auto rhs = lowerExpression(node->right.get());
             lastValue_ = builder_.createCall("ts_object_has_property",
                 {rhs, keyStr}, HIRType::makeBool());
