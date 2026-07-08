@@ -813,10 +813,10 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_flat",
-        lowering("ts_array_flat")
+        lowering("ts_array_flat_boxed")
             .returnsPtr()
             .ptrArg()      // array
-            .i64Arg()      // depth
+            .boxedArg()    // depth — ToIntegerOrInfinity in the runtime
             .build());
 
     reg.registerLowering("ts_array_flatMap",

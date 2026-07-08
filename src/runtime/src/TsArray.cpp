@@ -2036,6 +2036,21 @@ extern "C" {
         return ((TsArray*)arr)->Flat(depth);
     }
 
+    // Boxed-depth entry used by the compiler lowering: ES 23.1.3.13 step 3
+    // ToIntegerOrInfinity(depth) — undefined/absent -> 1, NaN/non-numeric -> 0
+    // (no flatten), +Infinity -> full depth. The old i64 lowering FPToSI'd
+    // +Infinity to INT64_MIN (the missing-arg sentinel) and read "str" as 1.
+    void* ts_array_flat_boxed(void* arr, TsValue* depth) {
+        int64_t d = 1;
+        if (depth && !ts_value_is_undefined(depth)) {
+            double n = ts_to_number(depth);   // Symbol -> TypeError per spec
+            if (n != n) d = 0;                                  // NaN
+            else if (n >= 9007199254740991.0) d = INT64_MAX;    // +Inf / huge
+            else d = (int64_t)n;                                // negatives clamp in Flat
+        }
+        return ((TsArray*)arr)->Flat(d);
+    }
+
     // Forward decl — defined further down. Used by the C-level array
     // method entry points to throw TypeError for non-callable callbacks
     // per ECMA-262 spec.

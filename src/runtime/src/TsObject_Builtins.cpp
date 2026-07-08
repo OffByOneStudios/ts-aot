@@ -1923,7 +1923,18 @@ extern "C" {
     TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "flat");
         if (!arr) return ts_value_make_undefined();
-        int64_t depth = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 1;
+        // ES 23.1.3.13 step 3: depth = ToIntegerOrInfinity(depth) when the
+        // argument is present and not undefined; NaN/non-numeric -> 0 (no
+        // flatten), undefined/absent -> 1. ts_value_get_int coerced "str" to
+        // a flattening depth.
+        int64_t depth = 1;
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+            double d = ts_to_number(argv[0]);
+            if (d != d) depth = 0;                       // NaN
+            else if (d > 9007199254740991.0) depth = INT64_MAX;  // +Inf / huge
+            else if (d < 0) depth = (int64_t)d;          // negatives clamp later
+            else depth = (int64_t)d;
+        }
         void* result = ts_array_flat(arr, depth);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
