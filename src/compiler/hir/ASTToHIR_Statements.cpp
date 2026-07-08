@@ -561,7 +561,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 }
                             } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(pa->expression.get());
-                                builder_.createSetPropStatic(obj, privateStorageKey(pa->name), value);
+                                builder_.createSetPropStatic(obj, resolvePrivateKey(pa->name), value);
                             } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());
@@ -793,7 +793,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 }
                             } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(pa->expression.get());
-                                builder_.createSetPropStatic(obj, privateStorageKey(pa->name), value);
+                                builder_.createSetPropStatic(obj, resolvePrivateKey(pa->name), value);
                             } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());

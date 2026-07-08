@@ -237,7 +237,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // for private members).
         if (auto* lhsLit = dynamic_cast<ast::StringLiteral*>(node->left.get());
             lhsLit && lhsLit->isPrivateBrand) {
-            auto keyStr = builder_.createConstString(privateStorageKey(lhsLit->value));
+            auto keyStr = builder_.createConstString(resolvePrivateKey(lhsLit->value));
             auto rhs = lowerExpression(node->right.get());
             lastValue_ = builder_.createCall("ts_object_has_property",
                 {rhs, keyStr}, HIRType::makeBool());
@@ -1089,7 +1089,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             }
             const std::string& n = propAccess->name;
             auto propName = builder_.createConstString(
-                (!n.empty() && n[0] == '#') ? privateStorageKey(n) : n);
+                (!n.empty() && n[0] == '#') ? resolvePrivateKey(n) : n);
             std::vector<std::shared_ptr<HIRValue>> args = {obj, propName, boxValueIfNeeded(result)};
             // Strict code: a blocked write throws TypeError (PutValue throw=true).
             builder_.createCall(strictCode_ ? "ts_object_set_property_strict"
@@ -1311,7 +1311,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                         // reference (alias / dynamic key / passed) reads the
                         // updated value rather than the stale init.
                         auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                        builder_.createSetPropStatic(ctorVal, privateStorageKey(propAccess->name), rhs);
+                        builder_.createSetPropStatic(ctorVal, resolvePrivateKey(propAccess->name), rhs);
                         lastValue_ = rhs;
                         return;
                     }
@@ -1413,7 +1413,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // present). A typed receiver is a provable instance → direct hidden-key set.
         if (!propAccess->name.empty() && propAccess->name[0] == '#'
             && obj->type && obj->type->kind == HIRTypeKind::Any) {
-            auto keyStr = builder_.createConstString(propAccess->name);
+            auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             builder_.createCall("ts_object_set_private",
                 {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
             lastValue_ = rhs;
@@ -1434,7 +1434,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             lastValue_ = rhs;
             return;
         }
-        builder_.createSetPropStatic(obj, privateStorageKey(propAccess->name), rhs);
+        builder_.createSetPropStatic(obj, resolvePrivateKey(propAccess->name), rhs);
         lastValue_ = rhs;
         return;
     }
@@ -1577,7 +1577,7 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
-                builder_.createSetPropStatic(obj, privateStorageKey(tgt->name), value);
+                builder_.createSetPropStatic(obj, resolvePrivateKey(tgt->name), value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {
@@ -1669,7 +1669,7 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
-                builder_.createSetPropStatic(obj, privateStorageKey(tgt->name), value);
+                builder_.createSetPropStatic(obj, resolvePrivateKey(tgt->name), value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {

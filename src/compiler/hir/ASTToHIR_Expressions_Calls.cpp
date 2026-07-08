@@ -300,7 +300,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // inherited from a runtime/extension base (e.g. EventEmitter).
             auto obj = lookupVariable("this");
             if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
-            lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+            lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
             return;
         }
 
@@ -364,7 +364,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 if (currentClass_->abstractMethods.count(propAccess->name)) {
                     auto obj = lookupVariable("this");
                     if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
-                    lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                    lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
                     return;
                 }
 
@@ -396,7 +396,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 // classes (e.g., Counter extends EventEmitter → this.emit()).
                 auto obj = lookupVariable("this");
                 if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
-                lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
                 return;
             }
         }
@@ -659,7 +659,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     };
                     if (objectProtoMethods.count(propAccess->name)) {
                         auto obj = lowerExpression(propAccess->expression.get());
-                        lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                        lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
                         return;
                     }
                     // ECMA-262 §15.7.14: a static method not defined on this
@@ -920,14 +920,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // and keeps the normal dispatch.
         if (!propAccess->name.empty() && propAccess->name[0] == '#'
             && obj->type && obj->type->kind == HIRTypeKind::Any) {
-            auto keyStr = builder_.createConstString(propAccess->name);
+            auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             auto boxedObj = boxValueIfNeeded(obj);
             auto func = builder_.createCall("ts_object_get_private",
                 {boxedObj, keyStr}, HIRType::makeAny());
             lastValue_ = builder_.createCallWithThis(func, boxedObj, args, HIRType::makeAny());
             return;
         }
-        lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+        lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
         return;
     }
 

@@ -589,7 +589,7 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
         // Access block: perform the property access
         builder_.setInsertPoint(accessBlock);
-        auto accessResult = builder_.createGetPropStatic(obj, node->name, propType);
+        auto accessResult = builder_.createGetPropStatic(obj, resolvePrivateName(node->name), propType);
         auto* finalAccessBlock = builder_.getInsertBlock();
         builder_.createBranch(mergeBlock);
 
@@ -676,12 +676,12 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // createGetPropStatic path (which also unboxes to the field's type).
     if (!node->name.empty() && node->name[0] == '#'
         && obj->type && obj->type->kind == HIRTypeKind::Any) {
-        auto keyStr = builder_.createConstString(node->name);
+        auto keyStr = builder_.createConstString(resolvePrivateName(node->name));
         lastValue_ = builder_.createCall("ts_object_get_private", {obj, keyStr}, HIRType::makeAny());
         return;
     }
 
-    lastValue_ = builder_.createGetPropStatic(obj, node->name, propType);
+    lastValue_ = builder_.createGetPropStatic(obj, resolvePrivateName(node->name), propType);
 }
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
@@ -2045,7 +2045,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                             // Mirror the updated value onto the constructor
                             // closure so a non-literal reference reads it.
                             auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                            builder_.createSetPropStatic(ctorVal, privateStorageKey(prop->name), result);
+                            builder_.createSetPropStatic(ctorVal, resolvePrivateKey(prop->name), result);
                             storedToStaticGlobal = true;
                         }
                         break;
@@ -2054,7 +2054,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             }
             if (!storedToStaticGlobal) {
                 auto obj = lowerExpression(prop->expression.get());
-                std::string propName = prop->name;
+                std::string propName = resolvePrivateName(prop->name);
                 builder_.createSetPropStatic(obj, propName, result);
             }
         }
@@ -2255,7 +2255,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                             // Mirror onto the constructor closure so a
                             // non-literal reference reads the updated value.
                             auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                            builder_.createSetPropStatic(ctorVal, privateStorageKey(prop->name), result);
+                            builder_.createSetPropStatic(ctorVal, resolvePrivateKey(prop->name), result);
                             storedToStaticGlobal = true;
                         }
                         break;
@@ -2264,7 +2264,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             }
             if (!storedToStaticGlobal) {
                 auto obj = lowerExpression(prop->expression.get());
-                std::string propName = prop->name;
+                std::string propName = resolvePrivateName(prop->name);
                 builder_.createSetPropStatic(obj, propName, result);
             }
         }
