@@ -988,14 +988,24 @@ TsArray* TsArray::ToSorted() {
 }
 
 TsArray* TsArray::ToSpliced(int64_t start, int64_t deleteCount, void* items, int64_t itemCount) {
+    // Missing-argument sentinel: the compiler fills absent i64 args with
+    // INT64_MIN. ES 23.1.3.35 steps 5-8: start missing -> actualStart 0 AND
+    // skipCount 0; start present but deleteCount missing -> delete to end.
+    // (Collides with an explicit -Infinity, which per spec clamps to 0 —
+    // the missing case vastly dominates.)
+    bool startMissing = (start == INT64_MIN);
+    if (startMissing) start = 0;
     // Normalize start
     if (start < 0) start = length + start;
     if (start < 0) start = 0;
     if (start > (int64_t)length) start = length;
 
     // Normalize deleteCount
+    if (deleteCount == INT64_MIN)
+        deleteCount = startMissing ? 0 : ((int64_t)length - start);
     if (deleteCount < 0) deleteCount = 0;
-    if (start + deleteCount > (int64_t)length) deleteCount = length - start;
+    // Overflow-safe clamp (an INT64_MAX-ish count must not wrap start+count).
+    if (deleteCount > (int64_t)length - start) deleteCount = length - start;
 
     // Guard: items must be a valid heap pointer — not a raw small integer
     // NOR a NaN-boxed value (0xFFFE... tags observed arriving as `items`
