@@ -3559,6 +3559,10 @@ void* ts_create_arguments_from_params(
                 // yields a string.
                 void* rp = nanbox_to_ptr(rnb);
                 if (rp && *(uint32_t*)rp == 0x42494749) return true;
+                // A Symbol IS a primitive: @@toPrimitive returning one is
+                // valid (ToPropertyKey keeps it as a symbol key —
+                // computed-name-toprimitive-symbol family).
+                if (rp && *(uint32_t*)rp == 0x53594D42) return true;
             }
             return false;
         };
@@ -4385,6 +4389,21 @@ void* ts_create_arguments_from_params(
                 uint32_t m0 = *(uint32_t*)kp;
                 if (m0 != 0x53545247 /*STRG*/ && m0 != 0x434F4E53 /*CONS*/ &&
                     m0 != 0x53594D42 /*SYMB stays a symbol key*/) {
+                    // ES 7.1.19 ToPropertyKey: ToPrimitive(key, STRING) FIRST;
+                    // a @@toPrimitive/toString/valueOf that yields a SYMBOL
+                    // makes the key that symbol (computed-name-toprimitive
+                    // family) — the old direct ToString threw on it.
+                    extern TsValue* ts_to_primitive(TsValue* val, int hint);
+                    TsValue* prim = ts_to_primitive(key, 2 /* hint: string */);
+                    if (prim) {
+                        uint64_t pnb = nanbox_from_tsvalue_ptr(prim);
+                        if (nanbox_is_ptr(pnb)) {
+                            void* pp = nanbox_to_ptr(pnb);
+                            if (pp && *(uint32_t*)pp == 0x53594D42 /*SYMB*/)
+                                return prim;  // symbol key stays a symbol
+                        }
+                        key = prim;
+                    }
                     extern void* ts_to_string_spec(TsValue* val);
                     TsString* ks = (TsString*)ts_to_string_spec(key);
                     if (ks) return ts_value_make_string(ks);
