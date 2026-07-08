@@ -1703,8 +1703,9 @@ extern "C" {
         }
         if (!result) return a < b;
 
-        // Get the result as an int (negative = a < b, zero = equal, positive = a > b)
-        int64_t cmp = ts_value_get_int(result);
+        // ES 23.1.3.30.2 SortCompare: ToNumber(v); NaN -> +0. Integer
+        // truncation broke fractional comparators (-0.5 became 0 == equal).
+        double cmp = ts_to_number(result);
         return cmp < 0;
     }
 
@@ -1807,39 +1808,46 @@ extern "C" {
         }
         if (array_sort_spec_exotic(array, comparator)) return array;
 
-        if (!comparator) {
-            array->Sort();
-            return array;
-        }
+        // ES 23.1.3.30 SortCompare order: HOLES sort past everything (and
+        // stay holes), UNDEFINED elements sort after all defined values, and
+        // the comparator is NEVER called for either. Partition IN PLACE
+        // (values never leave the GC-scanned element storage — the comparator
+        // can trigger a collection), stable-sort the defined prefix (spec
+        // requires a stable sort; std::sort also has UB on inconsistent user
+        // comparators), then rebuild the undefined/hole tail.
+        auto specSort = [&](bool (*cmp)(int64_t, int64_t)) {
+            int64_t* elements = (int64_t*)array->GetElementsPtr();
+            size_t len = array->Length();
+            size_t write = 0, undefCount = 0, holeCount = 0;
+            for (size_t i = 0; i < len; ++i) {
+                if (array->IsHole(i)) { holeCount++; continue; }
+                int64_t v = elements[i];
+                uint64_t nb = (uint64_t)v;
+                if (nb == 0 || nanbox_is_undefined(nb)) { undefCount++; continue; }
+                elements[write++] = v;
+            }
+            std::stable_sort(elements, elements + write, cmp);
+            for (size_t i = write; i < write + undefCount; ++i)
+                elements[i] = (int64_t)(uintptr_t)ts_value_make_undefined();
+            for (size_t i = write + undefCount; i < len; ++i)
+                array->SetHole(i);
+        };
 
-        // ECMA-262 23.1.3.27 step 1: comparefn must be undefined or callable.
-        // undefined -> default sort; any other non-callable value -> TypeError
-        // (was silently ignored, leaving the array unsorted).
-        if (ts_value_is_undefined((TsValue*)comparator)) {
-            array->Sort();
+        if (!comparator || ts_value_is_undefined((TsValue*)comparator)) {
+            specSort(jsDefaultSortComparator);
             return array;
         }
+        // ECMA-262 23.1.3.27 step 1: comparefn must be undefined or callable.
         if (!ts_is_callable(comparator)) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Array.prototype.sort comparator must be a function or undefined"));
             return nullptr;
         }
 
-        // Check if comparator is a TsClosure (from HIR path)
-        if (ts_is_closure(comparator)) {
-            g_current_comparator = comparator;
-            g_comparator_is_closure = true;
-        } else {
-            g_current_comparator = comparator;
-            g_comparator_is_closure = false;
-        }
+        g_current_comparator = comparator;
+        g_comparator_is_closure = ts_is_closure(comparator);
 
-        int64_t* elements = (int64_t*)array->GetElementsPtr();
-        size_t len = array->Length();
-
-        // HIR creates arrays with boxed TsValue* elements, use boxed wrapper
-        // Non-specialized arrays store TsValue* as int64
-        std::sort(elements, elements + len, comparator_wrapper_boxed);
+        specSort(comparator_wrapper_boxed);
 
         g_current_comparator = nullptr;
         g_comparator_is_closure = false;
