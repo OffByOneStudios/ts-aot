@@ -587,15 +587,41 @@ void* TsString::Split(TsString* separator) {
     return arr;
 }
 
+// ECMA-262 TrimString / the WhiteSpace + LineTerminator productions: TAB VT
+// FF SP NBSP ZWNBSP(U+FEFF) + Unicode Zs, plus LF CR LS PS. ICU's trim()/
+// u_isWhitespace EXCLUDE NBSP, U+FEFF, and U+202F, so " x﻿".trim()
+// left them in place (test262 15.5.4.20-3-*).
+static inline bool js_is_whitespace(UChar32 c) {
+    switch (c) {
+        case 0x0009: case 0x000B: case 0x000C: case 0x0020:
+        case 0x00A0: case 0xFEFF:
+        case 0x000A: case 0x000D: case 0x2028: case 0x2029:
+            return true;
+        default:
+            return u_charType(c) == U_SPACE_SEPARATOR;  // Zs
+    }
+}
+
 TsString* TsString::Trim() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
     else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
-    s.trim();
+    int32_t len = s.length();
+    int32_t start = 0;
+    while (start < len && js_is_whitespace(s.char32At(start)))
+        start = s.moveIndex32(start, 1);
+    int32_t end = len;
+    while (end > start) {
+        int32_t prev = s.moveIndex32(end, -1);
+        if (!js_is_whitespace(s.char32At(prev))) break;
+        end = prev;
+    }
+    icu::UnicodeString t;
+    s.extractBetween(start, end, t);
 
     std::string utf8;
-    s.toUTF8String(utf8);
+    t.toUTF8String(utf8);
     return TsString::Create(utf8.c_str());
 }
 
@@ -604,11 +630,11 @@ TsString* TsString::TrimStart() {
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
     else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
-    // Find first non-whitespace character
+    // Find first non-whitespace character (JS whitespace set, not ICU's)
     int32_t start = 0;
     int32_t len = s.length();
-    while (start < len && u_isWhitespace(s.charAt(start))) {
-        start++;
+    while (start < len && js_is_whitespace(s.char32At(start))) {
+        start = s.moveIndex32(start, 1);
     }
 
     if (start == 0) return this; // No leading whitespace
@@ -625,10 +651,12 @@ TsString* TsString::TrimEnd() {
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
     else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
-    // Find last non-whitespace character
+    // Find last non-whitespace character (JS whitespace set, not ICU's)
     int32_t end = s.length();
-    while (end > 0 && u_isWhitespace(s.charAt(end - 1))) {
-        end--;
+    while (end > 0) {
+        int32_t prev = s.moveIndex32(end, -1);
+        if (!js_is_whitespace(s.char32At(prev))) break;
+        end = prev;
     }
 
     if (end == s.length()) return this; // No trailing whitespace
@@ -1064,8 +1092,15 @@ void* TsString::Match(TsRegExp* regexp) {
 void* TsString::MatchAll(TsRegExp* regexp) {
     if (!regexp) return nullptr;
 
-    // matchAll requires global flag - in strict mode, throw TypeError
-    // For now, we'll just set global behavior regardless
+    // ES 22.1.3.14 String.prototype.matchAll step 2.b.iii: a RegExp argument
+    // whose flags do not contain "g" is a TypeError. Without this, the Exec
+    // loop below never advances lastIndex (non-global Exec matches from the
+    // start every time) and spun forever.
+    if (!regexp->IsGlobal()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "String.prototype.matchAll called with a non-global RegExp argument"));
+        return nullptr;  // unreachable
+    }
 
     TsArray* results = TsArray::Create();
     regexp->SetLastIndex(0);
@@ -2257,9 +2292,75 @@ extern "C" {
         return s->Replace(unboxRegExp(regexp), repl);
     }
 
+    // ES 22.1.3.21 String.prototype.replaceAll, string-pattern slow path:
+    // functional replaceValue (called per match with (matched, position,
+    // string)) and GetSubstitution ($$ $& $` $'; $n stays literal — a string
+    // pattern has no capture groups). The flat ReplaceAll fast path bypassed
+    // both. Locals follow the replace_callback_regex precedent (UnicodeString
+    // accumulation across callback invocations).
+    static void* replaceAll_string_pattern(TsString* flatStr, TsString* flatPattern,
+                                           TsValue* replacement, bool isCb) {
+        icu::UnicodeString src = flatStr->ToUnicodeString();
+        icu::UnicodeString pat = flatPattern ? flatPattern->ToUnicodeString()
+                                             : icu::UnicodeString();
+        icu::UnicodeString rep;
+        if (!isCb) {
+            TsString* rs = ts_ensure_flat((TsString*)ts_string_from_value((TsValue*)replacement));
+            if (rs) rep = rs->ToUnicodeString();
+        }
+        icu::UnicodeString out;
+        const int32_t srcLen = src.length(), patLen = pat.length();
+        int32_t pos = 0;
+        while (pos <= srcLen) {
+            int32_t hit = (patLen == 0) ? pos : (pos < srcLen ? src.indexOf(pat, pos) : -1);
+            if (hit < 0) break;
+            out.append(src, pos, hit - pos);
+            if (isCb) {
+                TsValue* args[3] = {
+                    ts_value_make_string(flatPattern),
+                    ts_value_make_int((int64_t)hit),
+                    ts_value_make_string(flatStr) };
+                TsValue* r = ts_call_n((TsValue*)replacement, 3, args);
+                TsString* rs = ts_ensure_flat((TsString*)ts_string_from_value(r));
+                if (rs) out += rs->ToUnicodeString();
+            } else {
+                for (int32_t i = 0; i < rep.length(); i++) {
+                    UChar c = rep.charAt(i);
+                    if (c == u'$' && i + 1 < rep.length()) {
+                        UChar d = rep.charAt(i + 1);
+                        if (d == u'$')       { out += (UChar)u'$'; i++; }
+                        else if (d == u'&')  { out += pat; i++; }
+                        else if (d == u'`')  { out.append(src, 0, hit); i++; }
+                        else if (d == u'\'') { out.append(src, hit + patLen, srcLen - hit - patLen); i++; }
+                        else                 { out += c; }
+                    } else {
+                        out += c;
+                    }
+                }
+            }
+            if (patLen == 0) {
+                // Empty pattern matches BETWEEN every char: emit the char we
+                // just passed, advance one ("abc".replaceAll("","X") == "XaXbXcX").
+                if (hit < srcLen) out.append(src, hit, 1);
+                pos = hit + 1;
+            } else {
+                pos = hit + patLen;
+            }
+        }
+        if (pos < srcLen) out.append(src, pos, srcLen - pos);
+        std::string utf8;
+        out.toUTF8String(utf8);
+        return TsString::Create(utf8.c_str(), utf8.size());
+    }
+
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement) {
         TsString* flatStr = ts_ensure_flat(str);
+        // String WRAPPER receiver (new String(...)): materialize via
+        // ToString semantics so replaceAll works on it (22.1.3.21 step 1-2).
+        if (!flatStr) flatStr = ts_ensure_flat((TsString*)ts_string_from_value((TsValue*)str));
         if (!flatStr) return str;
+
+        bool replIsCallback = ts_nanbox_is_callable(replacement);
 
         // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
         if (pattern) {
@@ -2275,6 +2376,12 @@ extern "C" {
                             "replaceAll must be called with a global RegExp"));
                         return flatStr;  // unreachable
                     }
+                    // Global-regexp replaceAll == replace: delegate so the
+                    // functional-replaceValue branch applies (previously a
+                    // callback was ToString'd into the output).
+                    if (replIsCallback) {
+                        return ts_string_replace(str, pattern, replacement);
+                    }
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
                     TsString* flatRepl = ts_ensure_flat(rawRepl);
@@ -2285,6 +2392,11 @@ extern "C" {
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
                     TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    if (replIsCallback ||
+                        (flatPattern && flatPattern->Length() == 0) ||
+                        (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
+                        return replaceAll_string_pattern(flatStr, flatPattern,
+                                                         (TsValue*)replacement, replIsCallback);
                     return flatStr->ReplaceAll(flatPattern, flatRepl);
                 }
             }
@@ -2294,11 +2406,25 @@ extern "C" {
                 void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                 if (!rawRepl) rawRepl = replacement;
                 TsString* flatRepl = ts_ensure_flat(rawRepl);
+                if (replIsCallback ||
+                    (flatPattern && flatPattern->Length() == 0) ||
+                    (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
+                    return replaceAll_string_pattern(flatStr, flatPattern,
+                                                     (TsValue*)replacement, replIsCallback);
                 return flatStr->ReplaceAll(flatPattern, flatRepl);
             }
         }
+        // Non-string, non-RegExp searchValue (String wrapper, number, any
+        // object): ToString it (22.1.3.21 step 5).
         TsString* flatPattern = ts_ensure_flat(pattern);
-        TsString* flatRepl = ts_ensure_flat(replacement);
+        if (!flatPattern)
+            flatPattern = ts_ensure_flat((TsString*)ts_string_from_value((TsValue*)pattern));
+        TsString* flatRepl = replIsCallback ? nullptr : ts_ensure_flat(replacement);
+        if (replIsCallback ||
+            (flatPattern && flatPattern->Length() == 0) ||
+            (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
+            return replaceAll_string_pattern(flatStr, flatPattern,
+                                             (TsValue*)replacement, replIsCallback);
         return flatStr->ReplaceAll(flatPattern, flatRepl);
     }
 
