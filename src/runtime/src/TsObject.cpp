@@ -2663,6 +2663,19 @@ void* ts_create_arguments_from_params(
                 // used by ArraySpeciesCreate tests to install a custom
                 // @@species) shadows the inherited Array constructor per spec.
                 if (arr->properties) {
+                    // Own ACCESSOR (defineProperty(arr,'constructor',{get})):
+                    // invoke it — ArraySpeciesCreate's Get must run (and may
+                    // throw; create-ctor-poisoned).
+                    TsValue agkv; agkv.type = ValueType::STRING_PTR;
+                    agkv.ptr_val = TsString::GetInterned("__getter_constructor");
+                    if (arr->properties->Has(agkv)) {
+                        TsValue gv = arr->properties->Get(agkv);
+                        if (gv.ptr_val && (gv.type == ValueType::FUNCTION_PTR ||
+                                           gv.type == ValueType::OBJECT_PTR)) {
+                            return ts_function_call_with_this((TsValue*)gv.ptr_val,
+                                       ts_value_make_object(arr), 0, nullptr);
+                        }
+                    }
                     TsValue k; k.type = ValueType::STRING_PTR;
                     k.ptr_val = TsString::GetInterned("constructor");
                     TsValue v = arr->properties->Get(k);

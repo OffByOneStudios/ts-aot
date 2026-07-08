@@ -2497,6 +2497,18 @@ extern "C" {
         }
         void* ctorRaw = ts_value_get_object(ctorVal);
         if (!ctorRaw) return (TsValue*)defaultCtor;
+        // Heap-boxed primitives (string/symbol/BigInt) are not Objects either:
+        // ArraySpeciesCreate skips the @@species lookup for non-Objects and
+        // step 10 IsConstructor(C)=false throws (create-ctor-non-object).
+        {
+            uint32_t cm0 = *(uint32_t*)ctorRaw;
+            if (cm0 == 0x53545247 /*STRG*/ || cm0 == TsConsString::MAGIC ||
+                cm0 == 0x53594D42 /*SYMB*/ || cm0 == 0x42494749 /*BIGI*/) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "SpeciesConstructor: 'constructor' is not an Object"));
+                return nullptr;
+            }
+        }
         // Get(C, @@species)
         TsValue* speciesVal = ts_object_get_property(ctorRaw, "[Symbol.species]");
         if (!speciesVal || ts_value_is_undefined(speciesVal) ||
@@ -2647,11 +2659,50 @@ extern "C" {
         int64_t n = resultArr->Length();
         TsValue* A = ts_new_from_constructor_1(ctorVal, ts_value_make_int(n));
         if (!A) return resultRaw;                              // degrade gracefully
+        // CreateDataPropertyOrThrow: writing an element onto a NON-EXTENSIBLE
+        // species result (that doesn't already own the index) must TypeError
+        // (create-species-non-extensible). Frozen/sealed results likewise
+        // reject new indices; sealed-with-existing-index still fails
+        // CreateDataProperty because the existing property is non-configurable.
+        void* araw = ts_value_get_object(A);
+        if (n > 0 && araw) {
+            extern TsValue* ts_object_isExtensible(TsValue* obj);
+            TsValue* ext = ts_object_isExtensible(ts_value_make_object(araw));
+            if (ext && !ts_value_to_bool(ext)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "CreateDataProperty failed: object is not extensible"));
+                return nullptr;
+            }
+        }
+        // CreateDataPropertyOrThrow(A, ToString(i), el): DEFINE semantics, not
+        // Set — an existing setter must NOT be invoked, an existing
+        // non-configurable accessor makes the define throw TypeError
+        // (create-species-with-non-configurable-property), and an existing
+        // configurable non-writable data prop is REPLACED with the fresh
+        // {value, writable:true, enumerable:true, configurable:true}
+        // (create-species-with-non-writable-property). ts_object_defineProperty
+        // implements ValidateAndApply and throws on invalid redefinition.
+        extern TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor);
+        TsValue* ABoxed = araw ? ts_value_make_object(araw) : A;
         for (int64_t i = 0; i < n; i++) {
             TsValue* el = (TsValue*)resultArr->GetElementBoxed((size_t)i);
-            ts_object_set_property((void*)A, (void*)ts_value_make_int(i), (void*)el);
+            TsMap* desc = TsMap::Create();
+            TsValue dk, dv;
+            dk.type = ValueType::STRING_PTR; dk.ptr_val = TsString::GetInterned("value");
+            desc->Set(dk, nanbox_to_tagged(el));
+            dv.type = ValueType::BOOLEAN; dv.b_val = true;
+            dk.ptr_val = TsString::GetInterned("writable");     desc->Set(dk, dv);
+            dk.ptr_val = TsString::GetInterned("enumerable");   desc->Set(dk, dv);
+            dk.ptr_val = TsString::GetInterned("configurable"); desc->Set(dk, dv);
+            // POD key buffer — defineProperty may ts_throw (longjmp) out of
+            // this frame; no std::string locals allowed here.
+            char ibuf[24];
+            snprintf(ibuf, sizeof(ibuf), "%lld", (long long)i);
+            ts_object_defineProperty(ABoxed,
+                ts_value_make_string(TsString::Create(ibuf)),
+                ts_value_make_object(desc));
         }
-        void* raw = ts_value_get_object(A);
+        void* raw = araw;
         return raw ? raw : resultRaw;
     }
 
