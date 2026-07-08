@@ -269,8 +269,21 @@ extern "C" {
             argv[0] = ts_value_make_string((TsString*)ts_to_string_spec(argv[0]));
         return string_html_wrap_attr(ctx, argc, argv, "font", "size", "fontsize");
     }
+        bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
+                                   TsString* receiver, TsValue* extra,
+                                   bool hasExtra, TsValue** out);
+
     TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
+        // ES 22.1.3.23 step 2: GetMethod(separator, @@split) — a user object
+        // (or overridden RegExp) separator handles the whole split, receiving
+        // (string, limit) with this = separator.
+        if (argc >= 1 && argv && argv[0]) {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.split]", argv[0], str,
+                                       (argc >= 2) ? argv[1] : nullptr, true, &out))
+                return out;
+        }
         // ECMA-262 22.1.3.23: an undefined separator yields a single-element
         // array of the whole string. Also covers `argc == 0`. Everything else
         // (RegExp, string, or a primitive to be ToString'd) is delegated to
@@ -432,6 +445,52 @@ extern "C" {
         return ts_value_make_string(TsString::Create(result.c_str()));
     }
 
+    // ES GetMethod(searchValue, @@x) preamble for String.prototype methods
+    // (22.1.3.14/17/18/21/22/23 step 2). A USER-provided symbol method on the
+    // argument diverts the whole operation to it: non-RegExp OBJECTS exposing
+    // "[Symbol.x]" on their chain, and RegExp instances whose OWN props
+    // override it. Unmodified TsRegExp arguments keep the existing fast paths
+    // (RegExp.prototype's builtin @@x natives are the same machinery).
+    // Returns true when handled (*out set). POD locals only (ts_throw-safe).
+    bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
+                                       TsString* receiver, TsValue* extra,
+                                       bool hasExtra, TsValue** out) {
+        if (!arg || !receiver) return false;
+        void* raw = ts_value_get_object(arg);
+        if (!raw || (uintptr_t)raw < 0x1000) return false;
+        uint32_t m0 = *(uint32_t*)raw;
+        TsValue* method = nullptr;
+        if (m0 == 0x52454758) {  // TsRegExp: own override only
+            TsMap* own = (TsMap*)((TsRegExp*)raw)->GetOwnProps();
+            if (!own) return false;
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(symStorageKey);
+            if (!own->Has(k)) return false;
+            method = nanbox_from_tagged(own->Get(k));
+        } else if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
+                   m0 == 0x42494749 || m0 == 0x53594D42) {
+            // PRIMITIVE search values (string/BigInt/Symbol) never consult
+            // @@x — the cstm-*-on-bigint-primitive tests install a THROWING
+            // BigInt.prototype[@@x] getter and require it stays untouched.
+            return false;
+        } else {
+            method = ts_object_get_property(raw, symStorageKey);
+        }
+        if (!method) return false;
+        uint64_t mnb = nanbox_from_tsvalue_ptr(method);
+        if (nanbox_is_undefined(mnb) || nanbox_is_null(mnb)) return false;
+        if (!ts_is_callable((void*)method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Symbol method of the search value is not a function"));
+            return true;  // unreachable
+        }
+        TsValue* args[2] = { ts_value_make_string(receiver),
+                             extra ? extra : ts_value_make_undefined() };
+        *out = ts_function_call_with_this(method, arg, hasExtra ? 2 : 1, args);
+        if (!*out) *out = ts_value_make_undefined();
+        return true;
+    }
+
     TsValue* ts_string_replace_native(void* ctx, int argc, TsValue** argv) {
         // Flatten a TsConsString receiver before any regex path. The regex
         // helpers (esp. the no-match callback-regex path) read the receiver's
@@ -443,6 +502,14 @@ extern "C" {
         // the JSON.stringify cons fix.
         TsString* str = ctx ? ts_ensure_flat(ctx) : (TsString*)ctx;
         if (argc < 1 || !argv) return ts_value_make_string(str);
+
+        // ES 22.1.3.18 step 2: GetMethod(searchValue, @@replace) dispatch.
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.replace]", argv[0], str,
+                                       (argc >= 2) ? argv[1] : nullptr, true, &out))
+                return out;
+        }
 
         // Check if replacement (argv[1]) is a callback function
         bool replIsCallback = (argc >= 2 && argv[1] && ts_value_is_callable(argv[1]));
@@ -561,8 +628,18 @@ extern "C" {
         return ts_value_make_string((TsString*)ts_string_trimEnd(s0));
     }
     TsValue* ts_string_replaceAll_native(void* ctx, int argc, TsValue** argv) {
-        TsString* str = (TsString*)ctx;
+        TsString* str = ctx ? ts_ensure_flat(ctx) : (TsString*)ctx;
         if (argc < 1 || !argv) return ts_value_make_string(str);
+
+        // ES 22.1.3.21 step 2: GetMethod(searchValue, @@replace) dispatch
+        // (after the IsRegExp+flags check for real RegExps, which the regexp
+        // branch below performs; user objects divert here).
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.replace]", argv[0], str,
+                                       (argc >= 2) ? argv[1] : nullptr, true, &out))
+                return out;
+        }
 
         // Extract replacement string
         void* replacement = (argc >= 2 && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
@@ -597,6 +674,13 @@ extern "C" {
     }
     TsValue* ts_string_match_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
+        // ES 22.1.3.13 step 2: GetMethod(regexp, @@match) dispatch.
+        if (argc >= 1 && argv && argv[0]) {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.match]", argv[0], str,
+                                       nullptr, false, &out))
+                return out;
+        }
         void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         // Non-RegExp argument coercion (ToString -> RegExpCreate) lives in the
         // shared ts_string_match_regexp choke point, so both this prototype
@@ -606,11 +690,25 @@ extern "C" {
     }
     TsValue* ts_string_search_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
+        // ES 22.1.3.22 step 2: GetMethod(regexp, @@search) dispatch.
+        if (argc >= 1 && argv && argv[0]) {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.search]", argv[0], str,
+                                       nullptr, false, &out))
+                return out;
+        }
         void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         return ts_value_make_int(ts_string_search_regexp(str, regexp));
     }
     TsValue* ts_string_matchAll_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
+        // ES 22.1.3.14 step 2.c: GetMethod(regexp, @@matchAll) dispatch.
+        if (argc >= 1 && argv && argv[0]) {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.matchAll]", argv[0], str,
+                                       nullptr, false, &out))
+                return out;
+        }
         void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* result = ts_string_matchAll_regexp(str, regexp);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());

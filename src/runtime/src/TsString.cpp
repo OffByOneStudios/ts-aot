@@ -1666,7 +1666,20 @@ extern "C" {
     // ToString path below.
     void* ts_number_to_string(double value, int64_t radix);
 
+    // GetMethod(arg, @@x) diversion shared with the prototype natives
+    // (defined in TsObject_Builtins.cpp). Typed fast paths must honor user
+    // symbol methods too (22.1.3.x step 2).
+    bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
+                                   TsString* receiver, TsValue* extra,
+                                   bool hasExtra, TsValue** out);
+
     void* ts_string_split(void* str, void* separator) {
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.split]", (TsValue*)separator,
+                                          ts_ensure_flat(str), nullptr, true, &out))
+                return out;
+        }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
         // Per ECMA-262 22.1.3.21 step 11: if separator is undefined, return
@@ -2044,12 +2057,24 @@ extern "C" {
     }
 
     void* ts_string_match_regexp(void* str, void* regexp) {
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.match]", (TsValue*)regexp,
+                                          ts_ensure_flat(str), nullptr, false, &out))
+                return ts_value_get_object(out) ? ts_value_get_object(out) : (void*)out;
+        }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
         return s->Match(coerceArgToRegExp(regexp));
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.matchAll]", (TsValue*)regexp,
+                                          ts_ensure_flat(str), nullptr, false, &out))
+                return ts_value_get_object(out) ? ts_value_get_object(out) : (void*)out;
+        }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
         // 22.1.3.14: a coerced (non-RegExp) argument uses RegExpCreate(arg, "g").
@@ -2057,6 +2082,12 @@ extern "C" {
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.search]", (TsValue*)regexp,
+                                          ts_ensure_flat(str), nullptr, false, &out))
+                return ts_value_get_int(out);
+        }
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
         return s->Search(coerceArgToRegExp(regexp));
@@ -2229,6 +2260,12 @@ extern "C" {
     void* ts_string_replace(void* str, void* pattern, void* replacement) {
         TsString* flatStr = ts_ensure_flat(str);
         if (!flatStr) return str;
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.replace]", (TsValue*)pattern,
+                                          flatStr, (TsValue*)replacement, true, &out))
+                return out;
+        }
 
         // Check if replacement is a callback function
         bool replIsCallback = ts_nanbox_is_callable(replacement);
@@ -2361,6 +2398,12 @@ extern "C" {
         if (!flatStr) return str;
 
         bool replIsCallback = ts_nanbox_is_callable(replacement);
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.replace]", (TsValue*)pattern,
+                                          flatStr, (TsValue*)replacement, true, &out))
+                return out;
+        }
 
         // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
         if (pattern) {
