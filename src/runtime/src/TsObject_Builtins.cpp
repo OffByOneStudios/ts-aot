@@ -457,12 +457,21 @@ extern "C" {
         uint32_t m0 = *(uint32_t*)raw;
         TsValue* method = nullptr;
         if (m0 == 0x52454758) {  // TsRegExp: own override only
-            TsMap* own = (TsMap*)((TsRegExp*)raw)->GetOwnProps();
-            if (!own) return false;
+            // Own @@x overrides land in TWO stores depending on the write
+            // path: plain assignment -> re->GetOwnProps(); defineProperty ->
+            // the g_native_object_props side-map. Consult both
+            // (searchValue-replacer-RegExp-call installs via defineProperty).
             TsValue k; k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::GetInterned(symStorageKey);
-            if (!own->Has(k)) return false;
-            method = nanbox_from_tagged(own->Get(k));
+            TsMap* own = (TsMap*)((TsRegExp*)raw)->GetOwnProps();
+            if (own && own->Has(k)) {
+                method = nanbox_from_tagged(own->Get(k));
+            } else {
+                extern TsMap* getNativeProps(void* obj);
+                TsMap* side = getNativeProps(raw);
+                if (side && side->Has(k)) method = nanbox_from_tagged(side->Get(k));
+                else return false;
+            }
         } else if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
                    m0 == 0x42494749 || m0 == 0x53594D42) {
             // PRIMITIVE search values (string/BigInt/Symbol) never consult
