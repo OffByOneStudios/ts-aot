@@ -138,6 +138,198 @@ inline void annexBStripShadowedFns(const std::set<std::string>& lexNames,
     }
 }
 
+// --- with-body assignment poison (S12.10 crash class) ---------------------
+// Any identifier ASSIGNED inside a `with` body resolves DYNAMICALLY at
+// runtime, so its declaration slot must be Any-typed: a statically
+// String/number-typed slot stored boxed Any values and later typed reads
+// crashed (ts_string_extract_ptr on NANBOX_UNDEFINED). Collect assigned
+// names program-wide; over-poisoning a same-named var elsewhere only costs
+// its typed fast path.
+inline void withPoisonAssigned(ast::Node* n, std::set<std::string>& out) {
+    if (!n) return;
+    if (auto* a = dynamic_cast<ast::AssignmentExpression*>(n)) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(a->left.get()))
+            out.insert(id->name);
+        withPoisonAssigned(a->left.get(), out);
+        withPoisonAssigned(a->right.get(), out);
+        return;
+    }
+    if (auto* pre = dynamic_cast<ast::PrefixUnaryExpression*>(n)) {
+        if ((pre->op == "++" || pre->op == "--"))
+            if (auto* id = dynamic_cast<ast::Identifier*>(pre->operand.get()))
+                out.insert(id->name);
+        withPoisonAssigned(pre->operand.get(), out);
+        return;
+    }
+    if (auto* post = dynamic_cast<ast::PostfixUnaryExpression*>(n)) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(post->operand.get()))
+            out.insert(id->name);
+        withPoisonAssigned(post->operand.get(), out);
+        return;
+    }
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(n)) { withPoisonAssigned(es->expression.get(), out); return; }
+    if (auto* b = dynamic_cast<ast::BinaryExpression*>(n)) { withPoisonAssigned(b->left.get(), out); withPoisonAssigned(b->right.get(), out); return; }
+    if (auto* c = dynamic_cast<ast::ConditionalExpression*>(n)) { withPoisonAssigned(c->condition.get(), out); withPoisonAssigned(c->whenTrue.get(), out); withPoisonAssigned(c->whenFalse.get(), out); return; }
+    if (auto* pp = dynamic_cast<ast::ParenthesizedExpression*>(n)) { withPoisonAssigned(pp->expression.get(), out); return; }
+    if (auto* call = dynamic_cast<ast::CallExpression*>(n)) {
+        withPoisonAssigned(call->callee.get(), out);
+        for (auto& arg : call->arguments) withPoisonAssigned(arg.get(), out);
+        return;
+    }
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) {
+        // A declaration WITH an initializer is an assignment for poisoning
+        // purposes (`var value = 'v'` inside a with body writes through the
+        // with-object when it has that key — T2's `value` on myObj).
+        if (vd->initializer)
+            if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                out.insert(id->name);
+        withPoisonAssigned(vd->initializer.get(), out);
+        return;
+    }
+    if (auto* blk = dynamic_cast<ast::BlockStatement*>(n)) { for (auto& s : blk->statements) withPoisonAssigned(s.get(), out); return; }
+    if (auto* i = dynamic_cast<ast::IfStatement*>(n)) { withPoisonAssigned(i->condition.get(), out); withPoisonAssigned(i->thenStatement.get(), out); withPoisonAssigned(i->elseStatement.get(), out); return; }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(n)) { withPoisonAssigned(w->condition.get(), out); withPoisonAssigned(w->body.get(), out); return; }
+    if (auto* f = dynamic_cast<ast::ForStatement*>(n)) { withPoisonAssigned(f->initializer.get(), out); withPoisonAssigned(f->condition.get(), out); withPoisonAssigned(f->incrementor.get(), out); withPoisonAssigned(f->body.get(), out); return; }
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(n)) { withPoisonAssigned(fo->initializer.get(), out); withPoisonAssigned(fo->body.get(), out); return; }
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(n)) { withPoisonAssigned(fi->initializer.get(), out); withPoisonAssigned(fi->body.get(), out); return; }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(n)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& s : cc->statements) withPoisonAssigned(s.get(), out);
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& s : dc->statements) withPoisonAssigned(s.get(), out);
+        }
+        return;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(n)) {
+        for (auto& s : t->tryBlock) withPoisonAssigned(s.get(), out);
+        if (t->catchClause) for (auto& s : t->catchClause->block) withPoisonAssigned(s.get(), out);
+        for (auto& s : t->finallyBlock) withPoisonAssigned(s.get(), out);
+        return;
+    }
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(n)) { withPoisonAssigned(l->statement.get(), out); return; }
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(n)) {
+        for (auto& s : fd->body) withPoisonAssigned(s.get(), out);
+        return;
+    }
+    if (auto* fe = dynamic_cast<ast::FunctionExpression*>(n)) {
+        for (auto& s : fe->body) withPoisonAssigned(s.get(), out);
+        return;
+    }
+    if (auto* af = dynamic_cast<ast::ArrowFunction*>(n)) {
+        withPoisonAssigned(af->body.get(), out);
+        return;
+    }
+}
+
+// True when a `with` block exists anywhere under n (incl. nested functions).
+inline bool subtreeHasWith(ast::Node* n) {
+    if (!n) return false;
+    std::set<std::string> sink;
+    // cheap detector reusing collectWithPoisonNames: found-with => nonempty
+    // is NOT reliable (empty with-bodies) — walk directly instead.
+    if (auto* blk = dynamic_cast<ast::BlockStatement*>(n)) {
+        if (blk->withHead) return true;
+        for (auto& s : blk->statements) if (subtreeHasWith(s.get())) return true;
+        return false;
+    }
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(n)) {
+        for (auto& s : fd->body) if (subtreeHasWith(s.get())) return true;
+        return false;
+    }
+    if (auto* fe = dynamic_cast<ast::FunctionExpression*>(n)) {
+        for (auto& s : fe->body) if (subtreeHasWith(s.get())) return true;
+        return false;
+    }
+    if (auto* af = dynamic_cast<ast::ArrowFunction*>(n)) return subtreeHasWith(af->body.get());
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(n)) return subtreeHasWith(es->expression.get());
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) return subtreeHasWith(vd->initializer.get());
+    if (auto* call = dynamic_cast<ast::CallExpression*>(n)) {
+        if (subtreeHasWith(call->callee.get())) return true;
+        for (auto& a : call->arguments) if (subtreeHasWith(a.get())) return true;
+        return false;
+    }
+    if (auto* pp = dynamic_cast<ast::ParenthesizedExpression*>(n)) return subtreeHasWith(pp->expression.get());
+    if (auto* i = dynamic_cast<ast::IfStatement*>(n))
+        return subtreeHasWith(i->thenStatement.get()) || subtreeHasWith(i->elseStatement.get());
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(n)) return subtreeHasWith(w->body.get());
+    if (auto* f = dynamic_cast<ast::ForStatement*>(n)) return subtreeHasWith(f->body.get());
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(n)) return subtreeHasWith(fo->body.get());
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(n)) return subtreeHasWith(fi->body.get());
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(n)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& s : cc->statements) if (subtreeHasWith(s.get())) return true;
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& s : dc->statements) if (subtreeHasWith(s.get())) return true;
+        }
+        return false;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(n)) {
+        for (auto& s : t->tryBlock) if (subtreeHasWith(s.get())) return true;
+        if (t->catchClause)
+            for (auto& s : t->catchClause->block) if (subtreeHasWith(s.get())) return true;
+        for (auto& s : t->finallyBlock) if (subtreeHasWith(s.get())) return true;
+        return false;
+    }
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(n)) return subtreeHasWith(l->statement.get());
+    return false;
+}
+
+// Find with-blocks anywhere under n (incl. nested function bodies) and merge
+// their bodies' assigned names into `out`.
+inline void collectWithPoisonNames(ast::Node* n, std::set<std::string>& out) {
+    if (!n) return;
+    if (auto* blk = dynamic_cast<ast::BlockStatement*>(n)) {
+        if (blk->withHead) {
+            for (auto& s : blk->statements) withPoisonAssigned(s.get(), out);
+        }
+        for (auto& s : blk->statements) collectWithPoisonNames(s.get(), out);
+        return;
+    }
+    if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(n)) {
+        for (auto& s : fd->body) collectWithPoisonNames(s.get(), out);
+        return;
+    }
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(n)) { collectWithPoisonNames(es->expression.get(), out); return; }
+    if (auto* fe = dynamic_cast<ast::FunctionExpression*>(n)) {
+        for (auto& s : fe->body) collectWithPoisonNames(s.get(), out);
+        return;
+    }
+    if (auto* af = dynamic_cast<ast::ArrowFunction*>(n)) {
+        collectWithPoisonNames(af->body.get(), out);  // BlockStatement or expr
+        return;
+    }
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) { collectWithPoisonNames(vd->initializer.get(), out); return; }
+    if (auto* call = dynamic_cast<ast::CallExpression*>(n)) {
+        collectWithPoisonNames(call->callee.get(), out);
+        for (auto& arg : call->arguments) collectWithPoisonNames(arg.get(), out);
+        return;
+    }
+    if (auto* pp = dynamic_cast<ast::ParenthesizedExpression*>(n)) { collectWithPoisonNames(pp->expression.get(), out); return; }
+    if (auto* i = dynamic_cast<ast::IfStatement*>(n)) { collectWithPoisonNames(i->thenStatement.get(), out); collectWithPoisonNames(i->elseStatement.get(), out); return; }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(n)) { collectWithPoisonNames(w->body.get(), out); return; }
+    if (auto* f = dynamic_cast<ast::ForStatement*>(n)) { collectWithPoisonNames(f->body.get(), out); return; }
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(n)) { collectWithPoisonNames(fo->body.get(), out); return; }
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(n)) { collectWithPoisonNames(fi->body.get(), out); return; }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(n)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& s : cc->statements) collectWithPoisonNames(s.get(), out);
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& s : dc->statements) collectWithPoisonNames(s.get(), out);
+        }
+        return;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(n)) {
+        for (auto& s : t->tryBlock) collectWithPoisonNames(s.get(), out);
+        if (t->catchClause) for (auto& s : t->catchClause->block) collectWithPoisonNames(s.get(), out);
+        for (auto& s : t->finallyBlock) collectWithPoisonNames(s.get(), out);
+        return;
+    }
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(n)) { collectWithPoisonNames(l->statement.get(), out); return; }
+}
+
 inline void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out,
                                    std::vector<std::string>* fnOut);
 

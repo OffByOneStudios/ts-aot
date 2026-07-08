@@ -86,6 +86,27 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     scopes_.clear();
     pushScope();  // Global scope
 
+    // with-body assignment poison: declarations of names assigned inside any
+    // `with` body get Any-typed slots (dynamic with-resolution stores boxed
+    // Any; a String/number-typed slot corrupted — S12.10 crash family).
+    withPoisonedVars_.clear();
+    {
+        bool anyWith = false;
+        for (auto& stmt0 : program->body) {
+            if (subtreeHasWith(stmt0.get())) { anyWith = true; break; }
+        }
+        if (anyWith) {
+            // COARSE: with-programs poison every assigned name (values flow
+            // between with bodies and surrounding catch/throw/compare code;
+            // per-body poisoning left typed slots reachable — the S12.10
+            // crash persisted via a catch-block assignment). `with` is rare;
+            // Any-typing its whole program is the safe trade.
+            for (auto& stmt0 : program->body) {
+                withPoisonAssigned(stmt0.get(), withPoisonedVars_);
+            }
+        }
+    }
+
     // First pass: visit all statements in the program to process classes and globals
     // This ensures class definitions and other declarations are available
     for (auto& stmt : program->body) {

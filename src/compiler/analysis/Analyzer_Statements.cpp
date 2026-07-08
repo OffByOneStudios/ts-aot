@@ -498,12 +498,140 @@ void Analyzer::visitLabeledStatement(ast::LabeledStatement* node) {
     visit(node->statement.get());
 }
 
+// Collect identifiers ASSIGNED anywhere under `n` (plain/compound assignment,
+// ++/--). Used by the with-body poison below. Best-effort structural walk
+// over the common statement/expression forms (missing an exotic form only
+// means that shape keeps the old behavior).
+static void collectAssignedIdents(ast::Node* n, std::set<std::string>& out) {
+    if (!n) return;
+    if (auto* a = dynamic_cast<ast::AssignmentExpression*>(n)) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(a->left.get()))
+            out.insert(id->name);
+        collectAssignedIdents(a->left.get(), out);
+        collectAssignedIdents(a->right.get(), out);
+        return;
+    }
+    if (auto* pre = dynamic_cast<ast::PrefixUnaryExpression*>(n)) {
+        if (pre->op == "++" || pre->op == "--")
+            if (auto* id = dynamic_cast<ast::Identifier*>(pre->operand.get()))
+                out.insert(id->name);
+        collectAssignedIdents(pre->operand.get(), out);
+        return;
+    }
+    if (auto* post = dynamic_cast<ast::PostfixUnaryExpression*>(n)) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(post->operand.get()))
+            out.insert(id->name);
+        collectAssignedIdents(post->operand.get(), out);
+        return;
+    }
+    if (auto* es = dynamic_cast<ast::ExpressionStatement*>(n)) {
+        collectAssignedIdents(es->expression.get(), out);
+        return;
+    }
+    if (auto* b = dynamic_cast<ast::BinaryExpression*>(n)) {
+        collectAssignedIdents(b->left.get(), out);
+        collectAssignedIdents(b->right.get(), out);
+        return;
+    }
+    if (auto* c = dynamic_cast<ast::ConditionalExpression*>(n)) {
+        collectAssignedIdents(c->condition.get(), out);
+        collectAssignedIdents(c->whenTrue.get(), out);
+        collectAssignedIdents(c->whenFalse.get(), out);
+        return;
+    }
+    if (auto* p = dynamic_cast<ast::ParenthesizedExpression*>(n)) {
+        collectAssignedIdents(p->expression.get(), out);
+        return;
+    }
+    if (auto* call = dynamic_cast<ast::CallExpression*>(n)) {
+        collectAssignedIdents(call->callee.get(), out);
+        for (auto& arg : call->arguments) collectAssignedIdents(arg.get(), out);
+        return;
+    }
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) {
+        collectAssignedIdents(vd->initializer.get(), out);
+        return;
+    }
+    if (auto* blk = dynamic_cast<ast::BlockStatement*>(n)) {
+        for (auto& s : blk->statements) collectAssignedIdents(s.get(), out);
+        return;
+    }
+    if (auto* i = dynamic_cast<ast::IfStatement*>(n)) {
+        collectAssignedIdents(i->condition.get(), out);
+        collectAssignedIdents(i->thenStatement.get(), out);
+        collectAssignedIdents(i->elseStatement.get(), out);
+        return;
+    }
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(n)) {
+        collectAssignedIdents(w->condition.get(), out);
+        collectAssignedIdents(w->body.get(), out);
+        return;
+    }
+    if (auto* f = dynamic_cast<ast::ForStatement*>(n)) {
+        collectAssignedIdents(f->initializer.get(), out);
+        collectAssignedIdents(f->condition.get(), out);
+        collectAssignedIdents(f->incrementor.get(), out);
+        collectAssignedIdents(f->body.get(), out);
+        return;
+    }
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(n)) {
+        collectAssignedIdents(fo->initializer.get(), out);
+        collectAssignedIdents(fo->body.get(), out);
+        return;
+    }
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(n)) {
+        collectAssignedIdents(fi->initializer.get(), out);
+        collectAssignedIdents(fi->body.get(), out);
+        return;
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(n)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                for (auto& s : cc->statements) collectAssignedIdents(s.get(), out);
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& s : dc->statements) collectAssignedIdents(s.get(), out);
+        }
+        return;
+    }
+    if (auto* t = dynamic_cast<ast::TryStatement*>(n)) {
+        for (auto& s : t->tryBlock) collectAssignedIdents(s.get(), out);
+        if (t->catchClause)
+            for (auto& s : t->catchClause->block) collectAssignedIdents(s.get(), out);
+        for (auto& s : t->finallyBlock) collectAssignedIdents(s.get(), out);
+        return;
+    }
+    if (auto* l = dynamic_cast<ast::LabeledStatement*>(n)) {
+        collectAssignedIdents(l->statement.get(), out);
+        return;
+    }
+}
+
 void Analyzer::visitBlockStatement(ast::BlockStatement* node) {
     // Synthetic blocks (e.g., multi-var-decl `const a=1, b=2, c=3` wrapped
     // by the parser) must NOT enter a new scope — their variables belong
     // to the enclosing scope.
     if (!node->isSynthetic) {
         symbols.enterScope();
+    }
+    // `with (head) body` (parser desugars to a block carrying withHead):
+    // every identifier ASSIGNED in the body resolves DYNAMICALLY at runtime
+    // (the with-object may supply the binding, and the RHS reads resolve
+    // through the with-stack as boxed Any). A statically String/number-typed
+    // outer var assigned here would have Any values stored into its typed
+    // slot — reads then crashed (ts_string_extract_ptr on NANBOX_UNDEFINED,
+    // the S12.10_A1.10 with-family crash). Widen assigned symbols to Any.
+    if (node->withHead) {
+        std::set<std::string> assigned;
+        for (auto& stmt : node->statements) {
+            collectAssignedIdents(stmt.get(), assigned);
+        }
+        for (const auto& nm : assigned) {
+            if (auto sym = symbols.lookup(nm)) {
+                if (sym->type && sym->type->kind != TypeKind::Any) {
+                    sym->type = std::make_shared<Type>(TypeKind::Any);
+                }
+            }
+        }
     }
     for (auto& stmt : node->statements) {
         visit(stmt.get());

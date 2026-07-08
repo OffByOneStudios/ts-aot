@@ -196,6 +196,10 @@ private:
     int activeEvalFlags_ = 0;
     HIRFunction* evalFlagsOwner_ = nullptr;
 
+    // Names assigned inside ANY `with` body (program-wide): their declaration
+    // slots stay Any-typed (see collectWithPoisonNames in Internal.h).
+    std::set<std::string> withPoisonedVars_;
+
     // GEN-001 Stage 6: parallel stack of enclosing try scopes — the function
     // they belong to plus their catch-dispatch block (visitTryStatement's
     // exceptionDest). Pushed/popped exactly where tryDepth_ changes. Yields
