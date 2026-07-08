@@ -1918,6 +1918,59 @@ extern "C" {
         return s->Includes(search);
     }
 
+    // Position-aware variants (ES 22.1.3.7/9/23: ToIntegerOrInfinity on the
+    // position/endPosition argument, clamp [0, len]). The 2-arg entries below
+    // stay for legacy call sites; the compiler lowering routes through these.
+    extern int64_t ts_to_index_integer(TsValue* v);
+    static int64_t string_pos_arg(TsValue* pos, int64_t dflt, int64_t len) {
+        if (!pos || ts_value_is_undefined(pos)) return dflt;
+        int64_t p = ts_to_index_integer(pos);   // Symbol/BigInt -> TypeError
+        if (p < 0) p = 0;
+        if (p > len) p = len;
+        return p;
+    }
+    bool ts_string_startsWith_pos(void* str, void* prefix, TsValue* pos) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        reject_regexp_search(prefix, "startsWith");
+        TsString* p = (TsString*)ts_string_from_value((TsValue*)prefix);
+        if (!p) return false;
+        int64_t len = (int64_t)s->Length();
+        int64_t start = string_pos_arg(pos, 0, len);
+        int64_t plen = (int64_t)p->Length();
+        if (plen == 0) return true;
+        if (start + plen > len) return false;
+        TsString* seg = (TsString*)ts_string_slice(s, start, start + plen);
+        return seg && ts_string_eq(seg, p);
+    }
+    bool ts_string_endsWith_pos(void* str, void* suffix, TsValue* endPos) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        reject_regexp_search(suffix, "endsWith");
+        TsString* suf = (TsString*)ts_string_from_value((TsValue*)suffix);
+        if (!suf) return false;
+        int64_t len = (int64_t)s->Length();
+        int64_t end = string_pos_arg(endPos, len, len);
+        int64_t plen = (int64_t)suf->Length();
+        if (plen == 0) return true;
+        int64_t start = end - plen;
+        if (start < 0) return false;
+        TsString* seg = (TsString*)ts_string_slice(s, start, end);
+        return seg && ts_string_eq(seg, suf);
+    }
+    bool ts_string_includes_pos(void* str, void* searchString, TsValue* pos) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        reject_regexp_search(searchString, "includes");
+        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
+        if (!search) return false;
+        int64_t len = (int64_t)s->Length();
+        int64_t start = string_pos_arg(pos, 0, len);
+        if (search->Length() == 0) return true;
+        extern int64_t ts_string_indexOf_from(void* str, void* search, int64_t fromIndex);
+        return ts_string_indexOf_from(s, search, start) >= 0;
+    }
+
     int64_t ts_string_indexOf(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;

@@ -966,24 +966,27 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_includes",
-        lowering("ts_string_includes")
+        lowering("ts_string_includes_pos")
             .returnsBool()
             .ptrArg()      // string
             .ptrArg()      // searchString
+            .boxedArg()    // position / endPosition (ToIntegerOrInfinity)
             .build());
 
     reg.registerLowering("ts_string_startsWith",
-        lowering("ts_string_startsWith")
+        lowering("ts_string_startsWith_pos")
             .returnsBool()
             .ptrArg()      // string
             .ptrArg()      // searchString
+            .boxedArg()    // position / endPosition (ToIntegerOrInfinity)
             .build());
 
     reg.registerLowering("ts_string_endsWith",
-        lowering("ts_string_endsWith")
+        lowering("ts_string_endsWith_pos")
             .returnsBool()
             .ptrArg()      // string
             .ptrArg()      // searchString
+            .boxedArg()    // position / endPosition (ToIntegerOrInfinity)
             .build());
 
     reg.registerLowering("ts_string_indexOf",

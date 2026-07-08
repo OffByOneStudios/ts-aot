@@ -9,30 +9,26 @@ extern "C" {
 
 
     // Native wrappers for string methods (ctx = TsString*)
+    extern "C" bool ts_string_startsWith_pos(void* str, void* prefix, TsValue* pos);
+    extern "C" bool ts_string_endsWith_pos(void* str, void* suffix, TsValue* endPos);
+    extern "C" bool ts_string_includes_pos(void* str, void* search, TsValue* pos);
     TsValue* ts_string_startsWith_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* prefix = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!prefix) prefix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        return ts_value_make_bool(ts_string_startsWith(str, prefix));
+        void* prefix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        TsValue* pos = (argc >= 2 && argv) ? argv[1] : nullptr;
+        return ts_value_make_bool(ts_string_startsWith_pos(str, prefix, pos));
     }
     TsValue* ts_string_endsWith_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* suffix = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!suffix) suffix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        // Implement endsWith inline since the extern C function may not exist
-        if (!suffix) return ts_value_make_bool(true);
-        TsString* suffixStr = (TsString*)suffix;
-        int64_t strLen = str->Length();
-        int64_t suffixLen = suffixStr->Length();
-        if (suffixLen > strLen) return ts_value_make_bool(false);
-        TsString* tail = (TsString*)ts_string_slice(str, strLen - suffixLen, strLen);
-        return ts_value_make_bool(ts_string_eq(tail, suffixStr));
+        void* suffix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        TsValue* endPos = (argc >= 2 && argv) ? argv[1] : nullptr;
+        return ts_value_make_bool(ts_string_endsWith_pos(str, suffix, endPos));
     }
     TsValue* ts_string_includes_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* search = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!search) search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        return ts_value_make_bool(ts_string_includes(str, search));
+        void* search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        TsValue* pos = (argc >= 2 && argv) ? argv[1] : nullptr;
+        return ts_value_make_bool(ts_string_includes_pos(str, search, pos));
     }
     TsValue* ts_string_indexOf_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
