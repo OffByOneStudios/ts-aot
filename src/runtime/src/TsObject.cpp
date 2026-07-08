@@ -5417,6 +5417,16 @@ void* ts_create_arguments_from_params(
             TsMap* props = (TsMap*)re->GetOwnProps();
             if (!props) { props = TsMap::Create(); re->SetOwnProps(props); }
             TsValue keyTagged = nanbox_to_tagged(key);
+            // Canonicalize NUMERIC keys to their string form (ES ToPropertyKey)
+            // so `re[1] = v` and the string-keyed readers (property get, the
+            // array-like materializer's "1") agree — indexOf.call(regexpWith
+            // Props) read undefined otherwise (15.4.4.14-1-12).
+            if (keyTagged.type == ValueType::NUMBER_INT) {
+                char kbuf[24];
+                snprintf(kbuf, sizeof(kbuf), "%lld", (long long)keyTagged.i_val);
+                keyTagged.type = ValueType::STRING_PTR;
+                keyTagged.ptr_val = TsString::GetInterned(kbuf);
+            }
             TsValue valTagged = nanbox_to_tagged(value);
             props->Set(keyTagged, valTagged);
             void* pp = re->GetOwnProps(); ts_gc_write_barrier(&pp, pp);
