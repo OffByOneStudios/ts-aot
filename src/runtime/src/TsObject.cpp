@@ -1101,16 +1101,20 @@ void* ts_create_arguments_from_params(
         TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
         return (TsValue*)ts_value_make_double(ts_number_parseFloat(arg));
     }
-    // Global isNaN: spec — coerce argument to Number, return NaN-check.
+    // Global isNaN: spec ToNumber(arg) — throws TypeError on Symbol
+    // (including a @@toPrimitive that RETURNS a symbol), unlike the silent
+    // ts_value_get_double coercion.
     static TsValue* builtin_isNaN_native(void* ctx, int argc, TsValue** argv) {
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(true);
-        double d = ts_value_get_double(argv[0]);
+        extern double ts_to_number(TsValue* v);
+        double d = ts_to_number(argv[0]);
         return ts_value_make_bool(d != d);
     }
-    // Global isFinite: spec — coerce to Number, check isFinite.
+    // Global isFinite: spec ToNumber (see isNaN above).
     static TsValue* builtin_isFinite_native(void* ctx, int argc, TsValue** argv) {
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
-        double d = ts_value_get_double(argv[0]);
+        extern double ts_to_number(TsValue* v);
+        double d = ts_to_number(argv[0]);
         return ts_value_make_bool(std::isfinite(d));
     }
 
@@ -7653,13 +7657,17 @@ void* ts_create_arguments_from_params(
         return ts_indirect_eval_value(arg);
     }
 
-    // isNaN(value) - global JS function for untyped code
+    // isNaN(value) - global JS function for untyped code.
+    // ES 19.2.3: ToNumber(arg) first — throws TypeError on Symbol (including
+    // an object whose @@toPrimitive returns one); strings/objects coerce.
     extern "C" TsValue* isNaN(TsValue* arg) {
         if (!arg) return ts_value_make_bool(true);
         uint64_t nb = nanbox_from_tsvalue_ptr(arg);
         if (nanbox_is_int32(nb)) return ts_value_make_bool(false);
         if (nanbox_is_double(nb)) return ts_value_make_bool(std::isnan(nanbox_to_double(nb)));
-        return ts_value_make_bool(true);  // Non-numeric → NaN
+        extern double ts_to_number(TsValue* v);
+        double d = ts_to_number(arg);
+        return ts_value_make_bool(d != d);
     }
 
     extern "C" double ts_number_isNaN(TsValue* arg) {
@@ -7673,7 +7681,10 @@ void* ts_create_arguments_from_params(
         uint64_t nb = nanbox_from_tsvalue_ptr(arg);
         if (nanbox_is_int32(nb)) return ts_value_make_bool(true);
         if (nanbox_is_double(nb)) return ts_value_make_bool(std::isfinite(nanbox_to_double(nb)));
-        return ts_value_make_bool(false);
+        // ES 19.2.2: ToNumber(arg) — throws TypeError on Symbol.
+        extern double ts_to_number(TsValue* v);
+        double d = ts_to_number(arg);
+        return ts_value_make_bool(std::isfinite(d));
     }
 
     extern "C" double ts_number_isFinite(TsValue* arg) {

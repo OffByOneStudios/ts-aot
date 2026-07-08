@@ -675,10 +675,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         // Global isNaN/isFinite coerce to number first, but for our purposes
         // we can use the Number.* versions which work on doubles
         if (arg->getType()->isPointerTy()) {
-            // Boxed value - unbox to double
+            // Boxed value: spec ToNumber (ES 19.2.2/19.2.3) — throws
+            // TypeError on a Symbol (incl. @@toPrimitive returning one);
+            // ts_value_get_double silently coerced to NaN.
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(
                 builder_->getDoubleTy(), { getGCPtrTy() }, false);
-            auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
+            auto unboxFn = module_->getOrInsertFunction("ts_to_number", unboxFt);
             arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { arg });
         } else if (arg->getType()->isIntegerTy(64)) {
             arg = builder_->CreateSIToFP(arg, builder_->getDoubleTy());

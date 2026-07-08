@@ -1160,7 +1160,10 @@ extern "C" {
         TsTypedArray* ta = asTypedArray(arr);
         if (ta) {
             if (index < 0 || (size_t)index >= ta->GetLength()) return ts_value_make_undefined();
-            return ts_value_make_double(ta->Get((size_t)index));
+            // BigInt element kinds must box a TsBigInt from the raw 64-bit
+            // slot (a double round-trip corrupts > 2^53 and breaks typeof).
+            extern TsValue* ts_ta_get_boxed(TsTypedArray* taIn, size_t idxIn);
+            return ts_ta_get_boxed(ta, (size_t)index);
         }
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;
@@ -1218,6 +1221,12 @@ extern "C" {
         TsTypedArray* ta = asTypedArray(arr);
         if (ta) {
             if (index < 0 || (size_t)index >= ta->GetLength()) return result;
+            // BigInt element kinds: tagged form of the boxed read (see above).
+            TypedArrayType tt2 = ta->GetType();
+            if (tt2 == TypedArrayType::BigInt64 || tt2 == TypedArrayType::BigUint64) {
+                extern TsValue* ts_ta_get_boxed(TsTypedArray* taIn, size_t idxIn);
+                return nanbox_to_tagged(ts_ta_get_boxed(ta, (size_t)index));
+            }
             result.type = ValueType::NUMBER_DBL;
             result.d_val = ta->Get((size_t)index);
             return result;

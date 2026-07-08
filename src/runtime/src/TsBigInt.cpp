@@ -77,11 +77,32 @@ void* ts_bigint_create_int(int64_t val) {
     return TsBigInt::Create(val);
 }
 
-// Truncate a BigInt to a 64-bit two's-complement integer (BigInt64/BigUint64 array
-// element storage; the raw int64 bit-pattern round-trips for both signedness).
+// UNSIGNED 64-bit construction (BigUint64Array element reads: slots >= 2^63
+// must box as the large positive BigInt, not a negative one).
+void* ts_bigint_create_uint(uint64_t val) {
+    TsBigInt* bi = (TsBigInt*)ts_alloc(sizeof(TsBigInt));
+    new (bi) TsBigInt();
+    mp_set_u64(&bi->value, val);
+    return bi;
+}
+
+// Truncate a BigInt to a 64-bit two's-complement integer (BigInt64/BigUint64
+// array element storage). ES 7.1.15/7.1.16 ToBigInt64/ToBigUint64: the value
+// MODULO 2^64 — a WRAP, not saturation (mp_get_i64 clamps out-of-range
+// values, so 2n**63n + 2n stored as INT64_MAX instead of wrapping negative).
+// Take the low 64 magnitude bits digit-wise, then apply two's complement for
+// negative values.
 int64_t ts_bigint_to_i64(void* bi) {
     if (!bi) return 0;
-    return mp_get_i64(&((TsBigInt*)bi)->value);
+    mp_int* v = &((TsBigInt*)bi)->value;
+    uint64_t lo = 0;
+    int bits = 0;
+    for (int i = 0; i < v->used && bits < 64; i++) {
+        lo |= ((uint64_t)v->dp[i]) << bits;
+        bits += MP_DIGIT_BIT;
+    }
+    if (v->sign == MP_NEG) lo = ~lo + 1;
+    return (int64_t)lo;
 }
 
 // Per ECMA-262 7.1.14 StringToBigInt / 6.1.6.2.3 StringIntegerLiteral:

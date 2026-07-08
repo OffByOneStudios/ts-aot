@@ -1331,6 +1331,12 @@ extern "C" {
         if (t == TypedArrayType::BigInt64 || t == TypedArrayType::BigUint64) {
             uint8_t* data = ta->GetData();
             if (!data || index >= ta->GetLength()) return ts_value_make_undefined();
+            if (t == TypedArrayType::BigUint64) {
+                // Unsigned interpretation: slots >= 2^63 box positive.
+                extern void* ts_bigint_create_uint(uint64_t val);
+                return ts_value_make_bigint(
+                    ts_bigint_create_uint(((uint64_t*)data)[index]));
+            }
             int64_t raw = ((int64_t*)data)[index];
             return ts_value_make_bigint(ts_bigint_create_int(raw));
         }
