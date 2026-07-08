@@ -163,6 +163,24 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     HIRClass* savedClass = currentClass_;
     currentClass_ = hirClass;
 
+    // Lexical private-name scope (ES PrivateEnvironment): collect this
+    // class's declared #names so member bodies (lowered inline below)
+    // resolve them to per-class storage keys — nested classes' same-named
+    // privates get distinct brands (shadowed-by-nested-class family).
+    {
+        PrivateClassCtx pctx;
+        pctx.id = hirClass->name;
+        for (auto& m : node->members) {
+            if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
+                if (!pd->name.empty() && pd->name[0] == '#') pctx.fields.insert(pd->name);
+            } else if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
+                if (!md->name.empty() && md->name[0] == '#') pctx.others.insert(md->name);
+            }
+        }
+        privateClassStack_.push_back(std::move(pctx));
+        classPrivSnapshots_[hirClass->name] = privateClassStack_;
+    }
+
     // Handle inheritance - look up base class
     if (!node->baseClass.empty()) {
         for (auto& cls : module_->classes) {
@@ -208,8 +226,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 // Computed-name fields (`[expr] = v`) are dynamic properties, not
                 // fixed shape slots — their key is only known at runtime.
                 if (propDef->name != "[computed]") {
-                    shape->propertyOffsets[propDef->name] = propertyOffset;
-                    shape->propertyTypes[propDef->name] = propType;
+                    // Private fields shape-key under the class-qualified name
+                    // so the flat slot ("" + key at HIRToLLVM) matches
+                    // the class-qualified writes/reads.
+                    std::string shapeKey = resolvePrivateName(propDef->name);
+                    shape->propertyOffsets[shapeKey] = propertyOffset;
+                    shape->propertyTypes[shapeKey] = propType;
                     propertyOffset++;
                 }
             }
@@ -269,13 +291,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     node->name + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr});
+                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    privateClassStack_});
                 }
             }
         }
         // Collect static blocks for deferred execution
         if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
-            deferredStaticBlocks_.push_back(staticBlock);
+            deferredStaticBlocks_.push_back({staticBlock, privateClassStack_});
         }
     }
 
@@ -886,6 +909,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     }
 
     // Restore class context
+    if (!privateClassStack_.empty()) privateClassStack_.pop_back();
     currentClass_ = savedClass;
 }
 
@@ -1017,6 +1041,24 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     HIRClass* savedClass = currentClass_;
     currentClass_ = hirClass;
 
+    // Lexical private-name scope (ES PrivateEnvironment): collect this
+    // class's declared #names so member bodies (lowered inline below)
+    // resolve them to per-class storage keys — nested classes' same-named
+    // privates get distinct brands (shadowed-by-nested-class family).
+    {
+        PrivateClassCtx pctx;
+        pctx.id = hirClass->name;
+        for (auto& m : node->members) {
+            if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
+                if (!pd->name.empty() && pd->name[0] == '#') pctx.fields.insert(pd->name);
+            } else if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
+                if (!md->name.empty() && md->name[0] == '#') pctx.others.insert(md->name);
+            }
+        }
+        privateClassStack_.push_back(std::move(pctx));
+        classPrivSnapshots_[hirClass->name] = privateClassStack_;
+    }
+
     // Handle inheritance - look up base class
     if (!node->baseClass.empty()) {
         for (auto& cls : module_->classes) {
@@ -1062,8 +1104,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 // Computed-name fields (`[expr] = v`) are dynamic properties, not
                 // fixed shape slots — their key is only known at runtime.
                 if (propDef->name != "[computed]") {
-                    shape->propertyOffsets[propDef->name] = propertyOffset;
-                    shape->propertyTypes[propDef->name] = propType;
+                    // Private fields shape-key under the class-qualified name
+                    // so the flat slot ("" + key at HIRToLLVM) matches
+                    // the class-qualified writes/reads.
+                    std::string shapeKey = resolvePrivateName(propDef->name);
+                    shape->propertyOffsets[shapeKey] = propertyOffset;
+                    shape->propertyTypes[shapeKey] = propType;
                     propertyOffset++;
                 }
             }
@@ -1142,13 +1188,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     className + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr});
+                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    privateClassStack_});
                 }
             }
         }
         // Collect static blocks for deferred execution
         if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
-            deferredStaticBlocks_.push_back(staticBlock);
+            deferredStaticBlocks_.push_back({staticBlock, privateClassStack_});
         }
     }
 
@@ -1679,6 +1726,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     }
 
     // Restore class context
+    if (!privateClassStack_.empty()) privateClassStack_.pop_back();
     currentClass_ = savedClass;
 
     // Store the generated class name for variable tracking (used by visitVariableDeclaration)

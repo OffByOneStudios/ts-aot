@@ -1393,12 +1393,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // Set currentClass_ so that property type resolution works for 'this' access
             // (e.g., this.items resolves to array<string> instead of any)
             HIRClass* savedClass = currentClass_;
+            auto savedPrivStack = privateClassStack_;
             if (spec.classType) {
                 auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
                 if (classType) {
                     for (auto& cls : module_->classes) {
                         if (cls->name == classType->name) {
                             currentClass_ = cls.get();
+                            // Restore the class's lexical private-name scope so
+                            // `this.#x` in the spec-lowered body resolves to the
+                            // class-qualified storage key.
+                            auto snapIt = classPrivSnapshots_.find(cls->name);
+                            if (snapIt != classPrivSnapshots_.end())
+                                privateClassStack_ = snapIt->second;
                             break;
                         }
                     }
@@ -1681,6 +1688,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             popScope();
             currentClass_ = savedClass;  // Restore after method body lowering
+            privateClassStack_ = savedPrivStack;
 
             // Link method to its HIRClass (for constructor calls and method resolution)
             if (spec.classType) {
@@ -1793,6 +1801,10 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
 void ASTToHIR::emitDeferredStaticInits() {
     // Emit static property initializations
     for (auto& init : deferredStaticInits_) {
+        // Restore the class's private-name scope so `this.#x` / `C.#x` in the
+        // initializer resolves to the class-qualified storage key.
+        auto savedPrivStack = privateClassStack_;
+        privateClassStack_ = init.privSnapshot;
         auto initVal = lowerExpression(init.initExpr);
         builder_.createStore(initVal, init.globalPtr, init.propType);
         // Mirror the initialized value onto the constructor closure as an own
@@ -1809,12 +1821,13 @@ void ASTToHIR::emitDeferredStaticInits() {
                     auto key = lowerExpression(cpn->expression.get());
                     builder_.createSetPropDynamic(ctorVal, key, initVal);
                 } else {
-                    builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
+                    builder_.createSetPropStatic(ctorVal, resolvePrivateKey(init.fieldName), initVal);
                 }
             } else {
-                builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
+                builder_.createSetPropStatic(ctorVal, resolvePrivateKey(init.fieldName), initVal);
             }
         }
+        privateClassStack_ = savedPrivStack;
     }
     deferredStaticInits_.clear();  // Only emit once
 
@@ -1967,10 +1980,13 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
 
 void ASTToHIR::emitDeferredStaticInitsTail() {
     // Emit static blocks
-    for (auto* staticBlock : deferredStaticBlocks_) {
+    for (auto& [staticBlock, privSnapshot] : deferredStaticBlocks_) {
+        auto savedPrivStack = privateClassStack_;
+        privateClassStack_ = privSnapshot;
         for (auto& stmt : staticBlock->body) {
             lowerStatement(stmt.get());
         }
+        privateClassStack_ = savedPrivStack;
     }
     deferredStaticBlocks_.clear();  // Only emit once
 }
@@ -2423,7 +2439,7 @@ void ASTToHIR::emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
             return;
         }
     }
-    builder_.createSetPropStatic(thisValue, privateStorageKey(propDef->name), std::move(initVal));
+    builder_.createSetPropStatic(thisValue, resolvePrivateKey(propDef->name), std::move(initVal));
 }
 
 void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,

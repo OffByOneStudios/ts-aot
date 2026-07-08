@@ -200,6 +200,42 @@ private:
     // slots stay Any-typed (see collectWithPoisonNames in Internal.h).
     std::set<std::string> withPoisonedVars_;
 
+    // Lexical private-name scope (ES PrivateEnvironment): innermost enclosing
+    // class DECLARING a #name owns it. Pushed per class lowering with the
+    // class's declared private names; resolvePrivateName qualifies "#x" ->
+    // "#x@<classId>" so same-named privates of nested classes get DISTINCT
+    // storage/brands (the shadowed-by-field-on-nested-class family).
+    // fields mangle to per-class keys; methods/accessors keep their legacy
+    // plain keys (their prototype/vtable installs are not class-qualified
+    // yet) but still SHADOW outer declarations in the walk.
+    struct PrivateClassCtx {
+        std::string id;
+        std::set<std::string> fields;  // instance/static PropertyDefinitions
+        std::set<std::string> others;  // methods + accessors
+    };
+    std::vector<PrivateClassCtx> privateClassStack_;
+    // Lexical private scope captured at class-visit time, keyed by HIR class
+    // name — restored around Monomorphizer SPEC method-body lowering (which
+    // runs outside the class visit, so the live stack is empty there).
+    std::map<std::string, std::vector<PrivateClassCtx>> classPrivSnapshots_;
+    // "#x" -> "#x@Class" when the innermost declaring class declares it as a
+    // FIELD; plain "#x" when declared as a method/accessor (legacy keys) or
+    // unresolved. Non-private names pass through.
+    std::string resolvePrivateName(const std::string& name) {
+        if (name.empty() || name[0] != '#') return name;
+        for (auto it = privateClassStack_.rbegin();
+             it != privateClassStack_.rend(); ++it) {
+            if (it->fields.count(name)) return name + "@" + it->id;
+            if (it->others.count(name)) return name;  // shadow: stop the walk
+        }
+        return name;  // unresolved (invalid code / static-deferred residue)
+    }
+    // Storage form: "#x@Class".
+    std::string resolvePrivateKey(const std::string& name) {
+        if (name.empty() || name[0] != '#') return name;
+        return std::string(1, static_cast<char>(0x01)) + resolvePrivateName(name);
+    }
+
     // GEN-001 Stage 6: parallel stack of enclosing try scopes — the function
     // they belong to plus their catch-dispatch block (visitTryStatement's
     // exceptionDest). Pushed/popped exactly where tryDepth_ changes. Yields
@@ -302,6 +338,10 @@ private:
         // expression to evaluate at init time and install the value under on the
         // constructor (fieldName is the "[computed]" placeholder, unusable).
         ast::Node* computedNameNode = nullptr;
+        // Private-name scope captured at defer time so `this.#x` / `C.#x`
+        // inside the initializer resolves to the class-qualified key when
+        // lowered later (outside the class visit).
+        std::vector<PrivateClassCtx> privSnapshot;
     };
     std::vector<StaticPropInit> deferredStaticInits_;
 
@@ -334,7 +374,7 @@ private:
     bool withScopeActive() const { return withDepth_ > 0 || withLexical_; }
 
     // Deferred static blocks (to be emitted at the start of user_main)
-    std::vector<ast::StaticBlock*> deferredStaticBlocks_;
+    std::vector<std::pair<ast::StaticBlock*, std::vector<PrivateClassCtx>>> deferredStaticBlocks_;
 
     // Deferred class prototype installs. Class declarations are processed
     // in a pre-pass with currentFunction_ == null, so we cannot emit IR
