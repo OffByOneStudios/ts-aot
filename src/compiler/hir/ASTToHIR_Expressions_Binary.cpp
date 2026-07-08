@@ -1477,6 +1477,34 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
 void ASTToHIR::assignDestructureName(const std::string& name,
                                      std::shared_ptr<HIRValue> value) {
+    // ES 13.15.5 DestructuringAssignmentEvaluation -> PutValue: writing an
+    // immutable (const) binding throws TypeError, exactly like plain
+    // assignment (`({c} = {c:1})` on a const c silently overwrote it).
+    if (auto* cinfo = lookupVariableInfo(name)) {
+        if (cinfo->isConst) {
+            builder_.createCall("ts_throw_const_assign", {}, HIRType::makeAny());
+            return;
+        }
+    }
+    // PutValue on an UNINITIALIZED let/const (TDZ) throws ReferenceError:
+    // `({x} = {})` evaluated before `let x` (the dstr put-let family). Load
+    // the current slot and run the same ts_tdz_check the read paths use.
+    {
+        std::string g = modVarName(name);
+        if (module_ && module_->tdzGlobals.count(g)) {
+            auto cur = builder_.createLoadGlobalTyped(g,
+                module_->globals.count(g) ? module_->globals[g]
+                                          : HIRType::makeAny());
+            auto nameC = builder_.createConstString(name);
+            builder_.createCall("ts_tdz_check", {cur, nameC}, HIRType::makeAny());
+        } else if (auto* tinfo = lookupVariableInfo(name)) {
+            if (tinfo->isTDZ && tinfo->isAlloca) {
+                auto cur = builder_.createLoad(HIRType::makeAny(), tinfo->value);
+                auto nameC = builder_.createConstString(name);
+                builder_.createCall("ts_tdz_check", {cur, nameC}, HIRType::makeAny());
+            }
+        }
+    }
     if (currentFunction_ && isModuleGlobalVar(name)) {
         size_t scopeIndex = 0;
         if (isCapturedVariable(name, &scopeIndex)) {

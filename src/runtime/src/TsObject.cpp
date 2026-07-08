@@ -752,7 +752,8 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
 // true. Returns false if no setter is present in the chain (caller does the
 // ordinary data-property store). `thisArg`/`value` are NaN-boxed TsValue*.
 static bool dispatch_map_chain_set(TsMap* start, const char* key,
-                                   TsValue* thisArg, TsValue* value) {
+                                   TsValue* thisArg, TsValue* value,
+                                   int* rejectedNoSetter = nullptr) {
     if (!start || !key) return false;
     TsValue sk; sk.type = ValueType::STRING_PTR;
     sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
@@ -769,10 +770,10 @@ static bool dispatch_map_chain_set(TsMap* start, const char* key,
         }
         // ES 10.1.9.2 OrdinarySetWithOwnDescriptor: an accessor whose [[Set]]
         // is undefined REJECTS the write (sloppy: silent no-op; no shadow
-        // data property is created). A get-only accessor at this level (Has
-        // on __getter_, or an explicit-undefined __setter_ marker) handles
-        // the write here.
+        // data property is created; STRICT: the caller consults
+        // rejectedNoSetter and throws TypeError — 11.13.2-*-s family).
         if (pm->Has(sk) || pm->Has(gk)) {
+            if (rejectedNoSetter) *rejectedNoSetter = 1;
             return true;
         }
         pm = pm->GetPrototype();
@@ -6234,9 +6235,12 @@ void* ts_create_arguments_from_params(
                 bool ownAccessor = map->Has(gk) || map->Has(sk);
                 hasOwnData = !ownAccessor && map->Has(key);
             }
+            int accNoSet = 0;
             if (keyCStr && !hasOwnData && dispatch_map_chain_set(map, keyCStr,
                                                   nanbox_from_tagged(obj),
-                                                  nanbox_from_tagged(value))) {
+                                                  nanbox_from_tagged(value),
+                                                  &accNoSet)) {
+                if (accNoSet && strict) *violated = 1;
                 return value;
             }
 
