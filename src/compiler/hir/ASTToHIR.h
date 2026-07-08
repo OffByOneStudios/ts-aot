@@ -210,8 +210,9 @@ private:
     // yet) but still SHADOW outer declarations in the walk.
     struct PrivateClassCtx {
         std::string id;
-        std::set<std::string> fields;  // instance/static PropertyDefinitions
-        std::set<std::string> others;  // methods + accessors
+        std::set<std::string> fields;    // instance/static PropertyDefinitions
+        std::set<std::string> others;    // methods + accessors (key resolution)
+        std::set<std::string> methods;   // plain methods only — writes TypeError
     };
     std::vector<PrivateClassCtx> privateClassStack_;
     // Lexical private scope captured at class-visit time, keyed by HIR class
@@ -230,10 +231,32 @@ private:
         }
         return name;  // unresolved (invalid code / static-deferred residue)
     }
-    // Storage form: "#x@Class".
+    // Write-site key. FIELDS use the hidden storage form "#x@Class"
+    // (raw data slot). ACCESSORS/METHODS use the plain qualified name — the
+    // runtime set path dispatches "__setter_<key>" accessors from the plain
+    // key, and a  prefix defeats that (compound/destructuring writes to
+    // a private accessor must call the setter per PutValue).
     std::string resolvePrivateKey(const std::string& name) {
         if (name.empty() || name[0] != '#') return name;
-        return std::string(1, static_cast<char>(0x01)) + resolvePrivateName(name);
+        for (auto it = privateClassStack_.rbegin();
+             it != privateClassStack_.rend(); ++it) {
+            if (it->fields.count(name))
+                return std::string(1, static_cast<char>(0x01)) + name + "@" + it->id;
+            if (it->others.count(name)) return name + "@" + it->id;
+        }
+        return std::string(1, static_cast<char>(0x01)) + name;  // unresolved: legacy
+    }
+    // 'f' field, 'm' plain method (assignment/compound write -> TypeError per
+    // PutValue on a method Private Name), 'a' accessor, 0 unresolved.
+    char privateMemberKindOf(const std::string& name) {
+        if (name.empty() || name[0] != '#') return 0;
+        for (auto it = privateClassStack_.rbegin();
+             it != privateClassStack_.rend(); ++it) {
+            if (it->fields.count(name)) return 'f';
+            if (it->methods.count(name)) return 'm';
+            if (it->others.count(name)) return 'a';
+        }
+        return 0;
     }
 
     // GEN-001 Stage 6: parallel stack of enclosing try scopes — the function

@@ -359,9 +359,12 @@ extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
         void** vtable = *(void***)((char*)obj + 8);
         if (vtable) {
             std::string setterKey = std::string("__setter_") + key;
+            std::string getterKey = std::string("__getter_") + key;
+            bool sawGetter = false;
             for (uint32_t i = 0; i < desc->numMethods; i++) {
                 const char* mname = desc->methodNames[i];
-                if (mname && strcmp(mname, setterKey.c_str()) == 0) {
+                if (!mname) continue;
+                if (strcmp(mname, setterKey.c_str()) == 0) {
                     void* methodPtr = vtable[i + 1];
                     if (methodPtr) {
                         using SetterFn = void (*)(void*, void*);
@@ -369,6 +372,14 @@ extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
                         return;
                     }
                 }
+                if (strcmp(mname, getterKey.c_str()) == 0) sawGetter = true;
+            }
+            // Getter-only accessor: ES PutValue on an accessor without a
+            // [[Set]] is a no-op in sloppy code and TypeError in strict
+            // (readonly private/public accessor compound-assignment family).
+            if (sawGetter) {
+                if (strict) *violated = 1;
+                return;
             }
         }
     }
@@ -398,6 +409,15 @@ extern "C" void ts_flat_object_set_property_ex(void* obj, const char* key,
                         if (setterVal && nanbox_from_tsvalue_ptr(setterVal) != NANBOX_UNDEFINED) {
                             TsValue* argv[] = { (TsValue*)value };
                             ts_function_call_with_this(setterVal, (TsValue*)obj, 1, argv);
+                            return;
+                        }
+                        // Getter-only accessor on the class prototype: reject
+                        // the write (strict -> TypeError) instead of shadowing
+                        // the accessor with an own data property.
+                        std::string getterKey = std::string("__getter_") + key;
+                        TsValue* getterVal = ts_object_get_property(protoObj, getterKey.c_str());
+                        if (getterVal && nanbox_from_tsvalue_ptr(getterVal) != NANBOX_UNDEFINED) {
+                            if (strict) *violated = 1;
                             return;
                         }
                     }

@@ -1394,6 +1394,8 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // (e.g., this.items resolves to array<string> instead of any)
             HIRClass* savedClass = currentClass_;
             auto savedPrivStack = privateClassStack_;
+            bool savedStrictSpec = strictCode_;
+            if (spec.classType) strictCode_ = true;  // ClassBody is strict code
             if (spec.classType) {
                 auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
                 if (classType) {
@@ -1689,6 +1691,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             popScope();
             currentClass_ = savedClass;  // Restore after method body lowering
             privateClassStack_ = savedPrivStack;
+            strictCode_ = savedStrictSpec;
 
             // Link method to its HIRClass (for constructor calls and method resolution)
             if (spec.classType) {

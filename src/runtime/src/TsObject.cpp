@@ -4303,6 +4303,18 @@ void* ts_create_arguments_from_params(
         return ts_value_make_undefined();
     }
 
+    // ES PrivateSet on a plain METHOD Private Name: always TypeError
+    // ("Cannot write to private method"). The compiler emits this for
+    // statically-resolved writes to a class's own private method (assignment
+    // and compound-assignment PutValue) after RHS evaluation, per spec order.
+    void ts_throw_private_method_write(void* nameStr) {
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)nameStr);
+        const char* key = ks ? ks->ToUtf8() : "#method";
+        char msg[160];
+        snprintf(msg, sizeof(msg), "Cannot write to private method %s", key);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     // Private member WRITE with brand check (ECMA-262): `obj.#x = v` on an object
     // that is not an instance of the declaring class is a TypeError. The member is
     // a hidden field ("\x01#x") or a private setter ("__setter_#x"); if neither is
@@ -5421,8 +5433,16 @@ void* ts_create_arguments_from_params(
 
         uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
 
-        // Non-pointer obj: nothing to set on
-        if (!nanbox_is_ptr(objNb)) return;
+        // Non-pointer obj: nothing to set on. A STRICT write to a
+        // null/undefined base must TypeError (PutValue -> ToObject(V.[[Base]])
+        // throws — e.g. `super.x = v` after Object.setPrototypeOf(C, null)).
+        if (!nanbox_is_ptr(objNb)) {
+            if (strictW && (nanbox_is_null(objNb) || nanbox_is_undefined(objNb))) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot set properties of null or undefined"));
+            }
+            return;
+        }
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;

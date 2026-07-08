@@ -111,6 +111,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             }
         } else if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
             auto obj = lowerExpression(propAccess->expression.get());
+            // Writing to a plain private METHOD is always a TypeError
+            // (PutValue on a method Private Name), after RHS evaluation.
+            if (privateMemberKindOf(propAccess->name) == 'm') {
+                auto nm = builder_.createConstString(propAccess->name);
+                builder_.createCall("ts_throw_private_method_write", {nm},
+                                    HIRType::makeVoid());
+            }
             // Private names resolve to the class-qualified form so the set
             // path's accessor dispatch finds "__setter_#f@Cls" (logical
             // assignment on a private accessor must call the setter).
@@ -809,7 +816,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Comma operator: evaluate both sides for side effects, return right
         // lhs is already evaluated above, rhs is already evaluated above
         lastValue_ = rhs;
-    } else if (op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" ||
+    } else if (op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" || op == "**=" ||
                op == "&=" || op == "|=" || op == "^=" || op == "<<=" || op == ">>=" || op == ">>>=") {
         // Compound assignment operators
         // lhs already contains the loaded current value
@@ -898,6 +905,19 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 result = builder_.createModF64(lhs, rhs);
             } else {
                 result = builder_.createModI64(lhs, rhs);
+            }
+        } else if (op == "**=") {
+            // Mirror the binary "**" routing (ts_value_pow implements the
+            // full ApplyStringOrNumericBinaryOperator; numeric fast path is
+            // ts_math_pow like Math.pow).
+            if (useBigInt) {
+                result = builder_.createCall("ts_bigint_pow", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_pow",
+                    {boxValueIfNeeded(lhs), boxValueIfNeeded(rhs)}, HIRType::makeAny());
+            } else {
+                auto lf = lhs, rf = rhs;
+                result = builder_.createCall("ts_math_pow", {lf, rf}, HIRType::makeFloat64());
             }
         } else if (op == "&=" || op == "|=" || op == "^=" ||
                    op == "<<=" || op == ">>=" || op == ">>>=") {
@@ -1091,6 +1111,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 }
             }
             const std::string& n = propAccess->name;
+            // Compound write to a plain private METHOD: TypeError after the
+            // operator evaluation (PutValue on a method Private Name).
+            if (privateMemberKindOf(n) == 'm') {
+                auto nm = builder_.createConstString(n);
+                builder_.createCall("ts_throw_private_method_write", {nm},
+                                    HIRType::makeVoid());
+            }
             auto propName = builder_.createConstString(
                 (!n.empty() && n[0] == '#') ? resolvePrivateKey(n) : n);
             std::vector<std::shared_ptr<HIRValue>> args = {obj, propName, boxValueIfNeeded(result)};
@@ -1436,6 +1463,11 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
             lastValue_ = rhs;
             return;
+        }
+        if (privateMemberKindOf(propAccess->name) == 'm') {
+            auto nm = builder_.createConstString(propAccess->name);
+            builder_.createCall("ts_throw_private_method_write", {nm},
+                                HIRType::makeVoid());
         }
         builder_.createSetPropStatic(obj, resolvePrivateKey(propAccess->name), rhs);
         lastValue_ = rhs;

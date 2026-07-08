@@ -174,11 +174,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
                 if (!pd->name.empty() && pd->name[0] == '#') pctx.fields.insert(pd->name);
             } else if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
-                if (!md->name.empty() && md->name[0] == '#') pctx.others.insert(md->name);
+                if (!md->name.empty() && md->name[0] == '#') {
+                    pctx.others.insert(md->name);
+                    if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
+                }
             }
         }
         privateClassStack_.push_back(std::move(pctx));
         classPrivSnapshots_[hirClass->name] = privateClassStack_;
+    }
+    // ES 10.2.1: ClassBody is ALWAYS strict code — member bodies lowered
+    // inline below must emit strict write semantics (PutValue throw=true).
+    bool savedStrictCode = strictCode_;
+    strictCode_ = true;
+    {
     }
 
     // Handle inheritance - look up base class
@@ -910,6 +919,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
     // Restore class context
     if (!privateClassStack_.empty()) privateClassStack_.pop_back();
+    strictCode_ = savedStrictCode;
     currentClass_ = savedClass;
 }
 
@@ -1052,11 +1062,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
                 if (!pd->name.empty() && pd->name[0] == '#') pctx.fields.insert(pd->name);
             } else if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
-                if (!md->name.empty() && md->name[0] == '#') pctx.others.insert(md->name);
+                if (!md->name.empty() && md->name[0] == '#') {
+                    pctx.others.insert(md->name);
+                    if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
+                }
             }
         }
         privateClassStack_.push_back(std::move(pctx));
         classPrivSnapshots_[hirClass->name] = privateClassStack_;
+    }
+    // ES 10.2.1: ClassBody is ALWAYS strict code — member bodies lowered
+    // inline below must emit strict write semantics (PutValue throw=true).
+    bool savedStrictCode = strictCode_;
+    strictCode_ = true;
+    {
     }
 
     // Handle inheritance - look up base class
@@ -1727,6 +1746,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
     // Restore class context
     if (!privateClassStack_.empty()) privateClassStack_.pop_back();
+    strictCode_ = savedStrictCode;
     currentClass_ = savedClass;
 
     // Store the generated class name for variable tracking (used by visitVariableDeclaration)
