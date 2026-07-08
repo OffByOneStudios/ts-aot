@@ -570,6 +570,62 @@ static bool vmode_rewrite_pattern(const std::string& pat, std::string& out) {
     return true;
 }
 
+// ECMA-262 22.2.2.9 CompileToCharSet: JS \d/\w are ASCII-ONLY and \s is the
+// WhiteSpace + LineTerminator set, in EVERY mode. ICU's shorthands are
+// Unicode-wide (\d = Nd so /\d/ matched Arabic-Indic digits; \w = Unicode
+// word; \s lacks U+FEFF). Rewrite the shorthands into explicit classes
+// AFTER transformJsPatternForIcu (so the emitted \x{...} escapes are not
+// re-processed). Inside [...] the set body is spliced; negated forms nest a
+// class, which ICU set syntax supports ([abc[^...]]).
+static const char* kJsDigitBody = "0-9";
+static const char* kJsWordBody  = "A-Za-z0-9_";
+static const char* kJsWsBody =
+    // Pure \x{...} escapes: valid in BOTH ICU regex classes and the
+    // v-mode UnicodeSet rewriter (a literal space or \t was lost by the
+    // UnicodeSet pattern parser, breaking /\s/v).
+    "\\x{9}\\x{B}\\x{C}\\x{20}\\x{A0}\\x{FEFF}\\x{1680}"
+    "\\x{2000}-\\x{200A}\\x{202F}\\x{205F}\\x{3000}"
+    "\\x{A}\\x{D}\\x{2028}\\x{2029}";
+static std::string rewriteJsShorthandClasses(const std::string& in) {
+    std::string out;
+    out.reserve(in.size() + 32);
+    bool inClass = false;
+    for (size_t i = 0; i < in.size(); i++) {
+        char c = in[i];
+        if (c == '\\' && i + 1 < in.size()) {
+            char n = in[i + 1];
+            const char* body = nullptr;
+            bool neg = false;
+            switch (n) {
+                case 'd': body = kJsDigitBody; break;
+                case 'D': body = kJsDigitBody; neg = true; break;
+                case 'w': body = kJsWordBody; break;
+                case 'W': body = kJsWordBody; neg = true; break;
+                case 's': body = kJsWsBody; break;
+                case 'S': body = kJsWsBody; neg = true; break;
+                default: out += c; out += n; i++; continue;
+            }
+            if (!inClass) {
+                out += neg ? "[^" : "[";
+                out += body;
+                out += ']';
+            } else if (neg) {
+                out += "[^";
+                out += body;
+                out += ']';
+            } else {
+                out += body;
+            }
+            i++;
+            continue;
+        }
+        if (c == '[' && !inClass) { inClass = true; out += c; continue; }
+        if (c == ']' && inClass)  { inClass = false; out += c; continue; }
+        out += c;
+    }
+    return out;
+}
+
 static std::string transformJsPatternForIcu(const std::string& pat,
                                              bool vMode = false) {
     std::string result;
@@ -650,6 +706,9 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
     bool vMode = flags && std::string(flags).find('v') != std::string::npos;
     std::string transformed =
         transformJsPatternForIcu(rewriteUnicodeForIcu(pattern), vMode);
+    // JS ASCII/whitespace shorthand semantics (\d \w \s and negations) —
+    // see rewriteJsShorthandClasses.
+    transformed = rewriteJsShorthandClasses(transformed);
     if (vMode) {
         std::string rewritten;
         if (vmode_rewrite_pattern(transformed, rewritten)) {
