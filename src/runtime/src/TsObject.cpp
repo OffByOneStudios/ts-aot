@@ -2257,6 +2257,25 @@ void* ts_create_arguments_from_params(
         // Check for TsTypedArray (magic at offset 16 - after C++ vtable (8) + TsObject::vtable (8))
         if (magic16 == 0x54415252) { // TsTypedArray::MAGIC ("TARR")
             TsTypedArray* ta = (TsTypedArray*)obj;
+            // OrdinaryGet: an own named property (assigned via the generic
+            // side-map set fallback, e.g. `ta.foo = v` — including on a
+            // detached buffer per align-detached-buffer-semantics) shadows
+            // the builtin ladder below. EXCEPT the integer-indexed exotic's
+            // internal-slot reads (length/byteLength/byteOffset/buffer/
+            // BYTES_PER_ELEMENT) — the natives read [[ArrayLength]] through
+            // this path and a defineProperty'd "length" must NOT shadow it
+            // (get-length-uses-internal-arraylength family). "constructor"
+            // also stays on the ladder pending full TA species support.
+            if (strcmp(keyStr, "length") != 0 && strcmp(keyStr, "byteLength") != 0 &&
+                strcmp(keyStr, "byteOffset") != 0 && strcmp(keyStr, "buffer") != 0 &&
+                strcmp(keyStr, "BYTES_PER_ELEMENT") != 0 &&
+                strcmp(keyStr, "constructor") != 0) {
+                if (TsMap* nprops = getNativeProps(obj)) {
+                    TsValue nk; nk.type = ValueType::STRING_PTR;
+                    nk.ptr_val = TsString::GetInterned(keyStr);
+                    if (nprops->Has(nk)) return nanbox_from_tagged(nprops->Get(nk));
+                }
+            }
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int((int64_t)ta->GetLength());
             }
@@ -5101,7 +5120,11 @@ void* ts_create_arguments_from_params(
                     if (strcmp(k, "fill") == 0) {
                         return makeNamedNativeFunction((void*)ts_typed_array_fill_native, ta, "fill", 1);
                     }
-                    // indexOf/includes/find/findIndex etc. could be added later
+                    // Everything else (own named props, the full prototype
+                    // method set, Object.prototype members) resolves via the
+                    // static-key path, which consults the side-map and the
+                    // complete method ladder.
+                    return ts_object_get_property(rawObj, k);
                 }
             } else if (keyIsInt) {
                 return ts_ta_get_boxed(ta, (size_t)keyIdx);
