@@ -2109,6 +2109,20 @@ extern "C" {
                                 "Cannot define property: array length is not writable"));
                             return ts_value_make_undefined();
                         }
+                        // ES 10.1.6.3 step 2.b: defining a NEW index on a
+                        // non-extensible array is a TypeError (15.2.3.6-4-198;
+                        // integrity level 1 = preventExtensions).
+                        {
+                            extern uint8_t ts_integrity_get(void* raw);
+                            bool isNew = ((size_t)idx >= arr->Length() ||
+                                          arr->IsHole((size_t)idx)) &&
+                                         !array_index_has_accessor_obj(arr, (size_t)idx);
+                            if (isNew && ts_integrity_get((void*)arr) >= 1) {
+                                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                    "Cannot define property: object is not extensible"));
+                                return ts_value_make_undefined();
+                            }
+                        }
                         // Canonical array index. ECMA-262 10.4.2.1 Array
                         // [[DefineOwnProperty]]: a DATA descriptor's `value` is
                         // stored at the index and length extends to idx+1 when
@@ -2158,6 +2172,12 @@ extern "C" {
                             // store the value in the element slot and record attrs.
                             if (!descAccessor && (hasVal || hasW || hasE || hasC)) {
                                 constexpr uint8_t A_ENUM = 0x01, A_WRIT = 0x02, A_CONF = 0x04;
+                                // GENERIC descriptor (neither data nor accessor
+                                // fields — only enumerable/configurable) updates
+                                // attrs WITHOUT converting kind (ES 10.1.6.3
+                                // step 5); {enumerable:false} on an accessor
+                                // index previously deleted its getter/setter.
+                                bool isDataDesc = hasVal || hasW;
                                 bool curAccessor = array_index_has_accessor_obj(arr, (size_t)idx);
                                 bool curPresent = curAccessor ||
                                     ((size_t)idx < arr->Length() && !arr->IsHole((size_t)idx));
@@ -2178,7 +2198,7 @@ extern "C" {
                                             "Cannot redefine property: non-configurable (enumerable)"));
                                         return ts_value_make_undefined();
                                     }
-                                    if (curAccessor) {
+                                    if (curAccessor && isDataDesc) {
                                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                                             "Cannot redefine property: non-configurable (accessor->data)"));
                                         return ts_value_make_undefined();
@@ -2210,7 +2230,9 @@ extern "C" {
                                 if (hasC) newAttrs = descBool(ckD) ? (newAttrs | A_CONF) : (newAttrs & ~A_CONF);
                                 // Converting a former accessor index to data: drop
                                 // the getter/setter slots so reads see the value.
-                                if (curAccessor) {
+                                // ONLY for a real data descriptor — a generic
+                                // (attrs-only) descriptor keeps the accessor.
+                                if (curAccessor && isDataDesc) {
                                     char ak[40];
                                     snprintf(ak, sizeof(ak), "__arr_getter_%zu", (size_t)idx);
                                     TsValue gk2; gk2.type = ValueType::STRING_PTR;
@@ -2224,7 +2246,7 @@ extern "C" {
                                 if (hasVal) {
                                     arr->Set((size_t)idx,
                                         (int64_t)(uintptr_t)nanbox_from_tagged(dm->Get(vk)));
-                                } else if ((size_t)idx >= arr->Length()) {
+                                } else if (!curPresent && (size_t)idx >= arr->Length()) {
                                     arr->Set((size_t)idx,
                                         (int64_t)(uintptr_t)ts_value_make_undefined());
                                 }
@@ -2254,6 +2276,49 @@ extern "C" {
                                 // (afterwards IsHole returns false for this index).
                                 bool wasHole = ((size_t)idx >= arr->Length()) ||
                                                arr->IsHole((size_t)idx);
+                                // ValidateAndApplyPropertyDescriptor for the
+                                // ACCESSOR-on-index case (ES 10.1.6.3 step 4):
+                                // a NON-CONFIGURABLE existing index rejects
+                                // data->accessor conversion and any change to
+                                // a provided [[Get]]/[[Set]] (SameValue =
+                                // function identity). Previously unvalidated —
+                                // the 15.2.3.6-4-241..272 family.
+                                {
+                                    bool curAcc = array_index_has_accessor_obj(arr, (size_t)idx);
+                                    bool curPresent = curAcc || !wasHole;
+                                    uint8_t curA = 0x07;
+                                    if (!array_index_attrs_get(arr, (size_t)idx, &curA))
+                                        curA = curAcc ? 0x00 : 0x07;
+                                    if (curPresent && !(curA & 0x04 /*CONFIGURABLE*/)) {
+                                        bool reject = !curAcc;  // data -> accessor
+                                        if (!reject && arr->properties) {
+                                            char vk2[40];
+                                            if (hasGet) {
+                                                snprintf(vk2, sizeof(vk2), "__arr_getter_%zu", (size_t)idx);
+                                                TsValue k1; k1.type = ValueType::STRING_PTR;
+                                                k1.ptr_val = TsString::GetInterned(vk2);
+                                                TsValue cur = arr->properties->Get(k1);
+                                                TsValue nv = dm->Get(gk);
+                                                if (!(cur.type == nv.type && cur.i_val == nv.i_val))
+                                                    reject = true;
+                                            }
+                                            if (!reject && hasSet) {
+                                                snprintf(vk2, sizeof(vk2), "__arr_setter_%zu", (size_t)idx);
+                                                TsValue k1; k1.type = ValueType::STRING_PTR;
+                                                k1.ptr_val = TsString::GetInterned(vk2);
+                                                TsValue cur = arr->properties->Get(k1);
+                                                TsValue nv = dm->Get(sk);
+                                                if (!(cur.type == nv.type && cur.i_val == nv.i_val))
+                                                    reject = true;
+                                            }
+                                        }
+                                        if (reject) {
+                                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                                "Cannot redefine property: non-configurable array index"));
+                                            return ts_value_make_undefined();
+                                        }
+                                    }
+                                }
                                 if (!arr->properties) {
                                     arr->properties = TsMap::Create();
                                     ts_gc_write_barrier(&arr->properties, arr->properties);
