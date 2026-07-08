@@ -199,7 +199,7 @@ extern "C" {
     void ts_array_init_inplace(void* mem, int64_t initial_capacity);  // Placement-new at caller-provided memory
     void* ts_array_create_specialized(int64_t size, int64_t elementSize, bool isDouble);
     void* ts_array_get_elements_ptr(void* arr);
-    void ts_array_push(void* arr, void* value);
+    int64_t ts_array_push(void* arr, void* value);  // returns new length
     void* ts_array_pop(void* arr);
     int64_t ts_array_unshift(void* arr, void* value);  // returns new length
     void* ts_array_shift(void* arr);

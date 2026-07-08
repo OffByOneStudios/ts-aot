@@ -1031,7 +1031,12 @@ extern "C" {
         double lenD = ts_to_number(lenVal);
         if (lenD != lenD || lenD <= 0) {
             // NaN or non-positive → empty array (matches spec ToLength → 0).
-            return TsArray::Create(0);
+            // KEEP the original receiver: mutators still Set(O,"length",0)
+            // through arraylike_writeback (pop/shift on {} must leave
+            // obj.length === 0 — S15.4.4.6_A2).
+            TsArray* tmp0 = TsArray::Create(0);
+            tmp0->originalReceiver = ctxToRead;
+            return tmp0;
         }
         // Per spec, ToLength clamps at 2^53-1. Cap to a sensible iteration
         // limit to avoid runaway allocations on pathological inputs.
@@ -1169,6 +1174,10 @@ extern "C" {
         array_require_length_writable(arr, "pop");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_pop(arr);
+        // Array-LIKE receiver: mutations happened on the materialized temp —
+        // write elements AND length back to the original (S15.4.4.6_A2:
+        // pop() on {} must leave obj.length === 0).
+        arraylike_writeback(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
@@ -1748,6 +1757,9 @@ extern "C" {
         }
         void* result = ts_array_sort(arr, comparator);
         arraylike_writeback(arr);
+        // ES 23.1.3.30 step 4: returns the RECEIVER (original array-like).
+        if (arr->originalReceiver && arr->originalReceiver != (void*)arr)
+            return ts_value_make_object(arr->originalReceiver);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
@@ -1755,6 +1767,10 @@ extern "C" {
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_reverse(arr);
         arraylike_writeback(arr);
+        // ES 23.1.3.26 step 6: returns the RECEIVER — for an array-like
+        // that's the ORIGINAL object, not the materialized temp.
+        if (arr->originalReceiver && arr->originalReceiver != (void*)arr)
+            return ts_value_make_object(arr->originalReceiver);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
@@ -1801,6 +1817,7 @@ extern "C" {
             arr->Push(tail->Get(i));
         }
 
+        arraylike_writeback(arr);  // array-like receiver: propagate mutation
         // ECMA-262 23.1.3.31: removed-elements array via ArraySpeciesCreate.
         extern void* ts_array_species_rematerialize(void* receiver, void* resultRaw);
         void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
@@ -1928,6 +1945,7 @@ extern "C" {
         array_require_length_writable(arr, "shift");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_shift(arr);
+        arraylike_writeback(arr);  // array-like receiver: propagate mutation
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
@@ -2920,7 +2938,7 @@ extern "C" {
         extern void* ts_string_from_value(TsValue* val);
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
-        extern void ts_array_push(void* arr, void* value);
+        extern int64_t ts_array_push(void* arr, void* value);
         extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
         // ES 22.2.6.8 is GENERIC: any OBJECT receiver works. `flags` and
         // `lastIndex` are ordinary property operations and exec runs through
@@ -3163,7 +3181,7 @@ extern "C" {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void ts_object_set_property_strict(void* obj, void* key, void* value);
         extern void* ts_array_create();
-        extern void ts_array_push(void* arr, void* value);
+        extern int64_t ts_array_push(void* arr, void* value);
         extern void* ts_string_from_value(TsValue* val);
         extern TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
         // ES 22.2.6.14 is GENERIC: any OBJECT receiver; the splitter comes
@@ -3339,7 +3357,7 @@ extern "C" {
     extern "C" TsValue* ts_regexp_symbol_matchAll_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
-        extern void ts_array_push(void* arr, void* value);
+        extern int64_t ts_array_push(void* arr, void* value);
         extern TsValue* ts_create_array_iterator_pub(void* items);
         extern void* ts_string_from_value(TsValue* val);
         // ES 22.2.6.9 is GENERIC: any OBJECT receiver; flags via hooked

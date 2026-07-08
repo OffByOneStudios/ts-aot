@@ -452,7 +452,7 @@ void* ts_get_global_Object() {
 extern "C" {
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg);
     void* ts_array_create();
-    void ts_array_push(void* arr, void* value);
+    int64_t ts_array_push(void* arr, void* value);
 }
 
 // Forward decl: wrapAsCallable is defined below (next to makeSimpleConstructorGlobal).
@@ -5184,7 +5184,7 @@ void* ts_get_global_Intl() {
     // tags is deferred.
     addMethod(cached, "getCanonicalLocales", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         extern void* ts_array_create();
-        extern void ts_array_push(void* arr, void* value);
+        extern int64_t ts_array_push(void* arr, void* value);
         void* result = ts_array_create();
         if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
             return ts_value_make_object(result);

@@ -441,6 +441,15 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
 
             result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
         }
+        // Zero-arg push returns the CURRENT length (S15.4.4.7 `x.push()`),
+        // not an unset/garbage result.
+        if (inst->result && !result) {
+            llvm::FunctionType* lft = llvm::FunctionType::get(
+                builder_->getInt64Ty(), { getGCPtrTy() }, false);
+            llvm::FunctionCallee lfn =
+                module_->getOrInsertFunction("ts_array_length", lft);
+            result = builder_->CreateCall(lft, lfn.getCallee(), { obj });
+        }
         if (inst->result && result) {
             setValue(inst->result, result);
         }
@@ -484,6 +493,15 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
                 }
             }
             result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
+        }
+        // Zero-arg unshift returns the CURRENT length (S15.4.4.13
+        // `x.unshift()`), not an unset result.
+        if (inst->result && !result) {
+            llvm::FunctionType* lft = llvm::FunctionType::get(
+                builder_->getInt64Ty(), { getGCPtrTy() }, false);
+            llvm::FunctionCallee lfn =
+                module_->getOrInsertFunction("ts_array_length", lft);
+            result = builder_->CreateCall(lft, lfn.getCallee(), { obj });
         }
         if (inst->result && result) {
             setValue(inst->result, result);

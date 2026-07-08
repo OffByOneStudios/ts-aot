@@ -937,7 +937,7 @@ extern "C" {
         ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
     }
 
-    void ts_array_push(void* arr, void* value) {
+    static void ts_array_push_impl(void* arr, void* value) {
         arr_require_len_writable(arr, "push");
         // Unbox arr if it's a NaN-boxed TsValue* pointing to an array
         void* rawArr = arr;
@@ -1086,6 +1086,32 @@ extern "C" {
         // ==== PackedAny / generic path ====
         // Store NaN-boxed value directly (no heap allocation needed)
         array->Push((int64_t)nb);
+    }
+
+    int64_t ts_array_push(void* arr, void* value) {
+        ts_array_push_impl(arr, value);
+        // Return the new length: the compiled `x.push(v)` EXPRESSION value.
+        // HIRToLLVM declares this i64; the old void definition left garbage
+        // in RAX (S15.4.4.7_A1: `[].push(1)` read back a pointer).
+        void* rawArr = arr;
+        if (arr) {
+            TsValue decoded = nanbox_to_tagged((TsValue*)arr);
+            if ((decoded.type == ValueType::OBJECT_PTR ||
+                 decoded.type == ValueType::ARRAY_PTR) && decoded.ptr_val)
+                rawArr = decoded.ptr_val;
+        }
+        if (rawArr && (uintptr_t)rawArr > 0x1000 &&
+            (uintptr_t)rawArr < 0x0000800000000000ULL &&
+            *(uint32_t*)rawArr == TsArray::MAGIC)
+            return (int64_t)((TsArray*)rawArr)->Length();
+        extern TsValue* ts_object_get_property(void* obj, const char* key);
+        TsValue* lv = rawArr ? ts_object_get_property(rawArr, "length") : nullptr;
+        if (lv) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(lv);
+            if (nanbox_is_int32(nb)) return nanbox_to_int32(nb);
+            if (nanbox_is_double(nb)) return (int64_t)nanbox_to_double(nb);
+        }
+        return 0;
     }
 
     void* ts_array_pop(void* arr) {
