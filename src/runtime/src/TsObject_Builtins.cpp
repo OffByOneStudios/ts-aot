@@ -46,9 +46,25 @@ extern "C" {
         return ts_value_make_int(ts_string_indexOf(str, search));
     }
     TsValue* ts_string_substring_native(void* ctx, int argc, TsValue** argv) {
-        TsString* str = (TsString*)ctx;
-        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        int64_t end = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : ts_string_length(str);
+        // ES 22.1.3.24 steps 1-2: ToString(this) — a detached
+        // String.prototype.substring on an Array/other receiver stringifies
+        // it first (S15.5.4.15_A3 family).
+        TsString* str = ts_ensure_flat((TsString*)ctx);
+        if (!str) str = ts_ensure_flat((TsString*)ts_string_from_value((TsValue*)ctx));
+        if (!str) return ts_value_make_undefined();
+        // ToIntegerOrInfinity on both indices (valueOf invoked, abrupt
+        // propagates), and an UNDEFINED end means "to the end" — the old
+        // ts_value_get_int turned undefined into 0, then the start/end
+        // swap made substring(1, undefined) return the first char.
+        int64_t len = ts_string_length(str);
+        int64_t start = (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0]))
+                            ? ts_to_index_integer(argv[0]) : 0;
+        int64_t end = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+                          ? ts_to_index_integer(argv[1]) : len;
+        // Steps 5-6: clamp both to [0, len] HERE — ±Infinity saturates to
+        // INT64_MAX/MIN, which overflowed the substring internals.
+        if (start < 0) start = 0; else if (start > len) start = len;
+        if (end < 0) end = 0; else if (end > len) end = len;
         return ts_value_make_string((TsString*)ts_string_substring(str, start, end));
     }
     TsValue* ts_string_slice_native(void* ctx, int argc, TsValue** argv) {
