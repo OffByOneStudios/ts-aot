@@ -2656,15 +2656,19 @@ extern "C" {
         getKey.ptr_val = TsString::GetInterned("get");
 
         if (descMap->Has(getKey)) {
+            // Store the half even when it is an EXPLICIT undefined: the key's
+            // presence is the accessor marker (validator / gOPD see accessor
+            // kind for {get:undefined,set:undefined}), and per ES 10.1.6.3
+            // step 9 a provided-undefined [[Get]] REPLACES a prior getter
+            // (redefining with {set:undefined} previously kept the old
+            // setter). Read/write dispatch treats an undefined half as
+            // "accessor present, half absent" — never invoked.
             TsValue getter = descMap->Get(getKey);
-            if (getter.type != ValueType::UNDEFINED) {
-                // Store getter as __getter_<propName>
-                std::string getterKey = std::string("__getter_") + propName;
-                TsValue gk;
-                gk.type = ValueType::STRING_PTR;
-                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-                map->Set(gk, getter);
-            }
+            std::string getterKey = std::string("__getter_") + propName;
+            TsValue gk;
+            gk.type = ValueType::STRING_PTR;
+            gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+            map->Set(gk, getter);
         }
 
         // Check for setter
@@ -2674,14 +2678,11 @@ extern "C" {
 
         if (descMap->Has(setKey)) {
             TsValue setter = descMap->Get(setKey);
-            if (setter.type != ValueType::UNDEFINED) {
-                // Store setter as __setter_<propName>
-                std::string setterKey = std::string("__setter_") + propName;
-                TsValue sk;
-                sk.type = ValueType::STRING_PTR;
-                sk.ptr_val = TsString::GetInterned(setterKey.c_str());
-                map->Set(sk, setter);
-            }
+            std::string setterKey = std::string("__setter_") + propName;
+            TsValue sk;
+            sk.type = ValueType::STRING_PTR;
+            sk.ptr_val = TsString::GetInterned(setterKey.c_str());
+            map->Set(sk, setter);
         }
 
         // Converting an existing DATA property to an ACCESSOR must retire the
@@ -2691,15 +2692,9 @@ extern "C" {
         // as an UNDEFINED placeholder (the class-accessor convention) so
         // enumeration/hasOwnProperty still see the property.
         {
-            bool accessorInstalled = false;
-            if (descMap->Has(getKey)) {
-                TsValue g2 = descMap->Get(getKey);
-                if (g2.type != ValueType::UNDEFINED) accessorInstalled = true;
-            }
-            if (!accessorInstalled && descMap->Has(setKey)) {
-                TsValue s2 = descMap->Get(setKey);
-                if (s2.type != ValueType::UNDEFINED) accessorInstalled = true;
-            }
+            // Accessor-shaped when EITHER field is PRESENT (even explicit
+            // undefined — the marker convention above).
+            bool accessorInstalled = descMap->Has(getKey) || descMap->Has(setKey);
             if (accessorInstalled) {
                 TsValue dataK;
                 dataK.type = ValueType::STRING_PTR;
@@ -2862,6 +2857,26 @@ extern "C" {
         TsValue valueKey;
         valueKey.type = ValueType::STRING_PTR;
         valueKey.ptr_val = TsString::GetInterned("value");
+
+        // ES 10.1.6.3 step 4.c: applying a DATA descriptor over an existing
+        // (configurable — the non-configurable case was rejected above)
+        // ACCESSOR converts the property: [[Get]]/[[Set]] are DISCARDED.
+        // Without the Delete, gOPD kept reporting get/set beside the new
+        // value and reads kept invoking the stale getter.
+        {
+            TsValue wKd; wKd.type = ValueType::STRING_PTR;
+            wKd.ptr_val = TsString::GetInterned("writable");
+            bool newIsData = descMap->Has(valueKey) || descMap->Has(wKd);
+            bool newIsAccessor = descMap->Has(getKey) || descMap->Has(setKey);
+            if (newIsData && !newIsAccessor) {
+                TsValue dgk; dgk.type = ValueType::STRING_PTR;
+                dgk.ptr_val = TsString::GetInterned((std::string("__getter_") + propName).c_str());
+                TsValue dsk; dsk.type = ValueType::STRING_PTR;
+                dsk.ptr_val = TsString::GetInterned((std::string("__setter_") + propName).c_str());
+                if (map->Has(dgk)) map->Delete(dgk);
+                if (map->Has(dsk)) map->Delete(dsk);
+            }
+        }
 
         if (descMap->Has(valueKey)) {
             TsValue value = descMap->Get(valueKey);

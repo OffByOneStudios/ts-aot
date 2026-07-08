@@ -707,6 +707,8 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
     if (!start || !key) return false;
     TsValue gk; gk.type = ValueType::STRING_PTR;
     gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
+    TsValue sk; sk.type = ValueType::STRING_PTR;
+    sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
     TsValue dk; dk.type = ValueType::STRING_PTR;
     dk.ptr_val = TsString::GetInterned(key);
     TsMap* pm = start;
@@ -715,6 +717,14 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
         TsValue gv = pm->Get(gk);
         if (gv.type != ValueType::UNDEFINED) {
             *out = invoke_accessor_getter(nanbox_from_tagged(gv), thisArg);
+            return true;
+        }
+        // ES 10.1.7.1 OrdinaryGet step 3: an accessor whose [[Get]] is
+        // undefined yields undefined — it does NOT fall through to a data
+        // slot or the prototype. A set-only accessor at this level (Has on
+        // __setter_, or an explicit-undefined __getter_ marker) stops here.
+        if (pm->Has(gk) || pm->Has(sk)) {
+            *out = ts_value_make_undefined();
             return true;
         }
         TsValue dv = pm->Get(dk);
@@ -746,6 +756,8 @@ static bool dispatch_map_chain_set(TsMap* start, const char* key,
     if (!start || !key) return false;
     TsValue sk; sk.type = ValueType::STRING_PTR;
     sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
     TsMap* pm = start;
     int guard = 0;
     while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
@@ -753,6 +765,14 @@ static bool dispatch_map_chain_set(TsMap* start, const char* key,
         if (sv.type != ValueType::UNDEFINED) {
             TsValue* args[] = { value };
             ts_function_call_with_this(nanbox_from_tagged(sv), thisArg, 1, args);
+            return true;
+        }
+        // ES 10.1.9.2 OrdinarySetWithOwnDescriptor: an accessor whose [[Set]]
+        // is undefined REJECTS the write (sloppy: silent no-op; no shadow
+        // data property is created). A get-only accessor at this level (Has
+        // on __getter_, or an explicit-undefined __setter_ marker) handles
+        // the write here.
+        if (pm->Has(sk) || pm->Has(gk)) {
             return true;
         }
         pm = pm->GetPrototype();
@@ -773,12 +793,20 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
     if (!start || !key) return false;
     TsValue gk; gk.type = ValueType::STRING_PTR;
     gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
+    TsValue sk; sk.type = ValueType::STRING_PTR;
+    sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
     TsMap* pm = start;
     int guard = 0;
     while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
         TsValue gv = pm->Get(gk);
         if (gv.type != ValueType::UNDEFINED) {
             *out = invoke_accessor_getter(nanbox_from_tagged(gv), thisArg);
+            return true;
+        }
+        // Get-less accessor at this level: reads yield undefined and do NOT
+        // continue down the chain (ES 10.1.7.1 step 3).
+        if (pm->Has(gk) || pm->Has(sk)) {
+            *out = ts_value_make_undefined();
             return true;
         }
         pm = pm->GetPrototype();
