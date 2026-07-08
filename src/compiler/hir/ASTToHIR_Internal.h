@@ -63,6 +63,19 @@ inline std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRe
 
 // Scan constructor body for `this.propName = expr` assignments and record them
 // in the class shape (conservative: only top-level ExpressionStatements).
+// Class-qualify a private member install key: "#m" -> "#m@Cls",
+// "__getter_#m" -> "__getter_#m@Cls" (runtime builds "__getter_" + useKey,
+// and use sites resolve "#m" -> "#m@Cls", so qualified installs line up).
+// Non-private keys pass through.
+inline std::string qualifyPrivateMemberKey(const std::string& key, const std::string& cls) {
+    if (key.empty() || cls.empty()) return key;
+    if (key[0] == '#' ||
+        key.rfind("__getter_#", 0) == 0 ||
+        key.rfind("__setter_#", 0) == 0)
+        return key + "@" + cls;
+    return key;
+}
+
 inline void scanConstructorBodyForProperties(
     const std::vector<ast::StmtPtr>& body,
     std::shared_ptr<HIRShape>& shape,
