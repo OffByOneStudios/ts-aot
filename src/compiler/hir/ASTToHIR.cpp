@@ -1876,7 +1876,7 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         for (auto& [methodKey, methodFunc] : hirClass->methods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
-            installMethod(proto, methodKey, methodClosure);
+            installMethod(proto, qualifyPrivateMemberKey(methodKey, hirClass->name), methodClosure);
         }
 
         // ECMA-262 §15.7: `Class.prototype.constructor` is the class
@@ -1965,7 +1965,7 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
-            installMethod(ctorVal, methodName, methodClosure);
+            installMethod(ctorVal, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);
         }
 
         // Install computed-name accessors (`get [expr]()` / `set [expr]()`).

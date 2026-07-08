@@ -973,7 +973,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
                 if (!methodFunc) continue;
                 auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
-                installClassMember(proto, methodKey, methodClosure);  // non-enumerable
+                installClassMember(proto, qualifyPrivateMemberKey(methodKey, hirClass->name), methodClosure);  // non-enumerable
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
             installClassMember(proto, "constructor", ctorVal);
@@ -1004,7 +1004,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
-            installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
+            installClassMember(lastValue_, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
         }
         return;
     }
@@ -1782,7 +1782,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // matching a class DECLARATION — createSetPropStatic made class-
             // expression methods wrongly enumerable). methodKey already has the
             // __getter_/__setter_ prefix for accessors.
-            installClassMember(proto, methodKey, methodClosure);
+            installClassMember(proto, qualifyPrivateMemberKey(methodKey, hirClass->name), methodClosure);
         }
 
         // Set constructor.prototype = proto
@@ -1824,7 +1824,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
         if (!methodFunc) continue;
         auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
-        installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
+        installClassMember(lastValue_, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
     }
 }
 

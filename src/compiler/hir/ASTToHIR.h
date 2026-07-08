@@ -226,7 +226,7 @@ private:
         for (auto it = privateClassStack_.rbegin();
              it != privateClassStack_.rend(); ++it) {
             if (it->fields.count(name)) return name + "@" + it->id;
-            if (it->others.count(name)) return name;  // shadow: stop the walk
+            if (it->others.count(name)) return name + "@" + it->id;
         }
         return name;  // unresolved (invalid code / static-deferred residue)
     }

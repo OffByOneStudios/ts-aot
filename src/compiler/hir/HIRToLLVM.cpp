@@ -519,7 +519,17 @@ void HIRToLLVM::createMainFunction() {
                         // Emit method name string constants
                         std::vector<llvm::Constant*> methodNamePtrs;
                         for (auto& [methodName, methodFunc] : hirClass->vtable) {
-                            auto* mStrConst = llvm::ConstantDataArray::getString(context_, methodName, true);
+                            // Private methods/accessors install under the
+                            // class-qualified key ("#m@Cls" / "__getter_#m@Cls")
+                            // to keep nested-class brands distinct — mirror that
+                            // in the runtime method-name table.
+                            std::string mangled = methodName;
+                            if (!mangled.empty() &&
+                                (mangled[0] == '#' ||
+                                 mangled.rfind("__getter_#", 0) == 0 ||
+                                 mangled.rfind("__setter_#", 0) == 0))
+                                mangled += "@" + hirClass->name;
+                            auto* mStrConst = llvm::ConstantDataArray::getString(context_, mangled, true);
                             auto* mStrGlobal = new llvm::GlobalVariable(
                                 *module_, mStrConst->getType(), true,
                                 llvm::GlobalValue::PrivateLinkage, mStrConst,
