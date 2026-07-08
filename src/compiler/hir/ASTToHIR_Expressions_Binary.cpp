@@ -111,7 +111,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             }
         } else if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
             auto obj = lowerExpression(propAccess->expression.get());
-            auto propName = builder_.createConstString(propAccess->name);
+            // Private names resolve to the class-qualified form so the set
+            // path's accessor dispatch finds "__setter_#f@Cls" (logical
+            // assignment on a private accessor must call the setter).
+            auto propName = builder_.createConstString(resolvePrivateName(propAccess->name));
             // Strict code: a blocked write throws TypeError (PutValue throw=true).
             builder_.createCall(strictCode_ ? "ts_object_set_property_strict"
                                             : "ts_object_set_property",

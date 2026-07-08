@@ -5450,6 +5450,14 @@ void* ts_create_arguments_from_params(
                 keyTagged.type = ValueType::STRING_PTR;
                 keyTagged.ptr_val = TsString::GetInterned(kbuf);
             }
+            // SYMBOL keys canonicalize to their storage-key string
+            // ("[Symbol.isConcatSpreadable]") so the string-keyed readers
+            // (value_is_concat_spreadable, property get) agree with the write.
+            if (keyTagged.ptr_val && (uintptr_t)keyTagged.ptr_val > 0x1000 &&
+                *(uint32_t*)keyTagged.ptr_val == 0x53594D42 /*SYMB*/) {
+                TsString* sk = ts_symbol_storage_key((TsSymbol*)keyTagged.ptr_val);
+                if (sk) { keyTagged.type = ValueType::STRING_PTR; keyTagged.ptr_val = sk; }
+            }
             TsValue valTagged = nanbox_to_tagged(value);
             props->Set(keyTagged, valTagged);
             void* pp = re->GetOwnProps(); ts_gc_write_barrier(&pp, pp);
@@ -6454,6 +6462,32 @@ void* ts_create_arguments_from_params(
         }
         if (magic0 == 0x4D415053 || magic0 == 0x53455453) return false; // TsMap/TsSet at offset 0
         if (magic0 == 0x46554E43) return false; // Native function at offset 0
+
+        // TsRegExp: user props live in re->GetOwnProps() (NOT the
+        // g_native_object_props side-map), so `1 in re` / `'length' in re`
+        // never saw them — which made every self-hosted array-like callback
+        // (map/filter/forEach `i in O` presence check) skip all elements on a
+        // RegExp receiver (15.4.4.x-1-12 family). Own props first, then the
+        // builtin own/inherited names, then Object.prototype members.
+        if (magic0 == 0x52454758) { // TsRegExp "REGX"
+            TsRegExp* re = (TsRegExp*)rawObj;
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (!k) return false;
+            if (re->GetOwnProps()) {
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(k);
+                if (((TsMap*)re->GetOwnProps())->Has(kk)) return true;
+            }
+            static const char* kReNames[] = {
+                "lastIndex", "source", "flags", "global", "ignoreCase",
+                "multiline", "sticky", "hasIndices", "dotAll", "unicode",
+                "unicodeSets", "test", "exec", "compile", "toString",
+                "constructor", nullptr };
+            for (int i = 0; kReNames[i]; ++i)
+                if (strcmp(k, kReNames[i]) == 0) return true;
+            return is_object_prototype_member(k);
+        }
 
         // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
@@ -8013,6 +8047,23 @@ void* ts_create_arguments_from_params(
                 m0 == 0x52454758 ||  // TsRegExp "REGX"
                 m0 == 0x42494749 ||  // TsBigInt "BIGI"
                 m0 == 0x53594D42) {  // TsSymbol "SYMB"
+                // RegExp own props live in re->GetOwnProps(), not the
+                // g_native_object_props side-map. lastIndex is a real own
+                // data property per ES 22.2.4.
+                if (m0 == 0x52454758) {
+                    TsRegExp* reOwn = (TsRegExp*)obj;
+                    TsValue keyTV = nanbox_to_tagged(argv[0]);
+                    if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                        const char* kc = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                        if (kc && strcmp(kc, "lastIndex") == 0)
+                            return ts_value_make_bool(true);
+                        bool hidden = !kc || kc[0] == '' ||
+                                      (kc[0] == '_' && kc[1] == '_');
+                        if (!hidden && reOwn->GetOwnProps() &&
+                            ((TsMap*)reOwn->GetOwnProps())->Has(keyTV))
+                            return ts_value_make_bool(true);
+                    }
+                }
                 if (m0 == 0x44415445 || m0 == 0x52454758 || m0 == 0x42494749) {
                     if (TsMap* side = getNativeProps(obj)) {
                         TsValue keyTV = nanbox_to_tagged(argv[0]);
