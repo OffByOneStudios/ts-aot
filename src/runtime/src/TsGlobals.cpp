@@ -189,6 +189,7 @@ static TsValue* species_this_getter(void* ctx, int argc, TsValue** argv) {
     if (!ctx) ctx = ts_get_call_this();
     return (TsValue*)ctx;
 }
+static void installCtorMeta(TsFunction* fn, const char* name, int length);
 static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 1) {
     TsValue key;
     key.type = ValueType::STRING_PTR;
@@ -828,6 +829,7 @@ void* ts_get_global_String() {
         TsValue* ctorVal = ts_value_make_native_function((void*)+stringFn, nullptr);
         void* ctorRaw = ts_value_get_object(ctorVal);
         TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+        installCtorMeta(ctorFunc, "String", 1);
 
         // String.prototype with common methods
         TsMap* proto = TsMap::Create();
@@ -1380,6 +1382,27 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
 // "function" and isConstructor(X) returns true. Preserves property
 // access: func.properties points at the same TsMap caller populated, so
 // ts_object_get_property(func, "prototype") finds it.
+// ES 10.3.3-4: built-in functions own "length" then "name", both
+// {writable:false, enumerable:false, configurable:true} — length FIRST for
+// ordinary-own-property-key order (built-ins/*/property-order.js).
+static void installCtorMeta(TsFunction* fn, const char* name, int length) {
+    if (!fn) return;
+    fn->name = TsString::Create(name);
+    fn->arity = length;
+    if (!fn->properties) {
+        fn->properties = TsMap::Create();
+        ts_gc_write_barrier(&fn->properties, fn->properties);
+    }
+    TsValue lk; lk.type = ValueType::STRING_PTR;
+    lk.ptr_val = TsString::GetInterned("length");
+    TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
+    fn->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("name");
+    TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = fn->name;
+    fn->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+}
+
 static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     if (!ctor) return nullptr;
     // Default body returns undefined. The spec says `Set()` without `new`
@@ -1604,6 +1627,7 @@ void* ts_get_global_Number() {
         TsValue* ctorVal = ts_value_make_native_function((void*)+numberFn, nullptr);
         void* ctorRaw = ts_value_get_object(ctorVal);
         TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+        installCtorMeta(ctorFunc, "Number", 1);
 
         if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
         TsMap* proto = TsMap::Create();
