@@ -1081,6 +1081,17 @@ static void* makeErrorConstructor(const char* errorName) {
     msgVal.ptr_val = TsString::Create("");
     proto->SetWithAttrs(msgKey, msgVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 
+    // ES 20.5.3.1 / 20.5.6.3.1: <NativeError>.prototype.constructor is an
+    // OWN {w, !e, c} data property (gOPD 15.2.3.3-4-170..175; the get-ladder
+    // fallback alone is invisible to own-property introspection).
+    {
+        TsValue ck; ck.type = ValueType::STRING_PTR;
+        ck.ptr_val = TsString::GetInterned("constructor");
+        TsValue cv = nanbox_to_tagged(ctorVal);
+        proto->SetWithAttrs(ck, cv,
+            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
+
     // ECMA-262 20.5.3.4 Error.prototype.toString: "name: message" (only "name"
     // or "message" if the other is empty). Installed once on Error.prototype so
     // TypeError/RangeError/... inherit it via the prototype chain; without it,
@@ -2006,6 +2017,17 @@ void* ts_get_global_Date() {
         ts_date_constructor_populate(ctor);
 
         cached = wrapAsCallable(ctor, "Date", 7);
+        // ES 21.4.4.1: Date.prototype.constructor === Date, {w, !e, c} —
+        // an OWN entry so getOwnPropertyDescriptor sees it (gOPD
+        // 15.2.3.3-4-116 family; the instance get ladder alone is invisible
+        // to own-property introspection).
+        {
+            TsValue ck; ck.type = ValueType::STRING_PTR;
+            ck.ptr_val = TsString::GetInterned("constructor");
+            TsValue cv = nanbox_to_tagged((TsValue*)cached);
+            proto->SetWithAttrs(ck, cv,
+                TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        }
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
