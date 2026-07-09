@@ -381,6 +381,43 @@ extern "C" {
     }
 
     // Object.values(obj) - returns array of values
+    // ES 7.3.23 EnumerableOwnPropertyNames(O, VALUE / KEY+VALUE) for
+    // map-backed and flat receivers: reuse Object.keys' filtered,
+    // spec-ordered key list, then Get(O, k) per key — so ACCESSOR GETTERS
+    // ARE INVOKED (raw map walks returned the stored getter function as
+    // the value) and flat-object overflow properties are included (the
+    // flat entries/values walks skipped the overflow map entirely).
+    // NOTE: no std::string/vector locals — a throwing getter longjmps
+    // through this frame.
+    static TsValue* enum_own_values_entries(TsValue* obj, void* rawPtr,
+                                            bool wantEntries) {
+        TsValue* keysV = ts_object_keys(obj);
+        void* kraw = keysV ? ts_value_get_object(keysV) : nullptr;
+        if (!kraw || *(uint32_t*)kraw != 0x41525259)
+            return ts_value_make_array(TsArray::Create(0));
+        TsArray* keys = (TsArray*)kraw;
+        TsArray* out = TsArray::Create(0);
+        int64_t n = keys->Length();
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* kb = (TsValue*)(uintptr_t)keys->Get((size_t)i);
+            void* ks = kb ? ts_value_get_string(kb) : nullptr;
+            if (!ks) continue;
+            const char* kc = ((TsString*)ks)->ToUtf8();
+            if (!kc) continue;
+            TsValue* v = ts_object_get_property(rawPtr, kc);  // may longjmp
+            if (!v) v = ts_value_make_undefined();
+            if (wantEntries) {
+                TsArray* pair = TsArray::Create(0);
+                pair->Push((int64_t)(uintptr_t)ts_value_make_string((TsString*)ks));
+                pair->Push((int64_t)(uintptr_t)v);
+                out->Push((int64_t)(uintptr_t)ts_value_make_array(pair));
+            } else {
+                out->Push((int64_t)(uintptr_t)v);
+            }
+        }
+        return ts_value_make_array(out);
+    }
+
     TsValue* ts_object_values(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
@@ -402,7 +439,7 @@ extern "C" {
         // Check flat object (magic at offset 0)
         uint32_t magic0 = *(uint32_t*)rawPtr;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            return ts_value_make_array((TsArray*)ts_flat_object_values(rawPtr));
+            return enum_own_values_entries(obj, rawPtr, false);
         }
         if (magic0 == 0x53545247) { // TsString "STRG": values = the characters
             extern int64_t ts_string_length(void* str);
@@ -440,8 +477,8 @@ extern "C" {
         }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_values(rawPtr));
+        if (magic == 0x4D415053) { // TsMap::MAGIC (incl. Proxy via keys/get)
+            return enum_own_values_entries(obj, rawPtr, false);
         }
         if (magic == 0x46554E43) { // TsFunction::MAGIC "FUNC"
             return ts_func_props_view(((TsFunction*)rawPtr)->properties, false);
@@ -482,7 +519,7 @@ extern "C" {
         // Check flat object (magic at offset 0)
         uint32_t magic0_e = *(uint32_t*)rawPtr;
         if (magic0_e == 0x464C4154) { // FLAT_MAGIC
-            return ts_value_make_array((TsArray*)ts_flat_object_entries(rawPtr));
+            return enum_own_values_entries(obj, rawPtr, true);
         }
         if (magic0_e == 0x53545247) { // TsString "STRG": entries = [["0","a"],...]
             extern int64_t ts_string_length(void* str);
@@ -527,8 +564,8 @@ extern "C" {
         }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_entries(rawPtr));
+        if (magic == 0x4D415053) { // TsMap::MAGIC (incl. Proxy via keys/get)
+            return enum_own_values_entries(obj, rawPtr, true);
         }
         if (magic == 0x46554E43) { // TsFunction::MAGIC "FUNC"
             return ts_func_props_view(((TsFunction*)rawPtr)->properties, true);
