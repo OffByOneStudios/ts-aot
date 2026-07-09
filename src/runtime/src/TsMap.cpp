@@ -1,3 +1,4 @@
+#include <csetjmp>
 #include "TsMap.h"
 #include "TsConsString.h"
 #include <algorithm>
@@ -372,26 +373,128 @@ void* ts_map_create_from_iterable(TsValue* iterable) {
     void* unboxed = ts_value_get_object(iterable);
     if (unboxed) raw = unboxed;
     uint32_t magic = *(uint32_t*)raw;
-    if (magic == 0x41525259) {  // ARRY
+    // ES 24.1.1.2 AddEntriesFromIterable: entries insert through the ADDER
+    // (Get(map, "set")) so a user-patched Map.prototype.set observes every
+    // entry, and an abrupt adder/entry-read performs IteratorClose. The
+    // plain-array fast path below stays when the adder is still our native.
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+    extern bool ts_is_callable(void* v);
+    TsValue* adder = ts_object_get_property(map, "set");
+    bool adderNative = false;
+    {
+        void* araw = adder ? ts_value_get_object(adder) : nullptr;
+        if (araw && *(uint32_t*)((char*)araw + 16) == 0x46554E43 /*FUNC*/) {
+            // signature per :938 — (context, key, value), address compare only
+            extern TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value);
+            adderNative = (((TsFunction*)araw)->funcPtr == (void*)ts_map_set_wrapper);
+        }
+    }
+    if (!adder || !ts_is_callable(adder)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map constructor: 'set' is not callable"));
+        return map;  // unreachable
+    }
+    if (magic == 0x41525259 && adderNative) {  // ARRY fast path
         TsArray* arr = (TsArray*)raw;
         int64_t len = arr->Length();
         TsMap* m = (TsMap*)map;
         for (int64_t i = 0; i < len; i++) {
             int64_t elem = arr->GetUnchecked((size_t)i);
-            // Each element should be a 2-element array [key, value]
             uint64_t enb = (uint64_t)elem;
             if (!nanbox_is_ptr(enb)) continue;
             void* eraw = nanbox_to_ptr(enb);
             if (!eraw) continue;
-            uint32_t emagic = *(uint32_t*)eraw;
-            if (emagic != 0x41525259) continue;
+            if (*(uint32_t*)eraw != 0x41525259) continue;
             TsArray* pair = (TsArray*)eraw;
             if (pair->Length() < 2) continue;
-            int64_t k = pair->GetUnchecked(0);
-            int64_t v = pair->GetUnchecked(1);
-            TsValue kv = nanbox_to_tagged((TsValue*)(uintptr_t)k);
-            TsValue vv = nanbox_to_tagged((TsValue*)(uintptr_t)v);
+            TsValue kv = nanbox_to_tagged((TsValue*)(uintptr_t)pair->GetUnchecked(0));
+            TsValue vv = nanbox_to_tagged((TsValue*)(uintptr_t)pair->GetUnchecked(1));
             m->Set(kv, vv);
+        }
+        return map;
+    }
+    // Generic path: drive the iterator protocol; adder called per entry.
+    {
+        extern TsValue* ts_iterator_get_boxed(TsValue* v);
+        TsValue* iterBoxed = ts_value_make_object(raw);
+        TsValue* iterator = nullptr;
+        // GetMethod(iterable, @@iterator) then call it.
+        TsValue* itFn = ts_object_get_property(raw, "[Symbol.iterator]");
+        if (itFn && ts_is_callable(itFn)) {
+            iterator = ts_function_call_with_this(itFn, iterBoxed, 0, nullptr);
+        } else if (magic == 0x41525259) {
+            // Array with a patched adder: use the array directly below.
+            iterator = nullptr;
+        }
+        if (iterator) {
+            TsValue* nextFn = ts_object_get_property((void*)iterator, "next");
+            if (nextFn && ts_is_callable(nextFn)) {
+                extern void* ts_push_exception_handler();
+                extern void ts_pop_exception_handler();
+                extern TsValue* ts_get_exception();
+                extern void ts_set_exception(TsValue* e);
+                extern void ts_iterator_close(TsValue* iter);
+                TsValue* mapBoxed = ts_value_make_object(map);
+                for (int64_t guard = 0; guard < (1 << 24); guard++) {
+                    TsValue* res = ts_function_call_with_this(nextFn, iterator, 0, nullptr);
+                    uint64_t rnb = res ? (uint64_t)(uintptr_t)res : 0;
+                    if (!res || !nanbox_is_ptr(rnb)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Iterator result is not an object"));
+                        return map;
+                    }
+                    TsValue* doneV = ts_object_get_property((void*)res, "done");
+                    if (doneV && ts_value_to_bool(doneV)) break;
+                    // steps 8.c-f: entry must be Object; k/v reads and the
+                    // adder call close the iterator on abrupt completion.
+                    void* hbuf = ts_push_exception_handler();
+                    jmp_buf* env = (jmp_buf*)hbuf;
+                    if (setjmp(*env) != 0) {
+                        TsValue* exc = ts_get_exception();
+                        ts_set_exception(nullptr);
+                        // ES 7.4.8 step 6: with a pending throw completion,
+                        // an abrupt return() is SWALLOWED — the original
+                        // error wins (iterator-close-failure-after-set-
+                        // failure). Nested handler around the close.
+                        void* hbuf2 = ts_push_exception_handler();
+                        jmp_buf* env2 = (jmp_buf*)hbuf2;
+                        if (setjmp(*env2) == 0) {
+#ifdef _WIN64
+                            ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
+                            ts_iterator_close(iterator);
+                            ts_pop_exception_handler();
+                        } else {
+                            ts_set_exception(nullptr);  // swallow close error
+                        }
+                        ts_throw(exc ? exc : ts_value_make_undefined());
+                        return map;  // unreachable
+                    }
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+                    TsValue* entry = ts_object_get_property((void*)res, "value");
+                    uint64_t eb = entry ? (uint64_t)(uintptr_t)entry : 0;
+                    bool entryObj = entry && nanbox_is_ptr(eb);
+                    if (entryObj) {
+                        void* ep = nanbox_to_ptr(eb);
+                        uint32_t em = (ep && (uintptr_t)ep > 0x1000) ? *(uint32_t*)ep : 0;
+                        if (em == 0x53545247 || em == 0x434F4E53 ||
+                            em == 0x53594D42 || em == 0x42494749) entryObj = false;
+                    }
+                    if (!entryObj) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Iterator value is not an entry object"));
+                    }
+                    TsValue* k = ts_object_get_property((void*)entry, "0");
+                    TsValue* v = ts_object_get_property((void*)entry, "1");
+                    TsValue* argv2[2] = { k ? k : ts_value_make_undefined(),
+                                          v ? v : ts_value_make_undefined() };
+                    ts_function_call_with_this(adder, mapBoxed, 2, argv2);
+                    ts_pop_exception_handler();
+                }
+            }
         }
     }
     return map;
