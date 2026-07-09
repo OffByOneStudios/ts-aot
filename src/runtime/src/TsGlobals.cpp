@@ -467,7 +467,50 @@ static TsValue* array_from_native_wrap(void* ctx, int argc, TsValue** argv) {
     return result ? (TsValue*)ts_value_make_object(result) : ts_value_make_object(ts_array_create());
 }
 
+static bool value_is_constructor(void* v);  // defined below (~7489)
+void* ts_get_global_Array();               // defined just below
 static TsValue* array_of_native_wrap(void* ctx, int argc, TsValue** argv) {
+    // ES 23.1.2.3 steps 4-5: when `this` is a CONSTRUCTOR other than the
+    // Array intrinsic (Array.of.call(Custom, ...)), A = ? Construct(C, [len])
+    // and elements are defined onto it; a throwing constructor propagates
+    // (return-abrupt-from-contructor). Plain Array.of keeps the fast path.
+    {
+        // fwd decl of the file-static helper defined below (line ~7489)
+        extern TsValue* ts_new_from_constructor_1(TsValue* ctor, TsValue* arg);
+        extern void ts_object_set_property(void* obj, void* key, void* value);
+        void* thisV = ts_get_call_this();
+        void* thisRaw = thisV ? ts_value_get_object((TsValue*)thisV) : nullptr;
+        void* arrayCtorRaw = ts_value_get_object((TsValue*)ts_get_global_Array());
+        if (thisRaw && thisRaw != arrayCtorRaw && value_is_constructor(thisV)) {
+            TsValue* A = ts_new_from_constructor_1((TsValue*)thisV,
+                                                   ts_value_make_int(argc));
+            if (A) {
+                // CreateDataPropertyOrThrow — DEFINE semantics; [[Set]] would
+                // invoke inherited setters (does-not-use-prototype-properties).
+                extern TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop,
+                                                         TsValue* descriptor);
+                for (int i = 0; i < argc; i++) {
+                    TsMap* desc = TsMap::Create();
+                    TsValue dk; dk.type = ValueType::STRING_PTR;
+                    TsValue dv; dv.type = ValueType::BOOLEAN; dv.b_val = true;
+                    dk.ptr_val = TsString::GetInterned("value");
+                    desc->Set(dk, nanbox_to_tagged(argv[i]));
+                    dk.ptr_val = TsString::GetInterned("writable");     desc->Set(dk, dv);
+                    dk.ptr_val = TsString::GetInterned("enumerable");   desc->Set(dk, dv);
+                    dk.ptr_val = TsString::GetInterned("configurable"); desc->Set(dk, dv);
+                    char ibuf[24];
+                    snprintf(ibuf, sizeof(ibuf), "%d", i);
+                    ts_object_defineProperty(A,
+                        ts_value_make_string(TsString::Create(ibuf)),
+                        ts_value_make_object(desc));
+                }
+                ts_object_set_property((void*)A,
+                    (void*)ts_value_make_string(TsString::GetInterned("length")),
+                    (void*)ts_value_make_int(argc));
+                return A;
+            }
+        }
+    }
     void* arr = ts_array_create();
     for (int i = 0; i < argc; i++) ts_array_push(arr, (void*)argv[i]);
     return (TsValue*)ts_value_make_object(arr);
