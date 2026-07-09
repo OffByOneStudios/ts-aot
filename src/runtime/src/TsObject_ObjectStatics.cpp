@@ -1124,6 +1124,25 @@ extern "C" {
                 if (!closure->properties->WouldCreateCycle(sourceMap)) {
                     closure->properties->SetPrototype(sourceMap);
                 }
+            } else if (protoMagic == TsFunction::MAGIC) {
+                // `Object.setPrototypeOf(C, BuiltinCtor)` — builtin statics
+                // are get-LADDER-synthesized on the TsFunction, unreachable
+                // via a TsMap chain. Store a hidden delegation marker the
+                // closure get-miss path follows (class C extends Array —
+                // C.isArray / C.from; Temporal subclassing-ignored family).
+                if (!closure->properties) {
+                    closure->properties = TsMap::Create();
+                    ts_gc_write_barrier(&closure->properties, closure->properties);
+                }
+                TsValue bbk; bbk.type = ValueType::STRING_PTR;
+                bbk.ptr_val = TsString::GetInterned("__builtin_base");
+                TsValue bbv; bbv.type = ValueType::OBJECT_PTR;
+                bbv.ptr_val = protoRaw;
+                closure->properties->Set(bbk, bbv);
+                // Also chain to the fn's own TsMap props (user-added statics).
+                TsMap* fnProps = ((TsFunction*)protoRaw)->properties;
+                if (fnProps && !closure->properties->WouldCreateCycle(fnProps))
+                    closure->properties->SetPrototype(fnProps);
             }
             return obj;
         }

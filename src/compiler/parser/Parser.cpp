@@ -2502,6 +2502,23 @@ void Parser::parseClassHeritageClause(std::string& baseClass,
             auto saved = saveState();
             std::string firstName(current_.text);
             advance();
+            // Dotted heritage (`extends Temporal.Duration` / `Intl.X`): keep
+            // consuming `.Identifier` segments so the runtime builtin-base
+            // link receives the full path (it resolves dotted names by
+            // walking globals). Only plain identifier segments qualify —
+            // calls/indexing restore to the complex-LHS path below.
+            while (check(TokenKind::Dot)) {
+                auto dotSaved = saveState();
+                advance();
+                if (current_.kind == TokenKind::Identifier) {
+                    firstName += ".";
+                    firstName += std::string(current_.text);
+                    advance();
+                } else {
+                    restoreState(dotSaved);
+                    break;
+                }
+            }
             if (check(TokenKind::OpenBrace) ||
                 check(TokenKind::KW_implements) ||
                 check(TokenKind::LessThan)) {

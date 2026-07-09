@@ -3185,6 +3185,22 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
                 return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
+            // `class C extends <builtin>`: static methods inherit through
+            // C.[[Prototype]] = BuiltinCtor (ES ClassDefinitionEvaluation).
+            // Builtin statics are synthesized by the get LADDER on the global
+            // TsFunction (not stored in a TsMap), so the map-chain walk above
+            // can't reach them — setPrototypeOf left a hidden marker instead.
+            if (closure->properties) {
+                TsValue bbk; bbk.type = ValueType::STRING_PTR;
+                bbk.ptr_val = TsString::GetInterned("__builtin_base");
+                TsValue bb = closure->properties->Get(bbk);
+                if (bb.type != ValueType::UNDEFINED && bb.ptr_val) {
+                    void* baseRaw = ts_value_get_object(nanbox_from_tagged(bb));
+                    if (!baseRaw) baseRaw = bb.ptr_val;
+                    if (baseRaw && baseRaw != (void*)closure)
+                        return ts_object_get_property(baseRaw, keyStr);
+                }
+            }
             return ts_value_make_undefined();
         }
 

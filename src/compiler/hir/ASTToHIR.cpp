@@ -1931,10 +1931,24 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
                 // arrow-body-derived-cls eval tests caught exactly that).
                 std::shared_ptr<HIRValue> heritageVal;
                 {
+                    // Dotted heritage (`extends Temporal.Duration`): resolve
+                    // the FIRST segment as an identifier, then member-access
+                    // the rest — a dotted string is not a resolvable name.
+                    const std::string& hn = hirClass->baseBuiltinName;
+                    size_t dot = hn.find('.');
                     ast::Identifier heritageId;
-                    heritageId.name = hirClass->baseBuiltinName;
+                    heritageId.name = (dot == std::string::npos) ? hn : hn.substr(0, dot);
                     visitIdentifier(&heritageId);
-                    heritageVal = boxValueIfNeeded(lastValue_);
+                    auto cur = boxValueIfNeeded(lastValue_);
+                    while (dot != std::string::npos) {
+                        size_t next = hn.find('.', dot + 1);
+                        std::string seg = (next == std::string::npos)
+                            ? hn.substr(dot + 1) : hn.substr(dot + 1, next - dot - 1);
+                        cur = boxValueIfNeeded(builder_.createGetPropStatic(
+                            cur, seg, HIRType::makeAny()));
+                        dot = next;
+                    }
+                    heritageVal = cur;
                 }
                 builder_.createCall("ts_class_link_dynamic_base",
                     {ctorVal, proto, heritageVal, baseNameC}, HIRType::makeVoid());

@@ -7360,6 +7360,24 @@ void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
         if (globalThis && ts_object_has_property((void*)globalThis, (void*)key))
             base = (void*)ts_object_get_property((void*)globalThis, n);
     }
+    if (!base && strchr(n, '.')) {
+        // Dotted heritage (`class C extends Temporal.Duration`): resolve the
+        // first segment as a global namespace object, then walk properties.
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%s", n);
+        char* rest = strchr(buf, '.');
+        *rest++ = 0;
+        void* cur = ts_global_ctor_by_name(buf);
+        if (!cur && globalThis) cur = (void*)ts_object_get_property((void*)globalThis, buf);
+        while (cur && rest && *rest) {
+            char* next = strchr(rest, '.');
+            if (next) *next++ = 0;
+            TsValue* pv = ts_object_get_property(ts_nanbox_safe_unbox(cur) ? ts_nanbox_safe_unbox(cur) : cur, rest);
+            cur = (pv && !ts_value_is_undefined(pv)) ? (void*)pv : nullptr;
+            rest = next;
+        }
+        base = cur;
+    }
     if (!base) return;
     TsValue* baseProto = ts_object_get_property(base, "prototype");
     if (baseProto && !ts_value_is_undefined(baseProto))
