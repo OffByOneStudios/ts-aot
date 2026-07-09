@@ -2179,11 +2179,23 @@ void* ts_get_global_RegExp() {
             TsValue protoVal = ctorFn->properties->Get(protoKey);
             if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
                 TsMap* reproto = (TsMap*)protoVal.ptr_val;
+                extern TsValue* ts_regexp_tostring_native(void*, int, TsValue**);
                 extern TsValue* ts_regexp_symbol_search_native(void*, int, TsValue**);
                 extern TsValue* ts_regexp_symbol_match_native(void*, int, TsValue**);
                 extern TsValue* ts_regexp_symbol_replace_native(void*, int, TsValue**);
                 extern TsValue* ts_regexp_symbol_split_native(void*, int, TsValue**);
                 extern TsValue* ts_regexp_symbol_matchAll_native(void*, int, TsValue**);
+                // ES 22.2.6.1: RegExp.prototype.constructor === RegExp as an
+                // OWN {w, !e, c} entry (gOPD 15.2.3.3-4-163; the instance
+                // ladder alone is invisible to own-property introspection).
+                {
+                    TsValue ck; ck.type = ValueType::STRING_PTR;
+                    ck.ptr_val = TsString::GetInterned("constructor");
+                    TsValue cv = nanbox_to_tagged((TsValue*)cached);
+                    reproto->SetWithAttrs(ck, cv,
+                        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+                }
+                addMethod(reproto, "toString", (void*)ts_regexp_tostring_native, 0);
                 addMethod(reproto, "exec",     (void*)ts_regexp_exec_native, 1);
                 addMethod(reproto, "test",     (void*)ts_regexp_test_native, 1);
                 addMethod(reproto, "compile",  (void*)ts_regexp_compile_native, 2);
