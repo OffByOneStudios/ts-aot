@@ -2573,7 +2573,21 @@ extern "C" {
                 void* resRaw = ts_value_get_object(result);
                 if (resRaw) {
                     uint32_t m16 = *(uint32_t*)((char*)resRaw + 16);
-                    if (m16 == TsTypedArray::MAGIC) return resRaw;
+                    if (m16 == TsTypedArray::MAGIC) {
+                        // ES 23.2.4.2 TypedArrayCreate steps 3-4: the result
+                        // must not be detached and must be at least the
+                        // requested length (speciesctor-get-species-custom-
+                        // ctor-length-throws family).
+                        TsTypedArray* res = (TsTypedArray*)resRaw;
+                        if (res->IsDetachedBuffer() ||
+                            (int64_t)res->GetLength() < length) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "TypedArraySpeciesCreate: derived constructor "
+                                "returned a too-small or detached TypedArray"));
+                            return nullptr;
+                        }
+                        return resRaw;
+                    }
                 }
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "TypedArraySpeciesCreate: result is not a TypedArray"));
