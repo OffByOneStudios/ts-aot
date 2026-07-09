@@ -1319,6 +1319,55 @@ extern "C" {
             // Exotic object (function/Date/RegExp/array/arguments): record
             // the integrity level in the weak side-table.
             integrity_set(rawPtr, 3);
+            // Shared: clear [[Writable]]/[[Configurable]] on every entry of
+            // an own-prop TsMap store (SetIntegrityLevel "frozen" step).
+            auto freezeStoreAttrs = [](TsMap* store) {
+                if (!store) return;
+                void* keysPtr = store->GetKeys();
+                if (!keysPtr) return;
+                TsArray* keys = (TsArray*)keysPtr;
+                int64_t len = keys->Length();
+                for (int64_t i = 0; i < len; i++) {
+                    TsValue keyVal = nanbox_to_tagged(
+                        (TsValue*)(uintptr_t)keys->Get(i));
+                    if (keyVal.type != ValueType::STRING_PTR) continue;
+                    uint8_t a = store->GetPropertyAttrs(keyVal);
+                    a &= ~(uint8_t)(TsHashTable::ATTR_CONFIGURABLE |
+                                    TsHashTable::ATTR_WRITABLE);
+                    store->SetPropertyAttrs(keyVal, a);
+                }
+            };
+            uint32_t xm16 = ((uintptr_t)rawPtr > 0x1000)
+                ? *(uint32_t*)((char*)rawPtr + 16) : 0;
+            if (xm16 == TsFunction::MAGIC)
+                freezeStoreAttrs(((TsFunction*)rawPtr)->properties);
+            else if (xm16 == 0x434C5352 /*CLSR*/)
+                freezeStoreAttrs(((TsClosure*)rawPtr)->properties);
+            else
+                freezeStoreAttrs(getNativeProps(rawPtr));
+            // ARRAY receivers: the string-keyed side-map holds descriptor
+            // attrs that gOPD reads — SetIntegrityLevel must ALSO clear
+            // [[Writable]]/[[Configurable]] there or verifyProperty still
+            // sees {w:true, c:true} after freeze (15.2.3.9-2-a family).
+            if (*(uint32_t*)rawPtr == 0x41525259 /*ARRY*/) {
+                TsArray* arr = (TsArray*)rawPtr;
+                if (arr->properties) {
+                    void* keysPtr = arr->properties->GetKeys();
+                    if (keysPtr) {
+                        TsArray* keys = (TsArray*)keysPtr;
+                        int64_t len = keys->Length();
+                        for (int64_t i = 0; i < len; i++) {
+                            TsValue keyVal = nanbox_to_tagged(
+                                (TsValue*)(uintptr_t)keys->Get(i));
+                            if (keyVal.type != ValueType::STRING_PTR) continue;
+                            uint8_t a = arr->properties->GetPropertyAttrs(keyVal);
+                            a &= ~(uint8_t)(TsHashTable::ATTR_CONFIGURABLE |
+                                            TsHashTable::ATTR_WRITABLE);
+                            arr->properties->SetPropertyAttrs(keyVal, a);
+                        }
+                    }
+                }
+            }
         }
 
         return obj;  // Return the same object (frozen)
