@@ -1185,6 +1185,31 @@ static void* makeErrorConstructor(const char* errorName) {
         ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
     }
 
+    // ES 20.5.6.2/.3: each NativeError constructor's [[Prototype]] is the
+    // Error constructor, and NativeError.prototype's [[Prototype]] is
+    // Error.prototype (getPrototypeOf 15.2.3.2-2 family; the fn-to-fn link
+    // uses the "\x01__proto_fn" marker so getPrototypeOf(EvalError) ===
+    // Error). Skip for "Error" itself (its [[Prototype]] is %Function%).
+    if (strcmp(errorName, "Error") != 0) {
+        extern void* ts_get_global_Error();
+        TsValue* base = (TsValue*)ts_get_global_Error();
+        if (base) {
+            ts_object_setPrototypeOf(ctorVal, base);
+            void* baseRaw = ts_value_get_object(base);
+            if (baseRaw) {
+                TsFunction* baseFn = (TsFunction*)baseRaw;
+                if (baseFn->properties) {
+                    TsValue pk; pk.type = ValueType::STRING_PTR;
+                    pk.ptr_val = TsString::GetInterned("prototype");
+                    TsValue pv = baseFn->properties->Get(pk);
+                    if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val &&
+                        !proto->WouldCreateCycle((TsMap*)pv.ptr_val))
+                        proto->SetPrototype((TsMap*)pv.ptr_val);
+                }
+            }
+        }
+    }
+
     return (void*)ctorVal;
 }
 
