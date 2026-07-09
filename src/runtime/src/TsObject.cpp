@@ -2169,6 +2169,19 @@ void* ts_create_arguments_from_params(
             // side-map; a Date instance normally has none, so a builtin name
             // doesn't match -> the methods below still resolve.
             if (TsMap* nprops = getNativeProps(obj)) {
+                // defineProperty'd ACCESSOR first (defineProperties with a
+                // Date props bag reads accessor descriptors via [[Get]]).
+                char dgbuf[160];
+                snprintf(dgbuf, sizeof(dgbuf), "__getter_%s", keyStr);
+                TsValue dgk; dgk.type = ValueType::STRING_PTR;
+                dgk.ptr_val = TsString::GetInterned(dgbuf);
+                if (nprops->Has(dgk)) {
+                    TsValue gv = nprops->Get(dgk);
+                    if (gv.ptr_val)
+                        return ts_function_call_with_this(
+                            nanbox_from_tagged(gv),
+                            ts_value_make_object(obj), 0, nullptr);
+                }
                 TsValue nk; nk.type = ValueType::STRING_PTR;
                 nk.ptr_val = TsString::GetInterned(keyStr);
                 if (nprops->Has(nk)) return nanbox_from_tagged(nprops->Get(nk));
