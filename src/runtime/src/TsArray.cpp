@@ -3514,10 +3514,43 @@ extern "C" {
                             "Result of @@iterator method is not an object"));
                         return ts_array_create();  // unreachable
                     }
-                    // Iterator is valid — fall through to existing iterator
-                    // machinery (we don't fully implement protocol-driven
-                    // iteration here yet; the type-check is the main spec
-                    // gate the cluster needs).
+                    // ES 22.1.2.1 steps 5.e: DRIVE the iterator protocol —
+                    // next() until done, mapFn(T, «value, k») per element.
+                    // (Previously the validated iterator was discarded and a
+                    // custom iterable fell to the array-like length path,
+                    // yielding [] — the whole iter-* from-family.)
+                    extern TsValue* ts_object_get_property(void* o, const char* k);
+                    TsValue* nextFn = ts_object_get_property((void*)iterator, "next");
+                    if (nextFn && ts_is_callable(nextFn)) {
+                        TsArray* result = TsArray::Create(4);
+                        TsValue* thisT = (thisArg &&
+                            !nanbox_is_undefined((uint64_t)(uintptr_t)thisArg))
+                                ? (TsValue*)thisArg : ts_value_make_undefined();
+                        int64_t k = 0;
+                        for (;;) {
+                            TsValue* res = ts_function_call_with_this(
+                                nextFn, iterator, 0, nullptr);   // may throw
+                            uint64_t rnb = res ? (uint64_t)(uintptr_t)res : 0;
+                            if (!res || !nanbox_is_ptr(rnb)) {
+                                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                    "Iterator result is not an object"));
+                                return ts_array_create();  // unreachable
+                            }
+                            TsValue* doneV = ts_object_get_property((void*)res, "done");
+                            if (doneV && ts_value_to_bool(doneV)) break;
+                            TsValue* val = ts_object_get_property((void*)res, "value");
+                            if (!val) val = ts_value_make_undefined();
+                            if (hasMapFn) {
+                                TsValue* argv2[2] = { val, ts_value_make_int(k) };
+                                TsValue* mapped = ts_function_call_with_this(
+                                    mapFnVal, thisT, 2, argv2);  // may throw
+                                val = mapped ? mapped : ts_value_make_undefined();
+                            }
+                            ts_array_push(result, val);
+                            if (++k > (1 << 24)) break;  // runaway-iterator guard
+                        }
+                        return result;
+                    }
                 }
             }
         }
