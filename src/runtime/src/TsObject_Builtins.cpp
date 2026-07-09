@@ -1710,7 +1710,36 @@ extern "C" {
 
     // TypedArray.prototype.toLocaleString() — approximate: same as toString
     TsValue* ts_typed_array_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
-        return ts_typed_array_join_native(ctx, 0, nullptr);
+        // ES 23.2.3.32 (mirrors Array.prototype.toLocaleString): each element
+        // is INVOKED — R = ToString(? Invoke(element, "toLocaleString")) — so
+        // a user override on Number.prototype.toLocaleString (or a throwing
+        // one, or a throwing toString/valueOf on its RESULT) is observable
+        // per element. The old join() formatted numbers directly.
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "toLocaleString")) return ts_value_make_undefined();
+        size_t len = ta->GetLength();
+        TsString* sep = TsString::GetInterned(",");
+        TsString* acc = TsString::GetInterned("");
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_string_from_value(TsValue* val);
+        for (size_t k = 0; k < len; k++) {
+            if (k > 0) acc = (TsString*)ts_string_concat(acc, sep);
+            // Re-read length each step: a user toLocaleString may shrink a
+            // resizable buffer (user-provided-tolocalestring-shrink); an
+            // absent element stringifies as "" per Array semantics.
+            if (ta->IsDetachedBuffer() || k >= ta->GetLength()) continue;
+            TsValue* elem = ts_ta_get_boxed(ta, k);
+            TsValue* m = ts_object_get_property((void*)elem, "toLocaleString");
+            TsValue* r = nullptr;
+            if (m && ts_is_callable(m)) {
+                r = ts_function_call_with_this(m, elem, 0, nullptr);  // may throw
+            } else {
+                r = elem;
+            }
+            TsString* rs = (TsString*)ts_string_from_value(r);       // may throw
+            if (rs) acc = (TsString*)ts_string_concat(acc, rs);
+        }
+        return ts_value_make_string(acc);
     }
 
     // TypedArray.prototype.copyWithin(target, start, end?) — mutates in place
