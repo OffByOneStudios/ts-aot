@@ -149,6 +149,21 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
         }
     }
 
+    // Proxy target: [[Construct]] exists when the proxy target has one
+    // (ES 10.5.13) — route through the construct trap / target forwarding.
+    // reflect_as_proxy is declared below; forward-declare its shape here.
+    {
+        void* rawT = ts_value_get_object((TsValue*)targetArg);
+        if (!rawT) rawT = target;
+        if (rawT && (uintptr_t)rawT > 0x1000 &&
+            *(uint32_t*)((char*)rawT + 16) == 0x4D415053 /*MAPS*/) {
+            if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)rawT)) {
+                return px->construct((TsValue*)argsArg, 0,
+                                     newTargetArg ? newTargetArg : nullptr);
+            }
+        }
+    }
+
     // Check if target is a callable function or closure (tag at offsetof(magic)).
     TsFunction* tf = ts_cast<TsFunction>(target);
     if (!tf && !ts_is<TsClosure>(target)) {

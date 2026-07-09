@@ -394,6 +394,20 @@ extern "C" {
             ts_call_this_value = savedThis;
             return result;
         }
+        // Proxy callee (ES 10.5.12 [[Call]]): the compiler pattern-matches
+        // `X.call(thisArg, ...)` straight into this dispatcher with X as the
+        // callee — a trap-less proxy must forward to its target with the
+        // caller's thisArg (apply trap fires when present).
+        {
+            TsProxy* proxy = ts_extract_proxy(boxedFunc);
+            if (proxy) {
+                TsArray* argsArr = TsArray::Create((size_t)(argc > 0 ? argc : 0));
+                for (int i = 0; i < argc; i++) argsArr->Push((int64_t)A(i));
+                TsValue* result = proxy->apply(thisArg, (TsValue*)argsArr, argc);
+                ts_call_this_value = savedThis;
+                return result ? result : u;
+            }
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return u; }
         void* savedCtx = maybe_override_context(func, thisArg);
@@ -511,6 +525,20 @@ extern "C" {
                 obj->Set(msgKey, nanbox_to_tagged(argv[0]));
             }
             return ts_value_make_object(obj);
+        }
+
+        // Proxy [[Construct]] (ES 10.5.13): route through the construct trap
+        // or forward to the target. `new proxyOfCtor(...)` previously fell to
+        // the generic path and returned undefined.
+        {
+            TsProxy* px = ts_extract_proxy(constructorFn);
+            if (px) {
+                TsArray* argArr = TsArray::Create((size_t)(argc > 0 ? argc : 1));
+                for (int i = 0; i < argc; ++i)
+                    ts_array_push(argArr, argv[i] ? argv[i] : ts_value_make_undefined());
+                TsValue* r = px->construct(ts_value_make_object(argArr), argc, nullptr);
+                return r ? r : ts_value_make_undefined();
+            }
         }
 
         // A BOUND function's [[Construct]] (ECMA-262 10.4.1.2 BoundFunctionCreate):
@@ -1055,6 +1083,21 @@ extern "C" {
         // ts_get_call_this(). The previous inline switch capped at 3 and
         // its `default` branch dropped extra args — broke `apply` and
         // spread-into-rest call sites.
+        // Proxy callee: route through [[Call]] (ES 10.5.12) so the apply trap
+        // fires — or the call forwards to the target with the RIGHT thisArg.
+        // Without this branch, fn.call(thisObj)/Reflect.apply on a proxy fell
+        // through to the generic paths and lost the receiver.
+        {
+            TsProxy* px = ts_extract_proxy(boxedFunc);
+            if (px) {
+                TsArray* argArr = TsArray::Create((size_t)(argc > 0 ? argc : 1));
+                for (int i = 0; i < argc; ++i)
+                    ts_array_push(argArr, argv[i] ? argv[i] : ts_value_make_undefined());
+                TsValue* r = px->apply(thisArg, ts_value_make_object(argArr), argc);
+                ts_call_this_value = savedThis;
+                return r ? r : ts_value_make_undefined();
+            }
+        }
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             TsValue* result;

@@ -12,6 +12,8 @@
 // TsProxy implementation
 
 extern "C" void ts_throw(TsValue* err);
+extern "C" TsValue* ts_new_from_constructor_impl(TsValue* ctor, int argc, TsValue** argv);
+extern "C" TsValue* ts_new_from_constructor_with_target(TsValue* ctor, TsValue* newTarget, int argc, TsValue** argv);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
 // ECMA-262 10.5.x: every Proxy internal method whose [[ProxyHandler]] is null
@@ -217,9 +219,22 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         return tsCall(trap, targetVal, argsVal, newTargetVal);
     }
 
-    // No trap - forward to target
-    // For now, return undefined - full implementation needs Reflect.construct
-    return ts_value_make_undefined();
+    // No trap — ES 10.5.13 step 5: return ? Construct(target, args, newTarget).
+    // newTarget defaults to the PROXY itself (new proxyOfCtor(...) runs the
+    // target ctor with new.target === proxy).
+    if (!target) return ts_value_make_undefined();
+    {
+        void* argsRaw = args ? ts_value_get_object(args) : nullptr;
+        TsArray* argArr = (argsRaw && *(uint32_t*)argsRaw == 0x41525259 /*ARRY*/)
+                              ? (TsArray*)argsRaw : nullptr;
+        int n = argArr ? (int)argArr->Length() : 0;
+        // argv holds GC pointers, but each element stays rooted through
+        // argArr (GC-visible array) for the duration of the call.
+        std::vector<TsValue*> argv((size_t)(n > 0 ? n : 1));
+        for (int i = 0; i < n; ++i) argv[(size_t)i] = (TsValue*)argArr->GetElementBoxed((size_t)i);
+        TsValue* nt = newTarget ? (TsValue*)newTarget : ts_value_box_any(this);
+        return ts_new_from_constructor_with_target(ts_value_box_any(target), nt, n, argv.data());
+    }
 }
 
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg);
