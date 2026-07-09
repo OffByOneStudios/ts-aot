@@ -963,9 +963,24 @@ extern "C" {
         }
 
         // ECMA-262: Function/Closure objects' [[Prototype]] is
-        // %FunctionPrototype% (i.e., Function.prototype). Read the
-        // .prototype property of the global Function constructor.
+        // %FunctionPrototype% — UNLESS setPrototypeOf linked a different
+        // function (per-kind TypedArray ctors link to %TypedArray%; class
+        // C extends Builtin links C to the builtin). The link is stored as
+        // a hidden marker because a TsFunction proto has no TsMap identity
+        // the SetPrototype chain could hold.
         if (magic == 0x46554E43 /* FUNC */ || magic == 0x434C5352 /* CLSR */) {
+            TsMap* selfProps = (magic == 0x46554E43)
+                ? ((TsFunction*)objRaw)->properties
+                : ((TsClosure*)objRaw)->properties;
+            if (selfProps) {
+                for (const char* mk : { "\x01__proto_fn", "\x01__builtin_base" }) {
+                    TsValue bbk; bbk.type = ValueType::STRING_PTR;
+                    bbk.ptr_val = TsString::GetInterned(mk);
+                    TsValue bb = selfProps->Get(bbk);
+                    if (bb.type != ValueType::UNDEFINED && bb.ptr_val)
+                        return ts_value_make_object(bb.ptr_val);
+                }
+            }
             extern void* ts_get_global_Function();
             return getCtorPrototype(ts_get_global_Function());
         }
@@ -1145,6 +1160,32 @@ extern "C" {
                     closure->properties->SetPrototype(fnProps);
             }
             return obj;
+        }
+
+        // TsFunction receiver with a FUNCTION proto (`Object.setPrototypeOf(
+        // Int8Array, TypedArray)` / makeTypedArrayCtor): a TsFunction has no
+        // TsMap identity to chain, so store a hidden marker getPrototypeOf
+        // returns, and chain own-props to the proto fn's map for statics.
+        if (magic == TsFunction::MAGIC) {
+            TsFunction* recvFn = (TsFunction*)objRaw;
+            void* protoRaw0 = proto ? ts_value_get_object(proto) : nullptr;
+            if (protoRaw0 && (uintptr_t)protoRaw0 > 0x1000 &&
+                *(uint32_t*)((char*)protoRaw0 + 16) == TsFunction::MAGIC) {
+                if (!recvFn->properties) {
+                    recvFn->properties = TsMap::Create();
+                    ts_gc_write_barrier(&recvFn->properties, recvFn->properties);
+                }
+                TsValue bbk; bbk.type = ValueType::STRING_PTR;
+                bbk.ptr_val = TsString::GetInterned("\x01__proto_fn");
+                TsValue bbv; bbv.type = ValueType::OBJECT_PTR;
+                bbv.ptr_val = protoRaw0;
+                recvFn->properties->Set(bbk, bbv);
+                TsMap* fnProps = ((TsFunction*)protoRaw0)->properties;
+                if (fnProps && !recvFn->properties->WouldCreateCycle(fnProps))
+                    recvFn->properties->SetPrototype(fnProps);
+                return obj;
+            }
+            // non-function proto falls through to the generic side-map path
         }
 
         if (magic != 0x4D415053) { // TsMap::MAGIC

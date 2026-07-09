@@ -5748,7 +5748,9 @@ static void* makeTypedArrayCtor(const char* name,
     ctorKey.ptr_val = TsString::GetInterned("constructor");
     TsValue ctorRefVal; ctorRefVal.type = ValueType::FUNCTION_PTR;
     ctorRefVal.ptr_val = ctorFunc;
-    proto->Set(ctorKey, ctorRefVal);
+    // ES 23.2.7.2: {writable: true, enumerable: false, configurable: true}.
+    proto->SetWithAttrs(ctorKey, ctorRefVal,
+        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 
     // .name = constructor name (and arity = 3 per ECMA-262 23.2.4.1
     // for concrete TypedArray ctors; %TypedArray% itself overrides
