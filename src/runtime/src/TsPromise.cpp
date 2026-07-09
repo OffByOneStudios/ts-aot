@@ -2286,20 +2286,112 @@ TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onReje
     return ts_value_make_promise(next);
 }
 
+static TsValue* spec_make_native1(void* fnPtr, void* ctx, int arity);
+extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
+extern "C" TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+
 TsValue* ts_promise_catch(TsValue* promise, TsValue* onRejected) {
-    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
-    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return nullptr;
-    TsPromise* p = (TsPromise*)pVal.ptr_val;
-    TsPromise* next = p->catch_error(onRejected ? nanbox_to_tagged(onRejected) : TsValue());
-    return ts_value_make_promise(next);
+    // ES 27.2.5.1: catch = ? Invoke(this, "then", «undefined, onRejected»)
+    // — a patched/own "then" must be the one invoked (rejected-observable-
+    // then-calls counts it), and the read is observable.
+    uint64_t nb = promise ? (uint64_t)(uintptr_t)promise : 0;
+    if (!promise || !nanbox_is_ptr(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise.prototype.catch called on a non-object"));
+        return nullptr;  // unreachable
+    }
+    void* recvRaw = ts_value_get_object(promise);
+    if (!recvRaw) recvRaw = (void*)promise;
+    TsValue* thenM = ts_object_get_property(recvRaw, "then");  // may throw
+    if (!thenM || !agen_is_callable(thenM)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise.prototype.catch: receiver's 'then' is not callable"));
+        return nullptr;  // unreachable
+    }
+    TsValue* args[2] = { ts_value_make_undefined(),
+                         onRejected ? onRejected : ts_value_make_undefined() };
+    return ts_function_call_with_this(thenM, promise, 2, args);
+}
+
+extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x);
+extern "C" void* ts_get_global_Promise();
+
+// ES 27.2.5.3 thenFinally/catchFinally: result = Call(onFinally);
+// p2 = PromiseResolve(%Promise%, result) — a thenable result is AWAITED
+// (its rejection overrides the passthrough; observable-then-calls reads
+// p2's patched then); then Invoke(p2, "then", «thunk») where the thunk
+// passes the original value through / rethrows the original reason.
+static TsValue* finally_value_thunk(void* ctx, int, TsValue**) {
+    return ctx ? (TsValue*)ctx : ts_value_make_undefined();
+}
+static TsValue* finally_thrower(void* ctx, int, TsValue**) {
+    ts_throw(ctx ? (TsValue*)ctx : ts_value_make_undefined());
+    return ts_value_make_undefined();  // unreachable
+}
+static TsValue* finally_chain(TsValue* onF, TsValue* passthrough, bool rethrow) {
+    TsValue* result = ts_function_call_with_this(
+        onF, ts_value_make_undefined(), 0, nullptr);
+    TsValue* C = (TsValue*)ts_get_global_Promise();
+    TsValue* p2 = ts_promise_static_resolve_spec(
+        C, result ? result : ts_value_make_undefined());
+    void* p2raw = p2 ? ts_value_get_object(p2) : nullptr;
+    if (!p2raw) p2raw = (void*)p2;
+    TsValue* thenM = p2raw ? ts_object_get_property(p2raw, "then") : nullptr;
+    if (!thenM || !agen_is_callable(thenM)) {
+        if (rethrow) ts_throw(passthrough);
+        return passthrough;
+    }
+    TsValue* thunk = spec_make_native1(
+        (void*)(rethrow ? finally_thrower : finally_value_thunk),
+        (void*)passthrough, 0);
+    TsValue* args[1] = { thunk };
+    return ts_function_call_with_this(thenM, p2, 1, args);
+}
+static TsValue* finally_then_wrapper(void* ctx, int argc, TsValue** argv) {
+    TsValue* onF = (TsValue*)ctx;
+    TsValue* value = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                    : ts_value_make_undefined();
+    if (!onF || !agen_is_callable(onF)) return value;
+    return finally_chain(onF, value, false);
+}
+static TsValue* finally_catch_wrapper(void* ctx, int argc, TsValue** argv) {
+    TsValue* onF = (TsValue*)ctx;
+    TsValue* reason = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : ts_value_make_undefined();
+    if (!onF || !agen_is_callable(onF)) { ts_throw(reason); return reason; }
+    return finally_chain(onF, reason, true);
 }
 
 TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
-    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
-    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return nullptr;
-    TsPromise* p = (TsPromise*)pVal.ptr_val;
-    TsPromise* next = p->finally(onFinally ? nanbox_to_tagged(onFinally) : TsValue());
-    return ts_value_make_promise(next);
+    // ES 27.2.5.3: finally = ? Invoke(promise, "then", «thenFinally,
+    // catchFinally») — the "then" READ is observable (a poisoned getter
+    // throws; a patched then is the one invoked). Receiver must be Object.
+    uint64_t nb = promise ? (uint64_t)(uintptr_t)promise : 0;
+    if (!promise || !nanbox_is_ptr(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise.prototype.finally called on a non-object"));
+        return nullptr;  // unreachable
+    }
+    void* recvRaw = ts_value_get_object(promise);
+    if (!recvRaw) recvRaw = (void*)promise;
+    TsValue* thenM = ts_object_get_property(recvRaw, "then");  // may throw
+    if (!thenM || !agen_is_callable(thenM)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise.prototype.finally: receiver's 'then' is not callable"));
+        return nullptr;  // unreachable
+    }
+    TsValue* thenFin;
+    TsValue* catchFin;
+    if (onFinally && agen_is_callable(onFinally)) {
+        thenFin = spec_make_native1((void*)finally_then_wrapper, (void*)onFinally, 1);
+        catchFin = spec_make_native1((void*)finally_catch_wrapper, (void*)onFinally, 1);
+    } else {
+        // Non-callable onFinally passes through verbatim (spec step 3).
+        thenFin = onFinally ? onFinally : ts_value_make_undefined();
+        catchFin = thenFin;
+    }
+    TsValue* args[2] = { thenFin, catchFin };
+    return ts_function_call_with_this(thenM, promise, 2, args);
 }
 
 TsValue* ts_promise_new(TsValue* executor) {
@@ -3531,15 +3623,15 @@ static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsV
 }
 
 static TsValue* ts_promise_catch_wrapper(void* context, TsValue* onRejected) {
+    // Route through the spec path so a patched/own "then" is observed.
     TsPromise* promise = (TsPromise*)context;
-    TsPromise* next = promise->catch_error(onRejected ? nanbox_to_tagged(onRejected) : TsValue());
-    return ts_value_make_promise(next);
+    return ts_promise_catch(ts_value_make_promise(promise), onRejected);
 }
 
 static TsValue* ts_promise_finally_wrapper(void* context, TsValue* onFinally) {
+    // Route through the spec path so a patched/poisoned "then" is observed.
     TsPromise* promise = (TsPromise*)context;
-    TsPromise* next = promise->finally(onFinally ? nanbox_to_tagged(onFinally) : TsValue());
-    return ts_value_make_promise(next);
+    return ts_promise_finally(ts_value_make_promise(promise), onFinally);
 }
 
 // Built-in prototype methods have no [[Construct]] — `new p.then()` etc.

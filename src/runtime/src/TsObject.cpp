@@ -1639,6 +1639,27 @@ void* ts_create_arguments_from_params(
                 if (magic16 == 0x50524F4D) {
                     TsMap* ownProps = getNativeProps(obj);
                     if (ownProps) {
+                        // Own ACCESSOR (__getter_<key>) wins over the data
+                        // placeholder — a poisoned/patched own "then" on a
+                        // promise instance must be invoked/thrown through
+                        // (finally this-value-then-poisoned). char buf, not
+                        // std::string: the getter may longjmp out.
+                        if (keyStr && strlen(keyStr) <= 260) {
+                            char gkbuf[280];
+                            snprintf(gkbuf, sizeof(gkbuf), "__getter_%s", keyStr);
+                            TsValue gk; gk.type = ValueType::STRING_PTR;
+                            gk.ptr_val = TsString::GetInterned(gkbuf);
+                            if (ownProps->Has(gk)) {
+                                TsValue gv = ownProps->Get(gk);
+                                if ((gv.type == ValueType::FUNCTION_PTR ||
+                                     gv.type == ValueType::OBJECT_PTR) && gv.ptr_val) {
+                                    TsValue* fn = ts_value_make_object(gv.ptr_val);
+                                    return ts_function_call_with_this(
+                                        fn, ts_value_make_object(obj), 0, nullptr);
+                                }
+                                return ts_value_make_undefined();  // setter-only
+                            }
+                        }
                         TsValue ok; ok.type = ValueType::STRING_PTR;
                         ok.ptr_val = TsString::GetInterned(keyStr);
                         if (ownProps->Has(ok)) {
