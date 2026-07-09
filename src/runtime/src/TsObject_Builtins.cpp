@@ -2368,16 +2368,24 @@ extern "C" {
     // Date setter native wrappers. Each coerces arg[0] via ts_to_number,
     // invalidates Date if NaN, otherwise calls the TsDate setter and
     // returns the resulting time as an int.
+    // ES 21.4.4.x (2024 ordering): read [[DateValue]] t BEFORE ToNumber(arg);
+    // if t is NaN return NaN WITHOUT writing (a valueOf side effect that set
+    // the time must persist - date-value-read-before-tonumber family); the
+    // result is computed from the PRE-READ t even if valueOf changed it.
     #define DATE_SETTER(NAME, METHOD) \
     TsValue* ts_date_##NAME##_native(void* ctx, int argc, TsValue** argv) { \
         TsDate* d = requireDateOrThrow(ctx, #NAME); \
         if (!d) return ts_value_make_undefined(); \
+        int64_t t0 = d->IsValid() ? d->GetTime() : TsDate::INVALID; \
         double v = std::numeric_limits<double>::quiet_NaN(); \
         if (argc >= 1 && argv && argv[0]) v = ts_to_number((TsValue*)argv[0]); \
+        if (t0 == TsDate::INVALID) \
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
         if (std::isnan(v)) { \
             d->SetTime(TsDate::INVALID); \
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
         } \
+        d->SetTime(t0); \
         d->METHOD((int64_t)v); \
         return dateFieldToValue(d->GetTime()); \
     }
@@ -2424,6 +2432,8 @@ extern "C" {
         double mo = dateArgOrNaN(argc, argv, 0);
         double dt = (argc >= 2) ? dateArgOrNaN(argc, argv, 1)
                                 : std::numeric_limits<double>::quiet_NaN();
+        if (base == TsDate::INVALID)
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         if (std::isnan(mo)) { d->SetTime(TsDate::INVALID);
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); }
         double NaNv = std::numeric_limits<double>::quiet_NaN();
@@ -2441,6 +2451,8 @@ extern "C" {
         double m  = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
         double s  = (argc >= 3) ? dateArgOrNaN(argc, argv, 2) : NaNv;
         double ml = (argc >= 4) ? dateArgOrNaN(argc, argv, 3) : NaNv;
+        if (base == TsDate::INVALID)
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         if (std::isnan(h)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, h, m, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
@@ -2455,6 +2467,8 @@ extern "C" {
         double m  = dateArgOrNaN(argc, argv, 0);
         double s  = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
         double ml = (argc >= 3) ? dateArgOrNaN(argc, argv, 2) : NaNv;
+        if (base == TsDate::INVALID)
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         if (std::isnan(m)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, m, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
@@ -2468,6 +2482,8 @@ extern "C" {
         int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
         double s  = dateArgOrNaN(argc, argv, 0);
         double ml = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
+        if (base == TsDate::INVALID)
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         if (std::isnan(s)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, NaNv, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
