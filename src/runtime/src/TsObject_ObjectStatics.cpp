@@ -1648,6 +1648,97 @@ extern "C" {
         return ta_classify_index((TsTypedArray*)taRaw, prop, nullptr);
     }
 
+    // Ordinary [[DefineOwnProperty]] for a TypedArray NAMED key (classify 0):
+    // store into the g_native_object_props side-map — data value under the
+    // key, accessors under "__getter_<k>"/"__setter_<k>" (the TARR get path
+    // dispatches them). Returns 1 (success) — refusal cases (frozen etc.) are
+    // not modeled for TA named props yet.
+    extern "C" int ts_ta_define_named_property(void* taRaw, TsValue* prop,
+                                               TsValue* descriptor) {
+        // Key coercion: plain strings + Symbol storage keys (matches how the
+        // TARR get path canonicalizes; ts_symbol_storage_key used at :2699).
+        TsString* keyStr = nullptr;
+        {
+            TsValue kt = nanbox_to_tagged(prop);
+            void* kp = kt.ptr_val;
+            if (kt.type == ValueType::STRING_PTR && kp) {
+                if ((uintptr_t)kp > 0x1000 && *(uint32_t*)kp == 0x53594D42 /*SYMB*/)
+                    keyStr = ts_symbol_storage_key((TsSymbol*)kp);
+                else
+                    keyStr = ts_ensure_flat(kp);
+            } else if (kt.type == ValueType::OBJECT_PTR && kp &&
+                       (uintptr_t)kp > 0x1000 && *(uint32_t*)kp == 0x53594D42) {
+                keyStr = ts_symbol_storage_key((TsSymbol*)kp);
+            }
+        }
+        if (!keyStr) return 0;
+        const char* k = keyStr->ToUtf8();
+        if (!k) return 0;
+        void* dRaw = ts_nanbox_safe_unbox(descriptor);
+        if (dRaw && is_flat_object(dRaw)) dRaw = ts_flat_object_to_map(dRaw);
+        TsMap* dm = (dRaw && *(uint32_t*)((char*)dRaw + 16) == 0x4D415053)
+                        ? (TsMap*)dRaw : nullptr;
+        if (!dm) return 0;
+        TsMap* props = getOrCreateNativeProps(taRaw);
+        auto dfield = [&](const char* name, TsValue* out) -> bool {
+            TsValue kk; kk.type = ValueType::STRING_PTR;
+            kk.ptr_val = TsString::GetInterned(name);
+            if (!dm->Has(kk)) return false;
+            if (out) *out = dm->Get(kk);
+            return true;
+        };
+        TsValue v;
+        // OrdinaryDefineOwnProperty on a NON-EXTENSIBLE receiver refuses NEW
+        // keys (this-is-not-extensible / non-extensible-new-key).
+        {
+            TsValue kk; kk.type = ValueType::STRING_PTR;
+            kk.ptr_val = TsString::GetInterned(k);
+            char gbuf[160];
+            snprintf(gbuf, sizeof(gbuf), "__getter_%s", k);
+            TsValue gk; gk.type = ValueType::STRING_PTR;
+            gk.ptr_val = TsString::GetInterned(gbuf);
+            bool existing = props->Has(kk) || props->Has(gk);
+            if (!existing && ts_integrity_get(taRaw) >= 1) return 0;
+        }
+        // ES 10.1.6.3 ValidateAndApply defaults: ABSENT attribute fields
+        // default to FALSE for a new property — a bare {get} descriptor is
+        // non-configurable, so `delete` refuses it (Delete key-is-not family).
+        uint8_t attrs = 0;
+        if (dfield("writable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
+            attrs |= TsHashTable::ATTR_WRITABLE;
+        if (dfield("enumerable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
+            attrs |= TsHashTable::ATTR_ENUMERABLE;
+        if (dfield("configurable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
+            attrs |= TsHashTable::ATTR_CONFIGURABLE;
+        bool isAccessor = false;
+        char abuf[160];
+        if (dfield("get", &v)) {
+            snprintf(abuf, sizeof(abuf), "__getter_%s", k);
+            TsValue ak; ak.type = ValueType::STRING_PTR;
+            ak.ptr_val = TsString::GetInterned(abuf);
+            props->SetWithAttrs(ak, v, attrs);
+            isAccessor = true;
+        }
+        if (dfield("set", &v)) {
+            snprintf(abuf, sizeof(abuf), "__setter_%s", k);
+            TsValue ak; ak.type = ValueType::STRING_PTR;
+            ak.ptr_val = TsString::GetInterned(abuf);
+            props->SetWithAttrs(ak, v, attrs);
+            isAccessor = true;
+        }
+        if (dfield("value", &v)) {
+            TsValue kk; kk.type = ValueType::STRING_PTR;
+            kk.ptr_val = TsString::GetInterned(k);
+            props->SetWithAttrs(kk, v, attrs);
+        } else if (isAccessor) {
+            // Accessor property: ensure no stale data slot shadows it.
+            TsValue kk; kk.type = ValueType::STRING_PTR;
+            kk.ptr_val = TsString::GetInterned(k);
+            props->Delete(kk);
+        }
+        return 1;
+    }
+
     // ES 13.15.2 PutValue on an immutable binding: assignment to `const`.
     extern "C" TsValue* ts_throw_const_assign() {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -1858,6 +1949,8 @@ extern "C" {
                 return ts_value_make_undefined();
             }
             if (r == 1) return obj;
+            // r == -1: ordinary NAMED key — side-map define (data + accessors).
+            if (ts_ta_define_named_property(rawPtr, prop, descriptor)) return obj;
         }
 
         // For flat objects, use the overflow TsMap directly (creating if

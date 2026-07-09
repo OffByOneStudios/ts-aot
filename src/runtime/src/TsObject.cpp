@@ -2271,6 +2271,18 @@ void* ts_create_arguments_from_params(
                 strcmp(keyStr, "BYTES_PER_ELEMENT") != 0 &&
                 strcmp(keyStr, "constructor") != 0) {
                 if (TsMap* nprops = getNativeProps(obj)) {
+                    // defineProperty'd ACCESSOR on the instance first.
+                    char agbuf[160];
+                    snprintf(agbuf, sizeof(agbuf), "__getter_%s", keyStr);
+                    TsValue agk; agk.type = ValueType::STRING_PTR;
+                    agk.ptr_val = TsString::GetInterned(agbuf);
+                    if (nprops->Has(agk)) {
+                        TsValue gv = nprops->Get(agk);
+                        if (gv.ptr_val)
+                            return ts_function_call_with_this(
+                                nanbox_from_tagged(gv),
+                                ts_value_make_object(obj), 0, nullptr);
+                    }
                     TsValue nk; nk.type = ValueType::STRING_PTR;
                     nk.ptr_val = TsString::GetInterned(keyStr);
                     if (nprops->Has(nk)) return nanbox_from_tagged(nprops->Get(nk));
@@ -2464,8 +2476,15 @@ void* ts_create_arguments_from_params(
             // Check for numeric index
             char* endptr;
             long index = strtol(keyStr, &endptr, 10);
-            if (*endptr == '\0' && index >= 0) {
-                return ts_ta_get_boxed(ta, (size_t)index);
+            // CANONICAL form only (ES 7.1.21): "+1" / "01" are ordinary
+            // named keys, not element reads (key-is-not-canonical-index).
+            if (*endptr == '\0' && index >= 0 &&
+                isdigit((unsigned char)keyStr[0]) &&
+                !(keyStr[0] == '0' && keyStr[1] != '\0') &&
+                strlen(keyStr) <= 10) {  // overflow ("1e21" digits) = ordinary key
+                if ((size_t)index < ta->GetLength())
+                    return ts_ta_get_boxed(ta, (size_t)index);
+                return ts_value_make_undefined();  // canonical OOB -> undefined
             }
             // Fallback: walk to %TypedArray%.prototype for methods registered
             // there (entries/keys/values/at/etc). Without this, dynamic
@@ -6944,14 +6963,38 @@ void* ts_create_arguments_from_params(
             int cls = ts_ta_classify_index_c(rawMap, (TsValue*)keyArg);
             if (cls == 1) return 0;   // valid index: not deletable
             if (cls == 2) return 1;   // invalid canonical index: "deleted"
-            // Ordinary named key: honor the side-map's configurable attr.
+            // Ordinary named key: honor the side-map's configurable attr —
+            // for DATA props and ACCESSOR halves ("__getter_<k>"/"__setter_<k>";
+            // a bare {get} defineProperty is non-configurable by default and
+            // strict delete must TypeError — Delete key-is-not family).
             auto it = g_native_object_props.find(rawMap);
             if (it != g_native_object_props.end() && it->second) {
                 TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
-                if (kv.type == ValueType::STRING_PTR && it->second->Has(kv)) {
-                    uint8_t attrs = it->second->GetPropertyAttrs(kv);
-                    if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
-                    return it->second->Delete(kv) ? 1 : 0;
+                if (kv.type == ValueType::STRING_PTR && kv.ptr_val) {
+                    const char* kc = ((TsString*)kv.ptr_val)->ToUtf8();
+                    if (it->second->Has(kv)) {
+                        uint8_t attrs = it->second->GetPropertyAttrs(kv);
+                        if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                        return it->second->Delete(kv) ? 1 : 0;
+                    }
+                    if (kc) {
+                        char gbuf[160], sbuf[160];
+                        snprintf(gbuf, sizeof(gbuf), "__getter_%s", kc);
+                        snprintf(sbuf, sizeof(sbuf), "__setter_%s", kc);
+                        TsValue gk; gk.type = ValueType::STRING_PTR;
+                        gk.ptr_val = TsString::GetInterned(gbuf);
+                        TsValue sk; sk.type = ValueType::STRING_PTR;
+                        sk.ptr_val = TsString::GetInterned(sbuf);
+                        bool hasG = it->second->Has(gk), hasS = it->second->Has(sk);
+                        if (hasG || hasS) {
+                            uint8_t attrs = hasG ? it->second->GetPropertyAttrs(gk)
+                                                 : it->second->GetPropertyAttrs(sk);
+                            if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                            if (hasG) it->second->Delete(gk);
+                            if (hasS) it->second->Delete(sk);
+                            return 1;
+                        }
+                    }
                 }
             }
             return 1;

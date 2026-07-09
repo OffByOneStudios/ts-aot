@@ -399,8 +399,11 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
         int r = ts_ta_define_own_property(target, (TsValue*)propArg,
                                           (TsValue*)descriptorArg);
         if (r >= 0) return r;
-        // r == -1: non-index key → fall through to the ordinary path below
-        // (which handles maps only; TA named props stay legacy).
+        // r == -1: ordinary NAMED key — side-map define (data + accessors).
+        extern int ts_ta_define_named_property(void* taRaw, TsValue* prop,
+                                               TsValue* descriptor);
+        return ts_ta_define_named_property(target, (TsValue*)propArg,
+                                           (TsValue*)descriptorArg);
     }
 
     if (is_flat_object(target)) {
