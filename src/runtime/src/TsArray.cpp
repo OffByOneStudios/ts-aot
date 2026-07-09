@@ -1,3 +1,4 @@
+#include <csetjmp>
 #include "TsArray.h"
 #include "TsConsString.h"
 #include "TsObject.h"
@@ -8,6 +9,11 @@
 #include "TsRuntime.h"
 #include "TsClosure.h"
 #include "TsFlatObject.h"
+extern "C" void* ts_push_exception_handler();
+extern "C" void ts_pop_exception_handler();
+extern "C" TsValue* ts_get_exception();
+extern "C" void ts_set_exception(TsValue* e);
+extern "C" void ts_iterator_close(TsValue* iter);
 #include "TsBuffer.h"
 #include "TsError.h"
 #include "TsPromise.h"
@@ -3541,9 +3547,30 @@ extern "C" {
                             TsValue* val = ts_object_get_property((void*)res, "value");
                             if (!val) val = ts_value_make_undefined();
                             if (hasMapFn) {
+                                // ES 22.1.2.1 step 5.e.vii.2: abrupt mapFn ->
+                                // IteratorClose(iterator) then rethrow.
+                                // EXACT promise_try_native idiom: Frame=0 on
+                                // WIN64 (disarm the MSVC unwinder frame check)
+                                // and NO pop in the catch branch — the throw
+                                // path unwinds the handler itself. A pop there
+                                // double-pops and loses the exception payload
+                                // (first attempt failed exactly that way).
                                 TsValue* argv2[2] = { val, ts_value_make_int(k) };
+                                void* hbuf = ts_push_exception_handler();
+                                jmp_buf* env = (jmp_buf*)hbuf;
+                                if (setjmp(*env) != 0) {
+                                    TsValue* exc = ts_get_exception();
+                                    ts_set_exception(nullptr);
+                                    ts_iterator_close(iterator);
+                                    ts_throw(exc ? exc : ts_value_make_undefined());
+                                    return ts_array_create();  // unreachable
+                                }
+#ifdef _WIN64
+                                ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
                                 TsValue* mapped = ts_function_call_with_this(
-                                    mapFnVal, thisT, 2, argv2);  // may throw
+                                    mapFnVal, thisT, 2, argv2);
+                                ts_pop_exception_handler();
                                 val = mapped ? mapped : ts_value_make_undefined();
                             }
                             ts_array_push(result, val);
