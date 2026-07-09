@@ -681,9 +681,11 @@ extern "C" {
             return ts_value_make_array(arr);
         }
 
-        // Handle flat objects
+        // Handle flat objects — ALL own keys incl. non-enumerable
+        // (getOwnPropertyNames), unlike the enumerable-only Object.keys path.
         if (is_flat_object(rawPtr)) {
-            return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
+            extern void* ts_flat_object_all_keys(void* obj);
+            return ts_value_make_array((TsArray*)ts_flat_object_all_keys(rawPtr));
         }
 
         // All own string keys incl. non-enumerable, but never internal '\x01'
@@ -4016,21 +4018,31 @@ extern "C" {
         bool targetIsFlat = (targetMagic0 == 0x464C4154); // FLAT_MAGIC
 
         if (sourceIsFlat) {
-            // Copy from flat source to target
-            uint32_t shapeId = flat_object_shape_id(sourceRaw);
-            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
-            if (desc) {
-                for (uint32_t i = 0; i < desc->numSlots; i++) {
-                    uint64_t val = *(uint64_t*)((char*)sourceRaw + 16 + i * 8);
-                    TsString* keyStr = TsString::Create(desc->propNames[i]);
+            // Copy from flat source: enumerate the FILTERED own-key list
+            // (includes the overflow map, which the old raw shape-slot walk
+            // skipped — defineProperty'd props on a flat source vanished),
+            // then [[Get]] per key so source accessors are INVOKED. Frame is
+            // std::string-free: a source getter may throw (longjmp).
+            TsValue* keysV = ts_object_keys(source);
+            void* kraw = keysV ? ts_value_get_object(keysV) : nullptr;
+            if (kraw && *(uint32_t*)kraw == 0x41525259) {
+                TsArray* keys = (TsArray*)kraw;
+                int64_t n = keys->Length();
+                for (int64_t i = 0; i < n; i++) {
+                    TsValue* kb = (TsValue*)(uintptr_t)keys->Get((size_t)i);
+                    void* ks = kb ? ts_value_get_string(kb) : nullptr;
+                    const char* kc = ks ? ((TsString*)ks)->ToUtf8() : nullptr;
+                    if (!kc) continue;
+                    TsValue* got = ts_object_get_property(sourceRaw, kc);
+                    if (!got) got = ts_value_make_undefined();
                     if (targetIsFlat) {
-                        ts_flat_object_set_property(targetRaw, desc->propNames[i], (void*)(uintptr_t)val);
+                        ts_flat_object_set_property(targetRaw, kc, got);
                     } else {
                         uint32_t targetMagic16 = *(uint32_t*)((char*)targetRaw + 16);
                         if (targetMagic16 == 0x4D415053) {
-                            TsMap* targetMap = (TsMap*)targetRaw;
-                            TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
-                            targetMap->Set(TsValue(keyStr), tv);
+                            TsValue rk; rk.type = ValueType::STRING_PTR;
+                            rk.ptr_val = TsString::GetInterned(kc);
+                            ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(got));
                         }
                     }
                 }

@@ -523,7 +523,8 @@ extern "C" void* ts_value_get_string(TsValue* v);
 // symbolsOnly=false -> the string-keyed own properties (Object.keys / for-in),
 // excluding user-symbol storage keys. symbolsOnly=true -> only user-symbol
 // storage keys (for Object.getOwnPropertySymbols).
-static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
+static void* flat_object_keys_impl(void* obj, bool symbolsOnly,
+                                   bool enumerableOnly) {
     if (!obj) return TsArray::Create(0);
 
     uint32_t shapeId = flat_object_shape_id(obj);
@@ -531,7 +532,8 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
     if (!desc) return TsArray::Create(0);
 
     TsArray* keys = TsArray::Create(desc->numSlots + 4);
-    std::set<std::string> emitted;
+    std::set<std::string> emitted;      // names actually pushed
+    std::set<std::string> considered;   // names seen (even if attr-filtered)
     std::set<std::string> accessorBases;
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
@@ -550,7 +552,7 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
             continue;
         }
         if (isSym != symbolsOnly) continue;
-        if (nm) emitted.insert(nm);
+        if (nm) { considered.insert(nm); emitted.insert(nm); }
         TsString* name = TsString::Create(nm);
         keys->Push((int64_t)(uintptr_t)name);
     }
@@ -572,27 +574,52 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
                     continue;
                 }
                 if (isSym != symbolsOnly) continue;
+                if (kc) considered.insert(kc);
+                // Object.keys / for-in / rest-copy surfaces: honor the
+                // enumerable attr bit stored with defineProperty'd overflow
+                // entries (rest-skip-non-enumerable). Plain-assigned entries
+                // default to enumerable.
+                if (enumerableOnly) {
+                    TsValue ak; ak.type = ValueType::STRING_PTR;
+                    ak.ptr_val = (TsString*)sp;
+                    if (!(((TsMap*)overflow)->GetPropertyAttrs(ak) & 0x01))
+                        continue;
+                }
                 if (kc) emitted.insert(kc);
                 keys->Push(boxed);
             }
         }
     }
 
+    // Fallback for an accessor stored WITHOUT its data placeholder. A name
+    // that was CONSIDERED but attr-filtered must stay filtered (the
+    // placeholder carries the accessor's enumerability, so re-adding it here
+    // leaked non-enumerable accessors into Object.keys). Under
+    // enumerableOnly a placeholder-less accessor's enumerability is
+    // unknowable — skip (the placeholder convention makes this unreachable).
     for (const std::string& base : accessorBases) {
-        if (emitted.count(base)) continue;
+        if (considered.count(base) || emitted.count(base)) continue;
+        if (enumerableOnly) continue;
         keys->Push((int64_t)(uintptr_t)TsString::Create(base.c_str()));
     }
 
     return keys;
 }
 
+// ENUMERABLE own string keys (Object.keys / for-in / rest-copy surfaces).
 extern "C" void* ts_flat_object_keys(void* obj) {
-    return flat_object_keys_impl(obj, false);
+    return flat_object_keys_impl(obj, false, true);
 }
 
-// Own user-Symbol storage keys (as strings) of a flat object.
+// ALL own string keys incl. non-enumerable (getOwnPropertyNames surface).
+extern "C" void* ts_flat_object_all_keys(void* obj) {
+    return flat_object_keys_impl(obj, false, false);
+}
+
+// Own user-Symbol storage keys (as strings) of a flat object — ALL,
+// regardless of enumerability (ES 20.1.2.11).
 extern "C" void* ts_flat_object_symbol_keys(void* obj) {
-    return flat_object_keys_impl(obj, true);
+    return flat_object_keys_impl(obj, true, false);
 }
 
 extern "C" void* ts_flat_object_values(void* obj) {
