@@ -276,6 +276,14 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                 // hole/deleted tombstones so absent slots don't appear as null.
                 if (nanbox_is_undefined(val) || val == NANBOX_HOLE ||
                     val == NANBOX_DELETED) continue;
+                // Internal storage keys are not JSON-serializable properties:
+                // '\x01' slots (privates/symbols) and "__getter_/__setter_"
+                // accessor storage (JSON.stringify({} with defineProperty get
+                // x) leaked {"__getter_x":null}).
+                const char* nm = desc->propNames[i];
+                if (nm && (nm[0] == '\x01' ||
+                           strncmp(nm, "__getter_", 9) == 0 ||
+                           strncmp(nm, "__setter_", 9) == 0)) continue;
                 j[desc->propNames[i]] = ts_to_json_internal((void*)(uintptr_t)val, visited);
             }
             // Check overflow map
@@ -289,6 +297,12 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                     void* keyPtr = nanbox_to_ptr(keyNB);
                     if (!ts_is<TsString>(keyPtr)) continue;
                     TsString* keyStr = (TsString*)keyPtr;
+                    {
+                        const char* kc = keyStr->ToUtf8();
+                        if (kc && (kc[0] == '\x01' ||
+                                   strncmp(kc, "__getter_", 9) == 0 ||
+                                   strncmp(kc, "__setter_", 9) == 0)) continue;
+                    }
                     TsValue keyTv;
                     std::memset(&keyTv, 0, sizeof(TsValue));
                     keyTv.type = ValueType::STRING_PTR;
@@ -321,6 +335,12 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
 
             TsString* keyStr = (TsString*)keyPtr;
             std::string keyStdStr = keyStr->ToUtf8();
+            // Internal storage keys (accessor slots, '\x01' privates/symbols)
+            // are not properties — skip them.
+            if (!keyStdStr.empty() &&
+                (keyStdStr[0] == '\x01' ||
+                 keyStdStr.rfind("__getter_", 0) == 0 ||
+                 keyStdStr.rfind("__setter_", 0) == 0)) continue;
 
             // Create a TsValue struct for the key to pass to map->Get
             TsValue keyTv;

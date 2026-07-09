@@ -16,6 +16,7 @@
 #include <string>
 #include <cstring>
 #include <new>
+#include <set>
 #include <functional>
 #include <iostream>
 #include <cmath>
@@ -633,6 +634,8 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
                                       : ((TsMap*)map)->GetEnumerableKeys());
     if (!all) return all;
     TsArray* out = TsArray::Create(0);
+    std::set<std::string> emitted;
+    std::set<std::string> accessorBases;
     for (int64_t i = 0; i < all->Length(); i++) {
         int64_t boxed = all->Get(i);
         void* sp = ts_value_get_string((TsValue*)(intptr_t)boxed);
@@ -648,8 +651,24 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
         // enumeration. Symbol storage keys ("\x01@@sym\x01...") are handled by
         // the isSym partition above.
         if (kc && kc[0] == '\x01' && !isSym) continue;
+        // Accessor storage slots ("__getter_<k>"/"__setter_<k>") are not
+        // property keys — the BASE name is (surfaced via its data
+        // placeholder, or appended below if no placeholder was stored).
+        // GetEnumerableKeys already drops these; GetKeys (the
+        // getOwnPropertyNames path) does not.
+        if (kc && (strncmp(kc, "__getter_", 9) == 0 ||
+                   strncmp(kc, "__setter_", 9) == 0)) {
+            if (!symbolsOnly) accessorBases.insert(kc + 9);
+            continue;
+        }
         if (isSym != symbolsOnly) continue;
+        if (kc) emitted.insert(kc);
         out->Push(boxed);
+    }
+    for (const std::string& base : accessorBases) {
+        if (emitted.count(base)) continue;
+        TsString* bs = TsString::GetInterned(base.c_str());
+        out->Push((int64_t)(uintptr_t)ts_value_make_string(bs));
     }
     return out;
 }

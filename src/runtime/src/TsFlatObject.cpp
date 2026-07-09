@@ -8,6 +8,8 @@
 #include "TsClosure.h"
 
 #include <cstring>
+#include <set>
+#include <string>
 
 // Bound method context for vtable method dispatch via native function wrappers.
 // When a flat object's vtable method is looked up dynamically (e.g., comp.test(v)
@@ -529,16 +531,27 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
     if (!desc) return TsArray::Create(0);
 
     TsArray* keys = TsArray::Create(desc->numSlots + 4);
+    std::set<std::string> emitted;
+    std::set<std::string> accessorBases;
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         if (val == NANBOX_DELETED) continue;  // tombstoned by delete
-        bool isSym = ts_is_user_symbol_storage_key(desc->propNames[i]) != 0;
+        const char* nm = desc->propNames[i];
+        bool isSym = ts_is_user_symbol_storage_key(nm) != 0;
         // Any other '\x01'-prefixed slot is an internal storage key
         // (private fields "\x01#x") — never an enumerable property key.
-        if (!isSym && desc->propNames[i] && desc->propNames[i][0] == '\x01') continue;
+        if (!isSym && nm && nm[0] == '\x01') continue;
+        // Accessor storage ("__getter_<k>"/"__setter_<k>") is not a property
+        // key; the BASE name is (via its data placeholder, or appended below).
+        if (!isSym && nm && (strncmp(nm, "__getter_", 9) == 0 ||
+                             strncmp(nm, "__setter_", 9) == 0)) {
+            if (!symbolsOnly) accessorBases.insert(nm + 9);
+            continue;
+        }
         if (isSym != symbolsOnly) continue;
-        TsString* name = TsString::Create(desc->propNames[i]);
+        if (nm) emitted.insert(nm);
+        TsString* name = TsString::Create(nm);
         keys->Push((int64_t)(uintptr_t)name);
     }
 
@@ -553,10 +566,21 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
                 const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
                 bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
                 if (!isSym && kc && kc[0] == '\x01') continue;  // internal storage key
+                if (!isSym && kc && (strncmp(kc, "__getter_", 9) == 0 ||
+                                     strncmp(kc, "__setter_", 9) == 0)) {
+                    if (!symbolsOnly) accessorBases.insert(kc + 9);
+                    continue;
+                }
                 if (isSym != symbolsOnly) continue;
+                if (kc) emitted.insert(kc);
                 keys->Push(boxed);
             }
         }
+    }
+
+    for (const std::string& base : accessorBases) {
+        if (emitted.count(base)) continue;
+        keys->Push((int64_t)(uintptr_t)TsString::Create(base.c_str()));
     }
 
     return keys;
