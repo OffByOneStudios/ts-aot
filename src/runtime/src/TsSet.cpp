@@ -1,3 +1,4 @@
+#include <csetjmp>
 #include "TsSet.h"
 #include "TsHashTable.h"
 #include "TsMap.h"
@@ -135,8 +136,29 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
     void* unboxed = ts_value_get_object(iterable);
     if (unboxed) raw = unboxed;
     uint32_t magic = *(uint32_t*)raw;
-    // Handle TsArray (most common iterable in tests)
-    if (magic == 0x41525259) {  // ARRY
+    // ES 24.2.1.1: values insert through the ADDER (Get(set, "add")) so a
+    // user-patched Set.prototype.add observes every value; abrupt adder ->
+    // IteratorClose then rethrow (original error wins over an abrupt
+    // return() per 7.4.8 step 6). Mirrors the Map AddEntriesFromIterable
+    // implementation. Plain arrays keep the direct path with a native adder.
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+    extern bool ts_is_callable(void* v);
+    TsValue* adder = ts_object_get_property(set, "add");
+    if (!adder || !ts_is_callable(adder)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set constructor: 'add' is not callable"));
+        return set;  // unreachable
+    }
+    bool adderNative = false;
+    {
+        void* araw = ts_value_get_object(adder);
+        if (araw && *(uint32_t*)((char*)araw + 16) == 0x46554E43 /*FUNC*/) {
+            extern TsValue* ts_set_add_wrapper(void* context, TsValue* value);
+            adderNative = (((TsFunction*)araw)->funcPtr == (void*)ts_set_add_wrapper);
+        }
+    }
+    if (magic == 0x41525259 && adderNative) {  // ARRY fast path
         TsArray* arr = (TsArray*)raw;
         int64_t len = arr->Length();
         for (int64_t i = 0; i < len; i++) {
@@ -144,9 +166,63 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
             TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)elem);
             ((TsSet*)set)->Add(v);
         }
+        return set;
     }
-    // TODO: TsString iterables (each char becomes an element)
-    // TODO: Generic iterator protocol (call @@iterator + next loop)
+    // Generic path: @@iterator drive; adder called per value.
+    {
+        TsValue* iterBoxed = ts_value_make_object(raw);
+        TsValue* itFn = ts_object_get_property(raw, "[Symbol.iterator]");
+        TsValue* iterator = (itFn && ts_is_callable(itFn))
+            ? ts_function_call_with_this(itFn, iterBoxed, 0, nullptr) : nullptr;
+        if (iterator) {
+            TsValue* nextFn = ts_object_get_property((void*)iterator, "next");
+            if (nextFn && ts_is_callable(nextFn)) {
+                extern void* ts_push_exception_handler();
+                extern void ts_pop_exception_handler();
+                extern TsValue* ts_get_exception();
+                extern void ts_set_exception(TsValue* e);
+                extern void ts_iterator_close(TsValue* iter);
+                TsValue* setBoxed = ts_value_make_object(set);
+                for (int64_t guard = 0; guard < (1 << 24); guard++) {
+                    TsValue* res = ts_function_call_with_this(nextFn, iterator, 0, nullptr);
+                    uint64_t rnb = res ? (uint64_t)(uintptr_t)res : 0;
+                    if (!res || !nanbox_is_ptr(rnb)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Iterator result is not an object"));
+                        return set;
+                    }
+                    TsValue* doneV = ts_object_get_property((void*)res, "done");
+                    if (doneV && ts_value_to_bool(doneV)) break;
+                    void* hbuf = ts_push_exception_handler();
+                    jmp_buf* env = (jmp_buf*)hbuf;
+                    if (setjmp(*env) != 0) {
+                        TsValue* exc = ts_get_exception();
+                        ts_set_exception(nullptr);
+                        void* hbuf2 = ts_push_exception_handler();
+                        jmp_buf* env2 = (jmp_buf*)hbuf2;
+                        if (setjmp(*env2) == 0) {
+#ifdef _WIN64
+                            ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
+                            ts_iterator_close(iterator);
+                            ts_pop_exception_handler();
+                        } else {
+                            ts_set_exception(nullptr);  // abrupt return() swallowed
+                        }
+                        ts_throw(exc ? exc : ts_value_make_undefined());
+                        return set;  // unreachable
+                    }
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+                    TsValue* v = ts_object_get_property((void*)res, "value");
+                    TsValue* argv1[1] = { v ? v : ts_value_make_undefined() };
+                    ts_function_call_with_this(adder, setBoxed, 1, argv1);
+                    ts_pop_exception_handler();
+                }
+            }
+        }
+    }
     return set;
 }
 
