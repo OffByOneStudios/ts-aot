@@ -2760,6 +2760,12 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_map_native(arr, 2, argvBuf);
             void* raw = res ? ts_value_get_object(res) : nullptr;
+            // The native's TA branch (ta_iterate_impl) already returns a
+            // finished species TypedArray — re-materializing would read its
+            // header as a TsArray (garbage length -> "Invalid typed array
+            // length"). Only legacy TsArray temps still need conversion.
+            if (raw && *(uint32_t*)((char*)raw + 16) == 0x54415252 /*TARR*/)
+                return raw;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         if (TsValue* r = array_selfhost_holey(g_selfhosted_map, arr, callback, thisArg))
@@ -2774,6 +2780,9 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_filter_native(arr, 2, argvBuf);
             void* raw = res ? ts_value_get_object(res) : nullptr;
+            // See ts_array_map: the native now returns a finished TA.
+            if (raw && *(uint32_t*)((char*)raw + 16) == 0x54415252 /*TARR*/)
+                return raw;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         // Inverted dispatch (V8 `Cast<FastJSArray> otherwise <generic>`): the C++

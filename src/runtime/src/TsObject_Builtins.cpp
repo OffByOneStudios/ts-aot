@@ -1108,6 +1108,21 @@ extern "C" {
     }
 
     // P0: Extremely common methods
+    extern "C" TsValue* ta_iterate_impl(void* ctx, int argc, TsValue** argv,
+                                        const char* name, int kind);
+    extern "C" TsValue* ta_reduce_impl(void* ctx, int argc, TsValue** argv,
+                                       const char* name, bool fromEnd);
+    static inline bool builtins_ctx_is_ta(void* ctx) {
+        void* raw = ts_nanbox_safe_unbox(ctx);
+        if (!raw) raw = ctx;
+        return raw && (uintptr_t)raw > 0x1000 &&
+               (uintptr_t)raw < 0x0000800000000000ULL &&
+               *(uint32_t*)((char*)raw + 16) == 0x54415252; /* TARR */
+    }
+    static inline void* builtins_ctx_ta_raw(void* ctx) {
+        void* raw = ts_nanbox_safe_unbox(ctx);
+        return raw ? raw : ctx;
+    }
     TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
         extern void* g_selfhosted_map;
         if (TsValue* r = array_selfhost_arraylike(g_selfhosted_map, ctx, argc, argv)) return r;

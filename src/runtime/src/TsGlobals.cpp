@@ -5893,6 +5893,121 @@ static TsValue* ta_find_impl(void* ctx, int argc, TsValue** argv,
     return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
 }
 
+// ES 23.2.3.x %TypedArray%.prototype iteration methods. Unlike the Array
+// forms these are DENSE: len is TypedArrayLength at ENTRY, every k < len gets
+// a callback (no HasProperty/hole skip), and a mid-iteration detach or
+// resizable-buffer shrink makes the remaining reads undefined — iteration
+// CONTINUES (callbackfn-detachbuffer / resizable-buffer-shrink-mid-iteration
+// / callbackfn-resize families). The self-hosted ARRAY impls skipped absent
+// indices via `k in O`, stopping早 after a shrink.
+extern "C" TsValue* ts_ta_get_boxed(TsTypedArray* ta, size_t idx);
+extern "C" void* ts_typed_array_species_alloc(void* receiver, int64_t length);
+extern "C" void ts_array_set_v(void* arr, int64_t index, TsValue value);
+static inline TsValue* ta_elem_or_undefined(TsTypedArray* ta, size_t k) {
+    if (ta->IsDetachedBuffer() || ta->IsOutOfBounds() || k >= ta->GetLength())
+        return ts_value_make_undefined();
+    return ts_ta_get_boxed(ta, k);
+}
+// kind: 0=every 1=some 2=forEach 3=map 4=filter
+extern "C" TsValue* ta_iterate_impl(void* ctx, int argc, TsValue** argv,
+                                    const char* name, int kind) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, name);
+    if (!ta) return ts_value_make_undefined();
+    TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!ts_is_callable(cb)) {
+        char m[128];
+        snprintf(m, sizeof(m), "TypedArray.prototype.%s callback is not a function", name);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", m));
+        return ts_value_make_undefined();
+    }
+    TsValue* thisArg = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+    extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+    TsValue* taBoxed = ts_value_make_object(ta);
+    size_t len = ta->GetLength();  // captured per spec
+    // map allocates its species result up front (spec order); filter collects
+    // kept values in a GC-visible TsArray then species-copies.
+    void* mapOut = nullptr;
+    TsArray* kept = nullptr;
+    if (kind == 3) {
+        mapOut = ts_typed_array_species_alloc(ta, (int64_t)len);
+        if (!mapOut) return ts_value_make_undefined();  // TypeError thrown
+    } else if (kind == 4) {
+        kept = TsArray::Create(4);
+    }
+    for (size_t k = 0; k < len; k++) {
+        TsValue* v = ta_elem_or_undefined(ta, k);
+        TsValue* idx = ts_value_make_int((int64_t)k);
+        TsValue* r = ts_call_with_this_3(cb, thisArg, v, idx, taBoxed);
+        switch (kind) {
+            case 0: if (!r || !ts_value_to_bool(r)) return ts_value_make_bool(false); break;
+            case 1: if (r && ts_value_to_bool(r)) return ts_value_make_bool(true); break;
+            case 2: break;
+            case 3:
+                // Write through the BigInt-aware element store; a detached
+                // result target makes this a silent no-op.
+                if (mapOut) ts_array_set_v(mapOut, (int64_t)k,
+                                           nanbox_to_tagged(r ? r : ts_value_make_undefined()));
+                break;
+            case 4:
+                if (r && ts_value_to_bool(r))
+                    ts_array_push(kept, v ? v : ts_value_make_undefined());
+                break;
+        }
+    }
+    switch (kind) {
+        case 0: return ts_value_make_bool(true);
+        case 1: return ts_value_make_bool(false);
+        case 3: return ts_value_make_object(mapOut);
+        case 4: {
+            int64_t n = kept ? kept->Length() : 0;
+            void* out = ts_typed_array_species_alloc(ta, n);
+            if (!out) return ts_value_make_undefined();
+            for (int64_t i = 0; i < n; i++)
+                ts_array_set_v(out, i, nanbox_to_tagged((TsValue*)kept->GetElementBoxed((size_t)i)));
+            return ts_value_make_object(out);
+        }
+    }
+    return ts_value_make_undefined();
+}
+// reduce (fromEnd=false) / reduceRight (fromEnd=true)
+extern "C" TsValue* ta_reduce_impl(void* ctx, int argc, TsValue** argv,
+                                   const char* name, bool fromEnd) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, name);
+    if (!ta) return ts_value_make_undefined();
+    TsValue* cb = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    if (!ts_is_callable(cb)) {
+        char m[128];
+        snprintf(m, sizeof(m), "TypedArray.prototype.%s callback is not a function", name);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", m));
+        return ts_value_make_undefined();
+    }
+    bool hasInit = (argc >= 2 && argv && argv[1]);
+    size_t len = ta->GetLength();
+    if (len == 0 && !hasInit) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Reduce of empty array with no initial value"));
+        return ts_value_make_undefined();
+    }
+    extern TsValue* ts_call_with_this_4(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+    TsValue* taBoxed = ts_value_make_object(ta);
+    TsValue* acc;
+    size_t s = 0;
+    if (hasInit) {
+        acc = argv[1];
+    } else {
+        size_t first = fromEnd ? (len - 1) : 0;
+        acc = ta_elem_or_undefined(ta, first);
+        s = 1;
+    }
+    for (; s < len; s++) {
+        size_t k = fromEnd ? (len - 1 - s) : s;
+        TsValue* v = ta_elem_or_undefined(ta, k);
+        acc = ts_call_with_this_4(cb, ts_value_make_undefined(), acc, v,
+                                  ts_value_make_int((int64_t)k), taBoxed);
+    }
+    return acc ? acc : ts_value_make_undefined();
+}
+
 void* ts_get_global_TypedArray() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -6032,42 +6147,29 @@ void* ts_get_global_TypedArray() {
             // which already routes TypedArray receivers through the native
             // path (try_as_typed_array → ts_array_X_native).
             addMethod(tproto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "forEach");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                ts_array_forEach((void*)ta, cb, thisArg);
-                return ts_value_make_undefined();
+                // Dense %TypedArray% semantics: cached len, no hole skip,
+                // detach/shrink reads undefined (ta_iterate_impl above).
+                return ta_iterate_impl(ctx, argc, argv, "forEach", 2);
             });
             addMethod(tproto, "map", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "map");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                void* result = ts_array_map((void*)ta, cb, thisArg);
-                return ts_value_make_object(result);
+                // Dense %TypedArray% semantics: cached len, no hole skip,
+                // detach/shrink reads undefined (ta_iterate_impl above).
+                return ta_iterate_impl(ctx, argc, argv, "map", 3);
             });
             addMethod(tproto, "filter", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "filter");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                void* result = ts_array_filter((void*)ta, cb, thisArg);
-                return ts_value_make_object(result);
+                // Dense %TypedArray% semantics: cached len, no hole skip,
+                // detach/shrink reads undefined (ta_iterate_impl above).
+                return ta_iterate_impl(ctx, argc, argv, "filter", 4);
             });
             addMethod(tproto, "every", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "every");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                return ts_value_make_bool(ts_array_every((void*)ta, cb, thisArg));
+                // Dense %TypedArray% semantics: cached len, no hole skip,
+                // detach/shrink reads undefined (ta_iterate_impl above).
+                return ta_iterate_impl(ctx, argc, argv, "every", 0);
             });
             addMethod(tproto, "some", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "some");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                return ts_value_make_bool(ts_array_some((void*)ta, cb, thisArg));
+                // Dense %TypedArray% semantics: cached len, no hole skip,
+                // detach/shrink reads undefined (ta_iterate_impl above).
+                return ta_iterate_impl(ctx, argc, argv, "some", 1);
             });
             addMethod(tproto, "find", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 return ta_find_impl(ctx, argc, argv, "find", false, false);
@@ -6082,20 +6184,10 @@ void* ts_get_global_TypedArray() {
                 return ta_find_impl(ctx, argc, argv, "findLastIndex", true, true);
             });
             addMethod(tproto, "reduce", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "reduce");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* init = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                void* result = ts_array_reduce((void*)ta, cb, init);
-                return (TsValue*)result;
+                return ta_reduce_impl(ctx, argc, argv, "reduce", false);
             });
             addMethod(tproto, "reduceRight", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "reduceRight");
-                if (!ta) return ts_value_make_undefined();
-                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-                void* init = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-                void* result = ts_array_reduceRight((void*)ta, cb, init);
-                return (TsValue*)result;
+                return ta_reduce_impl(ctx, argc, argv, "reduceRight", true);
             });
 
             TA_PROTO_STUB(copyWithin);
