@@ -3935,25 +3935,15 @@ extern "C" {
         }
         if (!nanbox_is_ptr(nb_d)) return ts_value_make_object(result);
 
-        void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
-
-        // Convert flat object to TsMap
-        if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
-        }
-
-        // Check if it's a TsMap
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic != 0x4D415053) {
-            return ts_value_make_object(result);  // empty object for non-objects
-        }
-
-        TsMap* map = (TsMap*)rawPtr;
-
-        // Iterate over all own properties
-        TsArray* keys = (TsArray*)ts_map_keys(map);
-        if (!keys) return ts_value_make_object(result);
+        // ES 20.1.2.9: keys = ? O.[[OwnPropertyKeys]](), then gOPD per key.
+        // getOwnPropertyNames gives the filtered, spec-ordered string-key set
+        // (the old raw ts_map_keys walk emitted descriptors keyed by internal
+        // "__getter_<k>"/"__setter_<k>" accessor-storage slots).
+        TsValue* keysV = ts_object_getOwnPropertyNames(obj);
+        void* kraw = keysV ? ts_value_get_object(keysV) : nullptr;
+        if (!kraw || *(uint32_t*)kraw != 0x41525259)
+            return ts_value_make_object(result);
+        TsArray* keys = (TsArray*)kraw;
 
         int64_t len = keys->Length();
         for (int64_t i = 0; i < len; i++) {
@@ -3963,12 +3953,16 @@ extern "C" {
             // Get the descriptor for this property
             TsValue* descriptor = ts_object_getOwnPropertyDescriptor(obj, keyVal);
 
+            // Undefined descriptor (key vanished / not an own prop) is NOT
+            // added — CompletePropertyDescriptor only runs on defined ones.
+            if (!descriptor || ts_value_is_undefined(descriptor)) continue;
+
             // Store descriptor in result with the property name as key. keyVal and
             // descriptor are NaN-boxed TsValue* (the box IS the value), so convert
             // to a tagged TsValue with nanbox_to_tagged — dereferencing them (*keyVal)
             // read the TsString/descriptor object's bytes as a TsValue (garbage key),
             // which is why getOwnPropertyDescriptors returned {}.
-            if (descriptor && keyVal) {
+            if (keyVal) {
                 result->Set(nanbox_to_tagged(keyVal), nanbox_to_tagged(descriptor));
             }
         }
