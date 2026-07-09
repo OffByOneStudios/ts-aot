@@ -2,6 +2,7 @@
 #include "TsRuntime.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include "TsHashTable.h"
 #include "TsGC.h"
 #include "TsError.h"
 #include "TsConsString.h"
@@ -2601,6 +2602,24 @@ static TsValue* spec_make_native1(void* fnPtr, void* ctx, int arity) {
             f->keep_context = true;
             f->is_constructor = false;
             f->arity = arity;
+            // ES 10.3.3-4: spec-created anonymous built-ins (capability
+            // executors, combinator element resolvers) own "length" then
+            // "name" (name = "") as {!w, !e, c} data props — the
+            // *-element-function-name/length/property-order tests
+            // verifyProperty these.
+            if (!f->properties) {
+                f->properties = TsMap::Create();
+                ts_gc_write_barrier(&f->properties, f->properties);
+            }
+            TsValue lk; lk.type = ValueType::STRING_PTR;
+            lk.ptr_val = TsString::GetInterned("length");
+            TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+            f->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+            f->name = TsString::GetInterned("");
+            TsValue nk; nk.type = ValueType::STRING_PTR;
+            nk.ptr_val = TsString::GetInterned("name");
+            TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = f->name;
+            f->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
         }
     }
     return fn;
