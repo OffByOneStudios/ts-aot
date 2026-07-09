@@ -1493,8 +1493,16 @@ extern "C" {
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
         double search = ts_to_number(argv[0]);
         int64_t from = 0;
-        if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
-        // fromIndex coercion can detach the buffer -> no elements -> false.
+        if (argc >= 2 && argv[1]) {
+            // ToIntegerOrInfinity: +Inf -> nothing at/after it (false);
+            // -Inf -> clamp to 0. FPToSI(Inf) is INT64_MIN garbage.
+            double fd = ts_to_number(argv[1]);
+            if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
+            if (fd == std::numeric_limits<double>::infinity())
+                return ts_value_make_bool(false);
+            from = (fd == -std::numeric_limits<double>::infinity())
+                       ? 0 : (int64_t)fd;
+        }
         if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
         if (from < 0) from = std::max((int64_t)0, len + from);
         bool searchNaN = (search != search);
@@ -1520,7 +1528,16 @@ extern "C" {
         double search = ts_to_number(argv[0]);
         if (search != search) return ts_value_make_int(-1);  // NaN never matches via ===
         int64_t from = 0;
-        if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
+        if (argc >= 2 && argv[1]) {
+            // ToIntegerOrInfinity: +Inf -> -1 (search starts past the end);
+            // -Inf -> 0. FPToSI(Inf) is INT64_MIN garbage (fromIndex-infinity).
+            double fd = ts_to_number(argv[1]);
+            if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
+            if (fd == std::numeric_limits<double>::infinity())
+                return ts_value_make_int(-1);
+            from = (fd == -std::numeric_limits<double>::infinity())
+                       ? 0 : (int64_t)fd;
+        }
         // ToInteger(fromIndex) can detach the buffer; a detached buffer has no
         // elements, so the search finds nothing.
         if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
@@ -1543,8 +1560,17 @@ extern "C" {
         if (search != search) return ts_value_make_int(-1);
         int64_t from = len - 1;
         if (argc >= 2 && argv[1]) {
-            from = (int64_t)ts_to_number(argv[1]);
-            if (from < 0) from = len + from;
+            // ToIntegerOrInfinity: +Inf clamps to len-1; -Inf -> not found.
+            double fd = ts_to_number(argv[1]);
+            if (fd == std::numeric_limits<double>::infinity()) {
+                from = len - 1;
+            } else if (fd == -std::numeric_limits<double>::infinity()) {
+                if (!ta->IsDetachedBuffer()) return ts_value_make_int(-1);
+                from = -1;
+            } else {
+                from = (int64_t)fd;
+                if (from < 0) from = len + from;
+            }
         }
         // fromIndex coercion can detach the buffer -> no elements -> not found.
         if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
