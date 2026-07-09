@@ -516,15 +516,14 @@ extern "C" {
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
     TsValue* ts_new_from_constructor_impl(TsValue* constructorFn, int argc, TsValue** argv) {
-        // Guard: null/undefined constructor — return a basic object with .message if args provided
+        // ES 13.3.5.1: `new` on a non-constructor (undefined/null included)
+        // throws TypeError. The old guard silently returned a plain object,
+        // so `new C.someUndefinedStatic()` succeeded (Iterator helper
+        // non-constructible family asserts the throw).
         if (!constructorFn || ts_value_is_undefined(constructorFn) || ts_value_is_null(constructorFn)) {
-            TsMap* obj = TsMap::Create();
-            if (argc >= 1 && argv && argv[0]) {
-                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
-                msgKey.ptr_val = TsString::GetInterned("message");
-                obj->Set(msgKey, nanbox_to_tagged(argv[0]));
-            }
-            return ts_value_make_object(obj);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "not a constructor (undefined or null)"));
+            return ts_value_make_undefined();  // unreachable
         }
 
         // Proxy [[Construct]] (ES 10.5.13): route through the construct trap
