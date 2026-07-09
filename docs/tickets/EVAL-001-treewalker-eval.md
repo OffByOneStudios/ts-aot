@@ -247,3 +247,32 @@ Open items carried: lazy-DLL packaging (later); interpreter frames vs the
 precise GC stack-walk at the AOT↔interp boundary (marshalling is TsValue;
 the shadow stack in §9.2 is the scanned root — verify under TS_GC_NURSERY=0
 early in Phase 1).
+
+## 11. Phase 4a diagnosis (2026-07-09) — the residue's dominant blocker
+
+Probed the remaining eval-pathed failures (523 in baseline; annexB/language/
+eval-code = 177 of them, direct 129 / indirect 48). Three representative
+probes (func-if-stmt-else-decl-eval-func-block-scoping, ...existing-var-no-init,
+global-block-decl-eval-global-existing-var-update) all fail the same way and
+it is NOT a walker bug — the walker's EvalDeclarationInstantiation + Annex
+B.3.3.3 promotion machinery is present and runs.
+
+**Blocker: AOT global vars and globalThis are not unified.** The test files
+declare `var f = 123` / `var initialBV` in the AOT-COMPILED program; eval'd
+code (correctly) writes `f`/`initialBV` through globalThis; but compiled code
+reads/writes its own LLVM global slot. Writes from eval are invisible to the
+compiled reader and vice versa. Function declarations were already unified
+(§9.3: own properties of globalThis); `var` bindings were not.
+
+**Fix direction (compiler-side, standard engine practice): eval-taint
+deopt.** If a module contains any call whose callee is the identifier `eval`
+(or the module uses `Function` constructor patterns needing it), lower that
+module's toplevel `var` declarations to globalThis-backed storage: declaration
+= CreateGlobalVarBinding on globalThis; every read/write of those names =
+globalThis property get/set (the bare-identifier-through-global path already
+exists). Non-eval modules keep fast LLVM global slots — zero cost for normal
+code. Scope: Analyzer taint flag + ASTToHIR global-binding lowering switch.
+
+Estimated unlock: most of annexB/eval-code 177 + a similar share of
+language/eval-code and function-code residue — plausibly 250-350 of the 523.
+Walker-internal residue (if any) only becomes measurable after this lands.
