@@ -218,6 +218,8 @@ private:
         std::set<std::string> fields;    // instance/static PropertyDefinitions
         std::set<std::string> others;    // methods + accessors (key resolution)
         std::set<std::string> methods;   // plain methods only — writes TypeError
+        std::set<std::string> getters;   // accessor names WITH a getter half
+        std::set<std::string> accessors; // accessor names (getter or setter)
     };
     std::vector<PrivateClassCtx> privateClassStack_;
     // Lexical private scope captured at class-visit time, keyed by HIR class
@@ -227,6 +229,19 @@ private:
     // "#x" -> "#x@Class" when the innermost declaring class declares it as a
     // FIELD; plain "#x" when declared as a method/accessor (legacy keys) or
     // unresolved. Non-private names pass through.
+    // ES PrivateGet: a private ACCESSOR without a getter half throws on
+    // read (get-access-of-missing-private-getter). Checked at the innermost
+    // class that declares the name.
+    bool privateIsSetterOnly(const std::string& name) {
+        if (name.empty() || name[0] != '#') return false;
+        for (auto it = privateClassStack_.rbegin();
+             it != privateClassStack_.rend(); ++it) {
+            if (it->fields.count(name) || it->others.count(name))
+                return it->accessors.count(name) && !it->getters.count(name);
+        }
+        return false;
+    }
+
     std::string resolvePrivateName(const std::string& name) {
         if (name.empty() || name[0] != '#') return name;
         for (auto it = privateClassStack_.rbegin();

@@ -177,6 +177,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 if (!md->name.empty() && md->name[0] == '#') {
                     pctx.others.insert(md->name);
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
+                    if (md->isGetter) pctx.getters.insert(md->name);
+                    if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
                 }
             }
         }
@@ -1091,6 +1093,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 if (!md->name.empty() && md->name[0] == '#') {
                     pctx.others.insert(md->name);
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
+                    if (md->isGetter) pctx.getters.insert(md->name);
+                    if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
                 }
             }
         }

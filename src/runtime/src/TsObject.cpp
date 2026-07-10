@@ -4395,6 +4395,19 @@ void* ts_create_arguments_from_params(
     // ("Cannot write to private method"). The compiler emits this for
     // statically-resolved writes to a class's own private method (assignment
     // and compound-assignment PutValue) after RHS evaluation, per spec order.
+    // ES PrivateGet on a setter-only private accessor: TypeError. Compiler-
+    // emitted for statically-resolved reads (get-access-of-missing-private-
+    // getter family).
+    TsValue* ts_throw_private_no_getter(void* nameStr) {
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)nameStr);
+        const char* key = ks ? ks->ToUtf8() : "#accessor";
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+                 "'%s' was defined without a getter", key);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return ts_value_make_undefined();  // unreachable
+    }
+
     void ts_throw_private_method_write(void* nameStr) {
         TsString* ks = (TsString*)ts_value_get_string((TsValue*)nameStr);
         const char* key = ks ? ks->ToUtf8() : "#method";

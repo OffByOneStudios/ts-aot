@@ -674,6 +674,16 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // Only when the receiver is statically untyped (Any): a typed `this.#x` is
     // provably an instance of the declaring class, so it keeps the typed
     // createGetPropStatic path (which also unboxes to the field's type).
+    // ES PrivateGet step 5.a: a private ACCESSOR with no getter half is a
+    // TypeError on read, statically known from the class body (the typed
+    // GetPropStatic path read the undefined placeholder instead).
+    if (!node->name.empty() && node->name[0] == '#' &&
+        privateIsSetterOnly(node->name)) {
+        auto keyStr = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_throw_private_no_getter",
+                                         {keyStr}, HIRType::makeAny());
+        return;
+    }
     if (!node->name.empty() && node->name[0] == '#'
         && obj->type && obj->type->kind == HIRTypeKind::Any) {
         auto keyStr = builder_.createConstString(resolvePrivateName(node->name));
