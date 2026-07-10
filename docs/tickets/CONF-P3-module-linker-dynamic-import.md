@@ -177,3 +177,21 @@ Slice 2: [[Get]] uninit binding -> ReferenceError (TDZ sentinel exists),
 [[OwnPropertyKeys]] sorted exports.
 Slice 3: dynamic-import/namespace (~30) reuses the brand at the import()
 resolution site.
+
+
+## Slice 2 blocker (2026-07-10): self-import namespace binding vanishes when the module has exports
+
+Differential (probes tmp/probe_ks.js / probe_ks2.js):
+- import-star-from-self + NO export declarations -> ns binds (slice-1 tests pass)
+- import-star-from-self + export lists (export { x as y } / export default)
+  -> runtime ReferenceError: ns is not defined, REGARDLESS of import position
+  (moved import above exports: same failure).
+
+So the Monomorphizer self-import splice (Monomorphizer.cpp:947-982) is not
+reached (or its binding is dropped) when the module has export declarations
+— likely a different processing path for export-bearing ESM modules. Gates
+~19 of the 22 remaining namespace/internals tests plus other module-code
+failures. NEXT: instrument which path processes the import in the
+export-bearing case (env-gated fprintf at :930/:947/:993), then fix the
+binding there; slice-2 property semantics (uninit TDZ, delete false,
+define validation, sorted keys) resume after.
