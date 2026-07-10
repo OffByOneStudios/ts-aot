@@ -5504,8 +5504,23 @@ extern "C" void ts_global_var_declare(void* nameStr) {
     extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
     extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* val);
     TsValue* key = ts_value_make_string(nameStr);
-    if (!ts_object_has_prop(globalThis, key))
+    if (!ts_object_has_prop(globalThis, key)) {
         ts_object_set_dynamic(globalThis, key, ts_value_make_undefined());
+        // ES 9.1.1.4.17 CreateGlobalVarBinding(N, false): the binding is
+        // {writable, enumerable, NON-configurable} — eval('delete x') on a
+        // program-declared var returns false (11.4.1-4.a-7). Set() preserves
+        // attrs on later value writes. Eval-INTRODUCED vars (interp guardSet,
+        // default attrs) stay configurable/deletable per 19.2.1.3.
+        void* graw = ts_value_get_object(globalThis);
+        if (graw) {
+            if (TsMap* gm = dynamic_cast<TsMap*>((TsObject*)graw)) {
+                TsValue k2; k2.type = ValueType::STRING_PTR;
+                k2.ptr_val = (TsString*)nameStr;
+                gm->SetPropertyAttrs(k2, TsHashTable::ATTR_ENUMERABLE |
+                                          TsHashTable::ATTR_WRITABLE);
+            }
+        }
+    }
 }
 
 extern "C" void* ts_interp_global_ctor_by_name(const char* n);  // defined below
