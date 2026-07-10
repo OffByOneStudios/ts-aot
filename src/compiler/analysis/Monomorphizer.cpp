@@ -969,8 +969,29 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     };
                     if (!importDecl->defaultImport.empty())
                         makeBinding(importDecl->defaultImport, "default");
-                    if (!importDecl->namespaceImport.empty())
+                    if (!importDecl->namespaceImport.empty()) {
+                        // ES 10.4.6 (CONF-P3 slice 1): the exports map bound
+                        // as `import * as ns` becomes a module namespace
+                        // exotic object — brand it before the binding runs.
+                        auto markCall = std::make_unique<ast::CallExpression>();
+                        auto markId = std::make_unique<ast::Identifier>();
+                        markId->name = "ts_module_mark_namespace";
+                        {
+                            auto ft = std::make_shared<FunctionType>();
+                            ft->returnType = std::make_shared<Type>(TypeKind::Void);
+                            ft->paramTypes = { std::make_shared<Type>(TypeKind::Any) };
+                            markId->inferredType = ft;
+                        }
+                        markCall->callee = std::move(markId);
+                        auto exArg = std::make_unique<ast::Identifier>();
+                        exArg->name = "exports";
+                        exArg->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        markCall->arguments.push_back(std::move(exArg));
+                        auto markStmt = std::make_unique<ast::ExpressionStatement>();
+                        markStmt->expression = std::move(markCall);
+                        selfStmts.push_back(std::move(markStmt));
                         makeBinding(importDecl->namespaceImport, nullptr);
+                    }
                     for (const auto& spec : importDecl->namedImports) {
                         if (spec.isTypeOnly) continue;
                         std::string exp = spec.propertyName.empty() ? spec.name

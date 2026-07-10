@@ -758,6 +758,9 @@ extern "C" {
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
                     return px->getPrototypeOfTrap();
+                // ES 10.4.6.1 module namespace [[GetPrototypeOf]]: null.
+                if (((TsMap*)raw0)->IsModuleNamespace())
+                    return ts_value_make_null();
             }
         }
         // Generator / async-generator FUNCTION (a TsClosure tagged at
@@ -1102,6 +1105,22 @@ extern "C" {
             return ts_value_make_undefined();  // unreachable
         }
         if (!nanbox_is_ptr(nbObj)) return obj;  // primitive: no-op, return O
+
+        // ES 10.4.6.2 module namespace [[SetPrototypeOf]]: only null succeeds
+        // (SetImmutablePrototype — the current proto IS null); anything else
+        // throws under Object.setPrototypeOf (ordinary-object caller).
+        {
+            void* rawNs = ts_value_get_object(obj);
+            if (rawNs && (uintptr_t)rawNs >= 0x10000 &&
+                *(uint32_t*)((char*)rawNs + 16) == 0x4D415053 &&
+                ((TsMap*)rawNs)->IsModuleNamespace()) {
+                uint64_t pnb = proto ? nanbox_from_tsvalue_ptr(proto) : 0;
+                if (proto && nanbox_is_null(pnb)) return obj;
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot set prototype of a module namespace object"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
 
         // Step 2: proto must be Object or Null; any other primitive (number,
         // boolean) throws TypeError — and must do so before the magic reads on
@@ -1494,6 +1513,16 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) return obj;
 
+        // ES 10.4.6.4 module namespace [[PreventExtensions]]: always true —
+        // but the REAL map must stay writable for late live-binding
+        // installation, so this is a no-op success (the marker already
+        // answers isExtensible false).
+        {
+            if ((uintptr_t)rawPtr >= 0x10000 &&
+                *(uint32_t*)((char*)rawPtr + 16) == 0x4D415053 &&
+                ((TsMap*)rawPtr)->IsModuleNamespace()) return obj;
+        }
+
         // Flat objects: set the non-extensible flag IN PLACE. The old
         // demote-to-TsMap approach marked a detached copy — the caller's
         // pointer (and any proxy target) stayed extensible.
@@ -1651,6 +1680,11 @@ extern "C" {
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
+            // ES 10.4.6.3 module namespace [[IsExtensible]]: false (the map
+            // itself stays writable for live-binding installs; see
+            // ts_module_mark_namespace).
+            if (((TsMap*)rawPtr)->IsModuleNamespace())
+                return ts_value_make_bool(false);
             TsMap* map = (TsMap*)rawPtr;
             return ts_value_make_bool(map->IsExtensible());
         }
