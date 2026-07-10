@@ -910,6 +910,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 if (stmt->getKind() != "ImportDeclaration") continue;
                 auto* importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
                 if (!importDecl || importDecl->isTypeOnly) continue;
+                if (getenv("TS_DEBUG_SELFIMPORT"))
+                    fprintf(stderr, "[selfimport] saw import spec='%s' ns='%s'\n",
+                            importDecl->moduleSpecifier.c_str(),
+                            importDecl->namespaceImport.c_str());
                 if (importDecl->namedImports.empty() && importDecl->defaultImport.empty()
                     && importDecl->namespaceImport.empty()) continue;
 
@@ -944,6 +948,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 // visitExportAssignment stores exports.default IN PLACE, so a
                 // source-order `export default ...; import f from './self'`
                 // reads the populated slot.
+                if (getenv("TS_DEBUG_SELFIMPORT"))
+                    fprintf(stderr, "[selfimport] resolved valid=%d type=%d isSelf=%d path='%s'\n",
+                            (int)resolved.isValid(), (int)resolved.type,
+                            (int)isSelfImport, resolved.path.c_str());
                 if (isSelfImport) {
                     std::vector<std::unique_ptr<ast::Statement>> selfStmts;
                     auto makeBinding = [&](const std::string& localName,

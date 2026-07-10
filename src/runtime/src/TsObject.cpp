@@ -7232,22 +7232,25 @@ void* ts_create_arguments_from_params(
         if (!rawPtr || (uintptr_t)rawPtr < 0x10000) return ts_value_make_array(result);
 
         TsArray* symKeys = nullptr;
+        TsMap* propsMap = nullptr;
         uint32_t magic0 = *(uint32_t*)rawPtr;
         if (magic0 == 0x464C4154) {                 // FLAT_MAGIC
             symKeys = (TsArray*)ts_flat_object_symbol_keys(rawPtr);
         } else if (magic0 == 0x41525259) {          // TsArray "ARRY"
             TsArray* a = (TsArray*)rawPtr;
-            if (a->properties) symKeys = (TsArray*)ts_map_symbol_keys(a->properties);
+            if (a->properties) { propsMap = a->properties;
+                symKeys = (TsArray*)ts_map_symbol_keys(a->properties); }
         } else {
             uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
             if (magic16 == 0x4D415053) {            // TsMap "MAPS"
+                propsMap = (TsMap*)rawPtr;
                 symKeys = (TsArray*)ts_map_symbol_keys(rawPtr);
             } else if (magic16 == 0x46554E43) {     // TsFunction "FUNC"
                 TsMap* p = ((TsFunction*)rawPtr)->properties;
-                if (p) symKeys = (TsArray*)ts_map_symbol_keys(p);
+                if (p) { propsMap = p; symKeys = (TsArray*)ts_map_symbol_keys(p); }
             } else if (magic16 == 0x434C5352) {     // TsClosure "CLSR"
                 TsMap* p = ((TsClosure*)rawPtr)->properties;
-                if (p) symKeys = (TsArray*)ts_map_symbol_keys(p);
+                if (p) { propsMap = p; symKeys = (TsArray*)ts_map_symbol_keys(p); }
             }
         }
         if (symKeys) {
@@ -7256,6 +7259,32 @@ void* ts_create_arguments_from_params(
                 const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
                 TsSymbol* sym = ts_user_symbol_from_key(kc);
                 if (sym) result->Push((int64_t)(uintptr_t)ts_value_make_symbol(sym));
+            }
+        }
+        // WELL-KNOWN symbol properties are stored under "[Symbol.<name>]"
+        // bracket-string keys — surface them as the real Symbol.<name>
+        // objects (module namespace @@toStringTag must appear in gOPS;
+        // ES 10.4.6.10 lists symbol keys after string keys).
+        if (propsMap) {
+            extern void* ts_interp_global_ctor_by_name(const char* n);
+            TsArray* all = (TsArray*)propsMap->GetKeys();
+            int64_t an = all ? all->Length() : 0;
+            for (int64_t i = 0; i < an; i++) {
+                void* sp = ts_value_get_string((TsValue*)(uintptr_t)all->Get((size_t)i));
+                const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+                if (!kc || strncmp(kc, "[Symbol.", 8) != 0) continue;
+                size_t len = strlen(kc);
+                if (len < 10 || kc[len - 1] != ']' || len - 9 >= 60) continue;
+                char nm[64];
+                memcpy(nm, kc + 8, len - 9);
+                nm[len - 9] = 0;
+                void* symCtor = ts_interp_global_ctor_by_name("Symbol");
+                if (!symCtor) continue;
+                void* ctorRaw = ts_value_get_object((TsValue*)symCtor);
+                if (!ctorRaw) ctorRaw = symCtor;
+                TsValue* symV = ts_object_get_property(ctorRaw, nm);
+                if (symV && !ts_value_is_undefined(symV))
+                    result->Push((int64_t)(uintptr_t)symV);
             }
         }
         return ts_value_make_array(result);

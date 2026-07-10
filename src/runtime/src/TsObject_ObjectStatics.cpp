@@ -729,7 +729,33 @@ extern "C" {
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_own_string_keys(rawPtr));
+            TsArray* mk = (TsArray*)ts_map_own_string_keys(rawPtr);
+            // ES 10.4.6.10 module namespace [[OwnPropertyKeys]]: string
+            // export names in ascending code-unit order. Pass 1 flattens
+            // (may allocate/GC-move — elements re-read fresh); pass 2
+            // captures bits + byte copies with NO allocation, sorts, writes
+            // back (the ts_keys_spec_order no-GC-between-read-and-writeback
+            // rule). UTF-8 byte order == code-unit order for BMP names.
+            if (mk && ((TsMap*)rawPtr)->IsModuleNamespace()) {
+                int64_t n = mk->Length();
+                for (int64_t i = 0; i < n; i++) {
+                    void* sp = ts_value_get_string((TsValue*)(uintptr_t)mk->Get((size_t)i));
+                    if (sp) ((TsString*)sp)->ToUtf8();  // force-flatten
+                }
+                std::vector<std::pair<std::string, int64_t>> keyed;
+                keyed.reserve((size_t)n);
+                for (int64_t i = 0; i < n; i++) {
+                    int64_t bits = mk->Get((size_t)i);
+                    void* sp = ts_value_get_string((TsValue*)(uintptr_t)bits);
+                    const char* c = sp ? ((TsString*)sp)->ToUtf8() : "";
+                    keyed.emplace_back(c ? c : "", bits);
+                }
+                std::stable_sort(keyed.begin(), keyed.end(),
+                    [](const auto& a, const auto& b) { return a.first < b.first; });
+                for (int64_t i = 0; i < n; i++)
+                    ts_array_set_unchecked(mk, i, (void*)(uintptr_t)keyed[(size_t)i].second);
+            }
+            return ts_value_make_array(mk);
         }
 
         // Handle TsFunction and TsClosure - delegate to their properties map

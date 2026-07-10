@@ -651,6 +651,11 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
         // enumeration. Symbol storage keys ("\x01@@sym\x01...") are handled by
         // the isSym partition above.
         if (kc && kc[0] == '\x01' && !isSym) continue;
+        // Well-known-symbol properties are stored under "[Symbol.x]" bracket
+        // strings — they are SYMBOL keys, not string keys, and must not
+        // surface in Object.keys / getOwnPropertyNames (the module-namespace
+        // @@toStringTag leaked as a 17th name in own-property-keys-sort).
+        if (kc && strncmp(kc, "[Symbol.", 8) == 0) continue;
         // Accessor storage slots ("__getter_<k>"/"__setter_<k>") are not
         // property keys — the BASE name is (surfaced via its data
         // placeholder, or appended below if no placeholder was stored).

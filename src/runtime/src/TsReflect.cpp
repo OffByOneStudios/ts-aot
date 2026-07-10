@@ -445,8 +445,32 @@ extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.ownKeys called on non-object");
 
-    // Use ts_object_keys which returns an array
-    return ts_object_keys(ts_value_box_any(target));
+    // ES 28.1.11: [[OwnPropertyKeys]] = ALL own string keys (incl.
+    // non-enumerable — getOwnPropertyNames, NOT the enumerable-only
+    // Object.keys) followed by own SYMBOL keys (module namespace
+    // @@toStringTag; own-property-keys-sort asserts >= strings+symbols).
+    extern TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
+    extern TsValue* ts_object_getOwnPropertySymbols_native(void* context,
+                                                           int argc,
+                                                           TsValue** argv);
+    TsValue* boxed = ts_value_box_any(target);
+    TsValue* namesV = ts_object_getOwnPropertyNames(boxed);
+    TsValue* symsV = ts_object_getOwnPropertySymbols_native(nullptr, 1, &boxed);
+    void* nraw = namesV ? ts_value_get_object(namesV) : nullptr;
+    void* sraw = symsV ? ts_value_get_object(symsV) : nullptr;
+    TsArray* names = (nraw && *(uint32_t*)nraw == 0x41525259)
+                         ? (TsArray*)nraw : nullptr;
+    TsArray* syms = (sraw && *(uint32_t*)sraw == 0x41525259)
+                        ? (TsArray*)sraw : nullptr;
+    if (!syms || syms->Length() == 0)
+        return namesV ? namesV : ts_object_keys(boxed);
+    TsArray* out = TsArray::Create(0);
+    if (names)
+        for (int64_t i = 0; i < names->Length(); i++)
+            out->Push(names->Get((size_t)i));
+    for (int64_t i = 0; i < syms->Length(); i++)
+        out->Push(syms->Get((size_t)i));
+    return ts_value_make_array(out);
 }
 
 // ============================================================================
