@@ -5531,6 +5531,14 @@ extern "C" TsValue* ts_global_var_get(const char* name) {
     return v;
 }
 
+// TsString*-arg variant (HIR ConstString args lower to TsString*; the
+// HIRToLLVM-emitted get/set use C-string globals instead).
+extern "C" TsValue* ts_global_var_get_s(void* nameStr) {
+    if (!nameStr) return ts_value_make_undefined();
+    const char* n = ((TsString*)nameStr)->ToUtf8();
+    return ts_global_var_get(n ? n : "");
+}
+
 extern "C" void ts_global_var_set(const char* name, TsValue* v) {
     if (!globalThis || !name) return;
     extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* val);

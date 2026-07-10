@@ -1536,6 +1536,15 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         auto nameStr = builder_.createConstString(node->name);
         lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
                                          {nameStr}, HIRType::makeAny());
+    } else if (inTypeofOperand_ && evalTaint_) {
+        // EVAL-001 §11: in an eval-tainted module, eval may have INTRODUCED
+        // this binding at runtime (eval("var y = 3"); typeof y). Consult
+        // globalThis non-throwing — absent still yields undefined, so
+        // `typeof undeclared` semantics are preserved. _s variant: HIR
+        // ConstString args lower to TsString*.
+        auto nameStr = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_global_var_get_s", {nameStr},
+                                         HIRType::makeAny());
     } else {
         lastValue_ = createValue(HIRType::makeAny());
         builder_.createConstUndefined(lastValue_);
