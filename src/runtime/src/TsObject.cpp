@@ -6867,6 +6867,18 @@ void* ts_create_arguments_from_params(
                 g_array_default_iterator_deleted = true;
                 ts_array_prototype_bump_version();
             }
+            // ES 10.4.6.9 module namespace [[Delete]]: an EXPORTED name
+            // (own key, even uninitialized) -> false; any other name ->
+            // true. Never actually removes the binding.
+            if (map->IsModuleNamespace()) {
+                const char* kc = keyStr->ToUtf8();
+                if (kc && kc[0] == '\x01') return true;  // internal marker
+                // Symbol keys ("[Symbol.x]" storage) take the ordinary path
+                // below: @@toStringTag is non-configurable -> false ->
+                // strict TypeError (delete: Symbol.toStringTag).
+                if (!(kc && strncmp(kc, "[Symbol.", 8) == 0))
+                    return !map->Has(keyVal);
+            }
             // Per ES spec: [[Delete]] on a non-configurable property
             // returns false (and throws TypeError in strict mode, handled
             // by the compiler wrapper).
