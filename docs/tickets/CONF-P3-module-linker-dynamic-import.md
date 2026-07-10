@@ -179,6 +179,17 @@ Slice 3: dynamic-import/namespace (~30) reuses the brand at the import()
 resolution site.
 
 
+## CORRECTION (same day): the slice-2 blocker below was a PROBE ARTIFACT
+
+The ns-is-not-defined failures came from my probe files being RENAMED
+(tmp/probe_ks.js cannot resolve its own import specifier
+./own-property-keys-sort.js). Module probes MUST keep the original
+basename. With correct names the binding works for all shapes; the real
+remaining failures are property semantics (slice 2a landed sorted keys +
+bracket-key hygiene + Reflect.ownKeys; residual ~14 = get/has/delete/
+define/uninit-TDZ internals). TS_DEBUG_SELFIMPORT env-gated prints left
+in Monomorphizer.cpp for future linker digs.
+
 ## Slice 2 blocker (2026-07-10): self-import namespace binding vanishes when the module has exports
 
 Differential (probes tmp/probe_ks.js / probe_ks2.js):
