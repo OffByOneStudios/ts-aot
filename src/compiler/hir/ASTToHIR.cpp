@@ -273,6 +273,21 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         std::function<void(ast::Statement*)> walkForVars;
         walkForVars = [&](ast::Statement* s) {
             if (!s) return;
+            // EVAL-001 Phase 2: an annexB block-level function declaration
+            // promotes to a var-scope binding; in a tainted main module that
+            // binding is globalThis-backed so eval's promoted redefinition
+            // (existing-block-fn-update) is observed by compiled reads/calls.
+            if (auto* fdBlk = dynamic_cast<ast::FunctionDeclaration*>(s)) {
+                if (evalTaint_ && currentModulePath_.empty() &&
+                    !fdBlk->name.empty() && fdBlk->name.find("__") != 0) {
+                    moduleGlobalVarsByModule_[fdBlk->name].insert(currentModulePath_);
+                    module_->globals[modVarName(fdBlk->name)] = HIRType::makeAny();
+                    module_->globalObjectVars[modVarName(fdBlk->name)] = fdBlk->name;
+                    moduleGlobalsUsedByInnerByModule_[fdBlk->name]
+                        .insert(currentModulePath_);
+                }
+                return;  // never recurse into the body (own scope)
+            }
             if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(s)) {
                 // Only `var` (and legacy `function` declarations) hoist;
                 // `let`/`const` are block-scoped per ECMA-262.
@@ -346,6 +361,15 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 if (!funcDecl->name.empty() && funcDecl->name.find("__") != 0) {
                     moduleGlobalVarsByModule_[funcDecl->name].insert(currentModulePath_);
                     module_->globals[modVarName(funcDecl->name)] = HIRType::makeAny();
+                    // EVAL-001 Phase 2: tainted-module toplevel fn BINDINGS
+                    // are globalThis-backed VALUES — eval redefinitions must
+                    // be observed by reads AND calls (existing-fn-update).
+                    if (evalTaint_ && currentModulePath_.empty()) {
+                        module_->globalObjectVars[modVarName(funcDecl->name)] =
+                            funcDecl->name;
+                        moduleGlobalsUsedByInnerByModule_[funcDecl->name]
+                            .insert(currentModulePath_);
+                    }
                 }
             } else if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
                 // Top-level let/const are module-scoped (their "enclosing

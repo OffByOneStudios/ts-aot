@@ -185,6 +185,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 }
             }
 
+            // EVAL-001 Phase 2: a globalThis-backed fn binding may have
+            // been REBOUND by eval — never call the static specialization;
+            // fall through to the value-based call path.
+            if (foundSpec && module_->globalObjectVars.count(modVarName(funcName)))
+                foundSpec = false;
             if (foundSpec) {
                 // Look up HIR function for parameter info (may not be available yet
                 // if this function's specialization hasn't been processed)
