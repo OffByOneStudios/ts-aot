@@ -728,6 +728,17 @@ ast::ExprPtr Parser::parseCallExpression() {
             // parseMethodDefinition can validate the spec invariant
             // (only the constructor of a derived class may have super()).
             if (dynamic_cast<ast::SuperExpression*>(expr.get())) {
+                // EVAL-001 function-context eval (field/param initializers):
+                // SuperPROPERTY is valid, SuperCALL never is — initializers
+                // are not derived-class constructors (the err-contains-
+                // supercall family). Normal parses validate per-method via
+                // parseMethodDefinition instead.
+                if (fnCtxEvalBansSuperCall_ && nonArrowFunctionDepth_ <= 1) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: super() call is not allowed in "
+                        "eval code of a class field initializer",
+                        fileName_, current_.line));
+                }
                 directSuperCount_++;
             }
             // Function call

@@ -35,9 +35,12 @@ extern "C" void* ts_parse_program(const char* source, const char* file_name,
         res->error = "SyntaxError: null source";
         return res;
     }
-    (void)as_module; // script goal is the parser default; module goal unused yet
+    // as_module bit0: module goal (unused yet — script goal is the default).
+    // bit1: FUNCTION-context eval — new.target / super-property are valid at
+    // the eval program's toplevel (field/param-initializer direct eval).
     try {
         ts::parser::Parser parser;
+        if (as_module & 2) parser.setFunctionContextEval();
         res->program = parser.parse(std::string(source),
                                     file_name ? std::string(file_name)
                                               : std::string("<eval>"));

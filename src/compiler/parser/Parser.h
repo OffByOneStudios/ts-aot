@@ -287,6 +287,23 @@ private:
     // is no enclosing ordinary function/method, so `new.target` is invalid —
     // including inside a top-level arrow (`() => { new.target; }`).
     int nonArrowFunctionDepth_ = 0;
+
+public:
+    // EVAL-001: parse eval source in a FUNCTION/METHOD context — new.target
+    // (nonArrowFunctionDepth_) and super-property (superAllowed_) are valid
+    // at the eval program's toplevel (field-initializer / param-initializer
+    // direct eval; ES 19.2.1.1 treats such eval code as function code).
+    void setFunctionContextEval() {
+        nonArrowFunctionDepth_ = 1;
+        superAllowed_ = true;
+        fnCtxEvalBansSuperCall_ = true;
+    }
+
+private:
+    // Set with setFunctionContextEval: super PROPERTY parses, but a direct
+    // super() CALL at the eval program's toplevel (depth 1, arrows included)
+    // is a SyntaxError — initializers are never derived-class constructors.
+    bool fnCtxEvalBansSuperCall_ = false;
     int iterationDepth_ = 0;   // Inside for/while/do-while body (break + continue allowed)
     int switchDepth_ = 0;      // Inside switch body (break allowed, continue not)
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)

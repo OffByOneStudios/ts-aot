@@ -2608,134 +2608,144 @@ void* fctorBuild(const char* paramsUtf8, const char* bodyUtf8, TsValue** errOut)
 // code (arrows included — they don't rebind; nested fns excluded — they do).
 // Mirrors containsArgumentsIdentifier in ASTToHIR_Internal.h (that header
 // drags the whole compiler in, so the walker is replicated here).
-bool evalCodeContainsArguments(ast::Node* node) {
+enum class EvalBan { Arguments, NewTarget };
+bool evalCodeContainsBanned(ast::Node* node, EvalBan kind) {
     if (!node) return false;
     if (auto* ident = dynamic_cast<ast::Identifier*>(node))
-        return ident->name == "arguments";
+        return kind == EvalBan::Arguments && ident->name == "arguments";
     if (dynamic_cast<ast::FunctionExpression*>(node)) return false;
     if (dynamic_cast<ast::FunctionDeclaration*>(node)) return false;
     if (auto* arrow = dynamic_cast<ast::ArrowFunction*>(node))
-        return evalCodeContainsArguments(arrow->body.get());
+        return evalCodeContainsBanned(arrow->body.get(), kind);
     if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
         for (auto& s : block->statements)
-            if (evalCodeContainsArguments(s.get())) return true;
+            if (evalCodeContainsBanned(s.get(), kind)) return true;
         return false;
     }
     if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node))
-        return evalCodeContainsArguments(expr->expression.get());
+        return evalCodeContainsBanned(expr->expression.get(), kind);
     if (auto* ifSt = dynamic_cast<ast::IfStatement*>(node))
-        return evalCodeContainsArguments(ifSt->condition.get()) ||
-               evalCodeContainsArguments(ifSt->thenStatement.get()) ||
-               evalCodeContainsArguments(ifSt->elseStatement.get());
+        return evalCodeContainsBanned(ifSt->condition.get(), kind) ||
+               evalCodeContainsBanned(ifSt->thenStatement.get(), kind) ||
+               evalCodeContainsBanned(ifSt->elseStatement.get(), kind);
     if (auto* w = dynamic_cast<ast::WhileStatement*>(node))
-        return evalCodeContainsArguments(w->condition.get()) ||
-               evalCodeContainsArguments(w->body.get());
+        return evalCodeContainsBanned(w->condition.get(), kind) ||
+               evalCodeContainsBanned(w->body.get(), kind);
     if (auto* f = dynamic_cast<ast::ForStatement*>(node))
-        return evalCodeContainsArguments(f->initializer.get()) ||
-               evalCodeContainsArguments(f->condition.get()) ||
-               evalCodeContainsArguments(f->incrementor.get()) ||
-               evalCodeContainsArguments(f->body.get());
+        return evalCodeContainsBanned(f->initializer.get(), kind) ||
+               evalCodeContainsBanned(f->condition.get(), kind) ||
+               evalCodeContainsBanned(f->incrementor.get(), kind) ||
+               evalCodeContainsBanned(f->body.get(), kind);
     if (auto* fo = dynamic_cast<ast::ForOfStatement*>(node))
-        return evalCodeContainsArguments(fo->expression.get()) ||
-               evalCodeContainsArguments(fo->body.get());
+        return evalCodeContainsBanned(fo->expression.get(), kind) ||
+               evalCodeContainsBanned(fo->body.get(), kind);
     if (auto* fi = dynamic_cast<ast::ForInStatement*>(node))
-        return evalCodeContainsArguments(fi->expression.get()) ||
-               evalCodeContainsArguments(fi->body.get());
+        return evalCodeContainsBanned(fi->expression.get(), kind) ||
+               evalCodeContainsBanned(fi->body.get(), kind);
     if (auto* t = dynamic_cast<ast::TryStatement*>(node)) {
         for (auto& s : t->tryBlock)
-            if (evalCodeContainsArguments(s.get())) return true;
+            if (evalCodeContainsBanned(s.get(), kind)) return true;
         if (t->catchClause)
             for (auto& s : t->catchClause->block)
-                if (evalCodeContainsArguments(s.get())) return true;
+                if (evalCodeContainsBanned(s.get(), kind)) return true;
         for (auto& s : t->finallyBlock)
-            if (evalCodeContainsArguments(s.get())) return true;
+            if (evalCodeContainsBanned(s.get(), kind)) return true;
         return false;
     }
     if (auto* th = dynamic_cast<ast::ThrowStatement*>(node))
-        return evalCodeContainsArguments(th->expression.get());
+        return evalCodeContainsBanned(th->expression.get(), kind);
     if (auto* rs = dynamic_cast<ast::ReturnStatement*>(node))
-        return evalCodeContainsArguments(rs->expression.get());
+        return evalCodeContainsBanned(rs->expression.get(), kind);
     if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(node))
-        return evalCodeContainsArguments(vd->initializer.get());
+        return evalCodeContainsBanned(vd->initializer.get(), kind);
     if (auto* lb = dynamic_cast<ast::LabeledStatement*>(node))
-        return evalCodeContainsArguments(lb->statement.get());
+        return evalCodeContainsBanned(lb->statement.get(), kind);
     if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
-        if (evalCodeContainsArguments(sw->expression.get())) return true;
+        if (evalCodeContainsBanned(sw->expression.get(), kind)) return true;
         for (auto& cl : sw->clauses) {
             if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
-                if (evalCodeContainsArguments(cc->expression.get())) return true;
+                if (evalCodeContainsBanned(cc->expression.get(), kind)) return true;
                 for (auto& s : cc->statements)
-                    if (evalCodeContainsArguments(s.get())) return true;
+                    if (evalCodeContainsBanned(s.get(), kind)) return true;
             } else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
                 for (auto& s : dc->statements)
-                    if (evalCodeContainsArguments(s.get())) return true;
+                    if (evalCodeContainsBanned(s.get(), kind)) return true;
             }
         }
         return false;
     }
     if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
-        if (evalCodeContainsArguments(call->callee.get())) return true;
+        if (evalCodeContainsBanned(call->callee.get(), kind)) return true;
         for (auto& a : call->arguments)
-            if (evalCodeContainsArguments(a.get())) return true;
+            if (evalCodeContainsBanned(a.get(), kind)) return true;
         return false;
     }
     if (auto* ne = dynamic_cast<ast::NewExpression*>(node)) {
-        if (evalCodeContainsArguments(ne->expression.get())) return true;
+        if (evalCodeContainsBanned(ne->expression.get(), kind)) return true;
         for (auto& a : ne->arguments)
-            if (evalCodeContainsArguments(a.get())) return true;
+            if (evalCodeContainsBanned(a.get(), kind)) return true;
         return false;
     }
     if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node))
-        return evalCodeContainsArguments(bin->left.get()) ||
-               evalCodeContainsArguments(bin->right.get());
+        return evalCodeContainsBanned(bin->left.get(), kind) ||
+               evalCodeContainsBanned(bin->right.get(), kind);
     if (auto* as = dynamic_cast<ast::AssignmentExpression*>(node))
-        return evalCodeContainsArguments(as->left.get()) ||
-               evalCodeContainsArguments(as->right.get());
+        return evalCodeContainsBanned(as->left.get(), kind) ||
+               evalCodeContainsBanned(as->right.get(), kind);
     if (auto* c = dynamic_cast<ast::ConditionalExpression*>(node))
-        return evalCodeContainsArguments(c->condition.get()) ||
-               evalCodeContainsArguments(c->whenTrue.get()) ||
-               evalCodeContainsArguments(c->whenFalse.get());
+        return evalCodeContainsBanned(c->condition.get(), kind) ||
+               evalCodeContainsBanned(c->whenTrue.get(), kind) ||
+               evalCodeContainsBanned(c->whenFalse.get(), kind);
     if (auto* pre = dynamic_cast<ast::PrefixUnaryExpression*>(node))
-        return evalCodeContainsArguments(pre->operand.get());
+        return evalCodeContainsBanned(pre->operand.get(), kind);
     if (auto* post = dynamic_cast<ast::PostfixUnaryExpression*>(node))
-        return evalCodeContainsArguments(post->operand.get());
-    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node))
-        return evalCodeContainsArguments(pa->expression.get());
+        return evalCodeContainsBanned(post->operand.get(), kind);
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node)) {
+        // new.target parses as PropertyAccess(Identifier "new", "target").
+        if (kind == EvalBan::NewTarget && pa->name == "target")
+            if (auto* base = dynamic_cast<ast::Identifier*>(pa->expression.get()))
+                if (base->name == "new") return true;
+        return evalCodeContainsBanned(pa->expression.get(), kind);
+    }
     if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node))
-        return evalCodeContainsArguments(ea->expression.get()) ||
-               evalCodeContainsArguments(ea->argumentExpression.get());
+        return evalCodeContainsBanned(ea->expression.get(), kind) ||
+               evalCodeContainsBanned(ea->argumentExpression.get(), kind);
     if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
         for (auto& e : arr->elements)
-            if (evalCodeContainsArguments(e.get())) return true;
+            if (evalCodeContainsBanned(e.get(), kind)) return true;
         return false;
     }
     if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
         for (auto& p : obj->properties)
             if (auto* pas = dynamic_cast<ast::PropertyAssignment*>(p.get()))
-                if (evalCodeContainsArguments(pas->initializer.get())) return true;
+                if (evalCodeContainsBanned(pas->initializer.get(), kind)) return true;
         return false;
     }
     if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(node)) {
         for (auto& span : tmpl->spans)
-            if (evalCodeContainsArguments(span.expression.get())) return true;
+            if (evalCodeContainsBanned(span.expression.get(), kind)) return true;
         return false;
     }
     if (auto* par = dynamic_cast<ast::ParenthesizedExpression*>(node))
-        return evalCodeContainsArguments(par->expression.get());
+        return evalCodeContainsBanned(par->expression.get(), kind);
     if (auto* sp = dynamic_cast<ast::SpreadElement*>(node))
-        return evalCodeContainsArguments(sp->expression.get());
+        return evalCodeContainsBanned(sp->expression.get(), kind);
     if (auto* del = dynamic_cast<ast::DeleteExpression*>(node))
-        return evalCodeContainsArguments(del->expression.get());
+        return evalCodeContainsBanned(del->expression.get(), kind);
     if (auto* aw = dynamic_cast<ast::AwaitExpression*>(node))
-        return evalCodeContainsArguments(aw->expression.get());
+        return evalCodeContainsBanned(aw->expression.get(), kind);
     if (auto* y = dynamic_cast<ast::YieldExpression*>(node))
-        return evalCodeContainsArguments(y->expression.get());
+        return evalCodeContainsBanned(y->expression.get(), kind);
     return false;
 }
 
 TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
                        Cpl* abrupt) {
-    void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+    // bit0 (param-init) / bit3 (field-init): eval code is FUNCTION code —
+    // parse with new.target / super-property valid at toplevel (bit1 of the
+    // parse mode; ES 19.2.1.1).
+    int parseMode = (flags & (1 | 8)) ? 2 : 0;
+    void* h = ts_parse_program(src ? src : "", "<eval>", parseMode);
     const char* perr = ts_parse_error(h);
     if (perr) {
         *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
@@ -2749,13 +2759,17 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
     // instantiation (direct-eval-err-contains-arguments family).
     if (flags & 8) {
         for (auto& s : prog->body) {
-            if (evalCodeContainsArguments(s.get())) {
+            if (evalCodeContainsBanned(s.get(), EvalBan::Arguments)) {
                 *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
                     "'arguments' is not allowed in class field initializer "
                     "eval code");
                 return nullptr;
             }
         }
+        // NOTE: new.target is ALLOWED in field-initializer eval code
+        // (initializers are function-like; direct-eval-err-contains-newtarget
+        // asserts the eval RUNS and new.target reads undefined) — the
+        // outside-functions ban is a parse-goal concern, not a walker one.
     }
     if (!prog->isStrict && (flags & 2)) {
         std::vector<std::string> vars;
@@ -2777,8 +2791,14 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
     // Local var scope (fn-scope root, no \x01g marker): eval var declarations
     // stay out of globalThis. flags bit2: strict CALLER — the eval'd code
     // inherits strictness (ES 19.2.1.1 step 3; var-env-var-strict-caller-*).
+    // bit3: a field INITIALIZER is its own function environment whose
+    // [[NewTarget]] is undefined — clear the ambient register around the run
+    // (the enclosing `new C()` left the constructor in it; the test asserts
+    // eval'd new.target reads undefined).
+    void* prevNT = (flags & 8) ? ts_set_new_target(nullptr) : nullptr;
     Cpl r = runProgramInEnv(prog, envNew(nullptr, /*fnScope*/true), globalThis,
                             /*callerStrict*/(flags & 4) != 0);
+    if (flags & 8) ts_set_new_target(prevNT);
     if (r.k == Cpl::Thrown) { *abrupt = r; return nullptr; }
     return r.v ? r.v : jsUndefined();
 }
