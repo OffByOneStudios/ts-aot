@@ -5489,6 +5489,56 @@ extern "C" void ts_global_bind_fn(void* nameStr, TsValue* fn) {
     ts_object_set_property((void*)globalThis, (void*)key, fn);
 }
 
+// EVAL-001 §11: globalThis-backed toplevel `var` bindings for eval-tainted
+// modules. Compiled code (HIRToLLVM lowers LoadGlobal/StoreGlobal of tainted
+// names to these) and the runtime interpreter's eval (guardGet/guardSet over
+// the same ts_object_*_dynamic primitives) share the bindings as ordinary
+// own properties of globalThis. Getters/setters installed on globalThis may
+// throw — these frames are free of C++ destructor locals (longjmp-safe).
+extern "C" void ts_global_var_declare(void* nameStr) {
+    // Hoist: own property = undefined if absent (typeof x -> "undefined",
+    // Object.hasOwn(globalThis, x) true, before the `var` statement runs).
+    // nameStr is a TsString* (compiler ConstString), like ts_global_bind_fn.
+    if (!globalThis || !nameStr) return;
+    extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
+    extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* val);
+    TsValue* key = ts_value_make_string(nameStr);
+    if (!ts_object_has_prop(globalThis, key))
+        ts_object_set_dynamic(globalThis, key, ts_value_make_undefined());
+}
+
+extern "C" void* ts_interp_global_ctor_by_name(const char* n);  // defined below
+
+extern "C" TsValue* ts_global_var_get(const char* name) {
+    if (!globalThis || !name) return ts_value_make_undefined();
+    extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    TsValue* key = ts_value_make_string(TsString::GetInterned(name));
+    TsValue* v = ts_object_get_dynamic(globalThis, key);  // may throw
+    if (!v) return ts_value_make_undefined();
+    // Builtin-constructor globalThis entries hold only their NAME STRING
+    // (kTA trap) — swap in the real constructor, mirroring the
+    // interpreter's envLookup (a tainted `var Map = ...` reads the marker
+    // before its assignment runs).
+    void* sraw = ts_value_get_string(v);
+    if (sraw) {
+        const char* sc = ((TsString*)sraw)->ToUtf8();
+        if (sc && strcmp(sc, name) == 0) {
+            if (void* ctor = ts_interp_global_ctor_by_name(name))
+                return (TsValue*)ctor;
+        }
+    }
+    return v;
+}
+
+extern "C" void ts_global_var_set(const char* name, TsValue* v) {
+    if (!globalThis || !name) return;
+    extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* val);
+    TsValue* key = ts_value_make_string(TsString::GetInterned(name));
+    ts_object_set_dynamic(globalThis, key,
+                          v ? v : ts_value_make_undefined());  // may throw
+}
+
 // OrdinaryCallBindThis for sloppy callees: undefined/null `this` becomes
 // globalThis. Emitted by the compiler at the ambient-this fallback of
 // non-strict functions.

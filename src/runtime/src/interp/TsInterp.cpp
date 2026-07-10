@@ -2604,6 +2604,135 @@ void* fctorBuild(const char* paramsUtf8, const char* bodyUtf8, TsValue** errOut)
 // env). flags bit1: an 'arguments' binding lies on the eval's lexEnv->varEnv
 // walk, so sloppy eval code var/function-declaring 'arguments' throws
 // SyntaxError before any instantiation (ES2025 19.2.1.3 step 5.d).
+// ES ClassFieldDefinition ContainsArguments: `arguments` anywhere in eval
+// code (arrows included — they don't rebind; nested fns excluded — they do).
+// Mirrors containsArgumentsIdentifier in ASTToHIR_Internal.h (that header
+// drags the whole compiler in, so the walker is replicated here).
+bool evalCodeContainsArguments(ast::Node* node) {
+    if (!node) return false;
+    if (auto* ident = dynamic_cast<ast::Identifier*>(node))
+        return ident->name == "arguments";
+    if (dynamic_cast<ast::FunctionExpression*>(node)) return false;
+    if (dynamic_cast<ast::FunctionDeclaration*>(node)) return false;
+    if (auto* arrow = dynamic_cast<ast::ArrowFunction*>(node))
+        return evalCodeContainsArguments(arrow->body.get());
+    if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
+        for (auto& s : block->statements)
+            if (evalCodeContainsArguments(s.get())) return true;
+        return false;
+    }
+    if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node))
+        return evalCodeContainsArguments(expr->expression.get());
+    if (auto* ifSt = dynamic_cast<ast::IfStatement*>(node))
+        return evalCodeContainsArguments(ifSt->condition.get()) ||
+               evalCodeContainsArguments(ifSt->thenStatement.get()) ||
+               evalCodeContainsArguments(ifSt->elseStatement.get());
+    if (auto* w = dynamic_cast<ast::WhileStatement*>(node))
+        return evalCodeContainsArguments(w->condition.get()) ||
+               evalCodeContainsArguments(w->body.get());
+    if (auto* f = dynamic_cast<ast::ForStatement*>(node))
+        return evalCodeContainsArguments(f->initializer.get()) ||
+               evalCodeContainsArguments(f->condition.get()) ||
+               evalCodeContainsArguments(f->incrementor.get()) ||
+               evalCodeContainsArguments(f->body.get());
+    if (auto* fo = dynamic_cast<ast::ForOfStatement*>(node))
+        return evalCodeContainsArguments(fo->expression.get()) ||
+               evalCodeContainsArguments(fo->body.get());
+    if (auto* fi = dynamic_cast<ast::ForInStatement*>(node))
+        return evalCodeContainsArguments(fi->expression.get()) ||
+               evalCodeContainsArguments(fi->body.get());
+    if (auto* t = dynamic_cast<ast::TryStatement*>(node)) {
+        for (auto& s : t->tryBlock)
+            if (evalCodeContainsArguments(s.get())) return true;
+        if (t->catchClause)
+            for (auto& s : t->catchClause->block)
+                if (evalCodeContainsArguments(s.get())) return true;
+        for (auto& s : t->finallyBlock)
+            if (evalCodeContainsArguments(s.get())) return true;
+        return false;
+    }
+    if (auto* th = dynamic_cast<ast::ThrowStatement*>(node))
+        return evalCodeContainsArguments(th->expression.get());
+    if (auto* rs = dynamic_cast<ast::ReturnStatement*>(node))
+        return evalCodeContainsArguments(rs->expression.get());
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(node))
+        return evalCodeContainsArguments(vd->initializer.get());
+    if (auto* lb = dynamic_cast<ast::LabeledStatement*>(node))
+        return evalCodeContainsArguments(lb->statement.get());
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+        if (evalCodeContainsArguments(sw->expression.get())) return true;
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
+                if (evalCodeContainsArguments(cc->expression.get())) return true;
+                for (auto& s : cc->statements)
+                    if (evalCodeContainsArguments(s.get())) return true;
+            } else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
+                for (auto& s : dc->statements)
+                    if (evalCodeContainsArguments(s.get())) return true;
+            }
+        }
+        return false;
+    }
+    if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
+        if (evalCodeContainsArguments(call->callee.get())) return true;
+        for (auto& a : call->arguments)
+            if (evalCodeContainsArguments(a.get())) return true;
+        return false;
+    }
+    if (auto* ne = dynamic_cast<ast::NewExpression*>(node)) {
+        if (evalCodeContainsArguments(ne->expression.get())) return true;
+        for (auto& a : ne->arguments)
+            if (evalCodeContainsArguments(a.get())) return true;
+        return false;
+    }
+    if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node))
+        return evalCodeContainsArguments(bin->left.get()) ||
+               evalCodeContainsArguments(bin->right.get());
+    if (auto* as = dynamic_cast<ast::AssignmentExpression*>(node))
+        return evalCodeContainsArguments(as->left.get()) ||
+               evalCodeContainsArguments(as->right.get());
+    if (auto* c = dynamic_cast<ast::ConditionalExpression*>(node))
+        return evalCodeContainsArguments(c->condition.get()) ||
+               evalCodeContainsArguments(c->whenTrue.get()) ||
+               evalCodeContainsArguments(c->whenFalse.get());
+    if (auto* pre = dynamic_cast<ast::PrefixUnaryExpression*>(node))
+        return evalCodeContainsArguments(pre->operand.get());
+    if (auto* post = dynamic_cast<ast::PostfixUnaryExpression*>(node))
+        return evalCodeContainsArguments(post->operand.get());
+    if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node))
+        return evalCodeContainsArguments(pa->expression.get());
+    if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node))
+        return evalCodeContainsArguments(ea->expression.get()) ||
+               evalCodeContainsArguments(ea->argumentExpression.get());
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
+        for (auto& e : arr->elements)
+            if (evalCodeContainsArguments(e.get())) return true;
+        return false;
+    }
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
+        for (auto& p : obj->properties)
+            if (auto* pas = dynamic_cast<ast::PropertyAssignment*>(p.get()))
+                if (evalCodeContainsArguments(pas->initializer.get())) return true;
+        return false;
+    }
+    if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(node)) {
+        for (auto& span : tmpl->spans)
+            if (evalCodeContainsArguments(span.expression.get())) return true;
+        return false;
+    }
+    if (auto* par = dynamic_cast<ast::ParenthesizedExpression*>(node))
+        return evalCodeContainsArguments(par->expression.get());
+    if (auto* sp = dynamic_cast<ast::SpreadElement*>(node))
+        return evalCodeContainsArguments(sp->expression.get());
+    if (auto* del = dynamic_cast<ast::DeleteExpression*>(node))
+        return evalCodeContainsArguments(del->expression.get());
+    if (auto* aw = dynamic_cast<ast::AwaitExpression*>(node))
+        return evalCodeContainsArguments(aw->expression.get());
+    if (auto* y = dynamic_cast<ast::YieldExpression*>(node))
+        return evalCodeContainsArguments(y->expression.get());
+    return false;
+}
+
 TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
                        Cpl* abrupt) {
     void* h = ts_parse_program(src ? src : "", "<eval>", 0);
@@ -2615,6 +2744,19 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
     }
     retainParseHandle(h);
     auto* prog = (ast::Program*)ts_parse_get_program(h);
+    // flags bit3: class FIELD-INITIALIZER direct eval — ES ClassFieldDefinition
+    // early error: eval code ContainsArguments -> SyntaxError, before any
+    // instantiation (direct-eval-err-contains-arguments family).
+    if (flags & 8) {
+        for (auto& s : prog->body) {
+            if (evalCodeContainsArguments(s.get())) {
+                *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
+                    "'arguments' is not allowed in class field initializer "
+                    "eval code");
+                return nullptr;
+            }
+        }
+    }
     if (!prog->isStrict && (flags & 2)) {
         std::vector<std::string> vars;
         std::vector<ast::FunctionDeclaration*> fns;
@@ -2633,9 +2775,10 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
         }
     }
     // Local var scope (fn-scope root, no \x01g marker): eval var declarations
-    // stay out of globalThis.
+    // stay out of globalThis. flags bit2: strict CALLER — the eval'd code
+    // inherits strictness (ES 19.2.1.1 step 3; var-env-var-strict-caller-*).
     Cpl r = runProgramInEnv(prog, envNew(nullptr, /*fnScope*/true), globalThis,
-                            /*callerStrict*/false);
+                            /*callerStrict*/(flags & 4) != 0);
     if (r.k == Cpl::Thrown) { *abrupt = r; return nullptr; }
     return r.v ? r.v : jsUndefined();
 }

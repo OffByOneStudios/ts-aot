@@ -1283,6 +1283,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     HIRType::makeAny());
                 return;
             }
+            // STRICT caller: direct eval's var declarations go to eval's OWN
+            // environment, never the global (ES 19.2.1.3 step 10 strictEval),
+            // and the eval'd code inherits strictness. flags bit2.
+            if (strictCode_) {
+                lastValue_ = builder_.createCall(
+                    "ts_direct_eval_value",
+                    {evalArg, builder_.createConstInt(4)},
+                    HIRType::makeAny());
+                return;
+            }
             lastValue_ = builder_.createCall("ts_indirect_eval_value",
                                              {evalArg}, HIRType::makeAny());
             return;

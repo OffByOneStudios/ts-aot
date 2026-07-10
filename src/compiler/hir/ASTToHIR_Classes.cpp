@@ -602,7 +602,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                                 // see only 'b' as an own property.
                                 std::shared_ptr<HIRValue> initVal;
                                 if (propDef->initializer) {
-                                    initVal = lowerExpression(propDef->initializer.get());
+                                    {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                                 } else {
                                     initVal = builder_.createConstUndefined();
                                 }
@@ -854,7 +867,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     if (!propDef->isStatic) {
                         std::shared_ptr<HIRValue> initVal;
                         if (propDef->initializer) {
-                            initVal = lowerExpression(propDef->initializer.get());
+                            {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                         } else {
                             initVal = builder_.createConstUndefined();
                         }
@@ -1479,7 +1505,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                                 // see only 'b' as an own property.
                                 std::shared_ptr<HIRValue> initVal;
                                 if (propDef->initializer) {
-                                    initVal = lowerExpression(propDef->initializer.get());
+                                    {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                                 } else {
                                     initVal = builder_.createConstUndefined();
                                 }
@@ -1707,7 +1746,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     if (!propDef->isStatic) {
                         std::shared_ptr<HIRValue> initVal;
                         if (propDef->initializer) {
-                            initVal = lowerExpression(propDef->initializer.get());
+                            {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                         } else {
                             initVal = builder_.createConstUndefined();
                         }

@@ -697,6 +697,11 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     }
     popLexicalScope();
 
+    // EVAL-001 §11: stamp the lexer's eval-identifier taint on the Program
+    // (like isStrict, the Monomorphizer restructures the body before
+    // ASTToHIR, so it must ride on the Program node).
+    if (lexer_ && lexer_->sawEvalIdent_) program->referencesEval = true;
+
     return program;
 }
 

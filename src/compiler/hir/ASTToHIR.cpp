@@ -77,6 +77,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     builder_ = HIRBuilder(module_.get());
     strictCode_ = program->isStrict;  // stamped by the parser (see above)
     fastCode_ = program->isFast;
+    // EVAL-001 §11: source references `eval` -> main-module toplevel vars
+    // deopt to globalThis-backed storage (globalObjectVars).
+    evalTaint_ = program->referencesEval;
 
     // Store specializations for lookup during call generation
     specializations_ = &specializations;
@@ -95,6 +98,25 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         for (auto& stmt0 : program->body) {
             if (subtreeHasWith(stmt0.get())) { anyWith = true; break; }
         }
+        // EVAL-001 §11: `with` has its own deopt world (the with-stack's
+        // static-store fallback writes slots, not globalThis) — the two
+        // mechanisms don't compose. with+eval programs keep slot globals
+        // (S12.10_A1.* regressed when tainted: `var p4` written inside a
+        // with body was invisible to the globalThis-backed read outside).
+        // The Monomorphizer moves toplevel statements into spec nodes, so
+        // the program->body scan above misses them — scan the specs too.
+        bool anyWithForTaint = anyWith;
+        if (!anyWithForTaint && evalTaint_) {
+            for (const auto& spec : specializations) {
+                auto* fn = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
+                if (!fn) continue;
+                for (auto& s : fn->body) {
+                    if (subtreeHasWith(s.get())) { anyWithForTaint = true; break; }
+                }
+                if (anyWithForTaint) break;
+            }
+        }
+        if (anyWithForTaint) evalTaint_ = false;
         if (anyWith) {
             // COARSE: with-programs poison every assigned name (values flow
             // between with bodies and surrounding catch/throw/compare code;
@@ -213,6 +235,22 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 if (ident->name == "exports") return;
                 if (ident->name.find("__") == 0 &&
                     ident->name != "__filename" && ident->name != "__dirname") return;
+                // EVAL-001 §11 eval-taint deopt: main-module toplevel `var`s
+                // become globalThis-backed properties (typed Any — globalThis
+                // values are nanboxed) so eval'd writes/reads and compiled
+                // code observe the same binding. let/const stay lexical slots
+                // (eval cannot redeclare them). Imported modules keep slots
+                // (ES-module vars are not globalThis properties).
+                if (evalTaint_ && currentModulePath_.empty() &&
+                    varDecl->varKind == ast::VarKind::Var &&
+                    ident->name != "__filename" && ident->name != "__dirname") {
+                    globalType = HIRType::makeAny();
+                    module_->globalObjectVars[modVarName(ident->name)] = ident->name;
+                    // Flip the read gate so reads inside __module_init_* go
+                    // through LoadGlobal instead of the stale local alloca.
+                    moduleGlobalsUsedByInnerByModule_[ident->name]
+                        .insert(currentModulePath_);
+                }
                 moduleVarDecls_[ident->name] = varDecl;
                 registerModuleGlobalName(ident->name, globalType);
                 // Module-level let/const: mark for TDZ seeding + checked reads
@@ -552,7 +590,20 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     if (!propDef->isStatic) {
                         std::shared_ptr<HIRValue> initVal;
                         if (propDef->initializer) {
-                            initVal = lowerExpression(propDef->initializer.get());
+                            {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                         } else {
                             initVal = builder_.createConstUndefined();
                         }
@@ -1206,6 +1257,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     builder_.createCall("ts_global_bind_fn", {nameStr, fnVal},
                                         HIRType::makeVoid());
                 }
+                // EVAL-001 §11: hoist-declare tainted globalThis-backed vars
+                // (own property = undefined if absent) BEFORE pass 2, so eval
+                // executed ahead of the `var` statement sees the binding
+                // (typeof x === "undefined", Object.hasOwn true).
+                if (evalTaint_ && currentModulePath_.empty()) {
+                    for (auto& [mangled, jsName] : module_->globalObjectVars) {
+                        auto nameStr = builder_.createConstString(jsName);
+                        builder_.createCall("ts_global_var_declare", {nameStr},
+                                            HIRType::makeVoid());
+                    }
+                }
             }
 
             // SECOND PASS: Process non-FunctionDeclaration statements in order
@@ -1578,7 +1640,20 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                                     // undefined when no initializer.
                                     std::shared_ptr<HIRValue> initVal;
                                     if (propDef->initializer) {
+                                        {
+                                        // Field-initializer eval context
+                                        // (ES ClassFieldDefinition: eval code
+                                        // containing 'arguments' -> Syntax-
+                                        // Error). flags bit3; owner check
+                                        // keeps nested fn bodies plain.
+                                        int savedAEF = activeEvalFlags_;
+                                        HIRFunction* savedAEO = evalFlagsOwner_;
+                                        activeEvalFlags_ |= 12;  // bit2 strict + bit3 field-init
+                                        evalFlagsOwner_ = currentFunction_;
                                         initVal = lowerExpression(propDef->initializer.get());
+                                        activeEvalFlags_ = savedAEF;
+                                        evalFlagsOwner_ = savedAEO;
+                                    }
                                     } else {
                                         initVal = builder_.createConstUndefined();
                                     }
@@ -2419,7 +2494,13 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         if (isModuleGlobalVar(ident->name) &&
             (!currentFunction_ || currentFunction_->name.find("__module_init_") == 0)) {
             std::string globalName = modVarName(ident->name);
-            builder_.createStoreGlobal(globalName, initValue);
+            // EVAL-001 §11: an initializer-less `var x;` re-declaration of a
+            // globalThis-backed var must NOT clobber a value eval may have
+            // written (annexB existing-var-no-init) — the binding was already
+            // hoist-declared via ts_global_var_declare.
+            bool skipMirror = !node->initializer &&
+                              module_->globalObjectVars.count(globalName);
+            if (!skipMirror) builder_.createStoreGlobal(globalName, initValue);
         }
     } else if (auto* objPattern = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
         // Object destructuring: const { a, b } = obj

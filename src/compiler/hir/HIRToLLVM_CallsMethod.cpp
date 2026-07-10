@@ -1193,6 +1193,22 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
     } else if (globalName == "child_process") {
         funcName = "ts_get_global_child_process";
     } else if (globalName.find("__modvar_") == 0) {
+        // EVAL-001 §11: eval-tainted toplevel vars are globalThis-backed —
+        // read the property (shared with the runtime interpreter's eval),
+        // never an LLVM slot.
+        {
+            auto goIt = hirModule_->globalObjectVars.find(globalName);
+            if (goIt != hirModule_->globalObjectVars.end()) {
+                llvm::FunctionType* ft = llvm::FunctionType::get(
+                    getGCPtrTy(), { getGCPtrTy() }, false);
+                llvm::FunctionCallee fn =
+                    module_->getOrInsertFunction("ts_global_var_get", ft);
+                llvm::Value* nameStr = createGlobalString(goIt->second);
+                result = builder_->CreateCall(ft, fn.getCallee(), { nameStr });
+                if (inst->result) setValue(inst->result, result);
+                return;
+            }
+        }
         // Module-scoped variable from an imported module
         llvm::GlobalVariable* gv = module_->getGlobalVariable(globalName);
         if (!gv) {
@@ -1245,9 +1261,16 @@ void HIRToLLVM::lowerStoreGlobal(HIRInstruction* inst) {
     std::string globalName = getOperandString(inst->operands[0]);
     llvm::Value* value = getOperandValue(inst->operands[1]);
 
-    llvm::GlobalVariable* gv = module_->getGlobalVariable(globalName);
-    if (!gv) {
-        gv = getOrCreateGlobal(globalName, HIRType::makeAny());
+    // EVAL-001 §11: eval-tainted toplevel vars are globalThis-backed —
+    // write the property (shared with eval'd code), never an LLVM slot.
+    bool evalBacked = hirModule_->globalObjectVars.count(globalName) != 0;
+
+    llvm::GlobalVariable* gv = nullptr;
+    if (!evalBacked) {
+        gv = module_->getGlobalVariable(globalName);
+        if (!gv) {
+            gv = getOrCreateGlobal(globalName, HIRType::makeAny());
+        }
     }
 
     // Box value if needed (store as ptr)
@@ -1268,6 +1291,17 @@ void HIRToLLVM::lowerStoreGlobal(HIRInstruction* inst) {
             llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
             value = builder_->CreateCall(ft, fn.getCallee(), { value });
         }
+    }
+
+    if (evalBacked) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() }, false);
+        llvm::FunctionCallee fn =
+            module_->getOrInsertFunction("ts_global_var_set", ft);
+        llvm::Value* nameStr =
+            createGlobalString(hirModule_->globalObjectVars[globalName]);
+        builder_->CreateCall(ft, fn.getCallee(), { nameStr, value });
+        return;
     }
 
     builder_->CreateStore(value, gv);

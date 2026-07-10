@@ -600,6 +600,13 @@ struct HIRModule {
     // ReferenceError (ES module instn-local-bndng semantics).
     std::set<std::string> tdzGlobals;
 
+    // EVAL-001 §11 eval-taint deopt: toplevel `var` bindings of a module
+    // whose source references `eval` are globalThis-backed, not LLVM slots.
+    // Maps the mangled global name ("__modvar_x") -> the JS name ("x").
+    // HIRToLLVM lowers LoadGlobal/StoreGlobal of these to
+    // ts_global_var_get/set so eval'd code and compiled code share bindings.
+    std::map<std::string, std::string> globalObjectVars;
+
     // Source file path table (deduplicated, indexed by HIRInstruction::sourceFileIdx)
     std::vector<std::string> sourceFiles;
 

@@ -1152,9 +1152,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 // (e.g., let count = 0; function inc() { count++; }; inc(); console.log(count)).
                 // Only applies to __module_init_* functions where variables are true
                 // module-level globals, not to user_main or other user functions.
-                if (!isModuleGlobalUsedByInner(node->name) ||
-                    !currentFunction_ ||
-                    currentFunction_->name.find("__module_init_") != 0) return;
+                // EVAL-001 §11: globalThis-backed (eval-tainted) vars ALWAYS
+                // read through LoadGlobal at toplevel (user_main too) — the
+                // local alloca is stale the moment eval writes the binding.
+                bool evalBacked =
+                    module_->globalObjectVars.count(modVarName(node->name)) &&
+                    (currentFunction_->name.find("__module_init_") == 0 ||
+                     currentFunction_->name == "user_main" ||
+                     currentFunction_->name == "__synthetic_user_main");
+                if (!evalBacked &&
+                    (!isModuleGlobalUsedByInner(node->name) ||
+                     !currentFunction_ ||
+                     currentFunction_->name.find("__module_init_") != 0)) return;
                 // Fall through to LoadGlobal path below
             }
         }

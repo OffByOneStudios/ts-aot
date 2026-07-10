@@ -743,11 +743,17 @@ Token Lexer::scanIdentifierOrKeyword() {
         // Specifier positions. Without this, `{ foo: 42 }` would
         // define property `foo` instead of `foo`.
         Token tok = makeToken(TokenKind::Identifier, start);
+        if (decoded == "eval") sawEvalIdent_ = true;
         tok.decodedText = std::move(decoded);
         return tok;
     }
 
-    return makeToken(TokenKind::Identifier, start);
+    Token tok = makeToken(TokenKind::Identifier, start);
+    // EVAL-001 §11 taint: the identifier `eval` appears in this source.
+    // Sticky across speculative-parse restores (over-taint is safe).
+    if (pos_ - start == 4 && source_.compare(start, 4, "eval") == 0)
+        sawEvalIdent_ = true;
+    return tok;
 }
 
 Token Lexer::scanNumericLiteral() {

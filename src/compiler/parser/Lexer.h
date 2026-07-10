@@ -163,6 +163,10 @@ public:
     explicit Lexer(const std::string& source, const std::string& fileName = "");
     bool moduleGoal_ = true;  // set from TS_SCRIPT_GOAL in the ctor
 
+    // EVAL-001 §11: the identifier `eval` was lexed somewhere in this source.
+    // Sticky (never cleared by state restores) — over-taint is safe.
+    bool sawEvalIdent_ = false;
+
     /// Advance to the next token and return it
     Token nextToken();
 

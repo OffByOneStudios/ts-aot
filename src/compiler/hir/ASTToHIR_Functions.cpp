@@ -798,6 +798,13 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     labeledLoops_ = {};
 
     currentFunction_ = func.get();
+    // Field-init eval context (flags bit3) propagates through ARROWS —
+    // they do not rebind 'arguments' (nested-direct-eval-err-contains-
+    // arguments). Regular functions rebind it and drop the context via
+    // the owner check. Restored with savedEvalOwner_arrow below.
+    HIRFunction* savedEvalOwner_arrow = evalFlagsOwner_;
+    if ((activeEvalFlags_ & 8) && evalFlagsOwner_ == savedFunc)
+        evalFlagsOwner_ = func.get();
     clearPendingCaptures();  // Start fresh for this function
 
     // Create entry block
@@ -939,6 +946,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
     // Restore saved context
     currentFunction_ = savedFunc;
+    evalFlagsOwner_ = savedEvalOwner_arrow;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
     currentBlock_ = savedBlock;

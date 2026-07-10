@@ -69,6 +69,11 @@ private:
     // per-spec modulePath (e.g. user_main). See visitIdentifier.
     std::string entryModulePath_;
 
+    // EVAL-001 §11: the program source references `eval` — main-module
+    // toplevel `var` bindings become globalThis-backed (HIRModule::
+    // globalObjectVars) so eval'd code and compiled code share bindings.
+    bool evalTaint_ = false;
+
     // Helper: generate module-prefixed global variable name
     // Returns "__modvar_<name>" for the main file, "__modvar_<name>_m<hash>" for imported modules
     std::string modVarName(const std::string& name) const {

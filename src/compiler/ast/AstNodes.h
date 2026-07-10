@@ -230,6 +230,11 @@ struct Program : Node {
     // Implies isStrict. The FastCheck analyzer pass rejects constructs outside
     // the subset.
     bool isFast = false;
+    // The identifier `eval` appears anywhere in this source (lexer-stamped).
+    // EVAL-001 §11: such modules deopt their toplevel `var` bindings to
+    // globalThis-backed storage so runtime-eval'd code and compiled code
+    // observe the same bindings. Over-taints (obj.eval) — safe, perf-only.
+    bool referencesEval = false;
     std::string getKind() const override { return "Program"; }
     void accept(Visitor* visitor) override { visitor->visitProgram(this); }
 };
