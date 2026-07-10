@@ -2796,7 +2796,33 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
     // (the enclosing `new C()` left the constructor in it; the test asserts
     // eval'd new.target reads undefined).
     void* prevNT = (flags & 8) ? ts_set_new_target(nullptr) : nullptr;
-    Cpl r = runProgramInEnv(prog, envNew(nullptr, /*fnScope*/true), globalThis,
+    TsMap* evalEnv = envNew(nullptr, /*fnScope*/true);
+    TsValue* evalThis = globalThis;
+    if (flags & 8) {
+        // Field-initializer eval: `this` is the instance under construction
+        // (the ambient call-this register holds it — the eval call sits
+        // inside the compiled ctor), and super-property resolves via the
+        // instance's [[Prototype]] as [[HomeObject]] ("\x01h" env slot,
+        // same binding the interpreter's own methods use). Documented
+        // simplification: home = proto-of-this equals the defining class's
+        // prototype for direct `new C()`; a subclass instantiating an
+        // eval-super field initializer inherited from a base class would
+        // see the subclass prototype instead (rare; revisit if tests hit).
+        void* ct = ts_get_call_this();
+        if (ct) {
+            uint64_t nb = (uint64_t)(uintptr_t)ct;
+            if (nanbox_is_ptr(nb)) {
+                evalThis = (TsValue*)ct;
+                TsValue* home = ts_object_getPrototypeOf(evalThis);
+                if (home && !ts_value_is_nullish(home)) {
+                    TsValue hk; hk.type = ValueType::STRING_PTR;
+                    hk.ptr_val = TsString::GetInterned("\x01h");
+                    evalEnv->Set(hk, nanbox_to_tagged(home));
+                }
+            }
+        }
+    }
+    Cpl r = runProgramInEnv(prog, evalEnv, evalThis,
                             /*callerStrict*/(flags & 4) != 0);
     if (flags & 8) ts_set_new_target(prevNT);
     if (r.k == Cpl::Thrown) { *abrupt = r; return nullptr; }
