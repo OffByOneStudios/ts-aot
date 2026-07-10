@@ -158,3 +158,22 @@ GATE: full standard gates + dynamic-import family measure (expect the 118
   `language/module-code` (1/583), `expressions/import.meta` (1/22).
 - Per-phase family re-measure + standard gates (golden-ir 267/279, node
   295/297, 2k 0-lost) + full-sweep diff before each merge.
+
+
+## Namespace exotic object — probed slice plan (2026-07-10)
+
+Fresh measure: language/module-code/namespace = 7/36 pass; internals/*
+(gOPD/define/delete/get-proto/uninit-TDZ) all fail — no namespace branding
+exists. import-star (the test262 self-import shape) binds ns to the module
+EXPORTS map via the Monomorphizer self-import path (Monomorphizer.cpp:970-981
+makeBinding(namespaceImport, nullptr)).
+
+Slice 1 (cheap, ~8-10 tests): brand the exports map when bound as a
+namespace; ladder branches: [[GetPrototypeOf]] -> null (instanceof Object
+false follows), [[SetPrototypeOf]] -> only-null-true, [[IsExtensible]] ->
+false, [[PreventExtensions]] -> true, @@toStringTag Module (non-writable).
+Slice 2: [[Get]] uninit binding -> ReferenceError (TDZ sentinel exists),
+[[Delete]] exported -> false, [[DefineOwnProperty]] validation,
+[[OwnPropertyKeys]] sorted exports.
+Slice 3: dynamic-import/namespace (~30) reuses the brand at the import()
+resolution site.
