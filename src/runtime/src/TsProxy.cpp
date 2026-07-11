@@ -118,9 +118,12 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
         // Call trap(target, prop, value, receiver)
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* receiverVal = receiver ? ts_value_box_any(receiver) : ts_value_box_any(this);
-
-
-        TsValue* result = tsCall(trap, targetVal, prop, value, receiverVal);
+        // ES 10.5.9: Call(trap, HANDLER, «target, P, V, Receiver») — the trap
+        // runs with this = the handler (call-parameters family).
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[4] = { targetVal, prop, value, receiverVal };
+        TsValue* result = ts_function_call_with_this(trap, handlerVal, 4, argv);
         return result && ts_value_get_bool(result);
     }
 
@@ -143,7 +146,10 @@ bool TsProxy::has(TsValue* prop) {
         TsValue* targetVal = ts_value_box_any(target);
 
 
-        TsValue* result = tsCall(trap, targetVal, prop);
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[2] = { targetVal, prop };
+        TsValue* result = ts_function_call_with_this(trap, handlerVal, 2, argv);
         return result && ts_value_get_bool(result);
     }
 
@@ -165,7 +171,10 @@ bool TsProxy::deleteProperty(TsValue* prop) {
         TsValue* targetVal = ts_value_box_any(target);
 
 
-        TsValue* result = tsCall(trap, targetVal, prop);
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[2] = { targetVal, prop };
+        TsValue* result = ts_function_call_with_this(trap, handlerVal, 2, argv);
         return result && ts_value_get_bool(result);
     }
 
@@ -189,7 +198,10 @@ TsValue* TsProxy::apply(void* thisArg, TsValue* args, int argCount) {
         TsValue* argsVal = ts_value_box_any(args);
 
 
-        return tsCall(trap, targetVal, thisArgVal, argsVal);
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[3] = { targetVal, thisArgVal, argsVal };
+        return ts_function_call_with_this(trap, handlerVal, 3, argv);
     }
 
     // No trap - forward call to target
@@ -216,7 +228,10 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         TsValue* newTargetVal = newTarget ? ts_value_box_any(newTarget) : targetVal;
 
 
-        return tsCall(trap, targetVal, argsVal, newTargetVal);
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[3] = { targetVal, argsVal, newTargetVal };
+        return ts_function_call_with_this(trap, handlerVal, 3, argv);
     }
 
     // No trap — ES 10.5.13 step 5: return ? Construct(target, args, newTarget).

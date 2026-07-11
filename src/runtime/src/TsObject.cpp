@@ -5684,7 +5684,11 @@ void* ts_create_arguments_from_params(
         if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
             TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
             if (proxy) {
-                proxy->set(key, value, nullptr);
+                // ES 10.5.9 step 2 (caller side): a falsy trap result makes
+                // the [[Set]] return false — strict code throws TypeError
+                // (boolean-trap-result-is-false-* family).
+                bool ok = proxy->set(key, value, nullptr);
+                if (!ok && strictW) throw_strict_readonly();
                 return;
             }
         }
