@@ -1550,6 +1550,70 @@ extern "C" uint64_t g_array_prototype_version;
 extern "C" bool g_array_default_iterator_deleted;
 extern "C" TsMap* g_array_prototype_map;
 
+// ---------------------------------------------------------------------------
+// Iterator-protocol validation (ECMA-262 7.4.2 GetIterator / 7.4.3 IteratorNext)
+// shared by ts_iterator_get / ts_iterator_next below (spread, destructuring,
+// yield*, Map/Set constructors). The compiled for-of loop has its own guard
+// (ts_iterator_step_require_object, TsObject.cpp).
+// ---------------------------------------------------------------------------
+
+// Type(x) is Object: a real heap pointer that is not a primitive. Strings are
+// NaN-boxed with their own tag (ts_value_get_object -> nullptr); symbols,
+// bigints, and rope strings are plain heap pointers, so reject them by magic.
+// Functions/arrays/promises/maps/flat objects all pass.
+static bool iter_value_is_object(TsValue* v) {
+    if (!v) return false;
+    void* raw = ts_value_get_object(v);  // nullptr for numbers/specials/strings
+    if (!raw) return false;
+    uintptr_t p = (uintptr_t)raw;
+    if (p < 0x1000 || p >= 0x0000800000000000ULL) return false;
+    uint32_t m0 = *(uint32_t*)raw;
+    if (m0 == 0x53545247 /* TsString "STRG" */ ||
+        m0 == 0x434F4E53 /* TsConsString "CONS" */ ||
+        m0 == 0x53594D42 /* TsSymbol "SYMB" */ ||
+        m0 == 0x42494749 /* TsBigInt "BIGI" */) return false;
+    return true;
+}
+
+// GetIterator step 4: if Type(iterator) is not Object, throw TypeError.
+// Applied to every @@iterator call result in ts_iterator_get.
+static TsValue* iter_require_object_result(TsValue* res) {
+    if (!iter_value_is_object(res)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator method returned a non-object"));
+    }
+    return res;
+}
+
+// Presence check for the @@iterator slot covering both the data key and the
+// computed-accessor convention (__getter_[Symbol.iterator]).
+static bool iter_slot_present(TsMap* obj) {
+    TsValue k1; k1.type = ValueType::STRING_PTR;
+    k1.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+    if (obj->Has(k1)) return true;
+    TsValue k2; k2.type = ValueType::STRING_PTR;
+    k2.ptr_val = TsString::GetInterned("__getter_[Symbol.iterator]");
+    return obj->Has(k2);
+}
+
+// @@iterator slot PRESENT on a map-backed object but the raw TsMap::Get read
+// something non-callable. The raw Get cannot run accessors (__getter_
+// convention), so consult the accessor-aware property read before deciding:
+// a callable method is called (this = the iterable) and its result
+// object-checked; anything else (null / undefined / primitive @@iterator)
+// is a GetIterator TypeError -- never fall back to "not an iterator, treat
+// as empty" (spread-err-mult-err-iter-get-value cluster).
+static TsValue* iter_noncallable_slot(void* rawObj, TsValue* iterable) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    TsValue* mv = ts_object_get_property(rawObj, "[Symbol.iterator]");
+    if (mv && ts_is_callable((void*)mv)) {
+        return iter_require_object_result(ts_call_with_this_0(mv, iterable));
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "(intermediate value)[Symbol.iterator] is not a function"));
+    return nullptr;  // unreachable (ts_throw longjmps)
+}
+
 // yield* delegation support - get an iterator from an iterable
 TsValue* ts_iterator_get(TsValue* iterable) {
     if (!iterable) {
@@ -1627,7 +1691,16 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 // `funcPtr(context)` only worked for functions that ignore
                 // argc/argv like TsGenerator's identity [Symbol.iterator].
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
-                return tsCall(boxedFn);
+                // ES GetIterator step 4: the @@iterator call result must be
+                // an Object (null/number/string/Symbol -> TypeError).
+                return iter_require_object_result(tsCall(boxedFn));
+            }
+            // @@iterator slot present (own data key or computed-accessor
+            // slot) but the raw map read found it non-callable: run the
+            // accessor-aware read; a null/undefined/primitive @@iterator is
+            // a GetIterator TypeError instead of a silent empty iteration.
+            if (iter_slot_present(obj)) {
+                return iter_noncallable_slot(rawObj, iterable);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -1661,7 +1734,16 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 // `funcPtr(context)` only worked for functions that ignore
                 // argc/argv like TsGenerator's identity [Symbol.iterator].
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
-                return tsCall(boxedFn);
+                // ES GetIterator step 4: the @@iterator call result must be
+                // an Object (null/number/string/Symbol -> TypeError).
+                return iter_require_object_result(tsCall(boxedFn));
+            }
+            // @@iterator slot present (own data key or computed-accessor
+            // slot) but the raw map read found it non-callable: run the
+            // accessor-aware read; a null/undefined/primitive @@iterator is
+            // a GetIterator TypeError instead of a silent empty iteration.
+            if (iter_slot_present(obj)) {
+                return iter_noncallable_slot(rawObj, iterable);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -1696,7 +1778,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                     TsValue m = arr->properties->Get(ik);
                     if ((m.type == ValueType::OBJECT_PTR ||
                          m.type == ValueType::FUNCTION_PTR) && m.ptr_val) {
-                        return ts_call_with_this_0((TsValue*)m.ptr_val, iterable);
+                        return iter_require_object_result(
+                            ts_call_with_this_0((TsValue*)m.ptr_val, iterable));
                     }
                     // Own @@iterator present but undefined/non-callable:
                     // GetIterator throws TypeError (no fall-back to the
@@ -1722,7 +1805,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                             // Overridden Array.prototype[@@iterator]. A re-assigned
                             // default reads back as the array `values` native, so
                             // this also restores normal behavior after a restore.
-                            return ts_call_with_this_0((TsValue*)pm.ptr_val, iterable);
+                            return iter_require_object_result(
+                                ts_call_with_this_0((TsValue*)pm.ptr_val, iterable));
                         }
                         ts_throw((TsValue*)ts_error_create_typed(
                             "TypeError", "Array.prototype[Symbol.iterator] is not a function"));
@@ -1797,8 +1881,19 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 TsFunction* func = (TsFunction*)iterMethod.ptr_val;
                 if (func->funcPtr) {
                     typedef TsValue* (*IterFunc)(void*);
-                    return ((IterFunc)func->funcPtr)(func->context);
+                    // ES GetIterator step 4: result must be an Object.
+                    return iter_require_object_result(
+                        ((IterFunc)func->funcPtr)(func->context));
                 }
+            }
+            // @@iterator slot present but not callable via the raw map read
+            // (accessor or null/undefined/primitive). Only trust the TsMap
+            // reads when the layout is verified MAPS -- this fallback path
+            // also sees non-TsMap layouts.
+            if ((uintptr_t)obj >= 0x1000 &&
+                *(uint32_t*)((char*)obj + 16) == 0x4D415053 /* MAPS */ &&
+                iter_slot_present(obj)) {
+                return iter_noncallable_slot((void*)obj, iterable);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -1902,8 +1997,16 @@ TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
             if ((nm.type == ValueType::OBJECT_PTR || nm.type == ValueType::FUNCTION_PTR) && nm.ptr_val) {
                 // ECMA-262 IteratorNext: call next() with the ITERATOR as `this`
                 // (these iterators read their state from ts_get_call_this()).
-                if (value) return ts_call_with_this_1(nextFn, iterator, value);
-                return ts_call_with_this_0(nextFn, iterator);
+                TsValue* res = value ? ts_call_with_this_1(nextFn, iterator, value)
+                                     : ts_call_with_this_0(nextFn, iterator);
+                // ES 7.4.3 IteratorNext step 3: Type(result) must be Object.
+                // A primitive result previously read done=false forever ->
+                // spread/destructure infinite loop (OOM) or silent mis-bind.
+                if (!iter_value_is_object(res)) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "iterator result is not an object"));
+                }
+                return res;
             }
         }
     }

@@ -5781,8 +5781,23 @@ void* ts_create_arguments_from_params(
     void ts_iterator_step_require_object(TsValue* res) {
         if (res) {
             uint64_t nb = nanbox_from_tsvalue_ptr(res);
-            if (nanbox_is_ptr(nb) && !nanbox_is_string_ptr(nb) && nanbox_to_ptr(nb)) {
-                return;
+            if (nanbox_is_ptr(nb) && !nanbox_is_string_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                if (raw && (uintptr_t)raw >= 0x1000 &&
+                    (uintptr_t)raw < 0x0000800000000000ULL) {
+                    // Heap PRIMITIVES are NaN-boxed pointers too: a next()
+                    // returning a Symbol/BigInt/rope-string must still be a
+                    // TypeError (Type(result) is not Object) -- previously a
+                    // Symbol result passed the bare ptr check and `.done`
+                    // stayed falsy forever (for-of infinite loop).
+                    uint32_t m0 = *(uint32_t*)raw;
+                    if (m0 != 0x53594D42 /* TsSymbol "SYMB" */ &&
+                        m0 != 0x42494749 /* TsBigInt "BIGI" */ &&
+                        m0 != 0x53545247 /* TsString "STRG" */ &&
+                        m0 != 0x434F4E53 /* TsConsString "CONS" */) {
+                        return;
+                    }
+                }
             }
         }
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
