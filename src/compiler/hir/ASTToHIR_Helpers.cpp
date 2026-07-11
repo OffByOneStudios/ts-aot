@@ -80,6 +80,7 @@ void ASTToHIR::defineVariable(const std::string& name, std::shared_ptr<HIRValue>
         info.value = value;
         info.isAlloca = false;
         info.elemType = nullptr;
+        info.declWithDepth = withDepth_;
         scopes_.back().variables[name] = info;
     }
 }
@@ -91,8 +92,18 @@ void ASTToHIR::defineVariableAlloca(const std::string& name, std::shared_ptr<HIR
         info.value = allocaPtr;
         info.isAlloca = true;
         info.elemType = elemType;
+        info.declWithDepth = withDepth_;
         scopes_.back().variables[name] = info;
     }
+}
+
+void ASTToHIR::maybeWithShadowWrap(const std::string& name, VariableInfo* vinfo) {
+    if (!withScopeActive() || inTypeofOperand_ || name == "undefined") return;
+    if (vinfo && vinfo->declWithDepth >= withDepth_) return;
+    if (!lastValue_) return;
+    auto nameC = builder_.createConstString(name);
+    lastValue_ = builder_.createCall("ts_with_shadow_or",
+        {nameC, boxValueIfNeeded(lastValue_)}, HIRType::makeAny());
 }
 
 // Broadcast a write to every closure cell that captures this variable. The

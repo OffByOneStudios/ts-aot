@@ -1175,7 +1175,10 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 if (!evalBacked &&
                     (!isModuleGlobalUsedByInner(node->name) ||
                      !currentFunction_ ||
-                     currentFunction_->name.find("__module_init_") != 0)) return;
+                     currentFunction_->name.find("__module_init_") != 0)) {
+                    maybeWithShadowWrap(node->name, lookupVariableInfo(node->name));
+                    return;
+                }
                 // Fall through to LoadGlobal path below
             }
         }
@@ -1223,6 +1226,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                     lastValue_ = builder_.createCall("ts_tdz_check",
                         {lastValue_, nameC}, HIRType::makeAny());
                 }
+                maybeWithShadowWrap(node->name, lookupVariableInfo(node->name));
                 return;
             }
             // Not a module-init var — fall through to the capture path below.
@@ -1242,6 +1246,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                     lastValue_ = builder_.createCall("ts_tdz_check",
                         {lastValue_, nameC}, HIRType::makeAny());
                 }
+                maybeWithShadowWrap(node->name, lookupVariableInfo(node->name));
                 return;
             }
         }
@@ -1268,6 +1273,9 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 lastValue_ = builder_.createCall("ts_tdz_check",
                     {lastValue_, nameC}, HIRType::makeAny());
             }
+            // A capture crosses a function boundary, so the binding was
+            // declared outside any with in THIS function.
+            maybeWithShadowWrap(node->name, nullptr);
             return;
         }
     }
@@ -1275,6 +1283,10 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // Check for local/parameter variables
     lastValue_ = lookupVariable(node->name);
     if (lastValue_) {
+        // ES 14.11: the with-object shadows bindings declared OUTSIDE the
+        // with (hoisted vars, params, outer lets) even when they resolve
+        // statically; a let/const declared inside the with body does not.
+        maybeWithShadowWrap(node->name, lookupVariableInfo(node->name));
         return;
     }
 

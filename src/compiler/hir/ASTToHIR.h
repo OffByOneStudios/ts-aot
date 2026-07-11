@@ -117,6 +117,11 @@ private:
         // declaration lowering; checked at assignment/destructuring-assignment
         // sites only (declaration/loop-binding stores are unaffected).
         bool isConst = false;
+        // withDepth_ at declaration time. A binding declared OUTSIDE the
+        // innermost `with` (declWithDepth < withDepth_ at the read site) is
+        // shadowed by the with-object per ES 14.11 — hoisted vars and params
+        // qualify; a let/const declared inside the with body does not.
+        int declWithDepth = 0;
         // Function-scope slot created by the hoist prologue for a nested
         // FunctionDeclaration's name (Annex B B.3.3 var-copy target). A
         // block-level fn decl assigns THIS slot only when it exists —
@@ -754,6 +759,12 @@ private:
     VariableInfo* lookupVariableInfoInCurrentFunction(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
     void broadcastCaptureWrite(VariableInfo* info, std::shared_ptr<HIRValue> newValue);
+    // ES 14.11: inside a `with` body wrap a statically-resolved identifier
+    // READ (already in lastValue_) in ts_with_shadow_or so the with-object
+    // shadows bindings declared outside the with. No-op outside with bodies,
+    // under typeof, for `undefined`, or for bindings declared inside the
+    // with body itself (vinfo->declWithDepth == withDepth_).
+    void maybeWithShadowWrap(const std::string& name, VariableInfo* vinfo);
 
     // Closure capture helpers
     // Looks up a variable and determines if it's captured from an outer function

@@ -2469,24 +2469,33 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             // with-object has `x`, the write lands there and the hoisted var
             // stays untouched. ts_with_try_set reports whether a with-object
             // took the value; the static store runs only on the false branch.
-            if (withScopeActive() && node->varKind == ast::VarKind::Var && initValue) {
+            // Only when the hoisted slot is OUTSIDE the innermost with in
+            // THIS function (declWithDepth < withDepth_). A var owned by a
+            // function nested inside a with (withLexical_) is inner to the
+            // with env — its initializer must never write the with-object.
+            if (withDepth_ > 0 && existingInfo->declWithDepth < withDepth_ &&
+                node->varKind == ast::VarKind::Var && initValue) {
                 auto nameC = builder_.createConstString(ident->name);
+                auto boxedInit = boxValueIfNeeded(initValue);
                 auto wrote = builder_.createCall("ts_with_try_set",
-                    {nameC, boxValueIfNeeded(initValue)}, HIRType::makeAny());
+                    {nameC, boxedInit}, HIRType::makeAny());
                 int bid = blockCounter_++;
                 auto* storeBB = createBlock("withvar.store" + std::to_string(bid));
                 auto* contBB = createBlock("withvar.cont" + std::to_string(bid));
                 builder_.createCondBranch(wrote, contBB, storeBB);
                 builder_.setInsertPoint(storeBB);
                 currentBlock_ = storeBB;
-                builder_.createStore(initValue, existingInfo->value, varType);
-                broadcastCaptureWrite(existingInfo, initValue);
+                // Store the BOXED value and keep the slot Any: when the
+                // with-object takes the write, the hoisted slot keeps boxed
+                // undefined — refining elemType from the initializer here
+                // made later loads read 0xA (NANBOX_UNDEFINED) as a typed
+                // pointer and crash.
+                builder_.createStore(boxedInit, existingInfo->value,
+                                     HIRType::makeAny());
+                broadcastCaptureWrite(existingInfo, boxedInit);
                 builder_.createBranch(contBB);
                 builder_.setInsertPoint(contBB);
                 currentBlock_ = contBB;
-                if (varType->kind != HIRTypeKind::Any) {
-                    existingInfo->elemType = varType;
-                }
                 return;
             }
             // Variable was pre-hoisted: just store the init value into the existing alloca
