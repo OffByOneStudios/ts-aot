@@ -5531,6 +5531,11 @@ void* ts_create_arguments_from_params(
                 ((TsMap*)nsRaw)->IsModuleNamespace()) {
                 bool strict = g_strictWritePending;
                 g_strictWritePending = false;
+                if (getenv("TS_DEBUG_NSSET")) {
+                    void* kraw = key ? ts_value_get_string((TsValue*)key) : nullptr;
+                    fprintf(stderr, "[nsset] rejected write key='%s' strict=%d\n",
+                            kraw ? ((TsString*)kraw)->ToUtf8() : "?", (int)strict);
+                }
                 if (strict) throw_strict_readonly();
                 return;
             }
@@ -5664,6 +5669,9 @@ void* ts_create_arguments_from_params(
                         int viol = 0;
                         ts_flat_object_set_property_ex(rawObj, keyCStr, value,
                                                        strictW ? 1 : 0, &viol);
+                        if (viol && getenv("TS_DEBUG_NSSET"))
+                            fprintf(stderr, "[viol] flat readonly write key='%s'\n",
+                                    keyCStr);
                         if (viol) throw_strict_readonly();
                         return;
                     }
@@ -5703,6 +5711,11 @@ void* ts_create_arguments_from_params(
         ts_object_set_prop_v_ex(objVal, keyVal, valVal, strictW ? 1 : 0, &viol);
         // Throw from THIS clean frame (no std::string locals) per the
         // longjmp-stdstring-frame rule.
+        if (viol && getenv("TS_DEBUG_NSSET")) {
+            TsString* dk = ts_property_key_string((TsValue*)key);
+            fprintf(stderr, "[viol2] map readonly write key='%s'\n",
+                    dk ? dk->ToUtf8() : "?");
+        }
         if (viol) throw_strict_readonly();
     }
 
@@ -6892,7 +6905,7 @@ void* ts_create_arguments_from_params(
             // ES 10.4.6.9 module namespace [[Delete]]: an EXPORTED name
             // (own key, even uninitialized) -> false; any other name ->
             // true. Never actually removes the binding.
-            if (map->IsModuleNamespace()) {
+            if (map->IsModuleNamespaceAny()) {
                 const char* kc = keyStr->ToUtf8();
                 if (kc && kc[0] == '\x01') return true;  // internal marker
                 // Symbol keys ("[Symbol.x]" storage) take the ordinary path
@@ -7152,7 +7165,10 @@ void* ts_create_arguments_from_params(
 
         // ES 10.4.6.10 module namespace [[Delete]]: false for any OWN export
         // (data slot or live-binding getter); true for a key it doesn't have.
-        if (map->IsModuleNamespace()) {
+        // Any-gated: a PRE-branded map (self-import splice; the init-end
+        // full mark may never fire for no-export/non-ESM-classified entry
+        // modules) must answer delete exotically too.
+        if (map->IsModuleNamespaceAny()) {
             TsValue dk; dk.type = ValueType::STRING_PTR;
             dk.ptr_val = keyStr;
             bool own = map->Has(dk);

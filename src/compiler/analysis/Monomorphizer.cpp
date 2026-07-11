@@ -1618,6 +1618,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 for (const auto& stmt : stmts) {
                     auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
                     if (!ed || ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                    // SELF re-exports were already injected as local renames
+                    // (collectRenames/reExportSpecIsSelf) with live-binding
+                    // getters; a second data write here landed on the
+                    // read-only placeholder and threw in strict module code.
+                    if (reExportSpecIsSelf(ed->moduleSpecifier)) continue;
                     auto resolved = analyzer.getModuleResolver().resolve(
                         ed->moduleSpecifier, fs::path(path));
                     if (!resolved.isValid() || resolved.type == ModuleType::Builtin) continue;
