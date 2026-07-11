@@ -231,7 +231,23 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
         TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
         TsValue* argv[3] = { targetVal, argsVal, newTargetVal };
-        return ts_function_call_with_this(trap, handlerVal, 3, argv);
+        TsValue* r = ts_function_call_with_this(trap, handlerVal, 3, argv);
+        // ES 10.5.13 step 10: a non-Object trap result is a TypeError
+        // (construct/return-not-object-throws-* family). Strings are heap
+        // pointers but NOT Objects.
+        {
+            uint64_t rnb = r ? (uint64_t)(uintptr_t)r : 0;
+            void* rraw = (r && nanbox_is_ptr(rnb)) ? ts_value_get_object(r) : nullptr;
+            bool isObj = rraw && (uintptr_t)rraw >= 4096 &&
+                         *(uint32_t*)rraw != 0x53545247 /* not a bare STRG */;
+            if (!isObj) {
+                extern void ts_throw(TsValue* err);
+                extern void* ts_error_create_typed(const char* type, const char* msg);
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "proxy [[Construct]] trap must return an object"));
+            }
+        }
+        return r;
     }
 
     // No trap — ES 10.5.13 step 5: return ? Construct(target, args, newTarget).
