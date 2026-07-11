@@ -137,6 +137,23 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
     return true;
 }
 
+// Type(v) is Object per ES — pointer-shaped primitives (strings, symbols,
+// bigints) are heap pointers but NOT Objects; typeof settles it.
+static bool proxy_value_is_object(TsValue* v) {
+    if (!v) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (!nanbox_is_ptr(nb) || !nanbox_to_ptr(nb)) return false;
+    // Primitive heap shapes carry their magic at OFFSET 0; ts_value_typeof
+    // misses raw TsSymbol*/TsBigInt* there (it probes offset 16) and would
+    // report "object".
+    uint32_t m0 = *(uint32_t*)nanbox_to_ptr(nb);
+    if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS rope*/ ||
+        m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/) return false;
+    extern TsString* ts_value_typeof(TsValue* v);
+    const char* tn = ts_value_typeof(v)->ToUtf8();
+    return tn && (strcmp(tn, "object") == 0 || strcmp(tn, "function") == 0);
+}
+
 // Own-property state of the proxy TARGET for invariant checks:
 // 0 = no own property, 1 = own + configurable, 2 = own + non-configurable.
 static int proxy_target_own_state(void* target, TsValue* prop) {
@@ -283,19 +300,11 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         TsValue* argv[3] = { targetVal, argsVal, newTargetVal };
         TsValue* r = ts_function_call_with_this(trap, handlerVal, 3, argv);
         // ES 10.5.13 step 10: a non-Object trap result is a TypeError
-        // (construct/return-not-object-throws-* family). Strings are heap
-        // pointers but NOT Objects.
-        {
-            uint64_t rnb = r ? (uint64_t)(uintptr_t)r : 0;
-            void* rraw = (r && nanbox_is_ptr(rnb)) ? ts_value_get_object(r) : nullptr;
-            bool isObj = rraw && (uintptr_t)rraw >= 4096 &&
-                         *(uint32_t*)rraw != 0x53545247 /* not a bare STRG */;
-            if (!isObj) {
-                extern void ts_throw(TsValue* err);
-                extern void* ts_error_create_typed(const char* type, const char* msg);
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "proxy [[Construct]] trap must return an object"));
-            }
+        // (construct/return-not-object-throws-* family). typeof-based —
+        // strings, symbols, and bigints are heap pointers but NOT Objects.
+        if (!proxy_value_is_object(r)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "proxy [[Construct]] trap must return an object"));
         }
         return r;
     }
@@ -737,10 +746,7 @@ extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
     // Without this, `new Proxy({}, null)` / `(null, {})` / `({}, 5)` built a
     // malformed proxy that later crashed (VectoredException) on first trap use.
     auto isObject = [](void* arg) -> bool {
-        uint64_t nb = (uint64_t)(uintptr_t)arg;
-        if (nb <= NANBOX_UNDEFINED) return false;                                   // null/undefined/bool
-        if (!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0) return false;   // number primitive
-        return ts_nanbox_safe_unbox(arg) != nullptr;
+        return proxy_value_is_object((TsValue*)arg);
     };
     if (!isObject(targetArg) || !isObject(handlerArg)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
