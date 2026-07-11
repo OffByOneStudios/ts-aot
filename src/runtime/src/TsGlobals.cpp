@@ -7315,6 +7315,15 @@ void ts_with_push(void* obj) {
         ts_gc_register_minor_fixup(with_stack_gc_fixup, nullptr);
         g_withGcRegistered = true;
     }
+    // ES 14.11 step 2: ToObject(head) — with(null)/with(undefined) throws
+    // TypeError. Throw BEFORE pushing so the stack stays balanced through
+    // the longjmp unwind.
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)obj);
+    if (!obj || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot convert undefined or null to object"));
+        return;
+    }
     g_withStack.push_back(obj);
 }
 
