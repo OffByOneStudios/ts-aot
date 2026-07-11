@@ -7308,6 +7308,28 @@ void ts_with_pop_n(int64_t n) {
     while (n-- > 0 && !g_withStack.empty()) g_withStack.pop_back();
 }
 
+// ES 9.1.1.2.1 HasBinding for a with-object environment: HasProperty, then
+// @@unscopables filtering — when Get(obj, @@unscopables) is an object and
+// ToBoolean(Get(unscopables, N)) is true, the binding is invisible to the
+// with env. Getters run (and may throw) per spec.
+static bool with_env_has_binding(void* obj, void* nameStr, TsValue* key) {
+    if (!obj || !ts_object_has_property(obj, (void*)key)) return false;
+    TsValue* unsc = ts_object_get_property(obj, "[Symbol.unscopables]");
+    void* unscObj = unsc ? ts_value_get_object(unsc) : nullptr;
+    if (unscObj) {
+        // Spec step 6: only when Type(unscopables) is Object — a primitive
+        // (string/symbol/bigint) unboxes to a pointer too, so type-check it.
+        extern TsString* ts_value_typeof(TsValue* v);
+        const char* tn = ts_value_typeof(unsc)->ToUtf8();
+        if (strcmp(tn, "object") == 0 || strcmp(tn, "function") == 0) {
+            const char* n = ((TsString*)nameStr)->ToUtf8();
+            TsValue* blocked = ts_object_get_property(unscObj, n ? n : "");
+            if (blocked && ts_value_to_bool(blocked)) return false;
+        }
+    }
+    return true;
+}
+
 // Reference snapshot for identifier assignment inside a with-body
 // (ES 13.15.2: the LHS reference resolves BEFORE the RHS evaluates).
 // Returns the 1-based innermost with-stack index holding the name, else 0.
@@ -7316,7 +7338,7 @@ void* ts_with_ref(void* nameStr) {
         TsValue* key = ts_value_make_string(nameStr);
         for (size_t i = g_withStack.size(); i > 0; --i) {
             void* o = g_withStack[i - 1];
-            if (o && ts_object_has_property(o, (void*)key))
+            if (with_env_has_binding(o, nameStr, key))
                 return ts_value_make_int((int64_t)i);
         }
     }
@@ -7331,7 +7353,7 @@ void* ts_with_shadow_or(void* nameStr, void* fallback) {
     if (nameStr && !g_withStack.empty()) {
         TsValue* key = ts_value_make_string(nameStr);
         for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
-            if (*it && ts_object_has_property(*it, (void*)key)) {
+            if (with_env_has_binding(*it, nameStr, key)) {
                 const char* wn = ((TsString*)nameStr)->ToUtf8();
                 return (void*)ts_object_get_property(*it, wn);
             }
@@ -7423,7 +7445,7 @@ void* ts_with_try_set(void* nameStr, void* value) {
     if (nameStr) {
         TsValue* key = ts_value_make_string(nameStr);
         for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
-            if (*it && ts_object_has_property(*it, (void*)key)) {
+            if (with_env_has_binding(*it, nameStr, key)) {
                 ts_object_set_property(*it, (void*)key, value);
                 return ts_value_make_bool(true);
             }
@@ -7441,7 +7463,7 @@ void* ts_with_delete(void* nameStr) {
     TsValue* key = ts_value_make_string(nameStr);
     extern int ts_object_delete_property(void* objArg, void* keyArg);
     for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
-        if (*it && ts_object_has_property(*it, (void*)key)) {
+        if (with_env_has_binding(*it, nameStr, key)) {
             int ok = ts_object_delete_property(*it, (void*)key);
             return ts_value_make_bool(ok != 0);
         }
@@ -7468,7 +7490,7 @@ void ts_with_set(void* nameStr, void* value) {
     if (!nameStr) return;
     TsValue* key = ts_value_make_string(nameStr);
     for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
-        if (*it && ts_object_has_property(*it, (void*)key)) {
+        if (with_env_has_binding(*it, nameStr, key)) {
             ts_object_set_property(*it, (void*)key, value);
             return;
         }
@@ -7809,7 +7831,7 @@ void* ts_resolve_identifier_or_throw(void* nameStr) {
     if (nameStr && !g_withStack.empty()) {
         TsValue* key = ts_value_make_string(nameStr);
         for (auto it = g_withStack.rbegin(); it != g_withStack.rend(); ++it) {
-            if (*it && ts_object_has_property(*it, (void*)key)) {
+            if (with_env_has_binding(*it, nameStr, key)) {
                 const char* wn = ((TsString*)nameStr)->ToUtf8();
                 return (void*)ts_object_get_property(*it, wn);
             }
