@@ -7000,12 +7000,16 @@ void* ts_create_arguments_from_params(
 
         // Check for flat object first
         uint32_t magic0 = *(uint32_t*)rawMap;
+        if (getenv("TS_DEBUG_DELACC"))
+            fprintf(stderr, "[DELACC] obj=%p magic0=0x%08X\n", rawMap, magic0);
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             // Decode key string
             TsString* keyStr = ts_property_key_string((TsValue*)keyArg);
             if (!keyStr) return 0;
             const char* keyCStr = keyStr->ToUtf8();
             if (!keyCStr) return 0;
+            if (getenv("TS_DEBUG_DELACC"))
+                fprintf(stderr, "[DELACC] flat key=%s\n", keyCStr);
 
             // Find the slot and mark as deleted with NANBOX_DELETED.
             // Spec requires hasOwnProperty(obj, key) to return false after
@@ -7024,6 +7028,30 @@ void* ts_create_arguments_from_params(
                         return 1;
                     }
                 }
+                // Object-literal accessors ({get x(){}}) live as INLINE
+                // "__getter_<k>"/"__setter_<k>" slots with no plain slot —
+                // tombstone both halves so HasProperty goes false.
+                if (strlen(keyCStr) <= 240 &&
+                    strncmp(keyCStr, "__getter_", 9) != 0 &&
+                    strncmp(keyCStr, "__setter_", 9) != 0) {
+                    char abuf[260];
+                    bool tombstoned = false;
+                    snprintf(abuf, sizeof(abuf), "__getter_%s", keyCStr);
+                    for (uint32_t i = 0; i < desc->numSlots; i++) {
+                        if (strcmp(desc->propNames[i], abuf) == 0) {
+                            *(uint64_t*)((char*)rawMap + 16 + i * 8) = NANBOX_DELETED;
+                            tombstoned = true;
+                        }
+                    }
+                    snprintf(abuf, sizeof(abuf), "__setter_%s", keyCStr);
+                    for (uint32_t i = 0; i < desc->numSlots; i++) {
+                        if (strcmp(desc->propNames[i], abuf) == 0) {
+                            *(uint64_t*)((char*)rawMap + 16 + i * 8) = NANBOX_DELETED;
+                            tombstoned = true;
+                        }
+                    }
+                    if (tombstoned) return 1;
+                }
             }
             // Also check overflow map — flat objects keep defineProperty'd
             // (attribute-bearing) properties here, so honor the configurable
@@ -7040,11 +7068,39 @@ void* ts_create_arguments_from_params(
                     TsValue kv;
                     kv.type = ValueType::STRING_PTR;
                     kv.ptr_val = keyStr;
-                    if (overflowMap->Has(kv)) {
+                    // Accessor halves: defineProperty on a flat receiver
+                    // stores "__getter_<k>"/"__setter_<k>" PLUS an undefined
+                    // placeholder under the plain key, so deleting only the
+                    // plain entry left the accessor alive (HasProperty stayed
+                    // true — Array iteration delete-during-getter family).
+                    bool hadPlainOv = overflowMap->Has(kv);
+                    if (hadPlainOv) {
                         uint8_t attrs = overflowMap->GetPropertyAttrs(kv);
                         if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
                     }
-                    return overflowMap->Delete(kv) ? 1 : 0;
+                    bool deletedAcc = false;
+                    if (keyCStr[0] != '\0' &&
+                        strncmp(keyCStr, "__getter_", 9) != 0 &&
+                        strncmp(keyCStr, "__setter_", 9) != 0) {
+                        char gbuf[256], sbuf[256];
+                        snprintf(gbuf, sizeof(gbuf), "__getter_%s", keyCStr);
+                        snprintf(sbuf, sizeof(sbuf), "__setter_%s", keyCStr);
+                        TsValue gk; gk.type = ValueType::STRING_PTR;
+                        gk.ptr_val = TsString::GetInterned(gbuf);
+                        TsValue sk; sk.type = ValueType::STRING_PTR;
+                        sk.ptr_val = TsString::GetInterned(sbuf);
+                        bool hasG = overflowMap->Has(gk), hasS = overflowMap->Has(sk);
+                        if ((hasG || hasS) && !hadPlainOv) {
+                            uint8_t attrs = hasG ? overflowMap->GetPropertyAttrs(gk)
+                                                 : overflowMap->GetPropertyAttrs(sk);
+                            if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                        }
+                        if (hasG) { overflowMap->Delete(gk); deletedAcc = true; }
+                        if (hasS) { overflowMap->Delete(sk); deletedAcc = true; }
+                    }
+                    if (hadPlainOv) return overflowMap->Delete(kv) ? 1 : 0;
+                    (void)deletedAcc;
+                    return 1; // absent key: [[Delete]] is true
                 }
             }
             return 1; // delete on non-existent property returns true
@@ -7220,7 +7276,8 @@ void* ts_create_arguments_from_params(
 
         // Per ES spec: [[Delete]] on a non-configurable property returns
         // false. Strict-mode throws TypeError at the compiler wrapper.
-        if (map->Has(keyVal)) {
+        bool hadPlain = map->Has(keyVal);
+        if (hadPlain) {
             uint8_t attrs = map->GetPropertyAttrs(keyVal);
             if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) {
                 return 0;
@@ -7230,6 +7287,9 @@ void* ts_create_arguments_from_params(
         // Accessor-backed properties: also remove the __getter_/__setter_
         // storage entries — deleting only the plain marker left the accessor
         // alive (HasProperty stayed true, gets kept invoking the getter).
+        // For an accessor-ONLY property (no plain entry) the halves carry
+        // the attrs; check configurability there and report delete=true.
+        bool deletedAccessor = false;
         if (keyVal.type == ValueType::STRING_PTR && keyVal.ptr_val) {
             const char* kc = ((TsString*)keyVal.ptr_val)->ToUtf8();
             if (kc && kc[0] != '' && strncmp(kc, "__getter_", 9) != 0 &&
@@ -7238,15 +7298,21 @@ void* ts_create_arguments_from_params(
                 snprintf(buf, sizeof(buf), "__getter_%s", kc);
                 TsValue gk; gk.type = ValueType::STRING_PTR;
                 gk.ptr_val = TsString::GetInterned(buf);
-                if (map->Has(gk)) map->Delete(gk);
                 snprintf(buf, sizeof(buf), "__setter_%s", kc);
                 TsValue sk; sk.type = ValueType::STRING_PTR;
                 sk.ptr_val = TsString::GetInterned(buf);
-                if (map->Has(sk)) map->Delete(sk);
+                bool hasG = map->Has(gk), hasS = map->Has(sk);
+                if ((hasG || hasS) && !hadPlain) {
+                    uint8_t attrs = hasG ? map->GetPropertyAttrs(gk)
+                                         : map->GetPropertyAttrs(sk);
+                    if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                }
+                if (hasG) { map->Delete(gk); deletedAccessor = true; }
+                if (hasS) { map->Delete(sk); deletedAccessor = true; }
             }
         }
 
-        return map->Delete(keyVal) ? 1 : 0;
+        return (map->Delete(keyVal) || deletedAccessor) ? 1 : 0;
     }
 
     extern "C" void ts_console_log_value_no_newline(TsValue* val);
