@@ -4032,6 +4032,53 @@ extern "C" {
         return ts_value_make_object(result);
     }
 
+    // ES 20.1.2.1 Object.assign step 4.c uses Set(to, key, value, TRUE):
+    // a write the TARGET rejects (frozen target, sealed/non-extensible
+    // target gaining a NEW key, colliding non-writable data property,
+    // getter-only accessor) throws TypeError in EVERY caller mode — not
+    // just under the strict-write protocol. The throw happens in THESE
+    // std::string-free frames, never from inside the setters
+    // (longjmp-stdstring-frame rule). The object-spread / object-rest
+    // lowerings also funnel through ts_object_assign, but always with a
+    // FRESH extensible target, so the rejection never fires for them.
+    [[noreturn]] static void assign_throw_readonly() {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Object.assign: cannot assign to read only property of target"));
+        abort();  // unreachable — ts_throw longjmps
+    }
+    // Flat target: route through the strict-aware setter — the SAME code
+    // path the plain ts_flat_object_set_property wraps (identical write
+    // semantics, incl. accessor dispatch), plus violation reporting.
+    static void assign_set_flat_or_throw(void* targetRaw, const char* key,
+                                         TsValue* valBoxed) {
+        extern void ts_flat_object_set_property_ex(void* obj, const char* key,
+                                                   void* value, int strict,
+                                                   int* violated);
+        int viol = 0;
+        ts_flat_object_set_property_ex(targetRaw, key, valBoxed, 1, &viol);
+        if (viol) assign_throw_readonly();
+    }
+    // Map target: guard-then-raw-Set. Deliberately NOT routed through
+    // ts_object_set_prop_v_ex — that would add prototype-chain setter
+    // dispatch and __proto__ interception, changing spread/rest semantics
+    // (CopyDataProperties uses CreateDataProperty, no [[Set]] walk). Only
+    // the rejection is new; the write stays the verbatim map Set.
+    static void assign_set_map_or_throw(void* targetRaw, TsValue keyTagged,
+                                        TsValue valTagged) {
+        TsMap* m = (TsMap*)targetRaw;
+        constexpr uint8_t ATTR_WRITABLE = 0x02;
+        bool exists = m->Has(keyTagged);
+        uint8_t ilvl = ts_integrity_get(targetRaw);
+        if (ilvl >= 3 ||                       // frozen: every write rejected
+            (!exists && (ilvl >= 1 || !m->IsExtensible()))) {  // no NEW keys
+            assign_throw_readonly();
+        }
+        if (exists && !(m->GetPropertyAttrs(keyTagged) & ATTR_WRITABLE)) {
+            assign_throw_readonly();           // non-writable data collision
+        }
+        m->Set(keyTagged, valTagged);
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -4096,13 +4143,14 @@ extern "C" {
                     TsValue* got = ts_object_get_property(sourceRaw, kc);
                     if (!got) got = ts_value_make_undefined();
                     if (targetIsFlat) {
-                        ts_flat_object_set_property(targetRaw, kc, got);
+                        assign_set_flat_or_throw(targetRaw, kc, got);
                     } else {
                         uint32_t targetMagic16 = *(uint32_t*)((char*)targetRaw + 16);
                         if (targetMagic16 == 0x4D415053) {
                             TsValue rk; rk.type = ValueType::STRING_PTR;
                             rk.ptr_val = TsString::GetInterned(kc);
-                            ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(got));
+                            assign_set_map_or_throw(targetRaw, rk,
+                                                    nanbox_to_tagged(got));
                         }
                     }
                 }
@@ -4147,11 +4195,12 @@ extern "C" {
                         if (!sourceMap->Has(gkv)) {
                             TsValue* undef = ts_value_make_undefined();
                             if (targetIsFlat) {
-                                ts_flat_object_set_property(targetRaw, kc + 9, undef);
+                                assign_set_flat_or_throw(targetRaw, kc + 9, undef);
                             } else if (targetMagic == 0x4D415053) {
                                 TsValue rk; rk.type = ValueType::STRING_PTR;
                                 rk.ptr_val = TsString::GetInterned(kc + 9);
-                                ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(undef));
+                                assign_set_map_or_throw(targetRaw, rk,
+                                                        nanbox_to_tagged(undef));
                             }
                         }
                     }
@@ -4162,11 +4211,12 @@ extern "C" {
                     // [[Get]] on the source invokes the accessor (may throw).
                     TsValue* got = ts_object_get_property(sourceRaw, realKey);
                     if (targetIsFlat) {
-                        ts_flat_object_set_property(targetRaw, realKey, got);
+                        assign_set_flat_or_throw(targetRaw, realKey, got);
                     } else if (targetMagic == 0x4D415053) {
                         TsValue rk; rk.type = ValueType::STRING_PTR;
                         rk.ptr_val = TsString::GetInterned(realKey);
-                        ((TsMap*)targetRaw)->Set(rk, nanbox_to_tagged(got));
+                        assign_set_map_or_throw(targetRaw, rk,
+                                                nanbox_to_tagged(got));
                     }
                     continue;
                 }
@@ -4175,11 +4225,11 @@ extern "C" {
                 TsString* keyStr = (TsString*)ts_nanbox_safe_unbox(key);
                 if (keyStr) {
                     const char* k = keyStr->ToUtf8();
-                    if (k) ts_flat_object_set_property(targetRaw, k, val);
+                    if (k) assign_set_flat_or_throw(targetRaw, k, val);
                 }
             } else if (targetMagic == 0x4D415053) {
-                TsMap* targetMap = (TsMap*)targetRaw;
-                targetMap->Set(nanbox_to_tagged(key), nanbox_to_tagged(val));
+                assign_set_map_or_throw(targetRaw, nanbox_to_tagged(key),
+                                        nanbox_to_tagged(val));
             }
         }
 
