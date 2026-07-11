@@ -366,6 +366,25 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         return;
     }
 
+    // Compound assignment (`x op= y`) with an identifier LHS inside a `with`
+    // body: ES 13.15.2 resolves the LHS Reference BEFORE GetValue runs (lref
+    // first, then lval, then rval; PutValue reuses the same lref). The read
+    // itself can delete the binding from the with-object (self-deleting
+    // getter -- the test262 S11.13.2_A5.* family), so ts_with_ref must
+    // snapshot which with-object holds the binding NOW, pre-read; a
+    // post-read lookup misses and the write leaks to the enclosing scope
+    // instead of re-creating the with-object property.
+    std::shared_ptr<HIRValue> compoundWithRef = nullptr;
+    if ((op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" ||
+         op == "**=" || op == "&=" || op == "|=" || op == "^=" ||
+         op == "<<=" || op == ">>=" || op == ">>>=") && withScopeActive()) {
+        if (auto* lhsIdent = dynamic_cast<ast::Identifier*>(node->left.get())) {
+            auto nameC = builder_.createConstString(lhsIdent->name);
+            compoundWithRef = builder_.createCall("ts_with_ref", {nameC},
+                                                  HIRType::makeAny());
+        }
+    }
+
     auto lhs = lowerExpression(node->left.get());
     auto rhs = lowerExpression(node->right.get());
 
@@ -959,12 +978,21 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         if (ident) {
             // Inside a `with` scope: the write consults the runtime
             // with-stack (ES 9.1.1.2.5 SetMutableBinding, incl. the strict
-            // re-validation ReferenceError). ts_with_ref snapshots which
-            // with-object holds the binding NOW (post-read; the compound
-            // read already went through the with-aware resolver).
+            // re-validation ReferenceError). PutValue must target the
+            // Reference resolved BEFORE the compound read (ES 13.15.2: lref,
+            // then GetValue, then PutValue on the same lref) -- the read can
+            // delete the binding from the with-object (self-deleting getter,
+            // S11.13.2_A5.* family), so a post-read lookup would miss.
+            // compoundWithRef is that pre-read snapshot (taken above, before
+            // the lhs evaluation).
             if (withScopeActive()) {
                 auto nameC = builder_.createConstString(ident->name);
-                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto ref = compoundWithRef;
+                if (!ref) {
+                    // Defensive only: the pre-read gate covers every
+                    // identifier-LHS compound op, so this should not fire.
+                    ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                }
                 auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
                 auto wrote = builder_.createCall("ts_with_set_ref_s",
                     {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());

@@ -1869,6 +1869,21 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     // throw while lowering a typeof operand.
     bool savedTypeofFlag = inTypeofOperand_;
     if (node->op == "typeof") inTypeofOperand_ = true;
+    // ++/-- on an identifier inside a `with` body: ES 13.4 UpdateExpression
+    // resolves the operand Reference once, BEFORE GetValue, and PutValue
+    // reuses it. The read can delete the binding from the with-object
+    // (self-deleting getter -- the test262 S11.4.4_A5/S11.4.5_A5 family), so
+    // snapshot ts_with_ref pre-read; a post-read lookup would miss and the
+    // write would leak to the enclosing scope instead of re-creating the
+    // with-object property. Mirrors the compound-assignment path.
+    std::shared_ptr<HIRValue> updWithRef = nullptr;
+    if ((node->op == "++" || node->op == "--") && withScopeActive()) {
+        if (auto* updIdent = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            auto nameC = builder_.createConstString(updIdent->name);
+            updWithRef = builder_.createCall("ts_with_ref", {nameC},
+                                             HIRType::makeAny());
+        }
+    }
     auto operand = lowerExpression(node->operand.get());
     inTypeofOperand_ = savedTypeofFlag;
 
@@ -1999,11 +2014,19 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         if (ident) {
             // Inside `with` scope: the write consults the runtime with-stack
             // with the strict SetMutableBinding re-validation (mirrors the
-            // plain/compound assignment paths).
+            // plain/compound assignment paths). PutValue targets the
+            // Reference resolved BEFORE the read (updWithRef, snapshotted at
+            // the top of this function) -- ES 13.4.4/13.4.5, test262
+            // S11.4.4_A5/S11.4.5_A5 (self-deleting getter).
             if (withScopeActive() && !lookupVariableInfo(ident->name) &&
                 !isModuleGlobalVar(ident->name)) {
                 auto nameC = builder_.createConstString(ident->name);
-                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto ref = updWithRef;
+                if (!ref) {
+                    // Defensive only: the pre-read gate covers ++/-- on
+                    // identifiers, so this should not fire.
+                    ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                }
                 auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
                 auto wrote = builder_.createCall("ts_with_set_ref_s",
                     {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());
@@ -2171,6 +2194,18 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
 
 void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
     setSourceLine(node);
+    // Postfix ++/-- on an identifier inside a `with` body: same pre-read
+    // Reference snapshot as the prefix path (ES 13.4.2/13.4.3; test262
+    // S11.3.1_A5/S11.3.2_A5 self-deleting-getter family). PutValue must use
+    // the Reference resolved before GetValue.
+    std::shared_ptr<HIRValue> updWithRef = nullptr;
+    if ((node->op == "++" || node->op == "--") && withScopeActive()) {
+        if (auto* updIdent = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            auto nameC = builder_.createConstString(updIdent->name);
+            updWithRef = builder_.createCall("ts_with_ref", {nameC},
+                                             HIRType::makeAny());
+        }
+    }
     auto operand = lowerExpression(node->operand.get());
     auto oldValue = operand;
 
@@ -2216,11 +2251,19 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         if (ident) {
             // Inside `with` scope: the write consults the runtime with-stack
             // with the strict SetMutableBinding re-validation (mirrors the
-            // plain/compound assignment paths).
+            // plain/compound assignment paths). PutValue targets the
+            // Reference resolved BEFORE the read (updWithRef, snapshotted at
+            // the top of this function) -- ES 13.4.2/13.4.3, test262
+            // S11.3.1_A5/S11.3.2_A5 (self-deleting getter).
             if (withScopeActive() && !lookupVariableInfo(ident->name) &&
                 !isModuleGlobalVar(ident->name)) {
                 auto nameC = builder_.createConstString(ident->name);
-                auto ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                auto ref = updWithRef;
+                if (!ref) {
+                    // Defensive only: the pre-read gate covers ++/-- on
+                    // identifiers, so this should not fire.
+                    ref = builder_.createCall("ts_with_ref", {nameC}, HIRType::makeAny());
+                }
                 auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
                 auto wrote = builder_.createCall("ts_with_set_ref_s",
                     {ref, nameC, boxValueIfNeeded(result), strictC}, HIRType::makeAny());
