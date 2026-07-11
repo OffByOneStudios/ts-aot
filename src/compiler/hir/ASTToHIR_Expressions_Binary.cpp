@@ -1284,10 +1284,33 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Look up variable info to see if it's an alloca
         auto* info = lookupVariableInfo(ident->name);
         if (info && info->isAlloca) {
+            // Assigning a dynamically-typed (Any) value into a slot the
+            // analyzer typed as a specific POINTER kind widens the slot to
+            // Any: the store keeps the value boxed, so later loads lowered
+            // with the old typed view would misread a boxed int/undefined
+            // (e.g. NANBOX_UNDEFINED 0xA) as a TsString*/TsObject* and
+            // crash. Scalar slots (Int64/Float64/Bool) are excluded — the
+            // store lowering unboxes into those.
+            if (rhs->type && rhs->type->kind == HIRTypeKind::Any &&
+                info->elemType && info->elemType->kind != HIRTypeKind::Any) {
+                switch (info->elemType->kind) {
+                case HIRTypeKind::String: case HIRTypeKind::Object:
+                case HIRTypeKind::Array:  case HIRTypeKind::Map:
+                case HIRTypeKind::Set:    case HIRTypeKind::Symbol:
+                case HIRTypeKind::BigInt: case HIRTypeKind::Function:
+                case HIRTypeKind::Class:
+                    info->elemType = HIRType::makeAny();
+                    break;
+                default: break;
+                }
+            }
             // Inside a `with` body a write to a statically-resolved name must
             // still consult the with-scope chain (ES 14.11) — using the
-            // reference SNAPSHOT taken before RHS evaluation (withRef).
-            if (withScopeActive() && withRef) {
+            // reference SNAPSHOT taken before RHS evaluation (withRef) —
+            // but ONLY when the binding is declared OUTSIDE the innermost
+            // with in this function; a binding inner to the with (fn-own
+            // var under withLexical_, let inside the with body) wins.
+            if (withDepth_ > 0 && info->declWithDepth < withDepth_ && withRef) {
                 auto nameC = builder_.createConstString(ident->name);
                 auto strictC = builder_.createConstInt(strictCode_ ? 1 : 0);
                 auto wrote = builder_.createCall("ts_with_set_ref_s",
