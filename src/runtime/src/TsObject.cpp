@@ -8368,10 +8368,27 @@ void* ts_create_arguments_from_params(
                 }
             }
         }
-        bool result = map->Has(keyTV);
-        return ts_value_make_bool(result);
+        if (map->Has(keyTV)) return ts_value_make_bool(true);
+        // ACCESSOR-only property ({get x(){}}) stores "__getter_<key>"/
+        // "__setter_<key>" with no base placeholder — the BASE name is a real
+        // own property (getOwnPropertyDescriptor already reports it; hasOwn
+        // must agree). Probe both accessor forms for a string key.
+        if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+            const char* kc = ((TsString*)keyTV.ptr_val)->ToUtf8();
+            if (kc && kc[0] != '\x01' && strlen(kc) <= 260) {
+                char akey[280];
+                TsValue ak; ak.type = ValueType::STRING_PTR;
+                snprintf(akey, sizeof(akey), "__getter_%s", kc);
+                ak.ptr_val = TsString::GetInterned(akey);
+                if (map->Has(ak)) return ts_value_make_bool(true);
+                snprintf(akey, sizeof(akey), "__setter_%s", kc);
+                ak.ptr_val = TsString::GetInterned(akey);
+                if (map->Has(ak)) return ts_value_make_bool(true);
+            }
+        }
+        return ts_value_make_bool(false);
     }
-    
+
     // Object.prototype.toString() - returns "[object Type]" based on this value
     // Non-static so TsGlobals.cpp can route the prototype.toString slot here.
     extern "C" TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv) {

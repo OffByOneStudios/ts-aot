@@ -508,6 +508,24 @@ extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
         // the key there even though the inline slot is dead.
     }
 
+    // An ACCESSOR-only property ({get x(){}} with no data placeholder) is
+    // stored as "__getter_<key>"/"__setter_<key>" slots — its BASE name is a
+    // real own property (hasOwnProperty / Object.hasOwn must see it, matching
+    // getOwnPropertyDescriptor which already reports it). Probe both forms in
+    // the inline slots and (below) the overflow map. Guard the length so the
+    // stack buffer can't overflow on a pathological key.
+    if (key[0] != '\x01' && strlen(key) <= 260) {
+        char akey[280];
+        snprintf(akey, sizeof(akey), "__getter_%s", key);
+        int gi = flat_find_slot(desc, akey);
+        if (gi >= 0 && *(uint64_t*)((char*)obj + 16 + gi * 8) != NANBOX_DELETED)
+            return true;
+        snprintf(akey, sizeof(akey), "__setter_%s", key);
+        int si = flat_find_slot(desc, akey);
+        if (si >= 0 && *(uint64_t*)((char*)obj + 16 + si * 8) != NANBOX_DELETED)
+            return true;
+    }
+
     // Check overflow map
     void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
@@ -516,7 +534,18 @@ extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
         TsValue keyVal;
         keyVal.type = ValueType::STRING_PTR;
         keyVal.ptr_val = keyStr;
-        return map->Has(keyVal);
+        if (map->Has(keyVal)) return true;
+        // Accessor slots may live in the overflow map too (defineProperty on
+        // a flat object routes accessors there).
+        if (key[0] != '\x01' && strlen(key) <= 260) {
+            char akey[280];
+            snprintf(akey, sizeof(akey), "__getter_%s", key);
+            keyVal.ptr_val = TsString::Create(akey);
+            if (map->Has(keyVal)) return true;
+            snprintf(akey, sizeof(akey), "__setter_%s", key);
+            keyVal.ptr_val = TsString::Create(akey);
+            if (map->Has(keyVal)) return true;
+        }
     }
 
     return false;
