@@ -7109,6 +7109,15 @@ void* ts_create_arguments_from_params(
         // Check magic to determine object type
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
 
+        // Proxy: route through the deleteProperty trap (ES 10.5.10) — this
+        // impl previously fell into the plain TsMap branch and deleted from
+        // the proxy's own map without ever calling the trap (the sibling
+        // ts_object_delete_prop already routed; divergent-multi-site).
+        if (magic == 0x4D415053) {
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawMap);
+            if (proxy) return proxy->deleteProperty((TsValue*)keyArg) ? 1 : 0;
+        }
+
         // ES 10.4.5.5 [[Delete]] for integer-indexed exotic objects: a VALID
         // numeric index cannot be deleted (false); an invalid one (OOB,
         // detached, -0, fractional) "deletes" successfully (true). Non-index

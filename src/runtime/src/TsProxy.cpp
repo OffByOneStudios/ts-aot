@@ -15,6 +15,9 @@ extern "C" void ts_throw(TsValue* err);
 extern "C" TsValue* ts_new_from_constructor_impl(TsValue* ctor, int argc, TsValue** argv);
 extern "C" TsValue* ts_new_from_constructor_with_target(TsValue* ctor, TsValue* newTarget, int argc, TsValue** argv);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
+extern "C" int64_t ts_reflect_isExtensible(void* targetArg);
+extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
+extern "C" TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
 
 // ECMA-262 10.5.x: every Proxy internal method whose [[ProxyHandler]] is null
 // (i.e. the proxy has been revoked) must throw a TypeError. Previously the
@@ -134,6 +137,17 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
     return true;
 }
 
+// Own-property state of the proxy TARGET for invariant checks:
+// 0 = no own property, 1 = own + configurable, 2 = own + non-configurable.
+static int proxy_target_own_state(void* target, TsValue* prop) {
+    if (!target) return 0;
+    TsValue* d = ts_object_getOwnPropertyDescriptor(ts_value_box_any(target), prop);
+    if (!d || ts_value_is_undefined(d)) return 0;
+    void* dRaw = ts_value_get_object(d);
+    TsValue* cfg = dRaw ? ts_object_get_property(dRaw, "configurable") : nullptr;
+    return (cfg && ts_value_to_bool(cfg)) ? 1 : 2;
+}
+
 bool TsProxy::has(TsValue* prop) {
     if (revoked) {
         throw_revoked("has");
@@ -150,7 +164,25 @@ bool TsProxy::has(TsValue* prop) {
         TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
         TsValue* argv[2] = { targetVal, prop };
         TsValue* result = ts_function_call_with_this(trap, handlerVal, 2, argv);
-        return result && ts_value_get_bool(result);
+        bool boolRes = result && ts_value_to_bool(result);
+        // ES 10.5.7 step 9: a falsish trap answer must be consistent with
+        // the target — a non-configurable own property cannot be hidden,
+        // nor can ANY own property of a non-extensible target.
+        if (!boolRes) {
+            int st = proxy_target_own_state(target, prop);
+            if (st == 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'has' on proxy: trap returned falsish for property which "
+                    "exists in the proxy target as non-configurable"));
+            }
+            if (st == 1 &&
+                ts_reflect_isExtensible(ts_value_box_any(target)) == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'has' on proxy: trap returned falsish for property but "
+                    "the proxy target is not extensible"));
+            }
+        }
+        return boolRes;
     }
 
     // No trap - forward to target
@@ -175,7 +207,25 @@ bool TsProxy::deleteProperty(TsValue* prop) {
         TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
         TsValue* argv[2] = { targetVal, prop };
         TsValue* result = ts_function_call_with_this(trap, handlerVal, 2, argv);
-        return result && ts_value_get_bool(result);
+        bool boolRes = result && ts_value_to_bool(result);
+        // ES 10.5.10 steps 11-13: a truish answer may not delete a
+        // non-configurable own property, nor any own property of a
+        // non-extensible target.
+        if (boolRes) {
+            int st = proxy_target_own_state(target, prop);
+            if (st == 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'deleteProperty' on proxy: trap returned truish for "
+                    "property which is non-configurable in the proxy target"));
+            }
+            if (st == 1 &&
+                ts_reflect_isExtensible(ts_value_box_any(target)) == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'deleteProperty' on proxy: trap returned truish but "
+                    "the proxy target is not extensible"));
+            }
+        }
+        return boolRes;
     }
 
     // No trap - forward to target
@@ -479,6 +529,20 @@ TsValue* TsProxy::getPrototypeOfTrap() {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "'getPrototypeOf' on proxy: trap returned neither object nor null"));
         }
+        // ES 10.5.1 steps 9-11: a non-extensible target pins the answer to
+        // the target's actual [[Prototype]].
+        if (target && ts_reflect_isExtensible(ts_value_box_any(target)) == 0) {
+            TsValue* tp = ts_object_getPrototypeOf(ts_value_box_any(target));
+            void* a = r ? ts_value_get_object(r) : nullptr;
+            void* b = tp ? ts_value_get_object(tp) : nullptr;
+            bool bothNull = isNull && (!tp || nanbox_is_null(nanbox_from_tsvalue_ptr(tp)));
+            if (!bothNull && a != b) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'getPrototypeOf' on proxy: proxy target is "
+                    "non-extensible but the trap did not return its actual "
+                    "prototype"));
+            }
+        }
         return r;
     }
     if (!target) return ts_value_make_null();
@@ -492,7 +556,26 @@ bool TsProxy::setPrototypeOfTrap(TsValue* proto) {
         TsValue* argv[2] = { ts_value_box_any(target),
                              proto ? proto : ts_value_make_null() };
         TsValue* r = proxy_call_trap(this, trap, 2, argv);
-        return r && ts_value_get_bool(r);
+        bool boolRes = r && ts_value_to_bool(r);
+        // ES 10.5.2 steps 9-12: a truish answer on a non-extensible target
+        // requires SameValue(proto, target.[[GetPrototypeOf]]()).
+        if (boolRes && target &&
+            ts_reflect_isExtensible(ts_value_box_any(target)) == 0) {
+            TsValue* tp = ts_object_getPrototypeOf(ts_value_box_any(target));
+            void* a = proto ? ts_value_get_object(proto) : nullptr;
+            void* b = tp ? ts_value_get_object(tp) : nullptr;
+            bool protoNull = !proto ||
+                nanbox_is_null(nanbox_from_tsvalue_ptr(proto)) ||
+                nanbox_is_undefined(nanbox_from_tsvalue_ptr(proto));
+            bool tpNull = !tp || nanbox_is_null(nanbox_from_tsvalue_ptr(tp));
+            if (!(protoNull && tpNull) && a != b) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'setPrototypeOf' on proxy: trap returned truish for "
+                    "setting a new prototype on the non-extensible proxy "
+                    "target"));
+            }
+        }
+        return boolRes;
     }
     if (!target) return false;
     ts_object_setPrototypeOf(ts_value_box_any(target), proto);
@@ -544,7 +627,40 @@ bool TsProxy::definePropertyTrap(TsValue* prop, TsValue* descriptor) {
     if (trap) {
         TsValue* argv[3] = { ts_value_box_any(target), prop, descriptor };
         TsValue* r = proxy_call_trap(this, trap, 3, argv);
-        return r && ts_value_get_bool(r);
+        bool boolRes = r && ts_value_to_bool(r);
+        // ES 10.5.6 steps 15-16 (cheap subset): a truish answer must be
+        // consistent with the target — no new props on a non-extensible
+        // target, and non-configurable answers need a matching
+        // non-configurable (or now-definable) own target property.
+        if (boolRes) {
+            int st = proxy_target_own_state(target, prop);
+            bool extTarget = target &&
+                ts_reflect_isExtensible(ts_value_box_any(target)) != 0;
+            void* dRaw = descriptor ? ts_value_get_object(descriptor) : nullptr;
+            TsValue* cfg = dRaw ? ts_object_get_property(dRaw, "configurable")
+                                : nullptr;
+            bool settingCfgFalse = cfg && !ts_value_is_undefined(cfg) &&
+                                   !ts_value_to_bool(cfg);
+            if (st == 0) {
+                if (!extTarget) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "'defineProperty' on proxy: trap returned truish for "
+                        "adding property to the non-extensible proxy target"));
+                }
+                if (settingCfgFalse) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "'defineProperty' on proxy: trap returned truish for "
+                        "defining non-configurable property which is "
+                        "non-existent in the proxy target"));
+                }
+            } else if (settingCfgFalse && st == 1) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'defineProperty' on proxy: trap returned truish for "
+                    "defining non-configurable property which is "
+                    "configurable in the proxy target"));
+            }
+        }
+        return boolRes;
     }
     if (!target) return false;
     return ts_reflect_defineProperty(ts_value_box_any(target), (void*)prop, (void*)descriptor) != 0;
@@ -563,6 +679,47 @@ TsValue* TsProxy::getOwnPropertyDescriptorTrap(TsValue* prop) {
         if (!isUndef && !isObj) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "'getOwnPropertyDescriptor' on proxy: trap returned neither object nor undefined"));
+        }
+        // ES 10.5.5 steps 11-17 target-consistency invariants.
+        int st = proxy_target_own_state(target, prop);
+        bool extTarget = target &&
+            ts_reflect_isExtensible(ts_value_box_any(target)) != 0;
+        if (isUndef) {
+            if (st == 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'getOwnPropertyDescriptor' on proxy: trap returned "
+                    "undefined for property which is non-configurable in the "
+                    "proxy target"));
+            }
+            if (st == 1 && !extTarget) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'getOwnPropertyDescriptor' on proxy: trap returned "
+                    "undefined for property which exists in the "
+                    "non-extensible proxy target"));
+            }
+            return ts_value_make_undefined();
+        }
+        if (st == 0 && !extTarget) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "'getOwnPropertyDescriptor' on proxy: trap reported a "
+                "property that does not exist on the non-extensible "
+                "proxy target"));
+        }
+        // CompletePropertyDescriptor defaults an absent [[Configurable]]
+        // to false; a non-configurable answer needs a matching
+        // non-configurable own property on the target.
+        {
+            void* rRaw = nanbox_to_ptr(nb);
+            TsValue* cfg = rRaw ? ts_object_get_property(rRaw, "configurable")
+                                : nullptr;
+            bool resCfg = cfg && !ts_value_is_undefined(cfg) &&
+                          ts_value_to_bool(cfg);
+            if (!resCfg && st != 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "'getOwnPropertyDescriptor' on proxy: trap reported "
+                    "non-configurability for property which is either "
+                    "non-existent or configurable in the proxy target"));
+            }
         }
         return r ? r : ts_value_make_undefined();
     }
