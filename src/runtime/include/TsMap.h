@@ -75,6 +75,15 @@ public:
     // ts_module_mark_namespace at the end of an ESM module's init.
     void SetModuleNamespace(bool value) { isModuleNamespace = value; }
     bool IsModuleNamespace() const { return isModuleNamespace; }
+    // PRE-brand (self-import splice, CONF-P3): exotic READ behavior
+    // ([[GetPrototypeOf]] null, isExtensible false, @@toStringTag) is live,
+    // but [[Set]]/extension REJECTION waits for the init-end full mark so
+    // the module's own export population (exports.default = ...) works.
+    void SetModuleNamespacePre(bool value) { isModuleNamespacePre = value; }
+    bool IsModuleNamespacePre() const { return isModuleNamespacePre; }
+    bool IsModuleNamespaceAny() const {
+        return isModuleNamespace || isModuleNamespacePre;
+    }
 
     // true for `Object.create(null)` — a genuinely prototype-less object.
     // Distinguished from a plain `{}` (whose `prototype` is also nullptr but
@@ -100,7 +109,8 @@ private:
     bool sealed = false;
     bool extensible = true;
     bool isExplicitMap = false;
-    bool isModuleNamespace = false;  // true for new Map(), false for plain objects
+    bool isModuleNamespace = false;
+    bool isModuleNamespacePre = false;  // pre-brand: read-exotic only
     bool nullPrototype = false;  // true for Object.create(null)
 };
 

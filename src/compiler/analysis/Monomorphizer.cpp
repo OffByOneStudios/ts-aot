@@ -978,12 +978,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     if (!importDecl->defaultImport.empty())
                         makeBinding(importDecl->defaultImport, "default");
                     if (!importDecl->namespaceImport.empty()) {
-                        // ES 10.4.6 (CONF-P3 slice 1): the exports map bound
-                        // as `import * as ns` becomes a module namespace
-                        // exotic object — brand it before the binding runs.
+                        // PRE-brand the exports map (exotic READ behavior
+                        // for `import * as ns from './self.js'`; the full
+                        // mark with write/extension rejection lands at
+                        // init end).
                         auto markCall = std::make_unique<ast::CallExpression>();
                         auto markId = std::make_unique<ast::Identifier>();
-                        markId->name = "ts_module_mark_namespace";
+                        markId->name = "ts_module_mark_namespace_pre";
                         {
                             auto ft = std::make_shared<FunctionType>();
                             ft->returnType = std::make_shared<Type>(TypeKind::Void);
@@ -1458,11 +1459,35 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             // local, so the export was undefined. Collect (exported, local)
             // pairs and let them override the same-name entries.
             std::map<std::string, std::string> renameLocals;
-            auto collectRenames = [&renameLocals](
+            // A RE-EXPORT whose specifier resolves back to THIS module
+            // (`export { local as alias } from './self.js'` — the test262
+            // namespace-test shape) is spec-equivalent to a local rename:
+            // the source binding is the module's own. Without this the
+            // specifier-bearing branch skipped it and the alias was never
+            // created (get-str-found-init ns.indirect read undefined).
+            auto reExportSpecIsSelf = [&](const std::string& modSpec) -> bool {
+                if (modSpec.empty()) return false;
+                auto resolved = analyzer.getModuleResolver().resolve(modSpec, path);
+                if (!resolved.isValid()) return false;
+                std::error_code ec;
+                auto pAbs = std::filesystem::weakly_canonical(path, ec);
+                auto rAbs = std::filesystem::weakly_canonical(resolved.path, ec);
+                auto norm = [](std::string v) {
+                    for (auto& ch : v) {
+                        if (ch == '\\') ch = '/';
+                        ch = (char)tolower((unsigned char)ch);
+                    }
+                    return v;
+                };
+                return norm(pAbs.string()) == norm(rAbs.string());
+            };
+            auto collectRenames = [&renameLocals, &reExportSpecIsSelf](
                                      const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
                 for (const auto& stmt : stmts) {
                     if (auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get())) {
-                        if (!ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                        if (ed->isStarExport) continue;
+                        if (!ed->moduleSpecifier.empty() &&
+                            !reExportSpecIsSelf(ed->moduleSpecifier)) continue;
                         for (const auto& spec : ed->namedExports) {
                             const std::string& local =
                                 spec.propertyName.empty() ? spec.name : spec.propertyName;

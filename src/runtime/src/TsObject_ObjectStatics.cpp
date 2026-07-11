@@ -736,7 +736,7 @@ extern "C" {
             // captures bits + byte copies with NO allocation, sorts, writes
             // back (the ts_keys_spec_order no-GC-between-read-and-writeback
             // rule). UTF-8 byte order == code-unit order for BMP names.
-            if (mk && ((TsMap*)rawPtr)->IsModuleNamespace()) {
+            if (mk && ((TsMap*)rawPtr)->IsModuleNamespaceAny()) {
                 int64_t n = mk->Length();
                 for (int64_t i = 0; i < n; i++) {
                     void* sp = ts_value_get_string((TsValue*)(uintptr_t)mk->Get((size_t)i));
@@ -785,7 +785,7 @@ extern "C" {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
                     return px->getPrototypeOfTrap();
                 // ES 10.4.6.1 module namespace [[GetPrototypeOf]]: null.
-                if (((TsMap*)raw0)->IsModuleNamespace())
+                if (((TsMap*)raw0)->IsModuleNamespaceAny())
                     return ts_value_make_null();
             }
         }
@@ -1139,7 +1139,7 @@ extern "C" {
             void* rawNs = ts_value_get_object(obj);
             if (rawNs && (uintptr_t)rawNs >= 0x10000 &&
                 *(uint32_t*)((char*)rawNs + 16) == 0x4D415053 &&
-                ((TsMap*)rawNs)->IsModuleNamespace()) {
+                ((TsMap*)rawNs)->IsModuleNamespaceAny()) {
                 uint64_t pnb = proto ? nanbox_from_tsvalue_ptr(proto) : 0;
                 if (proto && nanbox_is_null(pnb)) return obj;
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -1546,7 +1546,7 @@ extern "C" {
         {
             if ((uintptr_t)rawPtr >= 0x10000 &&
                 *(uint32_t*)((char*)rawPtr + 16) == 0x4D415053 &&
-                ((TsMap*)rawPtr)->IsModuleNamespace()) return obj;
+                ((TsMap*)rawPtr)->IsModuleNamespaceAny()) return obj;
         }
 
         // Flat objects: set the non-extensible flag IN PLACE. The old
@@ -1709,7 +1709,7 @@ extern "C" {
             // ES 10.4.6.3 module namespace [[IsExtensible]]: false (the map
             // itself stays writable for live-binding installs; see
             // ts_module_mark_namespace).
-            if (((TsMap*)rawPtr)->IsModuleNamespace())
+            if (((TsMap*)rawPtr)->IsModuleNamespaceAny())
                 return ts_value_make_bool(false);
             TsMap* map = (TsMap*)rawPtr;
             return ts_value_make_bool(map->IsExtensible());

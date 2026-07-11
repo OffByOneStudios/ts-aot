@@ -448,6 +448,30 @@ void* ts_builtin_lookup_special(const char* name) {
         m->PreventExtensions();
     }
 
+    // LIGHT namespace mark for the SELF-IMPORT binding splice: brands the
+    // map (IsModuleNamespace -> exotic ladder branches, null proto,
+    // @@toStringTag) but does NOT PreventExtensions — export population
+    // (exports.default = ..., late live bindings) continues after the
+    // import statement position. The init-end injection applies the full
+    // mark including PreventExtensions.
+    void ts_module_mark_namespace_pre(TsValue* exportsBoxed) {
+        if (!exportsBoxed) return;
+        void* raw = ts_value_get_object(exportsBoxed);
+        if (!raw) raw = exportsBoxed;
+        if ((uintptr_t)raw < 4096) return;
+        if (*(uint32_t*)((char*)raw + 16) != 0x4D415053 /*MAPS*/) return;
+        TsMap* m = (TsMap*)raw;
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        if (!m->Has(k)) {
+            TsValue v; v.type = ValueType::STRING_PTR;
+            v.ptr_val = TsString::Create("Module");
+            m->SetWithAttrs(k, v, 0);
+        }
+        m->SetModuleNamespacePre(true);
+        m->SetNullPrototype(true);
+    }
+
     void ts_module_set_init_error(TsValue* path, TsValue* err) {
         TsString* s = (TsString*)ts_value_get_string(path);
         if (!s) return;
