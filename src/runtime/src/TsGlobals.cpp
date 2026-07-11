@@ -1487,6 +1487,49 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
             void* sym = ts_symbol_create(descStr);
             return sym ? ts_value_make_object(sym) : ts_value_make_undefined();
         }
+        // ES: most built-in class constructors are not [[Call]]-able —
+        // invoking them without `new` (NewTarget undefined) throws
+        // TypeError (Map 24.1.1.1, Set 24.2.1.1, WeakMap/WeakSet 24.3/24.4,
+        // Promise 27.2.3.1, Proxy 28.2.1.1, ArrayBuffer 25.1.3.1, DataView
+        // 25.3.2.1, WeakRef 26.1.1.1, FinalizationRegistry 26.2.1.1, and
+        // all Temporal constructors). This body is reached with ctx==name
+        // ONLY on a plain call: every construct path (compiler `new` fast
+        // paths, ts_new_from_constructor identity/name dispatch,
+        // Reflect.construct) resolves these builtins BEFORE the wrapper
+        // body runs, and the generic construct path overrides ctx with the
+        // freshly-allocated `this`. POD frame only (ts_throw longjmps).
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL) {
+            static const char* const kRequiresNew[] = {
+                "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy",
+                "ArrayBuffer", "DataView", "WeakRef", "FinalizationRegistry",
+                "PlainTime", "Duration", "PlainDate", "PlainYearMonth",
+                "PlainMonthDay", "PlainDateTime", "Instant", "ZonedDateTime",
+            };
+            for (const char* rn : kRequiresNew) {
+                if (strcmp(name, rn) == 0) {
+                    char msg[80];
+                    snprintf(msg, sizeof(msg),
+                             "Constructor %s requires 'new'", rn);
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+                    return ts_value_make_undefined();  // unreachable
+                }
+            }
+        }
+        // Method dispatch (`Temporal.PlainDate(...)`) overrides a native
+        // function's ctx with the receiver. A receiver that IS the Temporal
+        // namespace object means the callee is one of the eight wrapped
+        // Temporal constructors invoked without `new` — none of them is
+        // [[Call]]-able, so throw TypeError.
+        {
+            extern void* ts_get_global_Temporal();
+            void* tns = ts_get_global_Temporal();
+            if (tns && ctx && (ctx == tns ||
+                               ctx == ts_value_get_object((TsValue*)tns))) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Temporal constructor requires 'new'"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
         return ts_value_make_undefined();
     };
     TsValue* fnVal = ts_value_make_native_function((void*)+body, (void*)name);
@@ -7796,3 +7839,50 @@ void* ts_resolve_identifier_or_throw(void* nameStr) {
 }
 
 } // extern "C"
+
+// ===========================================================================
+// Plain-call stubs for built-in class constructors (require-new TypeError).
+//
+// A DIRECT bare call like `Map()` / `ArrayBuffer(8)` / `Proxy(t, h)` is
+// lowered by the compiler to a WEAK vararg symbol named by arity mangling
+// (`Map`, `ArrayBuffer_any`, `Proxy_any_any`, ... — see
+// HIRToLLVM_Calls.cpp:905-931) whose weak body returns undefined. These
+// STRONG definitions override the weak stubs at link time (the same
+// mechanism that resolves the runtime's real `parseFloat`), so calling a
+// built-in class constructor without `new` (NewTarget undefined) throws
+// TypeError per ES. `new X(...)` never reaches these symbols: it compiles
+// to the dedicated create fast paths / ts_new_from_constructor.
+// Indirect calls (`var M = Map; M()`) go through ts_call and are guarded
+// in the wrapAsCallable body (ctx==name), not here.
+// POD frames only — ts_throw longjmps out of these frames.
+extern "C" {
+
+#define TS_CTOR_REQUIRES_NEW_STUB(SYM, NAME)                                   \
+    TsValue* SYM(...) {                                                        \
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",                  \
+            "Constructor " NAME " requires 'new'"));                           \
+        return ts_value_make_undefined(); /* unreachable */                    \
+    }
+
+#define TS_CTOR_REQUIRES_NEW_STUBS(NAME)                                       \
+    TS_CTOR_REQUIRES_NEW_STUB(NAME, #NAME)                                     \
+    TS_CTOR_REQUIRES_NEW_STUB(NAME##_any, #NAME)                               \
+    TS_CTOR_REQUIRES_NEW_STUB(NAME##_any_any, #NAME)                           \
+    TS_CTOR_REQUIRES_NEW_STUB(NAME##_any_any_any, #NAME)                       \
+    TS_CTOR_REQUIRES_NEW_STUB(NAME##_any_any_any_any, #NAME)
+
+TS_CTOR_REQUIRES_NEW_STUBS(Map)
+TS_CTOR_REQUIRES_NEW_STUBS(Set)
+TS_CTOR_REQUIRES_NEW_STUBS(WeakMap)
+TS_CTOR_REQUIRES_NEW_STUBS(WeakSet)
+TS_CTOR_REQUIRES_NEW_STUBS(Promise)
+TS_CTOR_REQUIRES_NEW_STUBS(Proxy)
+TS_CTOR_REQUIRES_NEW_STUBS(ArrayBuffer)
+TS_CTOR_REQUIRES_NEW_STUBS(DataView)
+TS_CTOR_REQUIRES_NEW_STUBS(WeakRef)
+TS_CTOR_REQUIRES_NEW_STUBS(FinalizationRegistry)
+
+#undef TS_CTOR_REQUIRES_NEW_STUBS
+#undef TS_CTOR_REQUIRES_NEW_STUB
+
+} // extern "C" (require-new ctor stubs)

@@ -619,6 +619,18 @@ extern "C" {
                     if (!gr) gr = g;
                     return gr == rawCtor;
                 };
+                // ES 20.4.1.1: Symbol is not `new`-able — constructing it
+                // (NewTarget !== undefined, incl. Reflect.construct(Symbol))
+                // throws TypeError. Without this branch the generic path
+                // minted a plain object carrying Symbol.prototype.
+                {
+                    extern void* ts_get_global_Symbol();
+                    if (isGlobal(ts_get_global_Symbol)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Symbol is not a constructor"));
+                        return ts_value_make_undefined();  // unreachable
+                    }
+                }
                 // new Proxy(target, handler) -> a real TsProxy (otherwise the
                 // generic construct produced a plain object whose traps never fire).
                 {
