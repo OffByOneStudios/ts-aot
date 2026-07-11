@@ -311,6 +311,26 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
         // Case 1: Method call on 'this' - we know the class statically
         auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+        // PRIVATE method call on `this`: the receiver is NOT provably an
+        // instance — c.method.call(foreignObj) rebinds it (the inner-arrow-
+        // function family). Brand-check via ts_object_get_private (the
+        // installed "#m@Class" method resolves on real instances; a foreign
+        // receiver throws TypeError) and call the resolved value.
+        if (thisIdent && thisIdent->name == "this" && currentClass_ &&
+            !propAccess->name.empty() && propAccess->name[0] == '#') {
+            // Lower `this` through the standard identifier path — inside an
+            // ARROW it resolves through the closure-capture machinery;
+            // lookupVariable("this") returned the raw closure param there
+            // (receiver arrived as the CLSR object, TS_DEBUG_PRIVGET trace).
+            auto objV = lowerExpression(propAccess->expression.get());
+            auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
+            auto boxedObj = boxValueIfNeeded(objV);
+            auto func = builder_.createCall("ts_object_get_private",
+                {boxedObj, keyStr}, HIRType::makeAny());
+            lastValue_ = builder_.createCallWithThis(func, boxedObj, args,
+                                                     HIRType::makeAny());
+            return;
+        }
         if (thisIdent && thisIdent->name == "this" && currentClass_) {
             // Look up the method in the current class
             auto it = currentClass_->methods.find(propAccess->name);
@@ -923,8 +943,10 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // method access (ts_object_get_private throws if the receiver lacks #m),
         // then invoke it with `this = obj`. A typed receiver is a provable instance
         // and keeps the normal dispatch.
-        if (!propAccess->name.empty() && propAccess->name[0] == '#'
-            && obj->type && obj->type->kind == HIRTypeKind::Any) {
+        // ALL private calls brand-check — a typed `this` is NOT provably an
+        // instance (c.method.call(foreignObj) rebinds it; the inner-arrow-
+        // function family). ts_object_get_private throws on a brand miss.
+        if (!propAccess->name.empty() && propAccess->name[0] == '#') {
             auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             auto boxedObj = boxValueIfNeeded(obj);
             auto func = builder_.createCall("ts_object_get_private",

@@ -684,10 +684,12 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                                          {keyStr}, HIRType::makeAny());
         return;
     }
-    if (!node->name.empty() && node->name[0] == '#'
-        && obj->type && obj->type->kind == HIRTypeKind::Any) {
+    // ALL private reads brand-check (typed `this` can be rebound foreign
+    // via .call — inner-arrow family); result is boxed Any (dynamic path).
+    if (!node->name.empty() && node->name[0] == '#') {
         auto keyStr = builder_.createConstString(resolvePrivateName(node->name));
-        lastValue_ = builder_.createCall("ts_object_get_private", {obj, keyStr}, HIRType::makeAny());
+        auto boxedObj = boxValueIfNeeded(obj);
+        lastValue_ = builder_.createCall("ts_object_get_private", {boxedObj, keyStr}, HIRType::makeAny());
         return;
     }
 

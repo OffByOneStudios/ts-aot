@@ -4372,7 +4372,16 @@ void* ts_create_arguments_from_params(
         // ("__getter_#x"). A defined result means the private name is present, so
         // return it (covers fields-with-values, methods, and getters that return a
         // value — and a non-instance finds no getter, so it reads undefined here).
+        if (getenv("TS_DEBUG_PRIVGET")) {
+            uint32_t m0 = (rawObj && (uintptr_t)rawObj >= 4096) ? *(uint32_t*)rawObj : 0;
+            uint32_t m16 = (rawObj && (uintptr_t)rawObj >= 4096) ? *(uint32_t*)((char*)rawObj + 16) : 0;
+            fprintf(stderr, "[privget] key='%s' rawObj=%p m0=%08X m16=%08X\n",
+                    key, rawObj, m0, m16);
+        }
         TsValue* result = rawObj ? ts_object_get_property(rawObj, key) : ts_value_make_undefined();
+        if (getenv("TS_DEBUG_PRIVGET"))
+            fprintf(stderr, "[privget] inner get -> %p (undef=%d)\n", (void*)result,
+                    result ? (int)nanbox_is_undefined(nanbox_from_tsvalue_ptr(result)) : -1);
         if (result && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(result)))
             return result;
         // Result is undefined — distinguish a present-but-undefined field/getter

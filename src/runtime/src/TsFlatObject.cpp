@@ -128,6 +128,13 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     uint32_t shapeId = flat_object_shape_id(obj);
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return (void*)(uintptr_t)NANBOX_UNDEFINED;
+    if (key[0] == '#' && getenv("TS_DEBUG_PRIVGET")) {
+        fprintf(stderr, "[flatget] key='%s' shape=%u nMethods=%u ctorSlot=%p names:",
+                key, shapeId, desc->numMethods, (void*)desc->constructorSlot);
+        for (uint32_t i = 0; i < desc->numMethods && desc->methodNames; i++)
+            fprintf(stderr, " '%s'", desc->methodNames[i] ? desc->methodNames[i] : "?");
+        fprintf(stderr, "\n");
+    }
 
     // Check inline slots. DELETED sentinel means the slot was removed via
     // `delete` — treat as absent so vtable/overflow lookup can proceed
