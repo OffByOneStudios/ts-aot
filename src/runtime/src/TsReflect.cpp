@@ -86,6 +86,19 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
     // If receiver is null, use target
     if (!receiverArg) receiverArg = target;
 
+    // Proxy: [[Set]] runs the set trap and the trap's boolean IS the answer
+    // (ES 10.5.9) — the direct set below bypassed the trap and always
+    // reported true (Reflect.set(proxy,...) === false family).
+    if ((uintptr_t)target >= 4096 &&
+        *(uint32_t*)((char*)target + 16) == 0x4D415053 /*MAPS*/) {
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)target);
+        if (proxy) {
+            void* recv = receiverArg ? ts_nanbox_safe_unbox(receiverArg) : target;
+            return proxy->set((TsValue*)propArg, (TsValue*)valueArg,
+                              recv ? recv : target) ? 1 : 0;
+        }
+    }
+
     // Direct property set on target (bypasses Proxy)
     ts_object_set_dynamic(ts_value_box_any(target), (TsValue*)propArg, (TsValue*)valueArg);
     return 1;  // Return true - simplified, real impl checks writable
