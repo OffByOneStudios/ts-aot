@@ -7275,18 +7275,36 @@ void* ts_get_global(void* namePtr) {
 // mark scanner AND a minor-GC fixup over the entries.
 static std::vector<void*> g_withStack;
 
+// Lexical with-env snapshots for functions DEFINED inside a with body and
+// called after the with popped (ES 14.11: the closure's scope chain keeps
+// the object environment). Keyed by the monomorphized function symbol; the
+// definition-site evaluation re-binds on every execution. g_withEnterBases
+// pairs each ts_with_enter_fn with the stack depth to restore on exit.
+static std::unordered_map<std::string, std::vector<void*>> g_withFnEnvs;
+static std::vector<size_t> g_withEnterBases;
+
 static inline bool with_ptr_plausible(void* p) {
     return (uintptr_t)p >= 4096 && (uintptr_t)p <= 0x00007FFFFFFFFFFFULL;
 }
 static void with_stack_gc_scan(void*) {
     for (auto& e : g_withStack)
         if (with_ptr_plausible(e)) ts_gc_mark_object(e);
+    for (auto& kv : g_withFnEnvs)
+        for (auto& e : kv.second)
+            if (with_ptr_plausible(e)) ts_gc_mark_object(e);
 }
 static void with_stack_gc_fixup(void*) {
     for (auto& e : g_withStack) {
         if (!with_ptr_plausible(e)) continue;
         void* f = ts_gc_minor_lookup_forward(e);
         if (f) e = f;
+    }
+    for (auto& kv : g_withFnEnvs) {
+        for (auto& e : kv.second) {
+            if (!with_ptr_plausible(e)) continue;
+            void* f = ts_gc_minor_lookup_forward(e);
+            if (f) e = f;
+        }
     }
 }
 static bool g_withGcRegistered = false;
@@ -7306,6 +7324,39 @@ void ts_with_pop() {
 
 void ts_with_pop_n(int64_t n) {
     while (n-- > 0 && !g_withStack.empty()) g_withStack.pop_back();
+}
+
+// Definition-site evaluation of a function lexically inside a with body:
+// snapshot the CURRENT with-stack as the function's lexical environment.
+void ts_with_bind_fn(void* nameStr) {
+    if (!nameStr) return;
+    const char* n = ((TsString*)nameStr)->ToUtf8();
+    if (!n) return;
+    if (g_withStack.empty()) { g_withFnEnvs.erase(n); return; }
+    g_withFnEnvs[n] = g_withStack;
+}
+
+// Function prologue: push the bound lexical env (if any) on top of the
+// dynamic stack and remember the base to restore on exit. Pushing on top
+// (instead of swapping) keeps exception-handler depth snapshots valid; it
+// only diverges when the CALLER also has an active with whose object
+// shadows a name the callee's lexical chain resolves differently — accepted
+// approximation of the dynamic-stack model.
+void ts_with_enter_fn(void* nameStr) {
+    g_withEnterBases.push_back(g_withStack.size());
+    if (!nameStr) return;
+    const char* n = ((TsString*)nameStr)->ToUtf8();
+    if (!n) return;
+    auto it = g_withFnEnvs.find(n);
+    if (it == g_withFnEnvs.end()) return;
+    for (void* o : it->second) g_withStack.push_back(o);
+}
+
+void ts_with_exit_fn() {
+    if (g_withEnterBases.empty()) return;
+    size_t base = g_withEnterBases.back();
+    g_withEnterBases.pop_back();
+    if (g_withStack.size() > base) g_withStack.resize(base);
 }
 
 // ES 9.1.1.2.1 HasBinding for a with-object environment: HasProperty, then
@@ -7481,6 +7532,10 @@ void* ts_with_delete(void* nameStr) {
 size_t ts_with_stack_size() { return g_withStack.size(); }
 void ts_with_truncate(size_t depth) {
     if (g_withStack.size() > depth) g_withStack.resize(depth);
+    // Exceptional unwind past a ts_with_enter_fn frame: drop its base so a
+    // later ts_with_exit_fn doesn't truncate to a stale depth.
+    while (!g_withEnterBases.empty() && g_withEnterBases.back() > depth)
+        g_withEnterBases.pop_back();
 }
 
 // Assignment to a bare identifier with no static binding inside a with-body:

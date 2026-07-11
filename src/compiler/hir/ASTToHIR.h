@@ -420,6 +420,11 @@ private:
     // function-local); this flag drives the identifier read/write routing.
     bool withLexical_ = false;
     bool withScopeActive() const { return withDepth_ > 0 || withLexical_; }
+    // True when the CURRENT function's prologue emitted ts_with_enter_fn
+    // (a function lexically inside a with restores its captured object
+    // environment at call time). Return lowering pairs it with
+    // ts_with_exit_fn. Saved/restored per function like withDepth_.
+    bool withEnvEntered_ = false;
 
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<std::pair<ast::StaticBlock*, std::vector<PrivateClassCtx>>> deferredStaticBlocks_;

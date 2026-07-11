@@ -598,6 +598,8 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -641,6 +643,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
 
             hirClass->constructor = defaultCtor.get();
             module_->functions.push_back(std::move(defaultCtor));
@@ -2150,6 +2153,8 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
     currentFunction_ = initFunc.get();
 
     // Create entry block
@@ -2336,6 +2341,7 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
     if (savedFunc) {
         auto* savedBlock = savedFunc->getEntryBlock();
         if (savedBlock) {
@@ -2493,6 +2499,15 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 builder_.createStore(boxedInit, existingInfo->value,
                                      HIRType::makeAny());
                 broadcastCaptureWrite(existingInfo, boxedInit);
+                // Mirror to the __modvar_ global (tail sync below is skipped
+                // by this early return); storeBB only — a write taken by the
+                // with-object must not touch the module binding.
+                if (isModuleGlobalVar(ident->name) &&
+                    (!currentFunction_ ||
+                     currentFunction_->name.find("__module_init_") == 0)) {
+                    builder_.createStoreGlobal(modVarName(ident->name),
+                                               boxedInit);
+                }
                 builder_.createBranch(contBB);
                 builder_.setInsertPoint(contBB);
                 currentBlock_ = contBB;

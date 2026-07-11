@@ -1323,6 +1323,15 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 currentBlock_ = storeBB;
                 builder_.createStore(rhs, info->value, info->elemType);
                 broadcastCaptureWrite(info, rhs);
+                // Mirror to the __modvar_ global (the tail sync below is
+                // skipped by this early return) — inner functions read
+                // module vars via LoadGlobal, so without this the closure
+                // assigned under `with` stayed undefined for them. Inside
+                // storeBB only: when the with-object took the write, the
+                // module binding must stay untouched.
+                if (isModuleGlobalVar(ident->name)) {
+                    builder_.createStoreGlobal(modVarName(ident->name), rhs);
+                }
                 builder_.createBranch(contBB);
                 builder_.setInsertPoint(contBB);
                 currentBlock_ = contBB;

@@ -473,6 +473,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -744,6 +746,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -839,6 +842,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -899,6 +904,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1378,6 +1384,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
             currentFunction_ = func.get();
 
             // Create entry block
@@ -1638,6 +1646,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);
@@ -1726,6 +1735,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -1780,6 +1791,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             currentMethodIsStatic_ = savedMethodStatic;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
             if (savedFunc) {
                 auto* savedBlock = savedFunc->getEntryBlock();
                 builder_.setInsertPoint(savedBlock);

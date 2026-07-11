@@ -165,6 +165,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -235,6 +237,16 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         // first next(). HIRToLLVM lowers this marker as suspension 0 -> 1.
         builder_.createCall("ts_generator_body_started", {},
                             HIRType::makeVoid());
+    }
+
+    // A function lexically inside a `with` restores its captured object
+    // environment for the duration of the call (ES 14.11 — the closure's
+    // scope chain keeps the with env even after the with statement exits).
+    // Generators/async excluded: their bodies suspend without the exit.
+    if (withLexical_ && !func->isGenerator && !func->isAsync) {
+        builder_.createCall("ts_with_enter_fn",
+            {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        withEnvEntered_ = true;
     }
 
     // Create 'arguments' array-like object if the function body references 'arguments'.
@@ -415,6 +427,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Add implicit return if no terminator
     if (!hasTerminator()) {
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturnVoid();
     }
 
@@ -436,6 +450,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -513,6 +528,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
 
         // Mark captured variables as "captured by nested" and register the
         // closure cell so later writes can propagate. When a variable is
@@ -621,6 +639,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         // Create a closure with no captures (for call_indirect compatibility)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         auto closureVal = builder_.createMakeClosure(funcName, emptyCaptureValues, funcType);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
 
         // Store into pre-created alloca or define new variable
         // Block-level function declaration semantics (ES 14.2.3 + Annex B
@@ -785,6 +806,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
     auto savedInnerFuncClosures = std::move(innerFuncClosures_);
@@ -859,6 +882,14 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                             HIRType::makeVoid());
     }
 
+    // Arrow lexically inside a `with`: restore the captured object env for
+    // the call (see visitFunctionDeclaration site).
+    if (withLexical_ && !func->isGenerator && !func->isAsync) {
+        builder_.createCall("ts_with_enter_fn",
+            {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        withEnvEntered_ = true;
+    }
+
     // Lower function body
     // The body can be either a BlockStatement or an Expression (implicit return)
     if (auto* blockStmt = dynamic_cast<ast::BlockStatement*>(node->body.get())) {
@@ -924,12 +955,16 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         auto retVal = lowerExpression(exprBody);
         // If return type is void, don't return the value (just execute the expression for side effects)
         if (returnType->kind != HIRTypeKind::Void) {
+            if (withEnvEntered_)
+                builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
             builder_.createReturn(retVal);
         }
     }
 
     // Add implicit return void if no terminator
     if (!hasTerminator()) {
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturnVoid();
     }
 
@@ -949,6 +984,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     evalFlagsOwner_ = savedEvalOwner_arrow;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
     innerFuncClosures_ = std::move(savedInnerFuncClosures);
@@ -1033,6 +1069,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
 
         // Mark each captured variable in the outer scope as "captured by nested"
         // so subsequent reads/writes in the outer function also use the cell.
@@ -1067,6 +1106,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         // which always expects a TsClosure* (not a raw function pointer)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
     }
 }
 
@@ -1214,6 +1256,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
     // Per-function "use strict" directive (ECMA-262 directive prologue):
     // strictCode_ drives the strict-mode with-write ReferenceError path
     // (SetMutableBinding re-validation). Program::isStrict only covers the
@@ -1279,6 +1323,17 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         // Sync generator: eager-parameter model (marker = suspension 0 -> 1).
         builder_.createCall("ts_generator_body_started", {},
                             HIRType::makeVoid());
+    }
+
+    // A function lexically inside a `with` restores its captured object
+    // environment for the duration of the call (ES 14.11 — the closure's
+    // scope chain keeps the with env even after the with statement exits;
+    // Sputnik S12.10_A1.12: f defined in with, called after). Generators/
+    // async are excluded: their bodies suspend without running the exit.
+    if (withLexical_ && !func->isGenerator && !func->isAsync) {
+        builder_.createCall("ts_with_enter_fn",
+            {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        withEnvEntered_ = true;
     }
 
     // If the function is named, make it available in its own scope (for recursion)
@@ -1435,6 +1490,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
 
     // Add implicit return undefined if no terminator
     if (!hasTerminator()) {
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturnVoid();
     }
 
@@ -1453,6 +1510,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
     strictCode_ = savedStrict_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
@@ -1538,6 +1596,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
 
         // Mark each captured variable in the outer scope as "captured by nested"
         // so subsequent reads/writes in the outer function also use the cell.
@@ -1568,6 +1629,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         // which always expects a TsClosure* (not a raw function pointer)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
+        if (withScopeActive())
+            builder_.createCall("ts_with_bind_fn",
+                {builder_.createConstString(funcName)}, HIRType::makeVoid());
     }
 }
 
@@ -1686,6 +1750,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     int savedWithDepth_fn = withDepth_; withDepth_ = 0;
     bool savedWithLexical_fn = withLexical_;
     withLexical_ = withLexical_ || savedWithDepth_fn > 0;
+    bool savedWithEnvEntered_fn = withEnvEntered_;
+    withEnvEntered_ = false;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
@@ -1788,6 +1854,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 
     // Add implicit return undefined if no terminator
     if (!hasTerminator()) {
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturnVoid();
     }
 
@@ -1806,6 +1874,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     currentFunction_ = savedFunc;
     tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
     withLexical_ = savedWithLexical_fn;
+    withEnvEntered_ = savedWithEnvEntered_fn;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;
     loopStack_ = savedLoopStack;

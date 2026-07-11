@@ -71,6 +71,8 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
             builder_.createCall("ts_with_pop_n",
                 {builder_.createConstInt(withDepth_)}, HIRType::makeVoid());
         }
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturn(retVal);
     } else {
         for (int i = 0; i < tryDepth_; i++) {
@@ -80,6 +82,8 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
             builder_.createCall("ts_with_pop_n",
                 {builder_.createConstInt(withDepth_)}, HIRType::makeVoid());
         }
+        if (withEnvEntered_)
+            builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
         builder_.createReturnVoid();
     }
 }
