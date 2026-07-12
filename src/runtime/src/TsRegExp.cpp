@@ -1,4 +1,6 @@
 #include "TsRegExp.h"
+#include "TsHashTable.h"
+#include <unordered_map>
 #include <cstdio>
 #include <vector>
 #include <algorithm>
@@ -764,8 +766,29 @@ TsString* TsRegExp::GetFlags() const {
     return TsString::Create(flagsStr.c_str());
 }
 
+// ES 25.2.6.2 RegExpBuiltinExec steps 9/12: lastIndex updates go through
+// [[Set]], so a non-writable lastIndex (recorded by defineProperty in the
+// native side-map) makes global/sticky exec and test throw TypeError.
+// Called at METHOD ENTRY, before any non-POD locals — ts_throw longjmps.
+extern std::unordered_map<void*, TsMap*> g_native_object_props;
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+static void regexp_require_lastindex_writable(void* re) {
+    auto it = g_native_object_props.find(re);
+    if (it == g_native_object_props.end() || !it->second) return;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("lastIndex");
+    if (!it->second->Has(k)) return;
+    uint8_t attrs = it->second->GetPropertyAttrs(k);
+    if (!(attrs & TsHashTable::ATTR_WRITABLE)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot assign to read only property 'lastIndex' of object"));
+    }
+}
+
 bool TsRegExp::Test(TsString* str) {
     if (!matcher) return false;
+    if (global || sticky) regexp_require_lastindex_writable(this);
 
     UErrorCode status = U_ZERO_ERROR;
     // Assign into stable heap storage: matcher->reset() KEEPS A REFERENCE to
@@ -794,6 +817,7 @@ bool TsRegExp::Test(TsString* str) {
 
 void* TsRegExp::Exec(TsString* str) {
     if (!matcher) return nullptr;
+    if (global || sticky) regexp_require_lastindex_writable(this);
 
     UErrorCode status = U_ZERO_ERROR;
     // Stable heap storage — matcher->reset() keeps a reference (see Test).
