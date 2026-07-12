@@ -1321,20 +1321,16 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // incorrect inferred types (Namespace, Any, etc.) that cause them to be
     // resolved as undefined instead of via LoadGlobal.
     {
-        static const std::set<std::string> builtinObjects = {
-            "Math", "JSON", "Object", "Array", "String", "Number",
-            "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
-            "process", "global", "globalThis", "Symbol", "Map", "Set",
-            "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry", "Proxy", "Reflect", "Iterator",
-            "EvalError", "RangeError", "ReferenceError", "SyntaxError",
-            "TypeError", "URIError", "AggregateError", "Function", "Temporal",
-            // SMELL-002 gap patch: present in the LoadGlobal lowering but
-            // missing here, so bare untyped-JS references fell through.
-            "Intl", "BigInt", "ArrayBuffer", "SharedArrayBuffer", "DataView",
-            "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array",
-            "Uint16Array", "Int32Array", "Uint32Array", "Float32Array",
-            "Float64Array", "BigInt64Array", "BigUint64Array",
-        };
+        // Generated from the canonical builtin table (SMELL-002 item 11):
+        // src/shared/BuiltinGlobals.inc entries with isBuiltinObj=1 (+ aliases).
+        // Add new bare-identifier globals THERE, not here.
+        static const std::set<std::string> builtinObjects = [] {
+            std::set<std::string> t;
+#define BUILTIN_GLOBAL(name, isCtor, isBuiltinObj) if (isBuiltinObj) t.insert(#name);
+#define BUILTIN_GLOBAL_ALIAS(alias, name) t.insert(#alias);
+#include "../../shared/BuiltinGlobals.inc"
+            return t;
+        }();
         if (builtinObjects.count(node->name)) {
             lastValue_ = builder_.createLoadGlobal(node->name);
             return;
@@ -1378,17 +1374,10 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
-    // Fallback: Check for known JavaScript built-in objects not yet in extension files
-    // This maintains backwards compatibility while migrating to registry-based lookups
-    static const std::set<std::string> builtinObjects = {
-        "Math", "JSON", "Object", "Array", "String", "Number",
-        "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
-        "process", "global", "globalThis"
-    };
-    if (builtinObjects.count(node->name)) {
-        lastValue_ = builder_.createLoadGlobal(node->name);
-        return;
-    }
+    // (A second builtinObjects fallback lived here; it was a strict subset of
+    // the unconditional early check above in this same function, hence
+    // unreachable -- removed in SMELL-002 item 11. The canonical set lives in
+    // src/shared/BuiltinGlobals.inc.)
 
     // Check if this is a module-scoped variable from an imported module
     // This must be checked BEFORE module_->functions because imported JS modules

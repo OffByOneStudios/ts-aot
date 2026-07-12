@@ -1,4 +1,5 @@
 #include "HIRToLLVM_Internal.h"
+#include <unordered_map>
 
 namespace ts::hir {
 
@@ -1046,156 +1047,20 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
     // These return a pointer to the global object
     std::string funcName = "ts_get_global_" + globalName;
 
-    // Check for known globals and use specific runtime functions
-    if (globalName == "console") {
-        funcName = "ts_get_global_console";
-    } else if (globalName == "Math") {
-        funcName = "ts_get_global_Math";
-    } else if (globalName == "JSON") {
-        funcName = "ts_get_global_JSON";
-    } else if (globalName == "Object") {
-        funcName = "ts_get_global_Object";
-    } else if (globalName == "Array") {
-        funcName = "ts_get_global_Array";
-    } else if (globalName == "String") {
-        funcName = "ts_get_global_String";
-    } else if (globalName == "Number") {
-        funcName = "ts_get_global_Number";
-    } else if (globalName == "Boolean") {
-        funcName = "ts_get_global_Boolean";
-    } else if (globalName == "Date") {
-        funcName = "ts_get_global_Date";
-    } else if (globalName == "RegExp") {
-        funcName = "ts_get_global_RegExp";
-    } else if (globalName == "Promise") {
-        funcName = "ts_get_global_Promise";
-    } else if (globalName == "Error") {
-        funcName = "ts_get_global_Error";
-    } else if (globalName == "Intl") {
-        funcName = "ts_get_global_Intl";
-    } else if (globalName == "Iterator") {
-        // SMELL-002: was missing — a bare `Iterator` identifier had no
-        // LoadGlobal mapping despite the ctor-by-name table carrying it.
-        funcName = "ts_get_global_Iterator";
-    } else if (globalName == "Temporal") {
-        funcName = "ts_get_global_Temporal";
-    } else if (globalName == "Buffer") {
-        funcName = "ts_get_global_Buffer";
-    } else if (globalName == "Function") {
-        funcName = "ts_get_global_Function";
-    } else if (globalName == "TypeError") {
-        funcName = "ts_get_global_TypeError";
-    } else if (globalName == "RangeError") {
-        funcName = "ts_get_global_RangeError";
-    } else if (globalName == "ReferenceError") {
-        funcName = "ts_get_global_ReferenceError";
-    } else if (globalName == "SyntaxError") {
-        funcName = "ts_get_global_SyntaxError";
-    } else if (globalName == "URIError") {
-        funcName = "ts_get_global_URIError";
-    } else if (globalName == "AggregateError") {
-        funcName = "ts_get_global_AggregateError";
-    } else if (globalName == "EvalError") {
-        funcName = "ts_get_global_EvalError";
-    } else if (globalName == "ArrayBuffer") {
-        funcName = "ts_get_global_ArrayBuffer";
-    } else if (globalName == "DataView") {
-        funcName = "ts_get_global_DataView";
-    } else if (globalName == "SharedArrayBuffer") {
-        funcName = "ts_get_global_SharedArrayBuffer";
-    } else if (globalName == "BigInt") {
-        funcName = "ts_get_global_BigInt";
-    } else if (globalName == "GeneratorFunction") {
-        funcName = "ts_get_global_GeneratorFunction";
-    } else if (globalName == "AsyncFunction") {
-        funcName = "ts_get_global_AsyncFunction";
-    } else if (globalName == "AsyncGeneratorFunction") {
-        funcName = "ts_get_global_AsyncGeneratorFunction";
-    } else if (globalName == "Symbol") {
-        funcName = "ts_get_global_Symbol";
-    } else if (globalName == "Map") {
-        funcName = "ts_get_global_Map";
-    } else if (globalName == "Set") {
-        funcName = "ts_get_global_Set";
-    } else if (globalName == "WeakMap") {
-        funcName = "ts_get_global_WeakMap";
-    } else if (globalName == "WeakSet") {
-        funcName = "ts_get_global_WeakSet";
-    } else if (globalName == "WeakRef") {
-        funcName = "ts_get_global_WeakRef";
-    } else if (globalName == "FinalizationRegistry") {
-        funcName = "ts_get_global_FinalizationRegistry";
-    } else if (globalName == "Proxy") {
-        funcName = "ts_get_global_Proxy";
-    } else if (globalName == "Reflect") {
-        funcName = "ts_get_global_Reflect";
-    } else if (globalName == "TypedArray") {
-        funcName = "ts_get_global_TypedArray";
-    } else if (globalName == "Int8Array") {
-        funcName = "ts_get_global_Int8Array";
-    } else if (globalName == "Uint8Array") {
-        funcName = "ts_get_global_Uint8Array";
-    } else if (globalName == "Uint8ClampedArray") {
-        funcName = "ts_get_global_Uint8ClampedArray";
-    } else if (globalName == "Int16Array") {
-        funcName = "ts_get_global_Int16Array";
-    } else if (globalName == "Uint16Array") {
-        funcName = "ts_get_global_Uint16Array";
-    } else if (globalName == "Int32Array") {
-        funcName = "ts_get_global_Int32Array";
-    } else if (globalName == "Uint32Array") {
-        funcName = "ts_get_global_Uint32Array";
-    } else if (globalName == "Float32Array") {
-        funcName = "ts_get_global_Float32Array";
-    } else if (globalName == "Float64Array") {
-        funcName = "ts_get_global_Float64Array";
-    } else if (globalName == "BigInt64Array") {
-        funcName = "ts_get_global_BigInt64Array";
-    } else if (globalName == "BigUint64Array") {
-        funcName = "ts_get_global_BigUint64Array";
-    } else if (globalName == "process") {
-        funcName = "ts_get_global_process";
-    } else if (globalName == "global" || globalName == "globalThis") {
-        funcName = "ts_get_global_globalThis";
-    } else if (globalName == "path") {
-        // path module - return a sentinel that lowerCallMethod will recognize
-        // We use the global name as a marker - the runtime doesn't need an actual object
-        funcName = "ts_get_global_path";
-    } else if (globalName == "fs") {
-        funcName = "ts_get_global_fs";
-    } else if (globalName == "os") {
-        funcName = "ts_get_global_os";
-    } else if (globalName == "url") {
-        funcName = "ts_get_global_url";
-    } else if (globalName == "util") {
-        funcName = "ts_get_global_util";
-    } else if (globalName == "crypto") {
-        funcName = "ts_get_global_crypto";
-    } else if (globalName == "http") {
-        funcName = "ts_get_global_http";
-    } else if (globalName == "https") {
-        funcName = "ts_get_global_https";
-    } else if (globalName == "net") {
-        funcName = "ts_get_global_net";
-    } else if (globalName == "dgram") {
-        funcName = "ts_get_global_dgram";
-    } else if (globalName == "dns") {
-        funcName = "ts_get_global_dns";
-    } else if (globalName == "tls") {
-        funcName = "ts_get_global_tls";
-    } else if (globalName == "zlib") {
-        funcName = "ts_get_global_zlib";
-    } else if (globalName == "stream") {
-        funcName = "ts_get_global_stream";
-    } else if (globalName == "events") {
-        funcName = "ts_get_global_events";
-    } else if (globalName == "querystring") {
-        funcName = "ts_get_global_querystring";
-    // Note: "assert" is intentionally NOT mapped here. Unlike console/process/Buffer,
-    // Node.js assert is NOT a global — it must be imported via require('assert').
-    // A user-defined `function assert(){}` should work without collision.
-    } else if (globalName == "child_process") {
-        funcName = "ts_get_global_child_process";
+    // Canonical builtin table (SMELL-002 item 11): known names come from
+    // src/shared/BuiltinGlobals.inc -- add new globals THERE, not here.
+    // Special forms (__modvar_, VTable globals, generic fallback) stay below.
+    static const std::unordered_map<std::string, std::string> kKnownGlobalGetter = [] {
+        std::unordered_map<std::string, std::string> t;
+#define BUILTIN_GLOBAL(name, isCtor, isBuiltinObj) t[#name] = "ts_get_global_" #name;
+#define BUILTIN_GLOBAL_ALIAS(alias, name) t[#alias] = "ts_get_global_" #name;
+#define BUILTIN_MODULE(name) t[#name] = "ts_get_global_" #name;
+#include "../../shared/BuiltinGlobals.inc"
+        return t;
+    }();
+    auto knownIt = kKnownGlobalGetter.find(globalName);
+    if (knownIt != kKnownGlobalGetter.end()) {
+        funcName = knownIt->second;
     } else if (globalName.find("__modvar_") == 0) {
         // EVAL-001 §11: eval-tainted toplevel vars are globalThis-backed —
         // read the property (shared with the runtime interpreter's eval),

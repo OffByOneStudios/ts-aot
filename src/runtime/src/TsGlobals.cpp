@@ -7707,40 +7707,17 @@ void* ts_get_global_FinalizationRegistry() {
 
 static void* ts_global_ctor_by_name(const char* n) {
     struct Entry { const char* name; void* (*get)(); };
+    // Generated from the canonical builtin table (SMELL-002 item 11):
+    // src/shared/BuiltinGlobals.inc entries with isCtor=1. Add new
+    // constructable globals THERE, not here.
+#define BG_CTOR_0(name)
+#define BG_CTOR_1(name) { #name, ts_get_global_##name },
+#define BUILTIN_GLOBAL(name, isCtor, isBuiltinObj) BG_CTOR_##isCtor(name)
     static const Entry table[] = {
-        {"Object", ts_get_global_Object}, {"Function", ts_get_global_Function},
-        {"Array", ts_get_global_Array}, {"String", ts_get_global_String},
-        {"Number", ts_get_global_Number}, {"Boolean", ts_get_global_Boolean},
-        {"Date", ts_get_global_Date}, {"RegExp", ts_get_global_RegExp},
-        {"Error", ts_get_global_Error}, {"TypeError", ts_get_global_TypeError},
-        {"RangeError", ts_get_global_RangeError},
-        {"ReferenceError", ts_get_global_ReferenceError},
-        {"SyntaxError", ts_get_global_SyntaxError},
-        {"URIError", ts_get_global_URIError}, {"EvalError", ts_get_global_EvalError},
-        {"AggregateError", ts_get_global_AggregateError},
-        {"Map", ts_get_global_Map}, {"Set", ts_get_global_Set},
-        {"WeakMap", ts_get_global_WeakMap}, {"WeakSet", ts_get_global_WeakSet},
-        {"Promise", ts_get_global_Promise}, {"Symbol", ts_get_global_Symbol},
-        {"ArrayBuffer", ts_get_global_ArrayBuffer},
-        {"SharedArrayBuffer", ts_get_global_SharedArrayBuffer},
-        {"DataView", ts_get_global_DataView},
-        {"Int8Array", ts_get_global_Int8Array}, {"Uint8Array", ts_get_global_Uint8Array},
-        {"Uint8ClampedArray", ts_get_global_Uint8ClampedArray},
-        {"Int16Array", ts_get_global_Int16Array}, {"Uint16Array", ts_get_global_Uint16Array},
-        {"Int32Array", ts_get_global_Int32Array}, {"Uint32Array", ts_get_global_Uint32Array},
-        {"Float32Array", ts_get_global_Float32Array}, {"Float64Array", ts_get_global_Float64Array},
-        {"BigInt64Array", ts_get_global_BigInt64Array},
-        {"BigUint64Array", ts_get_global_BigUint64Array},
-        {"WeakRef", ts_get_global_WeakRef},
-        {"Iterator", ts_get_global_Iterator},
-        {"FinalizationRegistry", ts_get_global_FinalizationRegistry},
-        // SMELL-002 gap patch: constructable builtins the interp/new
-        // paths could not resolve by name.
-        {"Proxy", ts_get_global_Proxy},
-        {"GeneratorFunction", ts_get_global_GeneratorFunction},
-        {"AsyncFunction", ts_get_global_AsyncFunction},
-        {"AsyncGeneratorFunction", ts_get_global_AsyncGeneratorFunction},
+#include "../../shared/BuiltinGlobals.inc"
     };
+#undef BG_CTOR_0
+#undef BG_CTOR_1
     for (const auto& e : table)
         if (strcmp(n, e.name) == 0) return e.get();
     return nullptr;
