@@ -97,6 +97,46 @@ void ASTToHIR::defineVariableAlloca(const std::string& name, std::shared_ptr<HIR
     }
 }
 
+void ASTToHIR::finishClosure(const std::string& funcName,
+                             std::shared_ptr<HIRValue> closureVal,
+                             const std::vector<std::pair<std::string,
+                                 std::shared_ptr<HIRType>>>& innerCaptures,
+                             bool emitWithBind) {
+    // With-scope definition-site bind (ES 14.11): closures created inside a
+    // `with` body snapshot the with-stack so calls after the with exits
+    // still resolve through the object environment.
+    if (emitWithBind && withScopeActive()) {
+        builder_.createCall("ts_with_bind_fn",
+            {builder_.createConstString(funcName)}, HIRType::makeVoid());
+    }
+    // Mark each captured variable in the outer scope as "captured by
+    // nested" and register the closure cell so later writes propagate.
+    // When MULTIPLE closures capture the same outer var (lodash's
+    // `upperFirst` from many helpers), record each additional closure in
+    // info->additionalCaptures so broadcastCaptureWrite reaches every one.
+    int captureIdx = 0;
+    for (const auto& cap : innerCaptures) {
+        const std::string& capName = cap.first;
+        size_t scopeIndex = 0;
+        if (!isCapturedVariable(capName, &scopeIndex)) {
+            auto* info = lookupVariableInfo(capName);
+            if (info) {
+                auto closureAlloca =
+                    builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
+                builder_.createStore(closureVal, closureAlloca);
+                if (!info->isCapturedByNested) {
+                    info->isCapturedByNested = true;
+                    info->closurePtr = closureAlloca;
+                    info->captureIndex = captureIdx;
+                } else {
+                    info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
+                }
+            }
+        }
+        captureIdx++;
+    }
+}
+
 void ASTToHIR::maybeWithShadowWrap(const std::string& name, VariableInfo* vinfo) {
     if (!withScopeActive() || inTypeofOperand_ || name == "undefined") return;
     if (vinfo && vinfo->declWithDepth >= withDepth_) return;

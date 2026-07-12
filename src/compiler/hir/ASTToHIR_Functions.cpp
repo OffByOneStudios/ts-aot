@@ -502,36 +502,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
-
-        // Mark captured variables as "captured by nested" and register the
-        // closure cell so later writes can propagate. When a variable is
-        // captured by MULTIPLE nested closures (e.g., lodash's `upperFirst`
-        // referenced from many helper closures), record each one in
-        // additionalCaptures — write sites iterate all of them so every
-        // closure sees the assignment.
-        int captureIdx = 0;
-        for (const auto& cap : innerCaptures) {
-            const std::string& capName = cap.first;
-            size_t scopeIndex = 0;
-            if (!isCapturedVariable(capName, &scopeIndex)) {
-                auto* info = lookupVariableInfo(capName);
-                if (info) {
-                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
-                    builder_.createStore(closureVal, closureAlloca);
-                    if (!info->isCapturedByNested) {
-                        info->isCapturedByNested = true;
-                        info->closurePtr = closureAlloca;
-                        info->captureIndex = captureIdx;
-                    } else {
-                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
-                    }
-                }
-            }
-            captureIdx++;
-        }
+        finishClosure(funcName, closureVal, innerCaptures);
 
         // Store the closure into the pre-created alloca (if it exists)
         // This enables function hoisting - the alloca was created before processing statements
@@ -625,9 +596,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         // Create a closure with no captures (for call_indirect compatibility)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         auto closureVal = builder_.createMakeClosure(funcName, emptyCaptureValues, funcType);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        finishClosure(funcName, closureVal, {});
 
         // Store into pre-created alloca or define new variable
         // Block-level function declaration semantics (ES 14.2.3 + Annex B
@@ -1036,46 +1005,13 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
-
-        // Mark each captured variable in the outer scope as "captured by nested"
-        // so subsequent reads/writes in the outer function also use the cell.
-        // When MULTIPLE function expressions / arrows capture the same outer
-        // var (e.g., lodash's `upperFirst` referenced from camelCase, kebabCase,
-        // snakeCase, startCase, upperCase callbacks), record each additional
-        // closure in info->additionalCaptures so broadcastCaptureWrite reaches
-        // every one when the var is later assigned.
-        int captureIdx = 0;
-        for (const auto& cap : innerCaptures) {
-            const std::string& capName = cap.first;
-            size_t scopeIndex = 0;
-            if (!isCapturedVariable(capName, &scopeIndex)) {
-                // Variable is in this function's scope, mark it as captured
-                auto* info = lookupVariableInfo(capName);
-                if (info) {
-                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
-                    builder_.createStore(lastValue_, closureAlloca);
-                    if (!info->isCapturedByNested) {
-                        info->isCapturedByNested = true;
-                        info->closurePtr = closureAlloca;
-                        info->captureIndex = captureIdx;
-                    } else {
-                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
-                    }
-                }
-            }
-            captureIdx++;
-        }
+        finishClosure(funcName, lastValue_, innerCaptures);
     } else {
         // No captures, but still wrap in a closure for consistency with call_indirect
         // which always expects a TsClosure* (not a raw function pointer)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        finishClosure(funcName, lastValue_, {});
     }
 }
 
@@ -1540,42 +1476,13 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 isCapturedVariable(cap.first, &cfpIdx) ? cap.first : std::string());
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType, &capFromParent);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
-
-        // Mark each captured variable in the outer scope as "captured by nested"
-        // so subsequent reads/writes in the outer function also use the cell.
-        // See visitArrowFunction for the multi-capturer rationale.
-        int captureIdx = 0;
-        for (const auto& cap : innerCaptures) {
-            const std::string& capName = cap.first;
-            size_t scopeIndex = 0;
-            if (!isCapturedVariable(capName, &scopeIndex)) {
-                // Variable is in this function's scope, mark it as captured
-                auto* info = lookupVariableInfo(capName);
-                if (info) {
-                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
-                    builder_.createStore(lastValue_, closureAlloca);
-                    if (!info->isCapturedByNested) {
-                        info->isCapturedByNested = true;
-                        info->closurePtr = closureAlloca;
-                        info->captureIndex = captureIdx;
-                    } else {
-                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
-                    }
-                }
-            }
-            captureIdx++;
-        }
+        finishClosure(funcName, lastValue_, innerCaptures);
     } else {
         // No captures, but still wrap in a closure for consistency with call_indirect
         // which always expects a TsClosure* (not a raw function pointer)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
         lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
-        if (withScopeActive())
-            builder_.createCall("ts_with_bind_fn",
-                {builder_.createConstString(funcName)}, HIRType::makeVoid());
+        finishClosure(funcName, lastValue_, {});
     }
 }
 
@@ -1878,27 +1785,10 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         // this the outer variable stays bound to its stale alloca and the
         // method's writes are invisible — the dominant class/object-method
         // closure-capture bug behind the test262 "callCount" cluster.
-        int mdCaptureIdx = 0;
-        for (const auto& cap : innerCaptures) {
-            const std::string& capName = cap.first;
-            size_t sIdx = 0;
-            if (!isCapturedVariable(capName, &sIdx)) {
-                auto* info = lookupVariableInfo(capName);
-                if (info) {
-                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(),
-                                                               capName + "$mclosure");
-                    builder_.createStore(methodClosure, closureAlloca);
-                    if (!info->isCapturedByNested) {
-                        info->isCapturedByNested = true;
-                        info->closurePtr = closureAlloca;
-                        info->captureIndex = mdCaptureIdx;
-                    } else {
-                        info->additionalCaptures.emplace_back(closureAlloca, mdCaptureIdx);
-                    }
-                }
-            }
-            mdCaptureIdx++;
-        }
+        // Methods are never `with`-scope-bound (emitWithBind=false — the
+        // one intentional divergence from the other MakeClosure trailers).
+        finishClosure(funcName, methodClosure, innerCaptures,
+                      /*emitWithBind=*/false);
         return methodClosure;
     } else {
         // Pass the function type so SetPropStatic knows to box it as a function

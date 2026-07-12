@@ -765,6 +765,17 @@ private:
     VariableInfo* lookupVariableInfoInCurrentFunction(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
     void broadcastCaptureWrite(VariableInfo* info, std::shared_ptr<HIRValue> newValue);
+    // SMELL-002: shared MakeClosure trailer — the optional with-scope bind
+    // (ts_with_bind_fn when lexically inside a `with`) plus the
+    // capture-marking loop that registers the closure cell on every
+    // captured outer variable (isCapturedByNested/additionalCaptures so
+    // broadcastCaptureWrite reaches all capturing closures). Was copy-
+    // pasted at 4 sites (fn-decl/arrow/fn-expr/method) with drift.
+    void finishClosure(const std::string& funcName,
+                       std::shared_ptr<HIRValue> closureVal,
+                       const std::vector<std::pair<std::string,
+                           std::shared_ptr<HIRType>>>& innerCaptures,
+                       bool emitWithBind = true);
     // ES 14.11: inside a `with` body wrap a statically-resolved identifier
     // READ (already in lastValue_) in ts_with_shadow_or so the with-object
     // shadows bindings declared outside the with. No-op outside with bodies,
