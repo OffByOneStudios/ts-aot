@@ -332,6 +332,7 @@ extern "C" {
 // reads with the offset read). GetStringOrNumberOption: a Number is range-checked to [0,9]
 // (floored); a NON-Number is valid ONLY if it is the string "auto".
 static int read_fractional_second_digits(void* raw){
+    std::string fs;
     int fsd=-1;
     if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
         if(f&&!ts_value_is_undefined(f)){
@@ -343,21 +344,22 @@ static int read_fractional_second_digits(void* raw){
                 if(fv<0 || fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                 fsd=(int)fv;
             } else {
-                std::string fs;
+                fs.clear();
                 if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
             } } }
     return fsd;
 }
 static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2, int64_t* outTns=nullptr){
+    std::string mode, smallest, out, f;
     if(dayCarry) *dayCarry=0;
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
     // Observable order: fractionalSecondDigits, then roundingMode, then smallestUnit. A caller
     // that already read fractionalSecondDigits (ZonedDateTime.toString) passes fsdPre to skip it.
     int fsd = (fsdPre!=-2) ? fsdPre : read_fractional_second_digits(raw);
     // roundingMode read WITHOUT the "auto"->default mapping ("auto" is not a valid mode).
-    std::string mode = read_opt_str_noauto(raw,"roundingMode","trunc");
+    mode = read_opt_str_noauto(raw,"roundingMode","trunc");
     if(!temporal_mode_valid(mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
-    std::string smallest = read_string_option(opts,"smallestUnit","");
+    smallest = read_string_option(opts,"smallestUnit","");
     if(!smallest.empty()){
         bool ok = smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds"
                || smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"
@@ -390,9 +392,9 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
     int S=(int)(tns/NS_PER_SECOND); int64_t frac=tns%NS_PER_SECOND;
     char hb[24];
     if(dropSeconds){ snprintf(hb,sizeof(hb),"%02d:%02d",H,M); return hb; }
-    snprintf(hb,sizeof(hb),"%02d:%02d:%02d",H,M,S); std::string out=hb;
+    snprintf(hb,sizeof(hb),"%02d:%02d:%02d",H,M,S); out=hb;
     if(digits>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac); out += "."+std::string(fb).substr(0,digits); }
-    else if(digits<0 && frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac); std::string f(fb); while(!f.empty()&&f.back()=='0')f.pop_back(); out+="."+f; }
+    else if(digits<0 && frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac); f=fb; while(!f.empty()&&f.back()=='0')f.pop_back(); out+="."+f; }
     return out;
 }
 
@@ -433,6 +435,7 @@ static bool tsvalue_to_stdstring(TsValue* v, std::string* out) {
 // Temporal.PlainTime.prototype.round(roundTo) — round the wall-clock time to a
 // smallestUnit (hour..nanosecond) with a roundingIncrement and roundingMode.
 TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv) {
+    std::string unit, mode = "halfExpand", rmStr;
     TsPlainTime* pt = require_plaintime(ctx, "round");
     TsValue* roundTo = (argc >= 1 && argv) ? argv[0] : nullptr;
     if (!roundTo || ts_value_is_undefined(roundTo)) {
@@ -440,7 +443,6 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
             "Temporal.PlainTime.prototype.round: roundTo is required"));
         return ts_value_make_undefined();
     }
-    std::string unit, mode = "halfExpand";
     long increment = 1;
     if (!tsvalue_to_stdstring(roundTo, &unit)) {
         // options bag: smallestUnit (required), roundingIncrement, roundingMode.
@@ -464,7 +466,7 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
             if (increment < 1) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: roundingIncrement out of range")); return ts_value_make_undefined(); }
         }
         TsValue* rm = ts_object_get_property(raw, "roundingMode");
-        std::string m; if (rm && option_to_string(rm, &m)) { if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode = m; }
+        if (rm && option_to_string(rm, &rmStr)) { if(!temporal_mode_valid(rmStr)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode = rmStr; }
     }
     int64_t unitNs;
     if (unit == "hour" || unit == "hours") unitNs = NS_PER_HOUR;
@@ -904,7 +906,7 @@ static TsDuration* require_duration(void* ctx, const char* method) {
 // carries a decimal fraction from ms/us/ns). All-zero -> "PT0S".
 static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool* rangeErr=nullptr) {
     int sign = d->Sign();
-    std::string out;
+    std::string out, fs, m2, s2;
     if (sign < 0) out += "-";
     out += "P";
     auto u = [](int64_t v) -> int64_t { return v < 0 ? -v : v; };
@@ -936,19 +938,19 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
                     int64_t fv=(int64_t)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
                     if(fv<0||fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                     fsd=(int)fv;
-                } else { std::string fs;
+                } else { fs.clear();
                     if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                 } }
             TsValue* rm=ts_object_get_property(raw,"roundingMode");
             if(rm && !ts_value_is_undefined(rm)){
-                std::string m2;
+                m2.clear();
                 if(!option_to_string(rm,&m2) || !temporal_mode_valid(m2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid roundingMode")); }
                 mode=m2;
             }
             TsValue* su=ts_object_get_property(raw,"smallestUnit");
             if(su && !ts_value_is_undefined(su)){
                 static const char* DTSU[8]={"second","seconds","millisecond","milliseconds","microsecond","microseconds","nanosecond","nanoseconds"};
-                std::string s2;   // option_to_string APPENDS — start from empty
+                s2.clear();   // option_to_string APPENDS — start from empty
                 if(!option_to_string(su,&s2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
                 bool ok=false; for(int i=0;i<8;i++) if(s2==DTSU[i]) ok=true;
                 if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
@@ -1298,9 +1300,9 @@ static bool calendar_arg_is_string(TsValue* v){
     return *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING;
 }
 static void validate_iso_calendar_arg(TsValue* v){
+    std::string cal;
     if(!v || ts_value_is_undefined(v)) return;
     if(!calendar_arg_is_string(v)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: calendar must be a string")); return; }
-    std::string cal;
     if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
     for(char& c: cal) if(c>='A'&&c<='Z') c=(char)(c+32);
     if(cal!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier")); }
@@ -1313,9 +1315,9 @@ static void validate_iso_calendar_arg(TsValue* v){
 // std::string-bearing frame (when called directly from an extern "C" native, as
 // in ZonedDateTime.withCalendar) corrupts the unwinder on MSVC.
 static void validate_calendar_string_value(TsValue* v){
-    std::string cal;
+    std::string cal, low;
     if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
-    std::string low=cal; for(char& c: low) if(c>='A'&&c<='Z') c=(char)(c+32);
+    low=cal; for(char& c: low) if(c>='A'&&c<='Z') c=(char)(c+32);
     if(low=="iso8601") return;
     const char* s=cal.c_str();
     int a,b,c2,d,e,f,g,h,i2;
@@ -1425,6 +1427,7 @@ static bool string_calendar_is_iso(const char* s){
 // Read the month from a property bag: prefer numeric "month", else "monthCode"
 // ("M01".."M12"). Returns -1 if neither present/valid.
 static int read_bag_month(void* raw){
+    std::string s;
     int fromMonth=-1;
     TsValue* fm=ts_object_get_property(raw,"month");
     if(fm && !ts_value_is_undefined(fm)){ double d=ts_to_number(fm);
@@ -1436,7 +1439,7 @@ static int read_bag_month(void* raw){
         // ECMA: monthCode is "M" + two digits + optional "L" (leap). The ISO
         // calendar has no leap months, so a trailing "L" — and any malformed or
         // out-of-range code — is a RangeError (not a silent -> needs-month/day).
-        std::string s; bool strok=option_to_string(mc,&s);   // ToString — fires a monthCode.toString observer
+        bool strok=option_to_string(mc,&s);   // ToString — fires a monthCode.toString observer
         bool fmt = strok && (s.size()==3||s.size()==4) && s[0]=='M'
                    && s[1]>='0'&&s[1]<='9' && s[2]>='0'&&s[2]<='9'
                    && (s.size()==3 || s[3]=='L');
@@ -1547,11 +1550,12 @@ extern "C" {
 // Append [u-ca=iso8601] (or [!...] for critical) when calendarName is
 // always/critical; otherwise return the base string unchanged.
 static TsValue* append_cal_annotation(TsString* base, TsValue* opts){
+    std::string cal, s;
     static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal = read_enum_option(opts, "calendarName", "auto", CALV, 4);
+    cal = read_enum_option(opts, "calendarName", "auto", CALV, 4);
     if(cal!="always" && cal!="critical") return ts_value_make_string(base);
     const char* u = base ? base->ToUtf8() : "";
-    std::string s = u ? u : "";
+    s = u ? u : "";
     s += (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(s.c_str()));
 }
@@ -1588,6 +1592,7 @@ TsValue* ts_temporal_plaindate_compare_native(void* ctx, int argc, TsValue** arg
 }
 
 TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) {
+    std::string s;
     TsPlainDate* pd = require_plaindate(ctx, "with");
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg?ts_nanbox_safe_unbox(arg):nullptr;
@@ -1608,7 +1613,7 @@ TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) 
     TsValue* fmon=ts_object_get_property(raw,"month"); int fromMonth=-1; bool hM=fmon&&!ts_value_is_undefined(fmon);
     if(hM){ any=true; double dm=ts_to_number(fmon); if(std::isinf(dm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(dm==dm) fromMonth=(int)std::trunc(dm); }
     TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
-    if(hMC){ any=true; std::string s; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); } fromCode=mm; }
+    if(hMC){ any=true; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); } fromCode=mm; }
     if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict")); return ts_value_make_undefined(); }
     if(fromCode>=1) vals[1]=fromCode; else if(fromMonth>=1) vals[1]=fromMonth;
     TsValue* fy=ts_object_get_property(raw,"year");
@@ -1631,6 +1636,7 @@ TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv) 
 } // extern "C"
 
 extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
+    std::string s;
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     // The overflow option must be READ only after the input has been parsed/validated
     // (an invalid ISO string throws before options are observed). _ovopt reads it.
@@ -1677,7 +1683,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
             // ToPositiveIntegerWithTruncation: a present month must be a positive integer.
             if(fromMonth<1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: month must be a positive integer")); return ts_value_make_undefined(); } }
         TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
-        if(hMC){ std::string s; bool ok=option_to_string(fmc,&s);   // ToString — fires monthCode.toString
+        if(hMC){ bool ok=option_to_string(fmc,&s);   // ToString — fires monthCode.toString
             bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L');
             int m=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4;
             if(!fmt||hasL||m<1||m>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); }
@@ -1777,10 +1783,11 @@ static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
 }
 extern "C" {
 TsValue* ts_temporal_plainyearmonth_toString_native(void* ctx,int argc,TsValue** argv){
+    std::string cal;
     TsPlainYearMonth* d=require_plainyearmonth(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
+    cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
     char b[48];
@@ -1906,10 +1913,11 @@ static bool parse_iso_monthday(const char* s, int* M, int* D) {
 }
 extern "C" {
 TsValue* ts_temporal_plainmonthday_toString_native(void* ctx,int argc,TsValue** argv){
+    std::string cal;
     TsPlainMonthDay* d=require_plainmonthday(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
+    cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
     char b[48];
@@ -1925,6 +1933,7 @@ TsValue* ts_temporal_plainmonthday_equals_native(void* ctx,int argc,TsValue** ar
     return ts_value_make_bool(a->iso_month==b->iso_month&&a->iso_day==b->iso_day&&a->iso_year==b->iso_year);
 }
 TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv){
+    std::string s;
     TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     // Observable order: calendar, timeZone (reject), day, month, monthCode, year, overflow.
@@ -1936,7 +1945,7 @@ TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv
     TsValue* fm=ts_object_get_property(raw,"month"); int fromMonth=-1; bool hM=fm&&!ts_value_is_undefined(fm);
     if(hM){any=true; double d=ts_to_number(fm); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)fromMonth=(int)std::trunc(d);}
     TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
-    if(hMC){any=true; std::string s; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); } fromCode=mm; }
+    if(hMC){any=true; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); } fromCode=mm; }
     if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict")); return ts_value_make_undefined(); }
     if(fromCode>=1)M=fromCode; else if(fromMonth>=1)M=fromMonth;
     { TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ any=true; double d=ts_to_number(fy); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } } }
@@ -2099,14 +2108,15 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
 }
 extern "C" {
 TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){
+    std::string cal, tstr, base;
     TsPlainDateTime* d=require_plaindatetime(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaindatetime_iso_string(d));
     // Observable order: calendarName is read BEFORE the time-rounding options.
     static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
-    int carry=0; int64_t rtns=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry,-2,&rtns);
+    cal=read_enum_option(opts,"calendarName","auto",CALV,4);
+    int carry=0; int64_t rtns=0; tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry,-2,&rtns);
     int Y=d->iso_year,M=d->iso_month,D=d->iso_day;
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }   // rounding crossed midnight
     // Rounding the time can push the datetime past the representable range (e.g. rounding
@@ -2115,7 +2125,7 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     char db[24];
     if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D);
     else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
-    std::string base=db; base+="T"; base+=tstr;
+    base=db; base+="T"; base+=tstr;
     if(cal=="always"||cal=="critical") base += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(base.c_str()));
 }
@@ -2162,6 +2172,7 @@ TsValue* ts_temporal_plaindatetime_toPlainTime_native(void* ctx,int argc,TsValue
 TsValue* ts_temporal_plaindatetime_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_plaindatetime_from(argc,argv); }
 }
 extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
+    std::string s;
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     auto _ovopt=[&]()->bool{ return validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
@@ -2182,7 +2193,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         TsValue* fmon=ts_object_get_property(raw,"month"); int fromMonth=-1; bool hM=fmon&&!ts_value_is_undefined(fmon);
         if(hM){ double dm=ts_to_number(fmon); if(std::isinf(dm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); } if(dm==dm) fromMonth=(int)std::trunc(dm); }
         TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
-        if(hMC){ std::string s; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); } fromCode=mm; }
+        if(hMC){ bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); } fromCode=mm; }
         if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict")); }
         int bagM = fromCode>=1?fromCode:fromMonth;
         double vNs=rdf("nanosecond",nullptr), vSec=rdf("second",nullptr), vY=rdf("year",&hY);
@@ -2379,6 +2390,7 @@ TsValue* ts_temporal_instant_epochMicros_native(void* ctx,int argc,TsValue** arg
     return ts_value_make_bigint(ts_bigint_create_int(micros));
 }
 TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
+    std::string ts, out;
     TsInstant* it=require_instant(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
@@ -2392,7 +2404,7 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     int us=(int)(sns/1000), ns=(int)(sns%1000);
     // Observable order: fractionalSecondDigits, roundingMode, smallestUnit (via
     // format_time_opts), THEN timeZone.
-    int carry=0; int64_t rtns=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry,-2,&rtns);   // rounding may cross midnight
+    int carry=0; int64_t rtns=0; ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry,-2,&rtns);   // rounding may cross midnight
     if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
         // Render the instant in the resolved zone (date + local time + offset, no [zone] bracket).
         void* tzr=ts_nanbox_safe_unbox(tz); int off=0; bool zutc=false; char zbuf[40]={0};
@@ -2413,11 +2425,11 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
         const char* suffix = (ts.size()>5)? ts.c_str()+5 : "";   // ":SS.fff" or "" (minute smallestUnit)
         char db2[24]; if(lY<0||lY>9999) snprintf(db2,sizeof(db2),"%+07d-%02d-%02d",lY,lM,lD); else snprintf(db2,sizeof(db2),"%04d-%02d-%02d",lY,lM,lD);
         char ob[8]; zdt_offset_string(effOff,ob,sizeof(ob)); char tb[8]; snprintf(tb,sizeof(tb),"%02d:%02d",lH,lMi);
-        std::string out=db2; out+="T"; out+=tb; out+=suffix; out+=ob;
+        out=db2; out+="T"; out+=tb; out+=suffix; out+=ob;
         return ts_value_make_string(TsString::Create(out.c_str())); } }
     int Y,M,D; iso_civil_from_days(days+carry,&Y,&M,&D);
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
-    std::string out=db; out+="T"; out+=ts; out+="Z";
+    out=db; out+="T"; out+=ts; out+="Z";
     return ts_value_make_string(TsString::Create(out.c_str()));
 }
 TsValue* ts_temporal_instant_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.Instant; use compare() or equals() instead")); return ts_value_make_undefined(); }
@@ -2482,6 +2494,7 @@ static bool instant_ms_in_range(int64_t epoch_ms){
     return epoch_ms <= MAX_EPOCH_MS && epoch_ms >= -MAX_EPOCH_MS;
 }
 extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
+    std::string str;
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -2505,7 +2518,6 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
     // Not an Instant or a string: ToString the argument (an object's toString is
     // invoked observably; a symbol throws TypeError) and parse it as an Instant.
     {
-        std::string str;
         if(!option_to_string(item,&str)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined(); }
         const char* u=str.c_str(); int Y,M,D,h,mi,s,ms,us,ns;
         bool hasOff=false; int64_t offSubNs=0; int64_t offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
@@ -2748,8 +2760,9 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
     return false;
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
+    std::string offMode="reject", offStr, ds;
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej=false; std::string offMode="reject"; bool _optsRead=false; int _disamb=0;
+    bool _ovrej=false; bool _optsRead=false; int _disamb=0;
     // disambiguation/offset/overflow are read only after the input has been parsed
     // (an invalid string throws before any option is observed).
     auto _readopts=[&](){
@@ -2757,7 +2770,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
         static const char* DISV[]={"compatible","earlier","later","reject"};
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
-        std::string ds=read_enum_option(o,"disambiguation","compatible",DISV,4);
+        ds=read_enum_option(o,"disambiguation","compatible",DISV,4);
         _disamb = ds=="earlier"?1 : ds=="later"?2 : ds=="reject"?3 : 0;
         offMode = read_enum_option(o,"offset","reject",OFFFV,4);
         _ovrej = validate_overflow_option(o);
@@ -2777,7 +2790,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         int D=rd("day",&hD), H=rd("hour",nullptr), us=rd("microsecond",nullptr), ms=rd("millisecond",nullptr), Mi=rd("minute",nullptr);
         int bagM=read_bag_month(raw);   // month, monthCode
         int ns=rd("nanosecond",nullptr);
-        std::string offStr; bool hasOffset=false;
+        bool hasOffset=false;
         { TsValue* offf=ts_object_get_property(raw,"offset");
           if(offf && !ts_value_is_undefined(offf)){ if(!option_to_string(offf,&offStr) || !valid_offset_field(offStr.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); } hasOffset=true; } }
         int S=rd("second",nullptr);
@@ -2852,6 +2865,7 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v);  // defined later in this bl
 TsValue* ts_temporal_zdt_epochNs_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochNanoseconds"); TsValue v=z->GetPropertyVirtual("epochNanoseconds"); return (TsValue*)v.ptr_val; }
 TsValue* ts_temporal_zdt_epochMicros_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochMicroseconds"); TsValue v=z->GetPropertyVirtual("epochMicroseconds"); return (TsValue*)v.ptr_val; }
 TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
+    std::string cal, offMode, tstr, out, tzn;
     TsZonedDateTime* z=require_zoneddatetime(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
@@ -2861,18 +2875,18 @@ TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     // Spec option order: calendarName, fractionalSecondDigits, offset, roundingMode,
     // smallestUnit, timeZoneName.
     static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
+    cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     int fsd=read_fractional_second_digits(oraw);
     static const char* OFFV[]={"auto","never"};
-    std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
-    int carry=0; std::string tstr=format_time_opts(h,mi,s,ms,us,ns,opts,&carry,fsd);   // roundingMode, smallestUnit
+    offMode=read_enum_option(opts,"offset","auto",OFFV,2);
+    int carry=0; tstr=format_time_opts(h,mi,s,ms,us,ns,opts,&carry,fsd);   // roundingMode, smallestUnit
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
-    std::string out=db; out+="T"; out+=tstr;
+    out=db; out+="T"; out+=tstr;
     char ob[8]; zdt_offset_string(zdt_eff_offset(z),ob,sizeof(ob));
     if(offMode!="never") out+=ob;
     static const char* TZNV[]={"auto","never","critical"};
-    std::string tzn=read_enum_option(opts,"timeZoneName","auto",TZNV,3);
+    tzn=read_enum_option(opts,"timeZoneName","auto",TZNV,3);
     if(tzn!="never"){ out+="["; if(tzn=="critical")out+="!"; out+= z->zone_name[0]?z->zone_name:(z->is_utc?"UTC":ob); out+="]"; }
     if(cal=="always"||cal=="critical") out += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(out.c_str()));
@@ -2975,6 +2989,7 @@ static TsPlainDate* coerce_relativeto_date(TsValue* relTo){
 // throws even when the comparison/rounding itself needs no calendar anchoring — the
 // observable parse happens regardless. Routes strings through the strict from() parsers.
 static void validate_relativeto_arg(TsValue* rt){
+    std::string os;
     if(!rt||ts_value_is_undefined(rt)) return;
     void* rr=ts_nanbox_safe_unbox(rt);
     if(!rr){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo must be a string or object")); return; }
@@ -3015,7 +3030,7 @@ static void validate_relativeto_arg(TsValue* rt){
         if(f&&!ts_value_is_undefined(f)){ double dv=ts_to_number(f); if(std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); return; } } }
     // An offset field, if present, must be a valid UTC-offset string.
     TsValue* offf=ts_object_get_property(rr,"offset");
-    if(offf&&!ts_value_is_undefined(offf)){ std::string os;
+    if(offf&&!ts_value_is_undefined(offf)){
         if(!tsvalue_to_stdstring(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid offset")); return; } }
     // A timeZone field, if present, must be a parseable time-zone string.
     TsValue* tzf=ts_object_get_property(rr,"timeZone");
@@ -3239,6 +3254,7 @@ static void add_iso_date(int y,int m,int d, int64_t years,int64_t months,int64_t
     iso_civil_from_days(civil, Y, M, D);
 }
 static std::string read_string_option(TsValue* opts, const char* key, const char* def){
+    std::string s;
     // ECMA-262 GetOptionsObject: undefined -> defaults; an object -> use it;
     // anything else (a primitive: string/number/boolean/null) -> TypeError.
     if(!opts || ts_value_is_undefined(opts)) return def;
@@ -3248,7 +3264,6 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     // string (STRG/CONS), symbol (SYMB), bigint (BIGI) are primitive wrappers, not objects.
     if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     TsValue* v = ts_object_get_property(raw, key);
-    std::string s;
     // option_to_string performs the spec ToString (observable for object values,
     // TypeError for symbol); this is the single observable read for the diff path.
     if(v && !ts_value_is_undefined(v) && option_to_string(v,&s)){ if(s=="auto") return def; return s; }
@@ -3258,7 +3273,8 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
 // timeZoneName/offset for toString); ToString-coerces (observable) then throws
 // RangeError if the value is not allowed.
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid){
-    std::string s = read_string_option(opts, key, def);
+    std::string s;
+    s = read_string_option(opts, key, def);
     for(int i=0;i<nvalid;i++) if(s==valid[i]) return s;
     char m[80]; snprintf(m,sizeof(m),"invalid %s value", key);
     ts_throw((TsValue*)ts_error_create_typed("RangeError",m));
@@ -3338,6 +3354,7 @@ static bool unit_in_range(const std::string& u, int minRank, int maxRank){
 // Validate the shared rounding/diff options. minRank/maxRank bound which units
 // the calling method accepts (e.g. Instant.until: hour..nanosecond = [1,6]).
 static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
+    std::string s, suStr, luStr;
     if(!opts || ts_value_is_undefined(opts)) return;
     void* raw = ts_nanbox_safe_unbox(opts);
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
@@ -3351,11 +3368,9 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
     // toString runs exactly once. Symbol/number/null primitives still throw.
     TsValue* rm = ts_object_get_property(raw,"roundingMode");
     if(rm && !ts_value_is_undefined(rm) && !option_is_object(rm)){
-        std::string s;
         if(option_to_string(rm,&s) && !temporal_mode_valid(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
     }
     // smallestUnit: must be a unit in range.
-    std::string suStr, luStr;
     TsValue* su = ts_object_get_property(raw,"smallestUnit");
     if(su && !ts_value_is_undefined(su) && !option_is_object(su)){
         if(option_to_string(su,&suStr) && !unit_in_range(suStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
@@ -3443,13 +3458,14 @@ static void require_options_object(TsValue* opts){
 // Validate the overflow option and return true iff it is "reject" (read once, so
 // a toString observer fires exactly once).
 static bool validate_overflow_option(TsValue* opts){
+    std::string s;
     if(!opts || ts_value_is_undefined(opts)) return false;
     void* raw = ts_nanbox_safe_unbox(opts);
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     uint32_t m0=*(uint32_t*)raw;
     if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     static const char* OV[2]={"constrain","reject"};
-    std::string s = read_enum_option(opts,"overflow","constrain",OV,2);
+    s = read_enum_option(opts,"overflow","constrain",OV,2);
     return s=="reject";
 }
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
@@ -3877,10 +3893,11 @@ TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
 // (hour..nanosecond; no calendar units). The rounding quantum divides a day, so
 // the (epoch_ms, sub_ns) arithmetic stays within int64.
 TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
+    std::string unit, mode="halfExpand";
     TsInstant* it=require_instant(ctx,"round");
     TsValue* roundTo=(argc>=1&&argv)?argv[0]:nullptr;
     if(!roundTo||ts_value_is_undefined(roundTo)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit; int64_t inc=1; std::string mode="halfExpand";
+    int64_t inc=1;
     if(!parse_round_options(roundTo,&unit,&inc,&mode,1,6)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: smallestUnit is required")); return ts_value_make_undefined(); }
     bool ok; int64_t unitNs=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
@@ -4033,10 +4050,10 @@ TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
 // getTimeZoneTransition(directionParam): validate the required direction, then
 // return null — ts-aot time zones are offset/UTC based and have no transitions.
 TsValue* ts_temporal_zdt_getTimeZoneTransition_native(void* ctx,int argc,TsValue** argv){
+    std::string dir;
     require_zoneddatetime(ctx,"getTimeZoneTransition");
     TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
     if(!arg || ts_value_is_undefined(arg)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.getTimeZoneTransition: direction is required")); return ts_value_make_undefined(); }
-    std::string dir;
     void* raw=ts_nanbox_safe_unbox(arg);
     bool isStr = raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=PTR_USER_MAX && (*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING);
     if(isStr){ dir=((TsString*)ts_value_get_string(arg))->ToUtf8(); }
@@ -4074,6 +4091,7 @@ TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv)
     return zdt_from_local(Y,M,D,nh,nmi,nss,nms,nus,nns,z->offset_minutes,z->is_utc);
 }
 TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
+    std::string os, ds;
     TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
     if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
@@ -4087,7 +4105,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     D=rd("day",D); h=rd("hour",h); us=rd("microsecond",us); ms=rd("millisecond",ms); mi=rd("minute",mi);
     int bagM=read_bag_month(raw); if(bagM>=1)M=bagM;
     ns=rd("nanosecond",ns);
-    { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ std::string os; if(!option_to_string(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
+    { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ if(!option_to_string(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
     s=rd("second",s);
     Y=rd("year",Y);
     // A provided day/month must be a positive integer (ToPositiveIntegerWithTruncation); this
@@ -4099,7 +4117,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
       require_options_object(o2);   // TypeError for a primitive options argument (no deref crash)
       static const char* DIS[4]={"compatible","earlier","later","reject"};
       static const char* OFF[4]={"prefer","use","ignore","reject"};
-      std::string ds=read_enum_option(o2,"disambiguation","compatible",DIS,4);
+      ds=read_enum_option(o2,"disambiguation","compatible",DIS,4);
       disamb = ds=="earlier"?1 : ds=="later"?2 : ds=="reject"?3 : 0;
       read_enum_option(o2,"offset","prefer",OFF,4);
       _wrej = validate_overflow_option(o2); }
@@ -4497,17 +4515,17 @@ TsValue* ts_temporal_zdt_startOfDay_native(void* ctx,int argc,TsValue** argv){
 // Temporal.PlainDate.prototype.toZonedDateTime(item) — item is a time-zone string
 // or { timeZone, plainTime? }. The wall time defaults to midnight.
 TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue** argv){
+    std::string tz;
     TsPlainDate* d=require_plaindate(ctx,"toZonedDateTime");
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     void* raw=item?ts_nanbox_safe_unbox(item):nullptr;
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.toZonedDateTime: invalid argument")); return ts_value_make_undefined(); }
     int off=0; bool utc=true; int h=0,mi=0,s=0,ms=0,us=0,ns=0;
     if(*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING){
-        std::string tz=((TsString*)ts_value_get_string(item))->ToUtf8();
+        tz=((TsString*)ts_value_get_string(item))->ToUtf8();
         if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
     } else {
         TsValue* tzv=ts_object_get_property(raw,"timeZone");
-        std::string tz;
         if(!tzv||ts_value_is_undefined(tzv)||!tsvalue_to_stdstring(tzv,&tz)||!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
         TsValue* ptv=ts_object_get_property(raw,"plainTime");
         if(ptv && !ts_value_is_undefined(ptv)){
@@ -4524,6 +4542,7 @@ TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue
 
 // ======================= round helpers + more =======================
 static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut){
+    std::string luStr, m, s;
     *inc=1; *mode="halfExpand";
     // String shorthand: roundTo IS the smallestUnit. Validate it.
     if(roundTo && !ts_value_is_undefined(roundTo) && tsvalue_to_stdstring(roundTo, unit)){
@@ -4534,7 +4553,6 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* in
     // Observable order: roundingIncrement, roundingMode, smallestUnit. The round methods that
     // use this (PlainTime/PlainDateTime/Instant/ZonedDateTime) have NO largestUnit option, so
     // it is not read (Duration.round/diff methods read largestUnit on their own path).
-    std::string luStr;
     // roundingIncrement: ToNumber; finite, then truncate(value) in [1, 1e9].
     TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
     if(ri&&!ts_value_is_undefined(ri)){
@@ -4547,7 +4565,6 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* in
     // roundingMode: validate only when a string; invalid string -> RangeError.
     TsValue* rm=ts_object_get_property(raw,"roundingMode");
     if(rm&&!ts_value_is_undefined(rm)){
-        std::string m;
         if(option_to_string(rm,&m)){
             if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
             *mode=m;
@@ -4556,7 +4573,6 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* in
     // smallestUnit (required for the object form).
     TsValue* su=ts_object_get_property(raw,"smallestUnit");
     if(!su||ts_value_is_undefined(su)) return false;
-    std::string s;
     if(!option_to_string(su,&s)) return false;
     if(!unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
     // largestUnit must be coarser than or equal to smallestUnit.
@@ -4690,12 +4706,13 @@ static int64_t unit_ns(const std::string& u, bool* ok){
 }
 extern "C" {
 TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
+    std::string sUnit, mode="halfExpand", luVal, s, m, L, rmode, lUnit;
     TsDuration* d=require_duration(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     // Options are observed in spec order: largestUnit, relativeTo (full coerce),
     // roundingIncrement, roundingMode, smallestUnit (Duration.round order-of-operations).
-    std::string sUnit,mode="halfExpand",luVal; int64_t inc=1; bool haveS=false;
+    int64_t inc=1; bool haveS=false;
     TsPlainDate* relAnchor=nullptr;
     void* raw=ts_nanbox_safe_unbox(rt);
     if(rt && !ts_value_is_undefined(rt) && tsvalue_to_stdstring(rt,&sUnit)){
@@ -4704,17 +4721,17 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         haveS=true;
     } else if(raw){
         TsValue* lu=ts_object_get_property(raw,"largestUnit");
-        if(lu&&!ts_value_is_undefined(lu)){ std::string s; if(option_to_string(lu,&s)){ if(s!="auto"&&!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid largestUnit")); return ts_value_make_undefined(); } luVal=s; } }
+        if(lu&&!ts_value_is_undefined(lu)){ s.clear(); if(option_to_string(lu,&s)){ if(s!="auto"&&!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid largestUnit")); return ts_value_make_undefined(); } luVal=s; } }
         TsValue* relTo=ts_object_get_property(raw,"relativeTo");
         relAnchor=coerce_relativeto_unified(relTo);
         TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
         if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } double ii=std::trunc(dd); if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } inc=(int64_t)ii; }
         TsValue* rm=ts_object_get_property(raw,"roundingMode");
-        if(rm&&!ts_value_is_undefined(rm)){ std::string m; if(option_to_string(rm,&m)){ if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode=m; } }
+        if(rm&&!ts_value_is_undefined(rm)){ m.clear(); if(option_to_string(rm,&m)){ if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode=m; } }
         TsValue* su=ts_object_get_property(raw,"smallestUnit");
-        if(su&&!ts_value_is_undefined(su)){ std::string s; if(option_to_string(su,&s)){ if(!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); } if(!luVal.empty()&&luVal!="auto"&&unit_rank(luVal)<unit_rank(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit")); return ts_value_make_undefined(); } sUnit=s; haveS=true; } }
+        if(su&&!ts_value_is_undefined(su)){ s.clear(); if(option_to_string(su,&s)){ if(!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); } if(!luVal.empty()&&luVal!="auto"&&unit_rank(luVal)<unit_rank(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit")); return ts_value_make_undefined(); } sUnit=s; haveS=true; } }
     }
-    bool luPresent=!luVal.empty(); std::string lUnit = luPresent ? luVal : "auto";
+    bool luPresent=!luVal.empty(); lUnit = luPresent ? luVal : "auto";
     if(!haveS){
         // smallestUnit may be omitted iff largestUnit is GIVEN (incl. an explicit "auto");
         // defaults to nanosecond.
@@ -4727,7 +4744,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     if(calInvolved){
         TsPlainDate* rd = relAnchor;   // read+coerced above in observable order
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
-        std::string L=lUnit;
+        L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
         int64_t timeNsTot=d->hours*NS_PER_HOUR+d->minutes*NS_PER_MINUTE+d->seconds*NS_PER_SECOND+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds;
         int64_t extraDays=timeNsTot/NS_PER_DAY;
@@ -4756,7 +4773,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
     bool ok; int64_t sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
-    std::string L=lUnit;
+    L=lUnit;
     if(L=="auto"){
         if(d->days) L="day"; else if(d->hours) L="hour"; else if(d->minutes) L="minute";
         else if(d->seconds) L="second"; else if(d->milliseconds) L="millisecond";
@@ -4775,7 +4792,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         int sgn = (totalSec0<0||(totalSec0==0&&subRem0<0)) ? -1 : 1;
         int64_t aSec = totalSec0<0?-totalSec0:totalSec0;
         int64_t aSub = subRem0<0?-subRem0:subRem0;
-        std::string rmode = (sgn<0) ? flip_mode_neg(mode) : mode;
+        rmode = (sgn<0) ? flip_mode_neg(mode) : mode;
         auto fracUp=[&](int64_t num,int64_t den,int64_t qv)->bool{
             if(num<=0) return false;
             if(rmode=="trunc"||rmode=="floor") return false;
@@ -4817,10 +4834,11 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     return ts_value_make_object(TsDuration::Create(0,0,0,out[0],out[1],out[2],out[3],out[4],out[5],out[6]));
 }
 TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** argv){
+    std::string unit, mode;
     TsPlainDateTime* dt=require_plaindatetime(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit,mode; int64_t inc;
+    int64_t inc;
     if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
     bool ok; int64_t un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
@@ -4840,10 +4858,11 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
 }
 TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
+    std::string unit, mode;
     TsZonedDateTime* z=require_zoneddatetime(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit,mode; int64_t inc;
+    int64_t inc;
     if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
     bool ok; int64_t un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
