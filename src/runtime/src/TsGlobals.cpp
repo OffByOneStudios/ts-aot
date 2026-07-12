@@ -4131,6 +4131,10 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
         // String.prototype[Symbol.iterator], which would otherwise slip through).
         if (raw && (uintptr_t)raw > 0x1000) {
             uint32_t m0 = *(uint32_t*)raw;
+            // NOTE (SMELL-002): BIGI deliberately NOT excluded here —
+            // Object(1n) yields the raw TsBigInt (no BigInt wrapper objects
+            // yet), and iterable-primitive-wrapper-objects requires wrapped
+            // bigints to be accepted. Revisit when wrappers exist.
             if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
                 m0 == 0x53594D42 /*SYMB*/) raw = nullptr;
         }

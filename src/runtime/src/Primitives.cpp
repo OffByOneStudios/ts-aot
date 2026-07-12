@@ -719,11 +719,34 @@ TsString* ts_typeof(void* val) {
         }
         if (magic16 == 0x434C5352) return TsString::Create("function"); // TsClosure at offset 16
         if (magic16 == 0x4D415053) return TsString::Create("object");   // TsMap at offset 16
+        // Legacy wrapped forms (parity with the retired ts_value_typeof
+        // ladder, which this function now serves as the single engine for).
+        if (magic16 == 0x53594D42) return TsString::Create("symbol");   // wrapped TsSymbol
+        if (magic16 == 0x42494749) return TsString::Create("bigint");   // wrapped TsBigInt
+        {
+            uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
+            if (magic8 == 0x46554E43) return TsString::Create("function");
+        }
 
         return TsString::Create("object");
     }
 
     return TsString::Create("undefined");
+}
+
+// ES Type(v) is Object — the CANONICAL check. Pointer-shaped primitives
+// (strings, rope strings, symbols, bigints — magic at OFFSET 0) are NOT
+// Objects; ~20 open-coded copies of this brand-exclusion list drifted
+// (instanceof missed CONS, Iterator.concat missed BIGI). Use this.
+bool ts_value_is_object(TsValue* v) {
+    if (!v) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p || (uintptr_t)p < 0x1000) return false;
+    uint32_t m0 = *(uint32_t*)p;
+    return m0 != 0x53545247 /*STRG*/ && m0 != 0x434F4E53 /*CONS*/ &&
+           m0 != 0x53594D42 /*SYMB*/ && m0 != 0x42494749 /*BIGI*/;
 }
 
 bool ts_value_is_nullish(TsValue* v) {
@@ -827,35 +850,20 @@ extern "C" bool ts_ordinary_has_instance(TsValue* C, TsValue* O) {
     }
     // Step 3: if O is not an object, return false.
     if (!O) return false;
-    uint64_t oNb = nanbox_from_tsvalue_ptr(O);
-    if (!nanbox_is_ptr(oNb)) return false;
-    void* rawObj = nanbox_to_ptr(oNb);
-    if (!rawObj) return false;
-    {
-        uint32_t m0 = *(uint32_t*)rawObj;
-        if (m0 == 0x53545247 /*STRG*/ || m0 == 0x53594D42 /*SYMB*/ ||
-            m0 == 0x42494749 /*BIGI*/) return false;  // primitives
-    }
+    // Step 3: if Type(O) is not Object, return false. Canonical check —
+    // the old open-coded list omitted CONS, so a rope string LHS was
+    // treated as an object.
+    if (!ts_value_is_object(O)) return false;
+    void* rawObj = nanbox_to_ptr(nanbox_from_tsvalue_ptr(O));
     // Step 4: P = Get(C, "prototype") — abrupt completions PROPAGATE.
     void* rawC = ts_value_get_object(C);
     if (!rawC) rawC = (void*)C;
     TsValue* protoVal = ts_object_get_property(rawC, "prototype");
     // Step 5: if Type(P) is not Object, throw TypeError.
     void* targetProto = nullptr;
-    if (protoVal && !ts_value_is_undefined(protoVal)) {
-        uint64_t pNb = nanbox_from_tsvalue_ptr(protoVal);
-        if (nanbox_is_ptr(pNb)) {
-            void* p = nanbox_to_ptr(pNb);
-            if (p) {
-                uint32_t pm0 = *(uint32_t*)p;
-                uint32_t pm16 = *(uint32_t*)((char*)p + 16);
-                // Object-ish: map/flat/array/function/builtin — reject
-                // string/symbol/bigint primitives.
-                if (pm0 != 0x53545247 && pm0 != 0x53594D42 && pm0 != 0x42494749)
-                    targetProto = p;
-                (void)pm16;
-            }
-        }
+    if (protoVal && !ts_value_is_undefined(protoVal) &&
+        ts_value_is_object(protoVal)) {
+        targetProto = nanbox_to_ptr(nanbox_from_tsvalue_ptr(protoVal));
     }
     if (!targetProto) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",

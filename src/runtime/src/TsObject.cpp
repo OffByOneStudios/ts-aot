@@ -4254,47 +4254,12 @@ void* ts_create_arguments_from_params(
         return ts_value_make_bool(nanbox_extract_double(a) >= nanbox_extract_double(b));
     }
 
+    // SMELL-002: forwards to the single typeof engine (Primitives.cpp
+    // ts_typeof). This copy had drifted — it missed TsSymbol's OFFSET-0
+    // magic and reported bare symbols as "object"; the engine covers
+    // offset-0 AND the legacy offset-16/offset-8 wrapped forms.
     TsString* ts_value_typeof(TsValue* v) {
-        if (!v) return TsString::Create("undefined");
-
-        uint64_t nb = nanbox_from_tsvalue_ptr(v);
-
-        if (nanbox_is_undefined(nb)) return TsString::Create("undefined");
-        if (nanbox_is_null(nb)) return TsString::Create("object"); // typeof null === "object"
-        if (nanbox_is_int32(nb) || nanbox_is_double(nb)) return TsString::Create("number");
-        if (nanbox_is_bool(nb)) return TsString::Create("boolean");
-
-        if (nanbox_is_ptr(nb)) {
-            void* ptr = nanbox_to_ptr(nb);
-            if (!ptr) return TsString::Create("object");
-
-            // Check magic at various offsets
-            uint32_t magic0 = *(uint32_t*)ptr;
-            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return TsString::Create("string");
-            if (magic0 == 0x41525259) return TsString::Create("object");
-            if (magic0 == 0x4D415053) return TsString::Create("object");
-            if (magic0 == 0x53455453) return TsString::Create("object");
-            if (magic0 == 0x46554E43) return TsString::Create("function");
-            if (magic0 == 0x464C4154) return TsString::Create("object"); // FLAT_MAGIC
-
-            uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-            if (magic16 == 0x4D415053) return TsString::Create("object");
-            // TsBigInt's magic lives at OFFSET 0 (the magic16 form below only
-            // matches legacy wrapped forms) — without this, typeof of a real
-            // TsBigInt reaching here dynamically reported "object".
-            if (magic0 == 0x42494749) return TsString::Create("bigint");
-            if (magic16 == 0x46554E43) return TsString::Create("function");
-            if (magic16 == 0x434C5352) return TsString::Create("function"); // TsClosure
-            if (magic16 == 0x42494749) return TsString::Create("bigint");
-            if (magic16 == 0x53594D42) return TsString::Create("symbol");
-
-            uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
-            if (magic8 == 0x46554E43) return TsString::Create("function");
-
-            return TsString::Create("object");
-        }
-
-        return TsString::Create("undefined");
+        return ts_typeof((void*)v);
     }
 
     // Per ECMA-262 8.5.2 BindingInitialization step 1:

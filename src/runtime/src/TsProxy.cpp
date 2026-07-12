@@ -137,21 +137,10 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
     return true;
 }
 
-// Type(v) is Object per ES — pointer-shaped primitives (strings, symbols,
-// bigints) are heap pointers but NOT Objects; typeof settles it.
+// Type(v) is Object per ES — functions count. Forwards to the canonical
+// SMELL-002 check (Primitives.cpp).
 static bool proxy_value_is_object(TsValue* v) {
-    if (!v) return false;
-    uint64_t nb = nanbox_from_tsvalue_ptr(v);
-    if (!nanbox_is_ptr(nb) || !nanbox_to_ptr(nb)) return false;
-    // Primitive heap shapes carry their magic at OFFSET 0; ts_value_typeof
-    // misses raw TsSymbol*/TsBigInt* there (it probes offset 16) and would
-    // report "object".
-    uint32_t m0 = *(uint32_t*)nanbox_to_ptr(nb);
-    if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS rope*/ ||
-        m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/) return false;
-    extern TsString* ts_value_typeof(TsValue* v);
-    const char* tn = ts_value_typeof(v)->ToUtf8();
-    return tn && (strcmp(tn, "object") == 0 || strcmp(tn, "function") == 0);
+    return ts_value_is_object(v);
 }
 
 // Own-property state of the proxy TARGET for invariant checks:

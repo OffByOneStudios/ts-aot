@@ -55,6 +55,13 @@ void ts_console_info(TsValue* val);
 void ts_console_debug(TsValue* val);
 
 bool ts_value_is_nullish(TsValue* v);
+// ES Type(v) is Object — canonical brand-exclusion check (rejects
+// pointer-shaped primitives STRG/CONS/SYMB/BIGI at offset 0). Defined in
+// Primitives.cpp. Replaces ~20 drifted open-coded copies (SMELL-002).
+bool ts_value_is_object(TsValue* v);
+// Single typeof engine (Primitives.cpp) — covers offset-0 AND legacy
+// offset-16/offset-8 magics; ts_value_typeof forwards here.
+TsString* ts_typeof(void* val);
 TsValue* ts_value_make_undefined();
 TsValue* ts_value_make_null();
 

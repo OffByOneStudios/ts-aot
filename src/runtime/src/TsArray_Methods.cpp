@@ -71,6 +71,7 @@ extern "C" int64_t ts_array_search_spec(TsArray* arr, int64_t value, int64_t fro
             uint32_t m0 = *(uint32_t*)orig;
             uint32_t m16 = *(uint32_t*)((char*)orig + 16);
             if (m0 != 0x53545247 /* STRG */ && m0 != TsConsString::MAGIC &&
+                m0 != 0x53594D42 /* SYMB */ && m0 != 0x42494749 /* BIGI */ &&
                 m16 != 0x54415252 /* TARR */) {
                 liveOrig = orig;
             }
