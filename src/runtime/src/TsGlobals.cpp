@@ -7847,7 +7847,20 @@ void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
         char* rest = strchr(buf, '.');
         *rest++ = 0;
         void* cur = ts_global_ctor_by_name(buf);
+        // Builtin NAMESPACES are ladder-served, not globalThis map entries —
+        // resolve them explicitly (`Temporal.Duration` walked a boxed
+        // UNDEFINED from the globalThis miss and the next property get threw
+        // "Cannot read properties of undefined (reading 'Duration')").
+        if (!cur) {
+            extern void* ts_get_global_Temporal();
+            extern void* ts_get_global_Intl();
+            if (strcmp(buf, "Temporal") == 0) cur = ts_get_global_Temporal();
+            else if (strcmp(buf, "Intl") == 0) cur = ts_get_global_Intl();
+        }
         if (!cur && globalThis) cur = (void*)ts_object_get_property((void*)globalThis, buf);
+        if (cur && (ts_value_is_undefined((TsValue*)cur) ||
+                    ts_value_is_nullish((TsValue*)cur)))
+            cur = nullptr;  // absent global: stop, don't property-get undefined
         while (cur && rest && *rest) {
             char* next = strchr(rest, '.');
             if (next) *next++ = 0;
