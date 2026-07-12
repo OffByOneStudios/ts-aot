@@ -8,6 +8,7 @@
 #include "../analysis/Monomorphizer.h"
 
 #include <map>
+#include <optional>
 #include <set>
 #include <stack>
 #include <string>
@@ -793,6 +794,81 @@ private:
     };
     std::vector<InnerFuncClosureInfo> innerFuncClosures_;
     void emitMutualRecursionFixup();
+
+    //==========================================================================
+    // SMELL-002: RAII save/reset/restore of ALL per-function lowering state.
+    // One definition replaces the 10 hand-copied visitor prologues, which had
+    // drifted: lowerMethodDefinitionToFunction lost innerFuncClosures_, the
+    // class-inline/defaultCtor/decorator sites never cleared the loop/label/
+    // switch stacks or pendingCaptures_, and NO site cleared
+    // breakTargetStack_/pendingLabel_ (a `break` in a nested function could
+    // target the OUTER function's switch block).
+    //
+    // Usage: hold in a std::optional at function-body entry and reset() at
+    // the exact old restore point — code after it runs in the OUTER context.
+    // currentFunction_/currentBlock_/scopes stay site-managed (bespoke
+    // choreography per visitor). strictCode_ is SAVED but not reset here:
+    // strictness inherits lexically; sites apply their own "use strict"
+    // directive scan after construction.
+    //==========================================================================
+    class FunctionLoweringScope {
+    public:
+        explicit FunctionLoweringScope(ASTToHIR& l)
+            : l_(l),
+              tryDepth_(l.tryDepth_), withDepth_(l.withDepth_),
+              withLexical_(l.withLexical_), withEnvEntered_(l.withEnvEntered_),
+              strictCode_(l.strictCode_),
+              pendingCaptures_(std::move(l.pendingCaptures_)),
+              innerFuncClosures_(std::move(l.innerFuncClosures_)),
+              loopStack_(std::move(l.loopStack_)),
+              labeledLoops_(std::move(l.labeledLoops_)),
+              switchStack_(std::move(l.switchStack_)),
+              breakTargetStack_(std::move(l.breakTargetStack_)),
+              pendingLabel_(std::move(l.pendingLabel_)) {
+            l.tryDepth_ = 0;
+            l.withDepth_ = 0;
+            l.withLexical_ = l.withLexical_ || withDepth_ > 0;
+            l.withEnvEntered_ = false;
+            l.pendingCaptures_.clear();
+            l.innerFuncClosures_.clear();
+            l.loopStack_ = {};
+            l.labeledLoops_.clear();
+            l.switchStack_ = {};
+            l.breakTargetStack_ = {};
+            l.pendingLabel_.clear();
+        }
+        ~FunctionLoweringScope() {
+            l_.tryDepth_ = tryDepth_;
+            l_.withDepth_ = withDepth_;
+            l_.withLexical_ = withLexical_;
+            l_.withEnvEntered_ = withEnvEntered_;
+            l_.strictCode_ = strictCode_;
+            l_.pendingCaptures_ = std::move(pendingCaptures_);
+            l_.innerFuncClosures_ = std::move(innerFuncClosures_);
+            l_.loopStack_ = std::move(loopStack_);
+            l_.labeledLoops_ = std::move(labeledLoops_);
+            l_.switchStack_ = std::move(switchStack_);
+            l_.breakTargetStack_ = std::move(breakTargetStack_);
+            l_.pendingLabel_ = std::move(pendingLabel_);
+        }
+        FunctionLoweringScope(const FunctionLoweringScope&) = delete;
+        FunctionLoweringScope& operator=(const FunctionLoweringScope&) = delete;
+
+    private:
+        ASTToHIR& l_;
+        int tryDepth_;
+        int withDepth_;
+        bool withLexical_;
+        bool withEnvEntered_;
+        bool strictCode_;
+        std::vector<CaptureInfo> pendingCaptures_;
+        std::vector<InnerFuncClosureInfo> innerFuncClosures_;
+        std::stack<LoopContext> loopStack_;
+        std::map<std::string, LoopContext> labeledLoops_;
+        std::stack<SwitchContext> switchStack_;
+        std::stack<HIRBlock*> breakTargetStack_;
+        std::string pendingLabel_;
+    };
 
     //==========================================================================
     // Control Flow Helpers

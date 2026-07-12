@@ -155,32 +155,13 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Save current function AND current block (needed for nested functions in try/catch)
     HIRFunction* savedFunc = currentFunction_;
-    // A nested function body starts OUTSIDE any enclosing try/with:
-    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
-    // `return` in a closure defined inside a try{} otherwise emits a
-    // PopHandler for a handler the closure never pushed — at runtime it
-    // popped the CALLER's exception handler (found via the Promise
-    // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering state
+    // (try/with depth, captures, closure lists, loop/label/break stacks);
+    // reset() at the old restore point returns to the OUTER context.
+    std::optional<FunctionLoweringScope> fnScope{std::in_place, *this};
     HIRBlock* savedBlock = currentBlock_;
-    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
-    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
-    innerFuncClosures_.clear();
-    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
-    auto savedLoopStack = loopStack_;
-    auto savedSwitchStack = switchStack_;
-    auto savedLabeledLoops = labeledLoops_;
-    loopStack_ = {};
-    switchStack_ = {};
-    labeledLoops_ = {};
 
     currentFunction_ = func.get();
-    clearPendingCaptures();  // Start fresh for this function
 
     // Create entry block
     auto entryBlock = func->createBlock("entry");
@@ -448,15 +429,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     // Restore saved function and block
     currentFunction_ = savedFunc;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
+    fnScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
     currentBlock_ = savedBlock;
-    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
-    innerFuncClosures_ = std::move(savedInnerFuncClosures);
-    loopStack_ = savedLoopStack;
-    switchStack_ = savedSwitchStack;
-    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -817,29 +791,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;
-    // A nested function body starts OUTSIDE any enclosing try/with:
-    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
-    // `return` in a closure defined inside a try{} otherwise emits a
-    // PopHandler for a handler the closure never pushed — at runtime it
-    // popped the CALLER's exception handler (found via the Promise
-    // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering state.
+    std::optional<FunctionLoweringScope> fnScope{std::in_place, *this};
     HIRBlock* savedBlock = currentBlock_;
-    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
-    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
-    innerFuncClosures_.clear();
-    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
-    auto savedLoopStack = loopStack_;
-    auto savedSwitchStack = switchStack_;
-    auto savedLabeledLoops = labeledLoops_;
-    loopStack_ = {};
-    switchStack_ = {};
-    labeledLoops_ = {};
 
     currentFunction_ = func.get();
     // Field-init eval context (flags bit3) propagates through ARROWS —
@@ -849,7 +803,6 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     HIRFunction* savedEvalOwner_arrow = evalFlagsOwner_;
     if ((activeEvalFlags_ & 8) && evalFlagsOwner_ == savedFunc)
         evalFlagsOwner_ = func.get();
-    clearPendingCaptures();  // Start fresh for this function
 
     // Create entry block
     auto entryBlock = func->createBlock("entry");
@@ -1003,15 +956,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Restore saved context
     currentFunction_ = savedFunc;
     evalFlagsOwner_ = savedEvalOwner_arrow;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
+    fnScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
     currentBlock_ = savedBlock;
-    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
-    innerFuncClosures_ = std::move(savedInnerFuncClosures);
-    loopStack_ = savedLoopStack;
-    switchStack_ = savedSwitchStack;
-    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -1273,32 +1219,17 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // PopHandler for a handler the closure never pushed — at runtime it
     // popped the CALLER's exception handler (found via the Promise
     // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering state.
+    std::optional<FunctionLoweringScope> fnScope{std::in_place, *this};
     // Per-function "use strict" directive (ECMA-262 directive prologue):
     // strictCode_ drives the strict-mode with-write ReferenceError path
     // (SetMutableBinding re-validation). Program::isStrict only covers the
     // top level; a strict IIFE inside sloppy `with` needs this scan.
-    bool savedStrict_fn = strictCode_;
+    // (Saved by fnScope; strictness otherwise inherits.)
     if (bodyHasUseStrictDirective(node->body)) strictCode_ = true;
     HIRBlock* savedBlock = currentBlock_;
-    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
-    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
-    innerFuncClosures_.clear();
-    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
-    auto savedLoopStack = loopStack_;
-    auto savedSwitchStack = switchStack_;
-    auto savedLabeledLoops = labeledLoops_;
-    loopStack_ = {};
-    switchStack_ = {};
-    labeledLoops_ = {};
 
     currentFunction_ = func.get();
-    clearPendingCaptures();  // Start fresh for this function
 
     // Create entry block
     auto entryBlock = func->createBlock("entry");
@@ -1529,16 +1460,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
 
     // Restore saved context
     currentFunction_ = savedFunc;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
-    strictCode_ = savedStrict_fn;
+    fnScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
     currentBlock_ = savedBlock;
-    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
-    innerFuncClosures_ = std::move(savedInnerFuncClosures);
-    loopStack_ = savedLoopStack;
-    switchStack_ = savedSwitchStack;
-    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -1761,30 +1684,14 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;
-    // A nested function body starts OUTSIDE any enclosing try/with:
-    // tryDepth_/withDepth_ are lowering-state of the OUTER function. A
-    // `return` in a closure defined inside a try{} otherwise emits a
-    // PopHandler for a handler the closure never pushed — at runtime it
-    // popped the CALLER's exception handler (found via the Promise
-    // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering state.
+    // This site previously MISSED innerFuncClosures_ save/restore — a
+    // method body defining nested function-expression closures leaked or
+    // lost the parent's list (latent divergence #1 from the audit).
+    std::optional<FunctionLoweringScope> fnScope{std::in_place, *this};
     HIRBlock* savedBlock = currentBlock_;
-    auto savedCaptures = pendingCaptures_;
-    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
-    auto savedLoopStack = loopStack_;
-    auto savedSwitchStack = switchStack_;
-    auto savedLabeledLoops = labeledLoops_;
-    loopStack_ = {};
-    switchStack_ = {};
-    labeledLoops_ = {};
 
     currentFunction_ = func.get();
-    clearPendingCaptures();
 
     // Create entry block
     auto entryBlock = func->createBlock("entry");
@@ -1893,14 +1800,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 
     // Restore saved context
     currentFunction_ = savedFunc;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
+    fnScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
     currentBlock_ = savedBlock;
-    pendingCaptures_ = savedCaptures;
-    loopStack_ = savedLoopStack;
-    switchStack_ = savedSwitchStack;
-    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }

@@ -704,12 +704,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     // PopHandler for a handler the closure never pushed — at runtime it
     // popped the CALLER's exception handler (found via the Promise
     // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering
+    // state. This site previously saved only try/with fields — nested
+    // bodies saw the parent loop/label/break stacks and pending
+    // captures (latent leak from the audit).
+    std::optional<FunctionLoweringScope> flsScope{std::in_place, *this};
             currentFunction_ = defaultCtor.get();
             builder_.setInsertPoint(ctorBlock);
             currentBlock_ = ctorBlock;
@@ -751,9 +750,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             builder_.createReturnVoid();
             popScope();
             currentFunction_ = savedFunc;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
+    flsScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
 
             hirClass->constructor = defaultCtor.get();
             module_->functions.push_back(std::move(defaultCtor));
@@ -2273,12 +2270,11 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
     // PopHandler for a handler the closure never pushed — at runtime it
     // popped the CALLER's exception handler (found via the Promise
     // combinator spec-path whose reject-handler vanished).
-    int savedTryDepth_fn = tryDepth_; tryDepth_ = 0;
-    int savedWithDepth_fn = withDepth_; withDepth_ = 0;
-    bool savedWithLexical_fn = withLexical_;
-    withLexical_ = withLexical_ || savedWithDepth_fn > 0;
-    bool savedWithEnvEntered_fn = withEnvEntered_;
-    withEnvEntered_ = false;
+    // RAII scope (SMELL-002): saves/resets ALL per-function lowering
+    // state. This site previously saved only try/with fields — nested
+    // bodies saw the parent loop/label/break stacks and pending
+    // captures (latent leak from the audit).
+    std::optional<FunctionLoweringScope> flsScope{std::in_place, *this};
     currentFunction_ = initFunc.get();
 
     // Create entry block
@@ -2463,9 +2459,7 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
 
     // Restore saved function
     currentFunction_ = savedFunc;
-    tryDepth_ = savedTryDepth_fn; withDepth_ = savedWithDepth_fn;
-    withLexical_ = savedWithLexical_fn;
-    withEnvEntered_ = savedWithEnvEntered_fn;
+    flsScope.reset();  // restore ALL lowering state (SMELL-002 RAII scope)
     if (savedFunc) {
         auto* savedBlock = savedFunc->getEntryBlock();
         if (savedBlock) {
