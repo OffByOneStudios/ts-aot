@@ -960,9 +960,40 @@ static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, 
     return val;
 }
 
+// TsObject.cpp: lazy own-props side-map for native objects (defineProperty
+// accessors and plain data writes on a Set instance land there). This sits
+// inside the file's extern "C" region — force the C++ linkage the definition
+// has.
+extern "C++" { TsMap* getNativeProps(void* obj); }
+
 TsValue* ts_set_get_property(void* obj, void* propName) {
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
+
+    // ECMA-262 OrdinaryGet: own properties shadow the inherited
+    // Set.prototype methods below. Accessor (__getter_) first, then data —
+    // same pattern as the Date and Promise arms in TsObject.cpp (SMELL-002
+    // item 10: every per-type leaf handler consults own props before its
+    // builtin ladder).
+    if (TsMap* nprops = getNativeProps(obj)) {
+        if (name && strlen(name) < 250) {
+            char gkbuf[280];
+            snprintf(gkbuf, sizeof(gkbuf), "__getter_%s", name);
+            TsValue gk; gk.type = ValueType::STRING_PTR;
+            gk.ptr_val = TsString::GetInterned(gkbuf);
+            if (nprops->Has(gk)) {
+                TsValue gv = nprops->Get(gk);
+                if (gv.ptr_val)
+                    return ts_function_call_with_this(
+                        nanbox_from_tagged(gv),
+                        ts_value_make_object(obj), 0, nullptr);
+                return ts_value_make_undefined();  // set-only accessor
+            }
+        }
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned(name);
+        if (nprops->Has(nk)) return nanbox_from_tagged(nprops->Get(nk));
+    }
 
     if (strcmp(name, "add") == 0) {
         return makeSetMethod((void*)set_add_extract, obj, "add", 1);

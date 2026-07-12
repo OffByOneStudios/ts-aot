@@ -2115,12 +2115,32 @@ void* ts_create_arguments_from_params(
             // User-set own properties (e.g. an `exec` override per ECMA-262
             // 22.2.7.1, or arbitrary `re.foo`) shadow the builtin methods below.
             // The data getters above (source/flags/global/...) stay authoritative.
-            if (re->GetOwnProps()) {
-                TsMap* props = (TsMap*)re->GetOwnProps();
-                TsValue kk; kk.type = ValueType::STRING_PTR;
-                kk.ptr_val = TsString::GetInterned(keyStr);
-                TsValue vv = props->Get(kk);
-                if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+            // defineProperty'd ACCESSORS are consulted first (OrdinaryGet), in
+            // both own-props stores: re->GetOwnProps() (plain writes) and the
+            // g_native_object_props side-map (defineProperty). SMELL-002 item 10.
+            {
+                char rgbuf[280];
+                TsValue rgk; rgk.type = ValueType::STRING_PTR; rgk.ptr_val = nullptr;
+                if (strlen(keyStr) < 250) {
+                    snprintf(rgbuf, sizeof(rgbuf), "__getter_%s", keyStr);
+                    rgk.ptr_val = TsString::GetInterned(rgbuf);
+                }
+                TsMap* stores[2] = { (TsMap*)re->GetOwnProps(), getNativeProps(obj) };
+                for (TsMap* props : stores) {
+                    if (!props) continue;
+                    if (rgk.ptr_val && props->Has(rgk)) {
+                        TsValue gv = props->Get(rgk);
+                        if (gv.ptr_val)
+                            return ts_function_call_with_this(
+                                nanbox_from_tagged(gv),
+                                ts_value_make_object(obj), 0, nullptr);
+                        return ts_value_make_undefined();  // set-only accessor
+                    }
+                    TsValue kk; kk.type = ValueType::STRING_PTR;
+                    kk.ptr_val = TsString::GetInterned(keyStr);
+                    TsValue vv = props->Get(kk);
+                    if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+                }
             }
             if (strcmp(keyStr, "test") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_test_native, re, "test", 1);
