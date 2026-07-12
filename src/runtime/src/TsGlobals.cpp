@@ -7725,6 +7725,12 @@ static void* ts_global_ctor_by_name(const char* n) {
         {"WeakRef", ts_get_global_WeakRef},
         {"Iterator", ts_get_global_Iterator},
         {"FinalizationRegistry", ts_get_global_FinalizationRegistry},
+        // SMELL-002 gap patch: constructable builtins the interp/new
+        // paths could not resolve by name.
+        {"Proxy", ts_get_global_Proxy},
+        {"GeneratorFunction", ts_get_global_GeneratorFunction},
+        {"AsyncFunction", ts_get_global_AsyncFunction},
+        {"AsyncGeneratorFunction", ts_get_global_AsyncGeneratorFunction},
     };
     for (const auto& e : table)
         if (strcmp(n, e.name) == 0) return e.get();

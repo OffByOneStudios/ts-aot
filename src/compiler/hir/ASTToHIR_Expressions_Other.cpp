@@ -1328,6 +1328,12 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
             "TypeError", "URIError", "AggregateError", "Function", "Temporal",
+            // SMELL-002 gap patch: present in the LoadGlobal lowering but
+            // missing here, so bare untyped-JS references fell through.
+            "Intl", "BigInt", "ArrayBuffer", "SharedArrayBuffer", "DataView",
+            "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array",
+            "Uint16Array", "Int32Array", "Uint32Array", "Float32Array",
+            "Float64Array", "BigInt64Array", "BigUint64Array",
         };
         if (builtinObjects.count(node->name)) {
             lastValue_ = builder_.createLoadGlobal(node->name);
