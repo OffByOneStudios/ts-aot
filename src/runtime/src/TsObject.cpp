@@ -6869,87 +6869,14 @@ void* ts_create_arguments_from_params(
         return false;
     }
 
+    // SMELL-002: forwards to the single [[Delete]] engine
+    // (ts_object_delete_property below). This copy had drifted — it lacked
+    // FLAT-object deletion entirely, the accessor-half cleanup, and the
+    // TARR/ARRY branches; the two module-namespace variants are now merged
+    // in the engine ('\x01' markers true, "[Symbol.x]" keys ordinary).
     bool ts_object_delete_prop(TsValue* obj, TsValue* key) {
-        if (!obj || !key) return false;
-        void* rawObj = ts_value_get_object(obj);
-        if (!rawObj) return false;
-
-        // Check for flat object (no C++ vtable — dynamic_cast would crash)
-        uint32_t magic0 = *(uint32_t*)rawObj;
-        if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            return false;
-        }
-
-        // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
-        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        if (magic16 == 0x4D415053) {
-            // Safe to dynamic_cast: TsMap is a TsObject derivative
-            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-            if (proxy) {
-                return proxy->deleteProperty(key);
-            }
-
-            TsString* keyStr = ts_property_key_string(key);
-            if (!keyStr) return false;
-
-            TsMap* map = (TsMap*)rawObj;
-            TsValue keyVal;
-            keyVal.type = ValueType::STRING_PTR;
-            keyVal.ptr_val = keyStr;
-            // `delete Array.prototype[Symbol.iterator]` removes the default
-            // array iterator. The built-in lives in a fast path (not in the
-            // prototype map), so a plain map->Delete here is a no-op. Record
-            // the deletion in a flag ts_iterator_get consults, and bump the
-            // version so array iteration takes the spec-compliant slow path.
-            if (ts_array_is_prototype_map(map) &&
-                strcmp(keyStr->ToUtf8(), "[Symbol.iterator]") == 0) {
-                g_array_default_iterator_deleted = true;
-                ts_array_prototype_bump_version();
-            }
-            // ES 10.4.6.9 module namespace [[Delete]]: an EXPORTED name
-            // (own key, even uninitialized) -> false; any other name ->
-            // true. Never actually removes the binding.
-            if (map->IsModuleNamespaceAny()) {
-                const char* kc = keyStr->ToUtf8();
-                if (kc && kc[0] == '\x01') return true;  // internal marker
-                // Symbol keys ("[Symbol.x]" storage) take the ordinary path
-                // below: @@toStringTag is non-configurable -> false ->
-                // strict TypeError (delete: Symbol.toStringTag).
-                if (!(kc && strncmp(kc, "[Symbol.", 8) == 0))
-                    return !map->Has(keyVal);
-            }
-            // Per ES spec: [[Delete]] on a non-configurable property
-            // returns false (and throws TypeError in strict mode, handled
-            // by the compiler wrapper).
-            if (map->Has(keyVal)) {
-                uint8_t attrs = map->GetPropertyAttrs(keyVal);
-                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) {
-                    return false;
-                }
-            }
-            return map->Delete(keyVal);
-        }
-
-        // TsFunction / TsClosure: delete from their properties TsMap with
-        // the same configurable-attribute enforcement as the TsMap branch.
-        if (magic16 == 0x46554E43 || magic16 == 0x434C5352) {
-            TsMap* props = (magic16 == 0x46554E43)
-                ? ((TsFunction*)rawObj)->properties
-                : ((TsClosure*)rawObj)->properties;
-            if (!props) return true;  // nothing to delete, treat as success
-            TsString* keyStr = ts_property_key_string(key);
-            if (!keyStr) return false;
-            TsValue keyVal; keyVal.type = ValueType::STRING_PTR;
-            keyVal.ptr_val = keyStr;
-            if (props->Has(keyVal)) {
-                uint8_t attrs = props->GetPropertyAttrs(keyVal);
-                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return false;
-            }
-            return props->Delete(keyVal);
-        }
-
-        // Catch-all: non-TsObject types (strings, arrays, sentinels, etc.) — no dynamic_cast
-        return false;
+        extern int ts_object_delete_property(void* objArg, void* keyArg);
+        return ts_object_delete_property((void*)obj, (void*)key) != 0;
     }
 
     // Wrapper for 'in' operator: checks if property exists (including inherited)
@@ -7237,20 +7164,27 @@ void* ts_create_arguments_from_params(
         // Any-gated: a PRE-branded map (self-import splice; the init-end
         // full mark may never fire for no-export/non-ESM-classified entry
         // modules) must answer delete exotically too.
+        // MERGED (SMELL-002) with the sibling ts_object_delete_prop variant:
+        // '\x01' internal-marker keys read as "not an export" (true), and
+        // "[Symbol.x]" keys take the ORDINARY path below so the
+        // non-configurable @@toStringTag correctly reports false.
         if (map->IsModuleNamespaceAny()) {
-            TsValue dk; dk.type = ValueType::STRING_PTR;
-            dk.ptr_val = keyStr;
-            bool own = map->Has(dk);
-            if (!own) {
-                const char* kc = keyStr->ToUtf8();
-                if (kc) {
+            const char* kc = keyStr->ToUtf8();
+            if (kc && kc[0] == '\x01') return 1;  // internal marker
+            if (!(kc && strncmp(kc, "[Symbol.", 8) == 0)) {
+                TsValue dk; dk.type = ValueType::STRING_PTR;
+                dk.ptr_val = keyStr;
+                bool own = map->Has(dk);
+                if (!own && kc) {
+                    char gbuf[300];
+                    snprintf(gbuf, sizeof(gbuf), "__getter_%s", kc);
                     TsValue gk; gk.type = ValueType::STRING_PTR;
-                    gk.ptr_val = TsString::GetInterned(
-                        (std::string("__getter_") + kc).c_str());
+                    gk.ptr_val = TsString::GetInterned(gbuf);
                     own = map->Has(gk);
                 }
+                return own ? 0 : 1;
             }
-            return own ? 0 : 1;
+            // symbol keys: fall through to OrdinaryDelete.
         }
 
         // `delete Array.prototype[Symbol.iterator]` removes the default array
