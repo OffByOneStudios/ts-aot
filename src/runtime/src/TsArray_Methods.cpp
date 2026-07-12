@@ -1171,6 +1171,10 @@ void* TsArray::Join(void* separator) {
     // ToString(separator). The previous `(TsString*)separator` blind-cast a
     // nanboxed non-string separator (join(true)/join(null)/join(Infinity)) to a
     // TsString* and crashed in ToUtf8 (the #1 test262 crash site, ~94 tests).
+    // Constructed BEFORE the separator/element ToString coercions, which
+    // longjmp on Symbols (SMELL-002 rule: no non-POD may be unconstructed
+    // when a throw fires through this frame — 0xc0000374 unwind class).
+    std::stringstream ss;
     TsString* sepHolder = nullptr;
     const char* sepStr;
     if (!separator || nanbox_is_undefined((uint64_t)separator)) {
@@ -1179,8 +1183,6 @@ void* TsArray::Join(void* separator) {
         sepHolder = (TsString*)ts_string_from_value((TsValue*)separator);
         sepStr = sepHolder ? sepHolder->ToUtf8() : "";
     }
-
-    std::stringstream ss;
     for (size_t i = 0; i < length; ++i) {
         if (i > 0) ss << sepStr;
 

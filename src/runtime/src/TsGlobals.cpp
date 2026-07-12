@@ -989,7 +989,10 @@ void* ts_get_global_String() {
         auto fromCodePointFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             // String.fromCodePoint(...codePoints): each arg is a Unicode
             // code point (0..0x10FFFF). Throw RangeError on invalid.
+            // ALL non-PODs constructed before the first possible throw
+            // (SMELL-002 longjmp rule — ts_to_number runs user valueOf).
             icu::UnicodeString uni;
+            std::string utf8;
             for (int i = 0; i < argc; i++) {
                 if (!argv || !argv[i]) {
                     ts_throw((TsValue*)ts_error_create_typed("RangeError",
@@ -1004,7 +1007,6 @@ void* ts_get_global_String() {
                 }
                 uni.append((UChar32)d);
             }
-            std::string utf8;
             uni.toUTF8String(utf8);
             return ts_value_make_string(TsString::Create(utf8.c_str()));
         };

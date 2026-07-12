@@ -5,14 +5,26 @@ extern "C" { extern void* g_object_proto_map; extern bool g_object_proto_dirty; 
 
 // Integrity levels for EXOTIC objects (functions, Dates, RegExps, TsArrays,
 // arguments objects...) that are neither flat objects nor TsMaps and so have
-// no header flag bits to record seal/freeze/preventExtensions. Weak side-
-// table keyed by object pointer: 1 = non-extensible, 2 = sealed, 3 = frozen.
-// GC rule (runtime-safety): keys are weak (never marked — marking would pin
-// dead objects), but promoted keys MUST be re-pointed via the minor fixup or
-// a stale nursery address aliases a reused slot -> type confusion.
+// no header flag bits to record seal/freeze/preventExtensions. Side-table
+// keyed by object pointer: 1 = non-extensible, 2 = sealed, 3 = frozen.
+// GC rule (SMELL-002 revision): keys are now MARKED (pinned). The previous
+// weak-key design left stale entries after a FULL GC (only the minor fixup
+// re-pointed keys), so a later allocation reusing a dead frozen object's
+// address inherited its integrity level — latent type confusion. Pinning
+// trades that for a bounded leak: an object that was frozen/sealed and then
+// dropped is retained for program lifetime (rare; such objects are almost
+// always immortal anyway). Promoted keys are still re-pointed by the minor
+// fixup.
 static std::unordered_map<void*, uint8_t> g_obj_integrity;
 static struct ObjIntegrityFixup {
     ObjIntegrityFixup() {
+        ts_gc_register_scanner([](void*) {
+            for (auto& kv : g_obj_integrity) {
+                uintptr_t u = (uintptr_t)kv.first;
+                if (u > 0x1000 && u < 0x0000800000000000ULL)
+                    ts_gc_mark_object(kv.first);
+            }
+        }, nullptr);
         ts_gc_register_minor_fixup([](void*) {
             std::vector<std::pair<void*, uint8_t>> reinserts;
             for (auto it = g_obj_integrity.begin(); it != g_obj_integrity.end(); ) {

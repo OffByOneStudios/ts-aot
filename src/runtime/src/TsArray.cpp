@@ -2198,6 +2198,10 @@ extern "C" {
         extern void* ts_string_from_value(TsValue* val);  // ToString (symbols throw)
         // TypedArray receiver: format elements as numbers.
         if (TsTypedArray* ta = try_as_typed_array(rawArr)) {
+            // `out` constructed BEFORE the separator coercion below, which
+            // longjmps on Symbols (SMELL-002: no unconstructed non-POD at a
+            // throw — 0xc0000374 unwind class).
+            std::string out;
             std::string sep = ",";
             if (separator) {
                 // ToString the separator (null/true/Infinity/123...) — a blind
@@ -2208,7 +2212,6 @@ extern "C" {
                     if (u) sep = u;
                 }
             }
-            std::string out;
             char buf[64];
             size_t len = ta->GetLength();
             for (size_t i = 0; i < len; i++) {
