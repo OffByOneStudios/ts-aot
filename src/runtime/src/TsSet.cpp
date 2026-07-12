@@ -434,8 +434,12 @@ static void* requireSet(void* context, const char* methodName, SetBrand brand) {
         case SetBrand::SetLike: isValid = hasSetMagic || hasWeakSetMagic; break;
     }
     if (!isValid) {
-        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-            "Set method called on incompatible receiver"));
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+                 "%s.prototype.%s called on incompatible receiver",
+                 brand == SetBrand::WeakSet ? "WeakSet" : "Set",
+                 methodName ? methodName : "?");
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
         return nullptr;
     }
     return rawCtx;
@@ -895,6 +899,49 @@ TsValue* ts_set_isDisjointFrom_wrapper(void* context, TsValue* other) {
     return ts_value_make_bool(result);
 }
 
+// Extraction-table variants (ts_set_get_property): a method object pulled
+// off a Set INSTANCE carries the Set brand, so `s.has.call(new WeakSet())`
+// throws TypeError (does-not-have-setdata-internal-slot family). The plain
+// wrappers above stay SetLike for the compiler typed dispatch (WeakSet is
+// analyzer-typed as Set).
+static TsValue* set_add_extract(void* c, TsValue* v) {
+    void* r = requireSet(c, "add", SetBrand::Set);
+    if (!r) return ts_value_make_undefined();
+    ts_set_add(r, v);
+    return ts_value_make_object(r);
+}
+static TsValue* set_has_extract(void* c, TsValue* v) {
+    void* r = requireSet(c, "has", SetBrand::Set);
+    if (!r) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_has(r, v));
+}
+static TsValue* set_delete_extract(void* c, TsValue* v) {
+    void* r = requireSet(c, "delete", SetBrand::Set);
+    if (!r) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_delete(r, v));
+}
+static TsValue* set_clear_extract(void* c) {
+    void* r = requireSet(c, "clear", SetBrand::Set);
+    if (!r) return ts_value_make_undefined();
+    ts_set_clear(r);
+    return ts_value_make_undefined();
+}
+static TsValue* set_values_extract(void* c, int argc, TsValue** argv) {
+    void* r = requireSet(c, "values", SetBrand::Set);
+    if (!r) return ts_value_make_undefined();
+    return ts_set_values_iter_wrapper(r, argc, argv);
+}
+static TsValue* set_entries_extract(void* c, int argc, TsValue** argv) {
+    void* r = requireSet(c, "entries", SetBrand::Set);
+    if (!r) return ts_value_make_undefined();
+    return ts_set_entries_iter_wrapper(r, argc, argv);
+}
+static TsValue* set_forEach_extract(void* c, TsValue* cb, TsValue* thisArg) {
+    void* r = requireSet(c, "forEach", SetBrand::Set);
+    if (!r) return ts_value_make_undefined();
+    return ts_set_forEach_wrapper(r, cb, thisArg);
+}
+
 // Helper: create a TsFunction with name, arity, and properties TsMap
 static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
     TsValue* val = ts_value_make_function(funcPtr, ctx);
@@ -918,24 +965,24 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
     const char* name = prop->ToUtf8();
 
     if (strcmp(name, "add") == 0) {
-        return makeSetMethod((void*)ts_set_add_wrapper, obj, "add", 1);
+        return makeSetMethod((void*)set_add_extract, obj, "add", 1);
     } else if (strcmp(name, "has") == 0) {
-        return makeSetMethod((void*)ts_set_has_wrapper, obj, "has", 1);
+        return makeSetMethod((void*)set_has_extract, obj, "has", 1);
     } else if (strcmp(name, "delete") == 0) {
-        return makeSetMethod((void*)ts_set_delete_wrapper, obj, "delete", 1);
+        return makeSetMethod((void*)set_delete_extract, obj, "delete", 1);
     } else if (strcmp(name, "clear") == 0) {
-        return makeSetMethod((void*)ts_set_clear_wrapper, obj, "clear", 0);
+        return makeSetMethod((void*)set_clear_extract, obj, "clear", 0);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_set_size(obj));
     } else if (strcmp(name, "values") == 0 || strcmp(name, "keys") == 0 ||
                strcmp(name, "[Symbol.iterator]") == 0) {
         // Per spec, Set.prototype.keys === Set.prototype.values, and
         // Set.prototype[@@iterator] === Set.prototype.values.
-        return makeSetMethod((void*)ts_set_values_iter_wrapper, obj, name, 0);
+        return makeSetMethod((void*)set_values_extract, obj, name, 0);
     } else if (strcmp(name, "entries") == 0) {
-        return makeSetMethod((void*)ts_set_entries_iter_wrapper, obj, "entries", 0);
+        return makeSetMethod((void*)set_entries_extract, obj, "entries", 0);
     } else if (strcmp(name, "forEach") == 0) {
-        return makeSetMethod((void*)ts_set_forEach_wrapper, obj, "forEach", 1);
+        return makeSetMethod((void*)set_forEach_extract, obj, "forEach", 1);
     } else if (strcmp(name, "union") == 0) {
         return makeSetMethod((void*)ts_set_union_wrapper, obj, "union", 1);
     } else if (strcmp(name, "intersection") == 0) {
