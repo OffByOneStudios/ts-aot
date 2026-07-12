@@ -755,10 +755,49 @@ STRING_PROTO_METHOD(isWellFormed)
 STRING_PROTO_METHOD(toWellFormed)
 STRING_PROTO_METHOD(toLocaleLowerCase)
 STRING_PROTO_METHOD(toLocaleUpperCase)
-STRING_PROTO_METHOD(toString)
-STRING_PROTO_METHOD(valueOf)
 
 #undef STRING_PROTO_METHOD
+
+// ES 22.1.3.29/22.1.3.35 thisStringValue: toString/valueOf accept ONLY a
+// string primitive or a String wrapper object — NO ToString coercion
+// (String.prototype.toString.call(1) must TypeError). POD frame — ts_throw
+// longjmps out of here.
+static TsValue* string_proto_thisStringValue(const char* methodName, void* ctx) {
+    if (!ctx) ctx = ts_get_call_this();
+    TsValue* target = (TsValue*)ctx;
+    uint64_t nb = nanbox_from_tsvalue_ptr(target);
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (ptr && (uintptr_t)ptr > 0x1000) {
+            uint32_t magic = *(uint32_t*)ptr;
+            if (magic == TsString::MAGIC || magic == TsConsString::MAGIC)
+                return ts_value_make_string((TsString*)ptr);
+            uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+            if (magic16 == 0x4D415053) {  // String wrapper (TsMap + __StringData)
+                TsMap* m = (TsMap*)ptr;
+                TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                ndKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue v = m->Get(ndKey);
+                if (v.type == ValueType::STRING_PTR && v.ptr_val)
+                    return ts_value_make_string((TsString*)v.ptr_val);
+            }
+        }
+    }
+    char msg[160];
+    snprintf(msg, sizeof(msg),
+             "String.prototype.%s requires that 'this' be a String",
+             methodName);
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    return ts_value_make_undefined();
+}
+static TsValue* ts_string_proto_toString(void* ctx, int argc, TsValue** argv) {
+    (void)argc; (void)argv;
+    return string_proto_thisStringValue("toString", ctx);
+}
+static TsValue* ts_string_proto_valueOf(void* ctx, int argc, TsValue** argv) {
+    (void)argc; (void)argv;
+    return string_proto_thisStringValue("valueOf", ctx);
+}
 
 // Forward declaration for ts_to_number — defined later in this file via
 // Primitives.cpp's extern "C". String.fromCharCode/fromCodePoint use it.
@@ -1117,16 +1156,25 @@ static void* makeErrorConstructor(const char* errorName) {
             }
             extern TsValue* ts_object_get_property(void* obj, const char* key);
             extern void* ts_string_from_value(TsValue* val);
+            // NO std::string locals in this lambda: ts_throw above (and the
+            // name/message getters, which may throw) longjmp out of this
+            // frame, and MSVC's unwind ran _Tidy_deallocate on the
+            // not-yet-constructed strings (0xc0000374 heap corruption —
+            // Error.prototype.toString.call(5)). Compose via TsString.
             TsValue* nameV = ts_object_get_property(raw, "name");
             TsValue* msgV  = ts_object_get_property(raw, "message");
             TsString* nameS = (nameV && !ts_value_is_undefined(nameV))
                 ? (TsString*)ts_string_from_value(nameV) : TsString::Create("Error");
             TsString* msgS = (msgV && !ts_value_is_undefined(msgV))
                 ? (TsString*)ts_string_from_value(msgV) : TsString::Create("");
-            std::string name = (nameS && nameS->ToUtf8()) ? nameS->ToUtf8() : "";
-            std::string msg  = (msgS && msgS->ToUtf8()) ? msgS->ToUtf8() : "";
-            std::string out = name.empty() ? msg : (msg.empty() ? name : name + ": " + msg);
-            return ts_value_make_string(TsString::Create(out.c_str()));
+            const char* nc = (nameS && nameS->ToUtf8()) ? nameS->ToUtf8() : "";
+            const char* mc = (msgS && msgS->ToUtf8()) ? msgS->ToUtf8() : "";
+            if (!*nc) return ts_value_make_string(msgS ? msgS : TsString::Create(""));
+            if (!*mc) return ts_value_make_string(nameS);
+            extern void* ts_string_concat(void* a, void* b);
+            void* withSep = ts_string_concat(nameS, TsString::Create(": "));
+            return ts_value_make_string(
+                (TsString*)ts_string_concat(withSep, msgS));
         }, 0);
     }
 

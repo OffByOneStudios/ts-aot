@@ -2843,12 +2843,46 @@ extern "C" {
         return (TsValue*)ts_value_make_bool(result != 0);
     }
     extern "C" TsValue* ts_regexp_tostring_native(void* ctx, int argc, TsValue** argv) {
-        TsRegExp* re = (TsRegExp*)ctx;
-        // RegExp.prototype.toString: "/" + source + "/" + flags.
-        // ts_string_from_value already builds this for the REGX magic.
+        // ES 22.2.6.16 step 2: Type(R) must be Object — a primitive receiver
+        // (RegExp.prototype.toString.call('s')) is a TypeError, not a blind
+        // TsRegExp cast. Generic objects compose "/"+Get(source)+"/"+
+        // Get(flags). POD frame — ts_throw longjmps.
+        extern void* ts_get_call_this();
+        if (!ctx) ctx = ts_get_call_this();
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        void* raw = nanbox_is_ptr(nb) ? ts_value_get_object((TsValue*)ctx) : nullptr;
+        if (!raw && nanbox_is_ptr(nb)) raw = nanbox_to_ptr(nb);
+        bool isObj = raw && (uintptr_t)raw >= 4096 &&
+                     (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL;
+        if (isObj) {
+            uint32_t m0 = *(uint32_t*)raw;
+            if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
+                m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/)
+                isObj = false;
+        }
+        if (!isObj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "RegExp.prototype.toString requires that 'this' be an Object"));
+            return (TsValue*)ts_value_make_undefined();
+        }
         extern void* ts_string_from_value(TsValue* val);
-        TsValue* boxed = (TsValue*)ts_value_make_object(re);
-        return (TsValue*)ts_value_make_string(ts_string_from_value(boxed));
+        if (*(uint32_t*)raw == 0x52454758 /* REGX */) {
+            // Fast path: ts_string_from_value builds "/source/flags".
+            TsValue* boxed = (TsValue*)ts_value_make_object((TsRegExp*)raw);
+            return (TsValue*)ts_value_make_string(ts_string_from_value(boxed));
+        }
+        // Generic object: "/" + ToString(Get(R,"source")) + "/" +
+        // ToString(Get(R,"flags")).
+        extern TsValue* ts_object_get_property(void* obj, const char* key);
+        extern void* ts_string_concat(void* a, void* b);
+        TsValue* srcV = ts_object_get_property(raw, "source");
+        TsValue* flV  = ts_object_get_property(raw, "flags");
+        void* srcS = ts_string_from_value(srcV ? srcV : ts_value_make_undefined());
+        void* flS  = ts_string_from_value(flV ? flV : ts_value_make_undefined());
+        void* out = ts_string_concat(TsString::Create("/"), srcS);
+        out = ts_string_concat(out, TsString::Create("/"));
+        out = ts_string_concat(out, flS);
+        return (TsValue*)ts_value_make_string(out);
     }
     extern "C" TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
         TsRegExp* re = regexp_receiver_or_throw(ctx, "exec");
