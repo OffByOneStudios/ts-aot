@@ -267,24 +267,66 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
         };
 
+        // AnnexB B.3.3.2/B.3.3.1 collision tracking: a lexical declaration
+        // of F in the GLOBAL scope or ANY scope on the path down to the
+        // block-fn declaration suppresses its promotion (replacing the fn
+        // with `var F` would produce an early error). lexStack carries the
+        // lexical names of each walked scope; simple catch params are
+        // transparent (B.3.5) and are NOT pushed.
+        std::vector<std::set<std::string>> lexStack;
+        auto collectLexInto = [](std::set<std::string>& out, ast::Node* n) {
+            if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) {
+                if (vd->varKind == ast::VarKind::Let ||
+                    vd->varKind == ast::VarKind::Const)
+                    if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                        out.insert(id->name);
+            } else if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(n)) {
+                if (!cd->name.empty()) out.insert(cd->name);
+            }
+        };
+        auto lexCollides = [&](const std::string& name) {
+            for (auto& frame : lexStack)
+                if (frame.count(name)) return true;
+            return false;
+        };
+        {
+            std::set<std::string> top;
+            for (auto& tls : funcNode->body) collectLexInto(top, tls.get());
+            lexStack.push_back(std::move(top));
+        }
+
         // Recursively walk into block-like statements so `var` declarations
         // inside any nested block hoist to module-global scope per ECMA-262.
         // Stops at function/method boundaries (those are their own scopes).
         std::function<void(ast::Statement*)> walkForVars;
         walkForVars = [&](ast::Statement* s) {
             if (!s) return;
-            // EVAL-001 Phase 2: an annexB block-level function declaration
-            // promotes to a var-scope binding; in a tainted main module that
-            // binding is globalThis-backed so eval's promoted redefinition
-            // (existing-block-fn-update) is observed by compiled reads/calls.
+            // AnnexB B.3.3.2: a block-level function declaration in GLOBAL
+            // code promotes to a var-scope binding that is an OWN property
+            // of the global object (created undefined at hoist,
+            // non-configurable — verifyProperty family). globalThis-backed
+            // so compiled code, eval, and the global object all observe the
+            // same binding (originally EVAL-001 Phase 2, taint-gated; the
+            // property must exist for untainted global code too). Toplevel
+            // lexical collisions suppress the promotion.
             if (auto* fdBlk = dynamic_cast<ast::FunctionDeclaration*>(s)) {
-                if (evalTaint_ && currentModulePath_.empty() &&
-                    !fdBlk->name.empty() && fdBlk->name.find("__") != 0) {
-                    moduleGlobalVarsByModule_[fdBlk->name].insert(currentModulePath_);
-                    module_->globals[modVarName(fdBlk->name)] = HIRType::makeAny();
-                    module_->globalObjectVars[modVarName(fdBlk->name)] = fdBlk->name;
-                    moduleGlobalsUsedByInnerByModule_[fdBlk->name]
-                        .insert(currentModulePath_);
+                if (currentModulePath_.empty() &&
+                    !fdBlk->name.empty() && fdBlk->name.find("__") != 0 &&
+                    !lexCollides(fdBlk->name)) {
+                    // Non-suppressed promotion: the global object gets an own
+                    // property (declare at hoist + value-sync at var-copy).
+                    // Only under eval-taint does the binding ALSO become
+                    // globalThis-BACKED (reads/writes rerouted) — doing that
+                    // unconditionally broke block-scoping (the block-lexical
+                    // binding must shadow the global one inside the block).
+                    module_->annexBGlobalFnDecls.insert(fdBlk->name);
+                    if (evalTaint_) {
+                        moduleGlobalVarsByModule_[fdBlk->name].insert(currentModulePath_);
+                        module_->globals[modVarName(fdBlk->name)] = HIRType::makeAny();
+                        module_->globalObjectVars[modVarName(fdBlk->name)] = fdBlk->name;
+                        moduleGlobalsUsedByInnerByModule_[fdBlk->name]
+                            .insert(currentModulePath_);
+                    }
                 }
                 return;  // never recurse into the body (own scope)
             }
@@ -297,9 +339,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 return;
             }
             if (auto* block = dynamic_cast<ast::BlockStatement*>(s)) {
+                std::set<std::string> frame;
+                for (auto& inner : block->statements)
+                    collectLexInto(frame, inner.get());
+                lexStack.push_back(std::move(frame));
                 for (auto& inner : block->statements) {
                     walkForVars(dynamic_cast<ast::Statement*>(inner.get()));
                 }
+                lexStack.pop_back();
                 return;
             }
             if (auto* ifSt = dynamic_cast<ast::IfStatement*>(s)) {
@@ -313,17 +360,29 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
             if (auto* f = dynamic_cast<ast::ForStatement*>(s)) {
                 walkForVars(dynamic_cast<ast::Statement*>(f->initializer.get()));
+                std::set<std::string> frame;
+                collectLexInto(frame, f->initializer.get());
+                lexStack.push_back(std::move(frame));
                 walkForVars(dynamic_cast<ast::Statement*>(f->body.get()));
+                lexStack.pop_back();
                 return;
             }
             if (auto* fi = dynamic_cast<ast::ForInStatement*>(s)) {
                 walkForVars(dynamic_cast<ast::Statement*>(fi->initializer.get()));
+                std::set<std::string> frame;
+                collectLexInto(frame, fi->initializer.get());
+                lexStack.push_back(std::move(frame));
                 walkForVars(dynamic_cast<ast::Statement*>(fi->body.get()));
+                lexStack.pop_back();
                 return;
             }
             if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s)) {
                 walkForVars(dynamic_cast<ast::Statement*>(fo->initializer.get()));
+                std::set<std::string> frame;
+                collectLexInto(frame, fo->initializer.get());
+                lexStack.push_back(std::move(frame));
                 walkForVars(dynamic_cast<ast::Statement*>(fo->body.get()));
+                lexStack.pop_back();
                 return;
             }
             if (auto* lab = dynamic_cast<ast::LabeledStatement*>(s)) {
@@ -331,6 +390,16 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 return;
             }
             if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s)) {
+                // All clauses share ONE block scope.
+                std::set<std::string> frame;
+                for (auto& clause : sw->clauses) {
+                    if (auto* cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                        for (auto& cs : cc->statements) collectLexInto(frame, cs.get());
+                    } else if (auto* dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                        for (auto& cs : dc->statements) collectLexInto(frame, cs.get());
+                    }
+                }
+                lexStack.push_back(std::move(frame));
                 for (auto& clause : sw->clauses) {
                     if (auto* cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
                         for (auto& cs : cc->statements) walkForVars(dynamic_cast<ast::Statement*>(cs.get()));
@@ -338,14 +407,55 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         for (auto& cs : dc->statements) walkForVars(dynamic_cast<ast::Statement*>(cs.get()));
                     }
                 }
+                lexStack.pop_back();
                 return;
             }
             if (auto* tr = dynamic_cast<ast::TryStatement*>(s)) {
-                for (auto& tb : tr->tryBlock) walkForVars(dynamic_cast<ast::Statement*>(tb.get()));
-                if (tr->catchClause) {
-                    for (auto& cb : tr->catchClause->block) walkForVars(dynamic_cast<ast::Statement*>(cb.get()));
+                {
+                    std::set<std::string> frame;
+                    for (auto& tb : tr->tryBlock) collectLexInto(frame, tb.get());
+                    lexStack.push_back(std::move(frame));
+                    for (auto& tb : tr->tryBlock) walkForVars(dynamic_cast<ast::Statement*>(tb.get()));
+                    lexStack.pop_back();
                 }
-                for (auto& fb : tr->finallyBlock) walkForVars(dynamic_cast<ast::Statement*>(fb.get()));
+                if (tr->catchClause) {
+                    // Simple catch params are transparent (B.3.5); a
+                    // DESTRUCTURED catch parameter's names DO suppress.
+                    std::set<std::string> frame;
+                    std::function<void(ast::Node*)> collectPat = [&](ast::Node* n) {
+                        if (!n) return;
+                        if (dynamic_cast<ast::ObjectBindingPattern*>(n) ||
+                            dynamic_cast<ast::ArrayBindingPattern*>(n)) {
+                            std::function<void(ast::Node*)> names = [&](ast::Node* p) {
+                                if (!p) return;
+                                if (auto* id = dynamic_cast<ast::Identifier*>(p)) {
+                                    frame.insert(id->name);
+                                } else if (auto* op = dynamic_cast<ast::ObjectBindingPattern*>(p)) {
+                                    for (auto& e : op->elements)
+                                        if (auto* be = dynamic_cast<ast::BindingElement*>(e.get()))
+                                            names(be->name.get());
+                                } else if (auto* ap = dynamic_cast<ast::ArrayBindingPattern*>(p)) {
+                                    for (auto& e : ap->elements)
+                                        if (auto* be = dynamic_cast<ast::BindingElement*>(e.get()))
+                                            names(be->name.get());
+                                }
+                            };
+                            names(n);
+                        }
+                    };
+                    collectPat(tr->catchClause->variable.get());
+                    for (auto& cb : tr->catchClause->block) collectLexInto(frame, cb.get());
+                    lexStack.push_back(std::move(frame));
+                    for (auto& cb : tr->catchClause->block) walkForVars(dynamic_cast<ast::Statement*>(cb.get()));
+                    lexStack.pop_back();
+                }
+                {
+                    std::set<std::string> frame;
+                    for (auto& fb : tr->finallyBlock) collectLexInto(frame, fb.get());
+                    lexStack.push_back(std::move(frame));
+                    for (auto& fb : tr->finallyBlock) walkForVars(dynamic_cast<ast::Statement*>(fb.get()));
+                    lexStack.pop_back();
+                }
                 return;
             }
             // Don't recurse into FunctionDeclaration, FunctionExpression,
@@ -1284,13 +1394,27 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     builder_.createCall("ts_global_bind_fn", {nameStr, fnVal},
                                         HIRType::makeVoid());
                 }
-                // EVAL-001 §11: hoist-declare tainted globalThis-backed vars
-                // (own property = undefined if absent) BEFORE pass 2, so eval
-                // executed ahead of the `var` statement sees the binding
-                // (typeof x === "undefined", Object.hasOwn true).
-                if (evalTaint_ && currentModulePath_.empty()) {
+                // EVAL-001 §11 + AnnexB B.3.3.2: hoist-declare globalThis-
+                // backed vars (own property = undefined if absent,
+                // non-configurable) BEFORE pass 2 — eval executed ahead of
+                // the `var` sees the binding, and a block-level fn decl's
+                // promoted global binding exists before its block runs
+                // (typeof x === "undefined", Object.hasOwn true). No taint
+                // gate: globalObjectVars now also carries untainted annexB
+                // block-fn promotions.
+                if (currentModulePath_.empty()) {
                     for (auto& [mangled, jsName] : module_->globalObjectVars) {
                         auto nameStr = builder_.createConstString(jsName);
+                        builder_.createCall("ts_global_var_declare", {nameStr},
+                                            HIRType::makeVoid());
+                    }
+                    // AnnexB B.3.3.2 promoted block fns: the global object
+                    // own property exists (undefined, non-configurable)
+                    // BEFORE the block runs; the var-copy syncs the value.
+                    for (auto& fn : module_->annexBGlobalFnDecls) {
+                        if (module_->globalObjectVars.count(modVarName(fn)))
+                            continue;  // taint path already declared it
+                        auto nameStr = builder_.createConstString(fn);
                         builder_.createCall("ts_global_var_declare", {nameStr},
                                             HIRType::makeVoid());
                     }

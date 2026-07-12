@@ -607,6 +607,14 @@ struct HIRModule {
     // ts_global_var_get/set so eval'd code and compiled code share bindings.
     std::map<std::string, std::string> globalObjectVars;
 
+    // AnnexB B.3.3.2: block-level function declarations in GLOBAL code whose
+    // promotion is NOT suppressed by a lexical collision. Each gets a global
+    // object own property (declared undefined/non-configurable at hoist via
+    // ts_global_var_declare, value-synced at the decl's var-copy via
+    // ts_global_bind_fn). Unlike globalObjectVars this does NOT reroute
+    // reads/writes — the block-lexical and module-var machinery stay intact.
+    std::set<std::string> annexBGlobalFnDecls;
+
     // Source file path table (deduplicated, indexed by HIRInstruction::sourceFileIdx)
     std::vector<std::string> sourceFiles;
 

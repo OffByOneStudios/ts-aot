@@ -624,8 +624,20 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         // This allows other functions in the module to access it via __modvar_ globals
         // instead of closure cells, fixing ordering issues where a capturing function
         // is declared before the captured function.
-        if (isModuleGlobalVar(node->name)) {
+        // NOT for a block-level decl whose Annex-B promotion was SUPPRESSED
+        // (no hoist slot — e.g. toplevel `let f` collision): the write
+        // clobbered the lexical module binding with a closure pointer that
+        // later reads decoded as a garbage double (skip-early-err family).
+        if (isModuleGlobalVar(node->name) && (!fdInBlock || storeToExisting)) {
             builder_.createStoreGlobal(modVarName(node->name), closureVal);
+        }
+        // AnnexB B.3.3.2 var-copy in GLOBAL code also updates the global
+        // object own property (declared at hoist).
+        if (fdInBlock && storeToExisting &&
+            module_->annexBGlobalFnDecls.count(node->name)) {
+            auto nameStr = builder_.createConstString(node->name);
+            builder_.createCall("ts_global_bind_fn", {nameStr, closureVal},
+                                HIRType::makeVoid());
         }
     } else if (savedFunc) {
         // Nested function without captures - still store it so it can be called
@@ -687,9 +699,18 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             defineVariable(node->name, closureVal);
         }
 
-        // Also store to module global for module-level function declarations
-        if (isModuleGlobalVar(node->name)) {
+        // Also store to module global for module-level function declarations.
+        // Suppressed-promotion block decls skip the write (see captures arm).
+        if (isModuleGlobalVar(node->name) && (!fdInBlock || storeToExisting)) {
             builder_.createStoreGlobal(modVarName(node->name), closureVal);
+        }
+        // AnnexB B.3.3.2 var-copy in GLOBAL code also updates the global
+        // object own property (declared at hoist).
+        if (fdInBlock && storeToExisting &&
+            module_->annexBGlobalFnDecls.count(node->name)) {
+            auto nameStr = builder_.createConstString(node->name);
+            builder_.createCall("ts_global_bind_fn", {nameStr, closureVal},
+                                HIRType::makeVoid());
         }
     }
 }
