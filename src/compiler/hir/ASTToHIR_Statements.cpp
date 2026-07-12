@@ -350,6 +350,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     if (isAnyIterable) {
         isIteratorObject = true;
     }
+    // Statically-typed PRIMITIVES (`for (x of true)` / `of 5`): not iterable
+    // — route through ts_iterator_get, whose primitive tail throws the spec
+    // TypeError. The array fast path read them as length-0 and silently
+    // skipped the loop (for-of elision-val families).
+    if (!isGenerator && !isIteratorObject && iterable->type &&
+        (iterable->type->kind == HIRTypeKind::Bool ||
+         iterable->type->kind == HIRTypeKind::Int64 ||
+         iterable->type->kind == HIRTypeKind::Float64)) {
+        iterable = boxValueIfNeeded(iterable);
+        isIteratorObject = true;
+    }
     // String-typed iterables: also route through the iterator protocol so
     // ts_iterator_get can return a proper code-point iterator. Without this,
     // we fell into the array fast path (createArrayLength + getElem) which

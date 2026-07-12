@@ -1976,6 +1976,28 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         }
     }
 
+    // ES GetIterator: nothing above recognized the value and primitives
+    // (other than strings, handled early) carry no @@iterator — TypeError,
+    // not the old pass-through that iterated bool/number/symbol/bigint as
+    // silently EMPTY (for-of / array-destructuring over `true`/`5`).
+    // Unrecognized OBJECTS keep the permissive pass-through for now.
+    {
+        uint64_t nb = nanbox_from_tsvalue_ptr(iterable);
+        bool primitive = !nanbox_is_ptr(nb);
+        if (!primitive) {
+            void* p = nanbox_to_ptr(nb);
+            if (p && (uintptr_t)p >= 0x1000) {
+                uint32_t m0 = *(uint32_t*)p;
+                if (m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/)
+                    primitive = true;
+            }
+        }
+        if (primitive) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "value is not iterable"));
+            return nullptr;  // unreachable (ts_throw longjmps)
+        }
+    }
     return iterable;
 }
 
