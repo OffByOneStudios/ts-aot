@@ -1764,9 +1764,38 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             builder_.createCall("ts_set_last_call_argc", {actualArgc}, HIRType::makeVoid());
         }
 
+        // OrdinaryCallBindThis for PLAIN calls (ECMA-262 10.2.1.2): f() with
+        // no receiver runs the callee with this = undefined. The dynamic
+        // call-this slot otherwise leaks the enclosing receiver or the
+        // startup globalThis seed into the callee, which a STRICT callee
+        // observes directly (test262 language/function-code/10.4.3-1-*).
+        // Sloppy callees still see globalThis via ts_this_coerce_sloppy at
+        // their this-read. Save/restore keeps the outer receiver intact for
+        // `this` reads after the call. Direct NAMED calls can never target
+        // an arrow function (arrows read lexical `this` from this same
+        // slot), so this site is arrow-safe; the indirect-call path must
+        // stay untouched until arrows capture `this` lexically.
+        // SKIP for internal/synthetic callees: runtime ts_* helpers never
+        // read `this`, and the Monomorphizer-generated user_main invokes
+        // __module_init_* through this site — module init IS toplevel code,
+        // whose `this` must stay globalThis (script semantics), not the
+        // bound undefined (strict programs printed `this` === undefined).
+        bool internalCallee =
+            callName.rfind("ts_", 0) == 0 ||
+            callName.rfind("__module_init", 0) == 0 ||
+            callName.rfind("__ts_", 0) == 0;
+        std::shared_ptr<HIRValue> savedPlainThis;
+        if (!internalCallee) {
+            savedPlainThis = builder_.createCall("ts_this_begin_plain_call",
+                                                 {}, HIRType::makeAny());
+        }
         // Determine return type from target function if available
         auto returnType = (targetFunc && targetFunc->returnType) ? targetFunc->returnType : HIRType::makeAny();
         lastValue_ = builder_.createCall(callName, args, returnType);
+        if (!internalCallee) {
+            builder_.createCall("ts_set_call_this", {savedPlainThis},
+                                HIRType::makeVoid());
+        }
         return;
     }
 

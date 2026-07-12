@@ -377,6 +377,12 @@ void ts_closure_set_not_constructable(TsClosure* closure) {
     if (closure) closure->constructable = false;
 }
 
+// Arrow function marker: receiver-less dispatch must not bind
+// this=undefined for arrows (lexical this via the dynamic slot).
+void ts_closure_set_is_arrow(TsClosure* closure) {
+    if (closure) closure->is_arrow = true;
+}
+
 // Invoke a closure with one double argument, returns double
 // Used for map/filter callbacks with number arrays
 // HIR generates functions that expect boxed TsValue* params, so we box the double

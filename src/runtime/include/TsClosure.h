@@ -53,6 +53,11 @@ public:
     // Used by ts_call_N to pack trailing args[rest_param_index..N-1] into a
     // single TsArray before forwarding to the (fixed-arity) compiled function.
     int32_t rest_param_index = -1;
+    // Arrow function: lexical `this` — compiled arrows read the dynamic
+    // call-this slot at their this-read, so receiver-less dispatch must NOT
+    // bind this=undefined for them (OrdinaryCallBindThis applies to ordinary
+    // functions only). Set via ts_closure_set_is_arrow at MakeClosure.
+    bool is_arrow = false;
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = MAGIC;

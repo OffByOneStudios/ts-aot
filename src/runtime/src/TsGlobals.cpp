@@ -5612,8 +5612,17 @@ extern "C" TsValue* ts_this_coerce_sloppy(TsValue* t) {
     uint64_t nb = t ? (uint64_t)(uintptr_t)t : 0;
     if (!t || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
         if (globalThis) return globalThis;
+        return t;
     }
-    return t;
+    // ECMA-262 10.2.1.2 OrdinaryCallBindThis step 6.c: in SLOPPY mode a
+    // non-nullish primitive thisArgument is ToObject-wrapped, so
+    // `bar.call(1)` observes typeof this === 'object' (test262
+    // language/function-code/10.4.3-1-1-s..9-s sloppy halves).
+    // ts_object_constructor implements ToObject exactly: object receivers
+    // pass through unchanged (the common method path costs two magic-word
+    // loads); primitives box into Number/String/Boolean/Symbol wrappers
+    // carrying the hidden [[*Data]] slot and the right prototype.
+    return (TsValue*)ts_object_constructor((void*)t);
 }
 
 void* ts_get_global_globalThis() {

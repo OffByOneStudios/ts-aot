@@ -291,6 +291,25 @@ extern "C" {
     // ts_call_0..10 family). Replicates the union of their behavior: the
     // corruption guard (ts_gc_base) that some N had and others didn't; rest-param
     // packing on the closure path; the proxy / native / inner-closure paths.
+    // OrdinaryCallBindThis (ECMA-262 10.2.1.2) for receiver-less dispatch:
+    // bind this = undefined for the callee's duration so strict callees see
+    // undefined (sloppy callees re-coerce at their this-read). Arrows are
+    // exempt — compiled arrows implement lexical `this` by reading this same
+    // slot. Normal returns restore via the destructor; exceptional unwind
+    // restores via the try-handler slot snapshot (Core.cpp), so a skipped
+    // destructor after longjmp is harmless.
+    struct PlainCallThisScope {
+        void* saved = nullptr;
+        bool active;
+        explicit PlainCallThisScope(bool a) : active(a) {
+            if (active) {
+                saved = ts_call_this_value;
+                ts_call_this_value = (void*)ts_value_make_undefined();
+            }
+        }
+        ~PlainCallThisScope() { if (active) ts_call_this_value = saved; }
+    };
+
     static TsValue* call_dispatch_n(TsValue* boxedFunc, int argc, TsValue** argv) {
         ts_last_call_argc = argc;
         TsValue* u = ts_value_make_undefined();
@@ -299,6 +318,7 @@ extern "C" {
         if (closure) {
             void* fp = closure->func_ptr;
             if (fp && ts_gc_base(fp)) return u;  // func_ptr in GC heap => corrupt
+            PlainCallThisScope pts(!closure->is_arrow);
             if (closure->rest_param_index >= 0)
                 return ts_rest_pack_and_call(closure, argc, argv);
             if (closure->is_method) {
@@ -337,6 +357,7 @@ extern "C" {
         if (innerClosure) {
             void* fp = innerClosure->func_ptr;
             if (fp && ts_gc_base(fp)) return u;
+            PlainCallThisScope pts(!innerClosure->is_arrow);
             if ((innerClosure->num_params > 0 ? innerClosure->num_params : innerClosure->arity) >= 11 && (innerClosure->num_params > 0 ? innerClosure->num_params : innerClosure->arity) <= 16)
                 return call_closure_exact(innerClosure, argc, argv);
             return call_closure_padded10(innerClosure, A(0), A(1), A(2), A(3), A(4),
@@ -1117,19 +1138,22 @@ extern "C" {
             // slot swallow the first real argument. ts_call_with_this_0..4 honor is_method,
             // so route fixed-arity method closures through them. A rest param still needs
             // the packing ts_function_call provides, so only take this path with no rest.
-            if (closure->is_method && closure->rest_param_index < 0) {
-                // Honor is_method (Convention B: this-first) for ALL arities, not
-                // just argc<=4. call_dispatch_with_this routes through
-                // call_closure_padded10_method / call_closure_method_exact (up to
-                // 16 params). The old argc<=4 cap fell through to Convention-A
-                // ts_function_call for 5+ args, so the `this` slot swallowed arg0
-                // and every real argument shifted left by one — breaking method
-                // calls via .apply / Reflect.apply / spread / the >9-arg dynamic
-                // dispatch. (Rest-param methods still need the arg packing that
-                // ts_function_call provides; they keep that path for now.)
-                result = call_dispatch_with_this(boxedFunc, thisArg, argc, argv);
+            if (closure->rest_param_index >= 0 && closure->is_method) {
+                // Rest-param METHODS still need ts_rest_pack_and_call's
+                // packing; invoke it directly with the slot already holding
+                // thisArg — routing through the receiver-less dispatcher
+                // would hit OrdinaryCallBindThis and clobber the explicit
+                // receiver with undefined.
+                result = ts_rest_pack_and_call(closure, argc, argv);
             } else {
-                result = ts_function_call(boxedFunc, argc, argv);
+                // Honor is_method (Convention B: this-first) for ALL arities;
+                // call_dispatch_with_this also covers plain closures and
+                // non-method rest packing. It must be the ONLY route here:
+                // the old else-branch delegated through the RECEIVER-LESS
+                // dispatcher, whose OrdinaryCallBindThis scope replaced the
+                // explicitly-bound this with undefined (broke `new`,
+                // .call/.apply on plain function closures).
+                result = call_dispatch_with_this(boxedFunc, thisArg, argc, argv);
             }
             ts_call_this_value = savedThis;
             return result;

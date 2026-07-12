@@ -1983,6 +1983,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()      // Returns stored thisArg
             .build());
 
+    // Plain-call this binding (OrdinaryCallBindThis): saves the current
+    // call-this slot, binds undefined for the callee, returns the saved
+    // value. The caller restores it with ts_set_call_this after the call.
+    reg.registerLowering("ts_this_begin_plain_call",
+        lowering("ts_this_begin_plain_call")
+            .returnsPtr()      // Returns saved thisArg
+            .build());
+
     // =========================================================================
     // RegExp
     // =========================================================================

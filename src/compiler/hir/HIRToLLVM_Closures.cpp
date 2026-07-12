@@ -869,6 +869,16 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                     "ts_closure_set_not_constructable", ncFt);
                 builder_->CreateCall(ncFt, ncFn.getCallee(), { gcPtrToRaw(closure) });
             }
+            // Arrows: mark the closure so receiver-less dispatch preserves
+            // the caller's this-slot (lexical this) instead of binding
+            // undefined (OrdinaryCallBindThis is ordinary-function-only).
+            if (funcName.rfind("__arrow_fn_", 0) == 0) {
+                auto arFt = llvm::FunctionType::get(builder_->getVoidTy(),
+                                                    { getGCPtrTy() }, false);
+                auto arFn = module_->getOrInsertFunction(
+                    "ts_closure_set_is_arrow", arFt);
+                builder_->CreateCall(arFt, arFn.getCallee(), { gcPtrToRaw(closure) });
+            }
         }
     }
 

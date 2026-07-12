@@ -817,6 +817,8 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
 }
 
 void ts_set_call_this(void* thisArg) {
+    if (getenv("TS_DEBUG_THISSLOT"))
+        fprintf(stderr, "[THISSLOT] set=%p\n", thisArg);
     ts_call_this_value = thisArg;
 }
 
@@ -825,6 +827,24 @@ void* ts_get_call_this() {
     // (e.g., this._events[evt], this._eventsCount, this.removeListener)
     // Clearing is handled by save/restore in ts_function_call_with_this.
     return ts_call_this_value;
+}
+
+// OrdinaryCallBindThis for PLAIN calls (ECMA-262 10.2.1.2): a receiver-less
+// call `f()` must run the callee with this = undefined. Without this the
+// dynamic slot leaks the enclosing receiver or the startup globalThis seed
+// (Core.cpp ts_main) into the callee, which a STRICT callee observes directly
+// (test262 language/function-code/10.4.3-1-*: strict f() saw globalThis).
+// Sloppy callees are unaffected: their this-read re-coerces nullish this to
+// globalThis via ts_this_coerce_sloppy. The compiler calls this immediately
+// before a direct named call and restores the returned value with
+// ts_set_call_this after the call returns (exception unwind restores via the
+// existing try/catch slot snapshot).
+extern "C" void* ts_this_begin_plain_call() {
+    void* saved = ts_call_this_value;
+    if (getenv("TS_DEBUG_THISSLOT"))
+        fprintf(stderr, "[THISSLOT] begin_plain saved=%p\n", saved);
+    ts_call_this_value = (void*)ts_value_make_undefined();
+    return saved;
 }
 
 int64_t ts_get_last_call_argc() {
