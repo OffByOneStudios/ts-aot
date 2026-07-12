@@ -332,6 +332,12 @@ extern "C" {
         UErrorCode status = U_ZERO_ERROR;
         icu::UnicodeString result;
         int32_t lastEnd = 0;
+        // Declared BEFORE the loop (SMELL-002): the user callback (and the
+        // Symbol-return coercion) inside the loop can longjmp; a non-POD
+        // local still UNCONSTRUCTED at that point puts this frame in the
+        // 0xc0000374 unwind-corruption class. All non-PODs in this frame
+        // must be constructed before the first throwing call.
+        std::string utf8Result;
 
         while (matcher->find()) {
             int32_t matchStart = matcher->start(status);
@@ -405,7 +411,6 @@ extern "C" {
             result.append(input, lastEnd, input.length() - lastEnd);
         }
 
-        std::string utf8Result;
         result.toUTF8String(utf8Result);
         return ts_value_make_string(TsString::Create(utf8Result.c_str()));
     }
@@ -2409,15 +2414,23 @@ extern "C" {
     // hint is a TypeError. Calls the Date string/number natives directly so it
     // does not recurse through ts_to_primitive (which consults @@toPrimitive).
     TsValue* ts_date_symbolToPrimitive_native(void* ctx, int argc, TsValue** argv) {
+        // POD frame (SMELL-002): requireDateOrThrow and the invalid-hint
+        // path both longjmp; a std::string local here put this frame in the
+        // longjmp-through-unconstructed-non-POD crash class (0xc0000374).
         TsDate* d = requireDateOrThrow(ctx, "[Symbol.toPrimitive]");
         if (!d) return ts_value_make_undefined();
-        std::string hint;  // empty when missing/undefined -> invalid -> TypeError
+        const char* hint = "";
         if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
             void* hs = ts_value_get_string(argv[0]);
-            if (hs) hint = ((TsString*)hs)->ToUtf8();
+            if (hs) {
+                const char* h = ((TsString*)hs)->ToUtf8();
+                if (h) hint = h;
+            }
         }
-        if (hint == "string" || hint == "default") return ts_date_toString_native(ctx, 0, nullptr);
-        if (hint == "number") return ts_date_valueOf_native(ctx, 0, nullptr);
+        if (strcmp(hint, "string") == 0 || strcmp(hint, "default") == 0)
+            return ts_date_toString_native(ctx, 0, nullptr);
+        if (strcmp(hint, "number") == 0)
+            return ts_date_valueOf_native(ctx, 0, nullptr);
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "invalid hint passed to Date.prototype[Symbol.toPrimitive]"));
         return ts_value_make_undefined();
@@ -2909,7 +2922,11 @@ extern "C" {
         }
         TsRegExp* re = (TsRegExp*)raw;
         extern void* ts_string_from_value(TsValue* val);
-        std::string pat, fl;
+        // POD frame (SMELL-002): the receiver throw above and the Symbol
+        // coercion throws below longjmp; std::string locals here were in
+        // the unconstructed-at-throw crash class. TsString* is POD-safe.
+        TsString* patS = nullptr;
+        TsString* flS = nullptr;
         bool flagsGiven = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
         if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
             void* praw = ts_value_get_object(argv[0]);
@@ -2917,15 +2934,17 @@ extern "C" {
             // A RegExp source argument: reuse its source (and flags if none given).
             if (praw && (uintptr_t)praw > 0x1000 && *(uint32_t*)praw == 0x52454758 /* REGX */) {
                 TsRegExp* src = (TsRegExp*)praw;
-                if (TsString* s = src->GetSource()) pat = s->ToUtf8();
+                patS = src->GetSource();
             } else {
-                if (TsString* ps = (TsString*)ts_string_from_value((TsValue*)argv[0])) pat = ps->ToUtf8();
+                patS = (TsString*)ts_string_from_value((TsValue*)argv[0]);
             }
         }
         if (flagsGiven) {
-            if (TsString* fs = (TsString*)ts_string_from_value((TsValue*)argv[1])) fl = fs->ToUtf8();
+            flS = (TsString*)ts_string_from_value((TsValue*)argv[1]);
         }
-        re->Recompile(pat.c_str(), fl.c_str());
+        const char* patC = (patS && patS->ToUtf8()) ? patS->ToUtf8() : "";
+        const char* flC = (flS && flS->ToUtf8()) ? flS->ToUtf8() : "";
+        re->Recompile(patC, flC);
         return (TsValue*)ts_value_make_object(re);
     }
 
@@ -3207,7 +3226,21 @@ extern "C" {
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
-        // Hooked flags coercion BEFORE any C++ locals (longjmp rule).
+        // ALL non-POD locals for this frame constructed HERE, before ANY
+        // throwing call — including the hooked flags coercion below
+        // (SMELL-002 longjmp rule: MSVC's longjmp unwind can run cleanup on
+        // an UNCONSTRUCTED non-POD slot and corrupt the heap, 0xc0000374).
+        // Values are assigned after the observable coercions; per-iteration
+        // state resets via assignment/clear().
+        icu::UnicodeString S;
+        icu::UnicodeString replTemplate;
+        icu::UnicodeString accumulated;
+        icu::UnicodeString matched;
+        std::vector<std::pair<bool, icu::UnicodeString>> captures;
+        icu::UnicodeString replacement;
+        std::vector<TsValue*> callArgs;
+        std::string u8work;
+        std::string outU8;
         TsString* fTs = nullptr;
         {
             extern TsValue* ts_to_primitive(TsValue* val, int hint);
@@ -3217,12 +3250,11 @@ extern "C" {
             fTs = (TsString*)ts_string_from_value(fprim);
         }
         TsValue* liKey = ts_value_make_string(TsString::GetInterned("lastIndex"));
-        icu::UnicodeString S = sTs->getUStr();
+        S = sTs->getUStr();
         int sLen = S.length();
         TsValue* replaceVal = (argc >= 2 && argv && argv[1]) ? argv[1]
                                                             : (TsValue*)ts_value_make_undefined();
         bool functional = ts_value_is_callable(replaceVal);
-        icu::UnicodeString replTemplate;
         if (!functional) replTemplate = ts_regexp_tostring_arg(replaceVal)->getUStr();
 
         const char* fC = fTs ? fTs->ToUtf8() : nullptr;
@@ -3231,21 +3263,20 @@ extern "C" {
             ts_object_set_dynamic((TsValue*)recvRaw, liKey, ts_value_make_int(0));
         }
 
-        icu::UnicodeString accumulated;
         int nextSourcePosition = 0;
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
         while (true) {
             void* result = ts_regexp_exec_observable(recvRaw, sBoxed);
             if (!result) break;
             TsString* matchedTs = ts_regexp_tostring_arg(ts_object_get_property(result, "0"));
-            icu::UnicodeString matched = matchedTs->getUStr();
+            matched = matchedTs->getUStr();
             int matchLen = matched.length();
             int position = (int)ts_to_number(ts_object_get_property(result, "index"));
             if (position < 0) position = 0;
             if (position > sLen) position = sLen;
             int nCaptures = (int)ts_to_number(ts_object_get_property(result, "length")) - 1;
             if (nCaptures < 0) nCaptures = 0;
-            std::vector<std::pair<bool, icu::UnicodeString>> captures;
+            captures.clear();
             for (int i = 1; i <= nCaptures; i++) {
                 char key[16]; snprintf(key, sizeof(key), "%d", i);
                 TsValue* cap = ts_object_get_property(result, key);
@@ -3257,14 +3288,14 @@ extern "C" {
             TsValue* groups = ts_object_get_property(result, "groups");
             void* namedCaptures = (groups && !ts_value_is_undefined(groups))
                                   ? ts_value_get_object(groups) : nullptr;
-            icu::UnicodeString replacement;
+            replacement.remove();
             if (functional) {
-                std::vector<TsValue*> callArgs;
+                callArgs.clear();
                 callArgs.push_back((TsValue*)ts_value_make_string(matchedTs));
                 for (auto& cap : captures) {
                     if (cap.first) {
-                        std::string u8; cap.second.toUTF8String(u8);
-                        callArgs.push_back((TsValue*)ts_value_make_string(TsString::Create(u8.c_str())));
+                        u8work.clear(); cap.second.toUTF8String(u8work);
+                        callArgs.push_back((TsValue*)ts_value_make_string(TsString::Create(u8work.c_str())));
                     } else {
                         callArgs.push_back((TsValue*)ts_value_make_undefined());
                     }
@@ -3300,7 +3331,7 @@ extern "C" {
         }
         if (nextSourcePosition < sLen)
             accumulated.append(S, nextSourcePosition, sLen - nextSourcePosition);
-        std::string outU8; accumulated.toUTF8String(outU8);
+        accumulated.toUTF8String(outU8);
         return (TsValue*)ts_value_make_string(TsString::Create(outU8.c_str()));
     }
 
@@ -3340,6 +3371,16 @@ extern "C" {
         // toString is observable) — and BEFORE any C++ locals exist in this
         // frame, since an abrupt hook ts_throws (longjmp rule: only POD
         // pointer locals may be live here).
+        // ALL non-POD locals for this frame constructed HERE, before the
+        // first throwing call (SMELL-002 longjmp rule: an unconstructed
+        // non-POD at a longjmp corrupts the unwind — 0xc0000374 class).
+        // Values are assigned after the observable coercions below.
+        icu::UnicodeString S;
+        std::string flags;
+        std::string newFlags;
+        std::string srcU8;
+        icu::UnicodeString T;
+        std::string tU8;
         TsString* fTs = nullptr;
         {
             extern TsValue* ts_to_primitive(TsValue* val, int hint);
@@ -3348,11 +3389,11 @@ extern "C" {
                 fvv ? fvv : (TsValue*)ts_value_make_undefined(), 2);
             fTs = (TsString*)ts_string_from_value(fprim);
         }
-        icu::UnicodeString S = sTs->getUStr();
+        S = sTs->getUStr();
         int size = S.length();
-        std::string flags = fTs ? fTs->ToUtf8() : "";
+        flags = fTs ? fTs->ToUtf8() : "";
         bool unicodeMatching = flags.find('u') != std::string::npos;
-        std::string newFlags = flags;
+        newFlags = flags;
         if (newFlags.find('y') == std::string::npos) newFlags += "y";
         // SpeciesConstructor(rx, %RegExp%): Get(rx,"constructor") ->
         // @@species; undefined/null fall back to the default construction.
@@ -3392,7 +3433,7 @@ extern "C" {
             // Default construction: a real-RegExp receiver reuses its source;
             // anything else stringifies its `source` (same net effect as
             // `new RegExp(obj, flags)` for the receiver-compat tests).
-            std::string srcU8;
+            // srcU8 hoisted to the frame prologue (longjmp rule).
             if (recvIsRegExp) {
                 srcU8 = ((TsRegExp*)recvRaw)->GetSource()->ToUtf8();
             } else {
@@ -3443,8 +3484,8 @@ extern "C" {
             int e = getLastIndex();
             if (e > size) e = size;
             if (e == p) { q = ts_regexp_adv_u(S, q, unicodeMatching); continue; }
-            icu::UnicodeString T(S, p, q - p);
-            std::string tU8; T.toUTF8String(tU8);
+            T.setTo(S, p, q - p);
+            tU8.clear(); T.toUTF8String(tU8);
             ts_array_push(A, (void*)ts_value_make_string(TsString::Create(tU8.c_str())));
             if (++lengthA == lim) return (TsValue*)ts_value_make_object(A);
             p = e;
@@ -3458,8 +3499,8 @@ extern "C" {
             }
             q = p;
         }
-        icu::UnicodeString T(S, p, size - p);
-        std::string tU8; T.toUTF8String(tU8);
+        T.setTo(S, p, size - p);
+        tU8.clear(); T.toUTF8String(tU8);
         ts_array_push(A, (void*)ts_value_make_string(TsString::Create(tU8.c_str())));
         return (TsValue*)ts_value_make_object(A);
     }
@@ -3512,7 +3553,13 @@ extern "C" {
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
-        // Hooked flags coercion BEFORE any C++ locals (longjmp rule).
+        // ALL non-POD locals constructed HERE, before the first throwing
+        // call (SMELL-002 longjmp rule: an unconstructed non-POD at a
+        // longjmp corrupts the unwind — 0xc0000374). Assigned after the
+        // observable coercions.
+        icu::UnicodeString S;
+        std::string flags;
+        std::string srcU8;
         TsString* fTs = nullptr;
         {
             extern TsValue* ts_to_primitive(TsValue* val, int hint);
@@ -3523,12 +3570,11 @@ extern "C" {
         }
         TsRegExp* matcher =
             regexp_species_construct(recvRaw, fTs ? fTs->ToUtf8() : "");
-        icu::UnicodeString S = sTs->getUStr();
+        S = sTs->getUStr();
         int sLen = S.length();
-        std::string flags = fTs ? fTs->ToUtf8() : "";
+        flags = fTs ? fTs->ToUtf8() : "";
         bool global = flags.find('g') != std::string::npos;
         if (!matcher) {
-            std::string srcU8;
             if (recvIsRegExp) {
                 srcU8 = ((TsRegExp*)recvRaw)->GetSource()->ToUtf8();
             } else {
