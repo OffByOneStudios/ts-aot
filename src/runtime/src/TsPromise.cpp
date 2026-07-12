@@ -1619,14 +1619,22 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     if (!iterable) {
         return nullptr;
     }
+    static const bool s_dbgIter = getenv("TS_DEBUG_ITER") != nullptr;
+    if (s_dbgIter) {
+        fprintf(stderr, "[ITER] get in=%p nb=%016llx\n", (void*)iterable,
+                (unsigned long long)nanbox_from_tsvalue_ptr(iterable));
+    }
 
     // First, try to extract the raw object pointer using ts_value_get_object
     // This handles both boxed TsValue* and raw object pointers
     void* rawObj = ts_value_get_object(iterable);
     // ts_value_get_object returns nullptr for primitive strings (which are
     // valid iterables per spec). Fall back to extracting the string pointer
-    // directly so the TsString branch below can fire.
-    if (!rawObj) {
+    // directly so the TsString branch below can fire. ONLY for pointer-shaped
+    // values: ts_value_get_string ToString-COERCES numbers/booleans, which
+    // made `for (v of 12)` iterate the string "12" instead of throwing the
+    // GetIterator TypeError (the primitive tail below never ran).
+    if (!rawObj && nanbox_is_ptr(nanbox_from_tsvalue_ptr(iterable))) {
         void* maybeStr = ts_value_get_string(iterable);
         if (maybeStr) {
             uint32_t m = *(uint32_t*)maybeStr;
@@ -1866,6 +1874,9 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         }
     }
 
+    if (s_dbgIter)
+        fprintf(stderr, "[ITER] decoded type=%d rawObj=%p\n",
+                (int)iterDecoded.type, rawObj);
     // Fall back to type-based check for explicit OBJECT_PTR values
     if (iterDecoded.type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)iterDecoded.ptr_val;
@@ -1983,6 +1994,9 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     // Unrecognized OBJECTS keep the permissive pass-through for now.
     {
         uint64_t nb = nanbox_from_tsvalue_ptr(iterable);
+        if (s_dbgIter)
+            fprintf(stderr, "[ITER] tail nb=%016llx is_ptr=%d\n",
+                    (unsigned long long)nb, (int)nanbox_is_ptr(nb));
         bool primitive = !nanbox_is_ptr(nb);
         if (!primitive) {
             void* p = nanbox_to_ptr(nb);

@@ -4168,6 +4168,13 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
                 (void*)+[](void* c, TsValue*) -> TsValue* {
                     return ts_value_make_object(c);
                 }, st)));
+    // Spec: Iterator.concat returns an Iterator Helper object — it must
+    // inherit %IteratorPrototype% so toArray/map/filter/... resolve.
+    {
+        extern void* getIteratorPrototypeBoxed();  // TsMap.cpp
+        void* protoRaw = ts_value_get_object((TsValue*)getIteratorPrototypeBoxed());
+        if (protoRaw) st->SetPrototype((TsMap*)protoRaw);
+    }
     return ts_value_make_object(st);
 }
 
