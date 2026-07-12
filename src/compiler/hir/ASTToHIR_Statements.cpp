@@ -29,6 +29,26 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
     // enclosing scope, just like individual var declarations would be.
     if (!node->isSynthetic) {
         pushScope();
+        // Block-level let/const TDZ pre-seed (ES 14.2.3): a read (including
+        // typeof) before the declaration initializes throws ReferenceError.
+        // Mirrors the function-toplevel seed; a shadowing block let gets its
+        // own sentinel slot (guard on THIS scope only, not the function).
+        for (auto& stmt : node->statements) {
+            auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+            if (!vd || (vd->varKind != ast::VarKind::Let &&
+                        vd->varKind != ast::VarKind::Const)) continue;
+            auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+            if (!ident) continue;
+            if (scopes_.back().variables.count(ident->name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+            auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+            builder_.createStore(tdz, allocaVal, HIRType::makeAny());
+            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+            if (!scopes_.empty()) {
+                auto it = scopes_.back().variables.find(ident->name);
+                if (it != scopes_.back().variables.end()) it->second.isTDZ = true;
+            }
+        }
     }
     for (auto& stmt : node->statements) {
         lowerStatement(stmt.get());
@@ -1043,6 +1063,34 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
     setSourceLine(node);
     auto switchVal = lowerExpression(node->expression.get());
 
+    // The case block is ONE lexical scope shared by all clauses (ES 14.12).
+    // Push it BEFORE the dispatch is emitted (case selector expressions
+    // evaluate inside it) and pre-seed clause-level let/const with the TDZ
+    // sentinel here, where the stores still execute before any case body —
+    // reading a clause let whose declaration hasn't run throws
+    // ReferenceError (switch-tdz family).
+    pushScope();
+    for (auto& clause : node->clauses) {
+        std::vector<ast::StmtPtr>* stmts = nullptr;
+        if (auto* cc = dynamic_cast<ast::CaseClause*>(clause.get())) stmts = &cc->statements;
+        else if (auto* dc = dynamic_cast<ast::DefaultClause*>(clause.get())) stmts = &dc->statements;
+        if (!stmts) continue;
+        for (auto& stmt : *stmts) {
+            auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+            if (!vd || (vd->varKind != ast::VarKind::Let &&
+                        vd->varKind != ast::VarKind::Const)) continue;
+            auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+            if (!ident) continue;
+            if (scopes_.back().variables.count(ident->name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+            auto tdz = builder_.createCall("ts_tdz_sentinel", {}, HIRType::makeAny());
+            builder_.createStore(tdz, allocaVal, HIRType::makeAny());
+            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+            auto it = scopes_.back().variables.find(ident->name);
+            if (it != scopes_.back().variables.end()) it->second.isTDZ = true;
+        }
+    }
+
     auto* endBlock = createBlock("switch.end");
     switchStack_.push({endBlock, {}, nullptr});
     breakTargetStack_.push(endBlock);
@@ -1159,9 +1207,9 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
     // Generate code for each case. ES 14.12: ALL clauses share ONE lexical
     // block scope — without it, a block-level `function f(){}` in a clause
     // leaked its binding into the function scope (annexB skip-early-err-switch:
-    // reading `f` after the switch must throw ReferenceError). Scope state is
-    // lexical/compile-time, orthogonal to the basic-block juggling below.
-    pushScope();
+    // reading `f` after the switch must throw ReferenceError). The scope is
+    // now pushed at visitor entry (before the dispatch) so TDZ seeds and
+    // case-selector expressions live inside it.
     size_t blockIdx = 0;
     for (auto& clause : node->clauses) {
         auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());

@@ -2637,6 +2637,21 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 currentBlock_ = contBB;
                 return;
             }
+            // A TDZ-seeded let/const declared inside a SWITCH clause must
+            // keep its slot Any: compile order is not runtime order — the
+            // dispatch can jump PAST this declaration to a later clause,
+            // whose read would otherwise load the sentinel with the
+            // narrowed type (4.4e-323-style garbage instead of the
+            // ReferenceError from ts_tdz_check).
+            if (existingInfo->isTDZ && !switchStack_.empty() && initValue) {
+                auto boxedInit = boxValueIfNeeded(initValue);
+                builder_.createStore(boxedInit, existingInfo->value,
+                                     HIRType::makeAny());
+                broadcastCaptureWrite(existingInfo, boxedInit);
+                if (node->varKind == ast::VarKind::Const)
+                    existingInfo->isConst = true;
+                return;
+            }
             // Variable was pre-hoisted: just store the init value into the existing alloca
             builder_.createStore(initValue, existingInfo->value, varType);
             // Update the type info if we have a more specific type now
