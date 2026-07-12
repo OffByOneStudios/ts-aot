@@ -183,7 +183,10 @@ TsValue* ts_value_make_int(int64_t i) {
     // ~3000-test "*-emulates-undefined" cluster across destructuring,
     // generators, TypedArray, and Symbol.iterator depends on this behavior.
     static TsValue* htmldda_call_native(void* /*ctx*/, int /*argc*/, TsValue** /*argv*/) {
-        return ts_value_make_undefined();
+        // test262 INTERPRETING.md: $262.IsHTMLDDA called with no arguments
+        // or with the single argument "" returns null (other invocations
+        // are unspecified — return null uniformly).
+        return ts_value_make_null();
     }
     TsValue* ts_create_htmldda() {
         void* mem = ts_alloc(sizeof(TsFunction));
