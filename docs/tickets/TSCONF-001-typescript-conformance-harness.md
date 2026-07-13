@@ -1,6 +1,20 @@
 # TSCONF-001: TypeScript Conformance Harness (test262-grade rigor for TS)
 
-**Status:** Phase 0 COMPLETE (2026-07-13) — see `tests/tsconf/PHASE0.md`.
+**Status:** Phases 0-2 COMPLETE (2026-07-13) -- runner `tests/tsconf/run_tsconf.py`.
+**FIRST MEASURED NUMBERS (TypeScript v6.0.3 conformance corpus):**
+- **Acceptance: 1,359/2,088 = 65.1%** (the hand matrix self-reported 99%;
+  the honest number is, as predicted, far below).
+- Negative family: 1,382 neg_reject / 923 neg_accept (permissive-by-design) /
+  **9 neg_crash + 17 crash (must-be-0 gate metric: currently 26)**.
+- Runtime oracle (enums/constEnums/decorators/classes/asyncGenerators/
+  generators; acceptance-passing non-negative only): **102/118 = 86.4%
+  runtime_match**; 15 real semantic diffs (e.g. enumBasics throws at
+  runtime), 42 oracle-unrunnable ambient-declare tests counted separately.
+- Full acceptance sweep 13s; oracle sweep 25s (cache committed).
+Top acceptance clusters (the Phase-4 grind map): ~530 parse errors
+(object-type literals in annotation positions etc.), this/arguments
+scoping (~37), analyzer undefined-variable families.
+Phase 0 record: `tests/tsconf/PHASE0.md`.
 Parser (`parse_meta.py`), census (`census.json`), data-derived skip policy
 (`skip_policy.py`: run 4,402 / acceptance denominator 2,088 / negative 2,314 /
 skip 1,505 across 7 counted reasons), twoslash extractor (795 blocks).
@@ -155,11 +169,11 @@ changes), same gate-battery integration so a runtime change gates against
    website: 741 twoslash blocks, 219 `@errors`, 241 `^?` queries, 48
    release-notes pages. Remaining Phase 0 work: metadata/twoslash parser +
    per-directory option/JSX breakdown → skip-lists from data.
-2. **Phase 1 — Acceptance sweep (1-2 sessions):** axis-1 runner over
+2. **Phase 1 — Acceptance sweep: DONE 2026-07-13.** Original scope: axis-1 runner over
    `conformance/`, first baseline commit. This alone replaces the matrix's
    self-reported number with a measured one. Expect the honest number to be
    **well below 99%** — that is the point.
-3. **Phase 2 — Runtime oracle (1-2 sessions):** tsc+node oracle runner with
+3. **Phase 2 — Runtime oracle: DONE 2026-07-13** (tsc 6.0.3 pinned under tests/tsconf/oracle/, cache committed). Original scope: tsc+node oracle runner with
    cached expected outputs (needs tsc + node on the dev machine, build-time
    only; nothing ships). Score axis 2 for the runtime-feature directories.
 4. **Phase 3 — Negative-family + dashboards (1 session):** neg-* scoring,

@@ -1,0 +1,710 @@
+{
+"01b19ddcf13e4cd81e68c7b1339212eb7aafc6d4": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\e3983b6512db82c2\\decoratorOnClassMethod19.js:29"
+},
+"0294c963ca579a0ec65f4497e0190d44b95fcb47": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\bf6a0e3eb5b7e151\\decoratorOnClass2.js:14"
+},
+"06459776bae2bab95344a9474ff6a15060ff65b1": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\37c18ec7559a4e37\\decoratorOnClassMethod15.js:17"
+},
+"0745c863dab3aa3b25e5ff2541f8bbc7bbeb821d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"0b9d0b21d41eb748ddac4a579a434ec2fbe1f904": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\6e292f8d246c3798\\decoratorOnClassMethod13.js:13"
+},
+"0c600a4c2330e5759b0b885ca8ec1b158e145711": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\d89c16bed24d87ab\\classWithStaticFieldInParameterBindingPattern.3.js:13\n    _b).x]: b = \"\" } = _a; var C; })();\n                       ^\n\nTypeError: Ca",
+"stdout": ""
+},
+"1071d1a68bf61e8c4c8a51c33da4dad75e12004f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"10b535f2112910c77058b5c28518c41b797cd630": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"11024aa31458088720687f261831914d309c1013": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"11bb833e66d0d0691ff8ba243b6e48ae12b1009f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"12f036c66814db251bc639622f418e695de9fa9a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"15ffad1f3bda3a174b7c2a5618d7ea7fbd89415d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"17bbee2897cedaf360696bbd51ee5f9e6df52c22": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"186275027a100252c5b4fc67e1faca82ab08c364": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\74ac0366b1813778\\decoratorOnClassMethodThisParameter.js:18"
+},
+"19ef8d818b8d63387042a20b836cdf1bc823f3de": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "42\n"
+},
+"1a4ac37cef8cf73dc4a36d1cc48fd4ff979d7c3e": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\74e0c73f4cd05e3b\\decoratorOnClassMethodParameter1.js:15"
+},
+"1c24ea0092905ba501b232aab3035bfb63ac6415": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\c11f9484f66ba2b4\\decoratorOnClassAccessor8.js:13"
+},
+"1d5487fa6be8485ef4318b8fe762184a7f739fd7": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"1ee157d5c1b44b1892fa0435dc2504db7f0e87dc": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"21b26eecbf908d9ea088bbd71ba331849ad122b0": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"25e678ed48073c46110dae7091cc94f9ecbd93a0": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"269a35f97051a4276b5902b681c78299fa58994d": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\2414aa5ab4e3627f\\decoratorOnClassProperty10.js:10"
+},
+"28f025387f3756427342bb08a453f03c6923796b": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"2bbfc49661e0161c5779779633a83f68d7ad111f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"3030c210dfdb092522e60856f45122ffa46c34af": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "a b c d e\na b c d\n"
+},
+"3178381dc83070fffd5fc7a31afef4d30bbc2ab0": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"319ec12751f624d01315d5ed4779d8c1303333d9": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\e5b57a0cb00329eb\\decoratorOnClassConstructorParameter1.js:15"
+},
+"323e49edadce99bc0ab5007e8a3bcd5e855d90de": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"32ab0132fc29c74dcea012b2d8f928e90c0214ff": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"333229a3157a18a5639e7af20ac20a20caacd002": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\417171ab9b37bdfb\\classWithStaticFieldInParameterInitializer.2.js:14\n((b) => { var _a; if (b === void 0) { b = (_a = class extends C {\n                ",
+"stdout": ""
+},
+"33b248efeb46a03e072ab12b57a95fc00928b89a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"362fa20f8a6ce3ffc63432cf6ee9d17fca5e6eca": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\aa7811f1d843dc40\\decoratorOnClassMethod1.js:12"
+},
+"36fe32caac1cd5fab1b830a80115b56e4825ab53": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"39ae22c44ae8336f947f9d509cffe38f51d15861": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\034409a134a93f2c\\decoratorOnClassMethod14.js:19"
+},
+"3be5b3e6316099d2cde43e67a6ec28e995c350b4": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"3cfb4ec5994ab99db2c8edcb0f4ddf924b3ef358": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"3dcd710f2ac57599c3bf7189ab7df84ed1a61213": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"3e7e865795a4706decaa6857dcf342d4de79f5a0": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"41237d17fa3ad6d98bcadcd5d3f4d0c55c6d3428": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"449b3ee95653e8a5f3093c76e74bbf543912bff3": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"44cc0ec46a9c35b801128f40bb92783fcd57db5c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\295078c7af2686f5\\propertyOverridesAccessors4.js:1"
+},
+"4504406e9c626f5416a475e982b56099bf5c9366": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"45a2bfeeed7084dc425809d263c7f44129744f03": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\87cf4f0247aa4cce\\decoratorOnClassMethod2.js:12"
+},
+"46e578fde3e00df889fd044d9c4e1ec1508ae29a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"4827046549b3afa03bdf66036234307f28c3d008": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\ebe57b754ae425fe\\decoratorOnClassMethodOverload2.js:12"
+},
+"48598a9558ecfcb6adc807b41d8bc1432c46ee1a": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\21707b8f8fc2bd11\\decoratorOnClass9.js:20"
+},
+"526e1ff32a55d3bdba170d415338835659d6b515": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"537dd32327710aaadd810e7617a0f755388fb69f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"53a2cb87d68d4884ab909cbcaf29df1e4d32c809": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "42\n"
+},
+"56d9eaf5ce510b9239ba7fc8993091048ec1d069": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"5d7ba9eaadab42512aa3eaab051ca7cd8a00c3ab": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"5eb684144afc9103cd9136f49030a9f2db248e5a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"608c4a68f0988a806075d00566d8a63486679b2f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"61c197ac05eb823b15ad9fea447fed0acf70c554": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\ff45244ba9c7709f\\classWithStaticFieldInParameterBindingPattern.js:9\n    _b).x]: b = \"\" } = _a; })();\n                       ^\n\nTypeError: Cannot destr",
+"stdout": ""
+},
+"64c3ec4106356c18ca96d17bc6c477a86d8fa2d6": {
+"oracle_error": "tsc emitted nothing (exit 0)"
+},
+"6583645491f1a860d4fc0e2ca0b0c5a36638e32d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"65d53574e738ea4ab946cf1218eab0f00b3e140a": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\befdda509f32a786\\decoratorOnClass8.js:10"
+},
+"673b31f491515031e743172bfc89823d544244e6": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"684c760e85fe819c92f32575c071b5d77dd3e7e1": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\ff2a0c48d85de27c\\decoratorOnClassAccessor7.js:13"
+},
+"6b76fa8da7770d9850eb735764e1fa3377435513": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"6b7a429baabbd78e1dd1b45a1832a24947efbf23": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"705f6bbb949473d0d8f240d4e43821967527346a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "1\n"
+},
+"70c3b21b7b682ad3ce191bbaa00ec17ec114450f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"72a96c697980a23cfc2c849eadff7a5c39dd3968": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"77dc5943d820806b5b83e90d9f291053211cb745": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"7a224f0f409717d3de4d6926f3a2237e15e8b8f5": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"7cfa3c41373b827236bf1d4716ddae543aa470c9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"7d341b1f8f37f9eb3b48c9bd33eb6ae2064fc498": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"7d6cdfdb639e6a189d8a34308a6f8523dde91eb1": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\b423966a44ddece4\\decoratorMetadata-jsdoc.js:10"
+},
+"7e0c64ef59105e963d7ab68ad6ef24e5b33b8b6f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "1 undefined undefined\n1 2 undefined\n"
+},
+"80f8c53bb00ce841d03ef2cdc1418b5f9c3cc47f": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\0ae460f02c4abfe0\\classWithStaticFieldInParameterBindingPattern.2.js:13\n    _b).x]: b = \"\" } = _a; var C; })();\n                       ^\n\nTypeError: Ca",
+"stdout": ""
+},
+"81501d6434f5727e8d5b3d92fff925014600810b": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"83e9b2a616fbc246b3e937a11415924a156a735d": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\180995f0ce7e70db\\decoratorOnClassProperty7.js:11"
+},
+"876b3aa7732067ec3769da0c42facca86c886020": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"89389bcdad812135c0e8ae92395c1e2f29cc20e1": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\383549fbfa4a2bcf\\decoratorOnClassMethod16.js:14"
+},
+"898cbe70a5e572782db0cb3067b19cb71ae3d032": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\ac5f7e421dab8804\\decoratorOnClassAccessor5.js:12"
+},
+"8af622bb35ddd7efaff2892fd00e8d8248c1b4f9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "undefined\n"
+},
+"8d328840e88244247ff4cf66f66f5859495d92c9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"8dfd28e8915cf1c978b169875c3971b73852c395": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"8e74085cf9fcd209b1d58eb929721f84b9d699b2": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"90438c4bc3dba1df37173b53f1849bc8b66989d7": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"917f92613967b32f50673f00365e84ef2edae977": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\e607e0f969cd7f50\\decoratorOnClassMethod4.js:12"
+},
+"91b51bc479d516aa9d603884b16f549be954d07c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\caa2d6e303ca63cc\\asyncGeneratorParameterEvaluation.js:10"
+},
+"920af234f7ef3e1d556eeac0ba84183bc554b3ea": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"94417d9b80006a1a6fba998e1c5432a8661c8632": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\2ec1c305ab731add\\decoratorOnClassConstructor4.js:11"
+},
+"958daaa777b36a5a442f8817031ab2cb30c90fa0": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\aaaa8ebe519f5143\\decoratorOnClassProperty1.js:11"
+},
+"9646852cf227845216cfabb86cccb466026be92a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"96ab9b4ce35d5e3b4d7cbc034a97799b05f81a33": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"97486b84ef66d4c8419c9618d0783ac9e9b19e07": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"9776492177839c635f8d851fa45d9d1b925ff633": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "100\n"
+},
+"9815dd991f7dc61cf5299ea7fa4eb28f5460eb7c": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\977c5d0a42490249\\classStaticBlock23.js:7\n    for await (const nn of nums) {\n        ^^^^^\n\nSyntaxError: Unexpected reserved word\n    at wrapSafe (node",
+"stdout": ""
+},
+"98e8e8156a1ffea5379661e61ba2f552665d997c": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"9c6fb5fc5d65f15fee9f86ffaaeedd2cb3b99535": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\96f851b7e28c3ec9\\decoratorOnClassMethod5.js:11"
+},
+"9c96eafc47d92a0c1721bb46d6b81d3ab9f64583": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"9d2f86b1265181a408f3f904278d8ee75e2328d9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "123\n"
+},
+"a01bd63129ff7d9bad58dc1d49c087b5c8827a48": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "{}\n"
+},
+"a425711c089ee5bb6aca9aca7fb0fa919b118010": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"a468b1daa501d0b54eef030a6f3f8b0f0d19933c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\b92b96a7dd9d9e68\\decoratorOnClassMethod8.js:12"
+},
+"a574cc7a10bb80e652d053b289a07d7cea46ff66": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"a6318bb67548ee0e9a69e944d1d76c20d1ee0416": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"a68739e2236bb186b8533e080c20bc9e8ce7f652": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\2f54399702e7a95f\\classWithStaticFieldInParameterInitializer.3.js:13\n((b) => { var _a; if (b === void 0) { b = (_a = class extends C {\n                ",
+"stdout": ""
+},
+"a68ee32a9465a73cfbaf6a984aff176cb68d0561": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"a9be5d02d86568d3c5799bd616ef92e687e7e79f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ab608743290a171b0ff9983d6db301b567ffd5c1": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ad238e9b7d5e32a60aad6ef58d7306e4f8fdebd2": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ad2793a2f03ebfd082733a54eefa71cf041a619e": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\94689ae81667597b\\decoratorOnClassMethod10.js:12"
+},
+"ade2c89c3b2334d7dc52b8239fe968122507e119": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b33adc8702476ee4eaa16d99f9afe80a3f53a5cf": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b5b357a790c6c8c57b76aa2a55cf46942bfdc1f0": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\059e57e43459a4f6\\privateStaticNameShadowing.js:5\n    if (typeof state === \"function\" ? receiver !== state || !f : !state.has(receiver)) throw new Type",
+"stdout": ""
+},
+"b5d4cf6ecbaef036e76be08608eac55dd0c8fa00": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b73903c07193dc5691b93f1393b5ce0c626d8b76": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b7556809be2fd60c0234dc0a4dfca9faedb0ede9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b85db26476e47f3a15f12d7dcc720f972842ab3b": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"b8829dc4fcadf9848c2406743cd8402838436fa0": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ba1dc8879b22aa8cf21e801ea0c7909005ac4559": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ba5842ee250d3ca1b6a24c4f0289669c208807da": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bafce657c94d556d1fabb5e3bcf658eb781c23ca": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bb2e829294947f019688b2745a8d074b68aa46d4": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bb32e41f3970feb33aa3bab19cab2c0556d066cb": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bc138405fac10f61d1b4999c8432f9ffa93e219d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bd1987e4d0fcd394e865c8ff82c6022aca9a38d6": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bde6a618581e638d7c6acf36daac49eb46e14070": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"bf5df2c48a8a910c17c444ee5ad3822866b254f0": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\8137468337760833\\decoratorOnClass1.js:11"
+},
+"bfa506f0feabe36536d1bd8d5d5a3a9b44bd3af8": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"c02098b9c29ebd171fc64875f21035931db5e0e1": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"c0323743792d441cab95924b8d4b3e18f08c3bf8": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"c65bc92d1ac6252f4588923743cc3b4baee47b4c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\7df512f280e84a85\\decoratorOnClassMethod18.js:10"
+},
+"c6ba78dd78510b9bd2574c8fb049c88f74ad6a1c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\03897e6b53079126\\decoratorOnClass5.js:10"
+},
+"c99af9badba94d066edf9e0d9d97e456dd57e0a1": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"cac5ea3a1a03193d0b37a44f9ad7611de247af07": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ccbeddf4a18a78743b1d74014e8799cd57374cfb": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"cf0ea06eef1e6d1264f40f505e3275dfc55237eb": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\f6eb19cbc92a2551\\decoratorOnClassMethodParameter2.js:15"
+},
+"cf7f7a5392664ee46efef63929c7bd1ec2b25b62": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"cfa80beb91d13666149c29d02a981074d64e3d0b": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"d125e838bcd71251853bd96532bc90c9c61fa0ce": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\7dcd1ee8aa9502fc\\decoratorOnClassProperty11.js:11"
+},
+"d14ad49bb8dff202ffc2a4743f63793a776afe4f": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\f684d79d355095e8\\derivedClassIncludesInheritedMembers.js:29\nvar r7 = d2[''];\n           ^\n\nTypeError: Cannot read properties of undefined (reading '')",
+"stdout": ""
+},
+"d22f71ae1ca9e1206664ea0dca9a0483b9be8e3c": {
+"exit": 1,
+"stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\a3da304785cf5573\\classPropertyIsPublicByDefault.js:13\nc.x;\n  ^\n\nTypeError: Cannot read properties of undefined (reading 'x')\n    at Object.<anonymous>",
+"stdout": ""
+},
+"d5f80366032ec1ea86a7880c9d145bad11aff14a": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"d6cc24034cdfc0a72a9c8e70e2a9a84f0aa1475e": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"d89dce695d03cb341722bb94f3032dc960e2b072": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\66a755c5526f46f9\\decoratorOnClassAccessor2.js:12"
+},
+"da26c41f66da2d96d91104ad962a37220efdb8d2": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"dab5357fe5eb8d016769fe3cfa886cddce59e11f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": "1\n2\n3\n"
+},
+"dae34216edb1ec9bb555bf8556b15cb1965aaf3c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\1a0e52b39f01877c\\decoratorOnClassProperty6.js:11"
+},
+"dc760cc1da28b7bc9f40aee01cdacb70f8528563": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\7afd7ede577ca073\\decoratorOnClassAccessor4.js:12"
+},
+"defd530e18e025ec59f40e6ccb6350c5ce34c7ad": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"df06cb5d8bb49cf67bd07f7b0a3188d80a3abec0": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\aab89a537658dd4b\\decoratorOnClassProperty2.js:11"
+},
+"e2ecbdca7cf87b0a5b1c364e22144a78d4351d72": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"e8111eab7d8ce0b75d352ecf53d97ac4c8c3096c": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"e8a7d3b07b27acb4ca37076ad87644fa86d4e800": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\2588df36ff7bf6b0\\decoratorOnClassMethod7.js:12"
+},
+"e99684e1f20c67cd3b73041f65605bfb770aa73e": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"ea42d02a9ae2a60cb23a70899a430cc7bf4bc768": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"eabe8eea8434f58c3a32ae71deed92966f598e05": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\924b0ccef8f2a293\\decoratorOnClassProperty12.js:10"
+},
+"ec58e35eeb05dc7d1f66283c75e51b791d60eda6": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"f16c7dd11cae85effd9570741c7c28d42b159243": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"f812faa7e57ba20aad836d92c761f32e901c42e9": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\6aba39ac33df3215\\decoratorOnClassAccessor1.js:12"
+},
+"fb79aa32918c4cd00b7056288af7c58bc8413dd4": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"fbc8cb6270cd6512d82f865327d3d37b51f24b3f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"febe7da7874cd5d2308be9536ffe41aa200eb7ee": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+}
+}
