@@ -64,7 +64,7 @@ private:
     // they're in a loop.
     ast::StmtPtr parseLoopBody();
     ast::StmtPtr parseFunctionDeclaration(bool isAsync, bool isExported, bool isDefaultExport);
-    std::vector<ast::StmtPtr> parseVariableDeclarationList(bool isExported);
+    std::vector<ast::StmtPtr> parseVariableDeclarationList(bool isExported, bool isAmbient = false);
     ast::StmtPtr parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport, bool isStruct = false);
     ast::StmtPtr parseIfStatement();
     ast::StmtPtr parseWhileStatement();

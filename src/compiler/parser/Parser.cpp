@@ -1932,7 +1932,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
         }
         if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
             current_.kind == TokenKind::KW_const) {
-            auto stmts = parseVariableDeclarationList(false);
+            auto stmts = parseVariableDeclarationList(false, /*isAmbient=*/true);
             if (stmts.size() == 1) return std::move(stmts[0]);
             // Wrap in block (synthetic - no new scope for var declarations)
             auto block = std::make_unique<ast::BlockStatement>();
@@ -1984,7 +1984,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                         ns->body.push_back(parseEnumDeclaration(memberExported, true));
                     } else if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
                                current_.kind == TokenKind::KW_const) {
-                        auto stmts = parseVariableDeclarationList(memberExported);
+                        auto stmts = parseVariableDeclarationList(memberExported, /*isAmbient=*/true);
                         for (auto& s : stmts) ns->body.push_back(std::move(s));
                     } else {
                         // Skip unknown tokens to avoid infinite loop
@@ -2394,7 +2394,7 @@ static void collectBoundIdentNames(const ast::Node* n, std::vector<std::pair<std
     }
 }
 
-std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) {
+std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported, bool isAmbient) {
     auto startTok = current_;
     // var / let / const
     advance(); // consume the keyword
@@ -2456,7 +2456,10 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
         // The exception — `for (const x in obj)` / `for (const x of arr)`
         // — is parsed by parseForStatement, not this function, so this
         // path is always the bare `const x;` form.
-        if (decl->varKind == ast::VarKind::Const && !decl->initializer) {
+        // Ambient declarations (`declare const x: T;`) legitimately have
+        // no initializer -- 64 tsconf conformance tests use exactly that.
+        if (decl->varKind == ast::VarKind::Const && !decl->initializer &&
+            !isAmbient) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: 'const' declaration requires an "
                 "initializer",
