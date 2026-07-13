@@ -1384,7 +1384,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // hijacked every `callCount = ...` in class-method test262
             // fixtures (-3,300 in sweep #32).
             bool declaredModuleVar =
-                module_->globals.count(modVarName(ident->name)) != 0;
+                module_->globals.count(modVarName(ident->name)) != 0 ||
+                moduleToplevelDeclaredNames_.count(ident->name) != 0;
             if (!declaredModuleVar) {
                 auto mit = moduleGlobalVarsByModule_.find(ident->name);
                 declaredModuleVar = mit != moduleGlobalVarsByModule_.end() &&

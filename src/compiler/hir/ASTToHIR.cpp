@@ -84,6 +84,36 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     // Store specializations for lookup during call generation
     specializations_ = &specializations;
 
+    // Collect module-TOPLEVEL var/function declaration names (including
+    // initializer-less `var x;`). The Monomorphizer moves toplevel statements
+    // into the synthetic-main/module-init specs, so scan those spec bodies as
+    // well as program->body. Consumed by the strict-unresolvable-assign check
+    // (an assignment from a class method to a declared toplevel var must use
+    // the __modvar_ unification path, NOT throw ReferenceError).
+    moduleToplevelDeclaredNames_.clear();
+    {
+        auto collectDecl = [&](ast::Statement* s) {
+            if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s)) {
+                if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get()))
+                    moduleToplevelDeclaredNames_.insert(id->name);
+            } else if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
+                if (!fd->name.empty()) moduleToplevelDeclaredNames_.insert(fd->name);
+            } else if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(s)) {
+                // class bindings are mutable let-like: `classBinding = 44`
+                // after `class classBinding {}` must assign, not throw.
+                if (!cd->name.empty()) moduleToplevelDeclaredNames_.insert(cd->name);
+            }
+        };
+        for (auto& s0 : program->body) collectDecl(s0.get());
+        for (const auto& spec : specializations) {
+            auto* fn = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
+            if (!fn) continue;
+            if (fn->name != "__synthetic_user_main" && fn->name != "user_main" &&
+                fn->name.rfind("__module_init", 0) != 0) continue;
+            for (auto& s0 : fn->body) collectDecl(s0.get());
+        }
+    }
+
     valueCounter_ = 0;
     blockCounter_ = 0;
     scopes_.clear();

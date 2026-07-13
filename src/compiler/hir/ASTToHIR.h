@@ -324,6 +324,10 @@ private:
     // This prevents cross-module name collisions (e.g., `var next` in module A
     // should not shadow a local `function next()` in module B).
     std::map<std::string, std::set<std::string>> moduleGlobalVarsByModule_;
+    // Module-TOPLEVEL var/function declaration names (incl. initializer-less
+    // `var x;`): the strict-unresolvable-assign check exempts DECLARED names
+    // written from class methods/inner functions (sweep #33 regression).
+    std::set<std::string> moduleToplevelDeclaredNames_;
     // Module globals accessed by inner (nested) functions -- the defining function
     // must read/write these from __modvar_ globals, not local allocas
     std::map<std::string, std::set<std::string>> moduleGlobalsUsedByInnerByModule_;
