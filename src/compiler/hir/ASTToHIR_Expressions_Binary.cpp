@@ -1374,7 +1374,23 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             builder_.createCall("ts_with_set_ref_or_global_s",
                 {withRef, nameStr, boxValueIfNeeded(rhs), strictC}, HIRType::makeVoid());
         } else if (!ident->isUnresolvedReference) {
-            if (strictCode_) {
+            // This fallback serves TWO cases that look identical here:
+            // (a) a DECLARED toplevel var written from an inner function /
+            //     class method (both map to the same __modvar_ slot — the
+            //     StoreGlobal below IS the unification mechanism), and
+            // (b) a genuinely undeclared name (sloppy implicit global).
+            // Only case (b) gets the strict ReferenceError semantics: class
+            // bodies are strict code, so gating on strictCode_ alone
+            // hijacked every `callCount = ...` in class-method test262
+            // fixtures (-3,300 in sweep #32).
+            bool declaredModuleVar =
+                module_->globals.count(modVarName(ident->name)) != 0;
+            if (!declaredModuleVar) {
+                auto mit = moduleGlobalVarsByModule_.find(ident->name);
+                declaredModuleVar = mit != moduleGlobalVarsByModule_.end() &&
+                                    mit->second.count(currentModulePath_) != 0;
+            }
+            if (strictCode_ && !declaredModuleVar) {
                 // ES 6.2.5.6 PutValue: STRICT assignment to an unresolvable
                 // Reference throws ReferenceError instead of creating an
                 // implicit global; a name globalThis already has (String,
