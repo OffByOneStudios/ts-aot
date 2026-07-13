@@ -790,6 +790,8 @@ struct BuiltinInstanceCheck {
     int offset;
     void* (*get_global)();
 };
+extern "C" void* ts_get_global_ArrayBuffer();       // TsGlobals.cpp
+extern "C" void* ts_get_global_DataView();          // TsGlobals.cpp
 extern "C" void* ts_temporal_get_plaintime_ctor();  // TsTemporal.h
 extern "C" void* ts_temporal_get_duration_ctor();   // TsTemporal.h
 extern "C" void* ts_temporal_get_plaindate_ctor();  // TsTemporal.h
@@ -798,9 +800,15 @@ extern "C" void* ts_temporal_get_plainmonthday_ctor();
 extern "C" void* ts_temporal_get_plaindatetime_ctor();
 extern "C" void* ts_temporal_get_instant_ctor();
 extern "C" void* ts_temporal_get_zoneddatetime_ctor();
+// NOTE (drift hazard): this table is ANOTHER per-builtin surface that must be
+// extended when a builtin gains real instances — BUFF/DVIE were missing for
+// months, so `(new ArrayBuffer(1)) instanceof ArrayBuffer` was false while
+// the prototype chain read correctly. See memory builtin-proto-surface-contract.
 static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x44415445, 0,  ts_get_global_Date    },   // TsDate     "DATE"
     { 0x52454758, 0,  ts_get_global_RegExp  },   // TsRegExp   "REGX"
+    { 0x42554646, 16, ts_get_global_ArrayBuffer },  // TsBuffer  "BUFF"
+    { 0x44564945, 16, ts_get_global_DataView },  // TsDataView "DVIE"
     { 0x50524F4D, 16, ts_get_global_Promise },   // TsPromise "PROM" (TsObject subclass: magic @16)
     { 0x53455453, 16, ts_get_global_Set     },   // TsSet      "SETS"
     { 0x574D4150, 16, ts_get_global_WeakMap },   // TsWeakMap  "WMAP"
