@@ -478,6 +478,14 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
     } else {
         left = parseUnaryExpression();
     }
+    // Crash-class floor: no speculative-recovery path may hand a null node
+    // to the binary loop below (setLocation dereferences it). A null here is
+    // a parse failure, not a segfault (tsconf neg_crash gate).
+    if (!left) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: expected an expression",
+            fileName_, current_.line));
+    }
 
     while (true) {
         int prec = getBinaryPrecedence(current_.kind);
@@ -936,7 +944,21 @@ ast::ExprPtr Parser::parseCallExpression() {
                     call->callee = std::move(expr);
                     call->typeArguments = std::move(typeArgs);
                     while (!check(TokenKind::CloseParen) && !isAtEnd()) {
-                        call->arguments.push_back(parseAssignmentExpression());
+                        if (check(TokenKind::DotDotDot)) {
+                            // Spread argument in a generic call: g<T>(1, ...u).
+                            // Missing here (present in the plain-call and new
+                            // paths) -> parseAssignmentExpression threw, the
+                            // speculative catch re-parsed '<' as comparison,
+                            // and the recovery chain segfaulted on a null node.
+                            auto spreadTok = current_;
+                            advance();
+                            auto spread = std::make_unique<ast::SpreadElement>();
+                            setLocation(spread.get(), spreadTok);
+                            spread->expression = parseAssignmentExpression();
+                            call->arguments.push_back(std::move(spread));
+                        } else {
+                            call->arguments.push_back(parseAssignmentExpression());
+                        }
                         if (!check(TokenKind::CloseParen)) {
                             expect(TokenKind::Comma, "','");
                         }
