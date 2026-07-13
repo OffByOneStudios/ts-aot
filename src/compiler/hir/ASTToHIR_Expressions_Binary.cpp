@@ -1374,6 +1374,18 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             builder_.createCall("ts_with_set_ref_or_global_s",
                 {withRef, nameStr, boxValueIfNeeded(rhs), strictC}, HIRType::makeVoid());
         } else if (!ident->isUnresolvedReference) {
+            if (strictCode_) {
+                // ES 6.2.5.6 PutValue: STRICT assignment to an unresolvable
+                // Reference throws ReferenceError instead of creating an
+                // implicit global; a name globalThis already has (String,
+                // an earlier sloppy global) still assigns. Runtime check —
+                // the compiler can't know what exists on globalThis.
+                auto nameStr = builder_.createConstString(ident->name);
+                builder_.createCall("ts_strict_unresolved_assign",
+                    {nameStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
+                lastValue_ = rhs;
+                return;
+            }
             // Untyped-JS implicit global: a bare assignment to a name the analyzer
             // resolved (NOT the TS "Undefined variable"/isUnresolvedReference case)
             // with no prior binding is a sloppy-mode implicit global. Give it real

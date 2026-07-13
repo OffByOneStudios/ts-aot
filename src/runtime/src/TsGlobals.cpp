@@ -5809,6 +5809,28 @@ extern "C" void ts_global_var_set(const char* name, TsValue* v) {
                           v ? v : ts_value_make_undefined());  // may throw
 }
 
+// ES 6.2.5.6 PutValue on an unresolvable Reference in STRICT code: if the
+// global object already has the property (a real global like String, an
+// earlier sloppy implicit global, a builtin constructor) the write proceeds;
+// otherwise ReferenceError. Emitted by the compiler for strict-code
+// assignments to names with no static binding (sloppy code keeps the
+// implicit-global StoreGlobal path). POD frame: char buf, no std::string.
+extern "C" void ts_strict_unresolved_assign(void* nameStr, TsValue* v) {
+    if (!nameStr) return;
+    const char* n = ((TsString*)nameStr)->ToUtf8();
+    extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
+    TsValue* key = ts_value_make_string((TsString*)nameStr);
+    bool exists = globalThis && ts_object_has_prop(globalThis, key);
+    if (!exists && n && ts_interp_global_ctor_by_name(n)) exists = true;
+    if (!exists) {
+        char msg[300];
+        snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "");
+        ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+        return;  // unreachable
+    }
+    ts_global_var_set(n, v);
+}
+
 // OrdinaryCallBindThis for sloppy callees: undefined/null `this` becomes
 // globalThis. Emitted by the compiler at the ambient-this fallback of
 // non-strict functions.
