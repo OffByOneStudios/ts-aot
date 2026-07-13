@@ -2278,6 +2278,74 @@ extern "C" TsValue* ts_regexp_escape_native(void* ctx, int argc, TsValue** argv)
     return ts_value_make_string(TsString::Create(out.c_str()));
 }
 
+// --- Annex B legacy RegExp static accessors (proposal-regexp-legacy-features)
+// RegExp.input/$_ , lastMatch/$& , lastParen/$+ , leftContext/$` ,
+// rightContext/$' , $1..$9 — accessor properties OF THE %RegExp% CONSTRUCTOR
+// whose getters throw TypeError for any other receiver (subclass ctors,
+// RegExp.prototype, primitives). Values live in TsRegExp.cpp
+// (g_regexp_statics), refreshed by TsRegExp::Exec.
+extern "C" void* ts_regexp_legacy_static(int which);   // TsRegExp.cpp
+extern "C" void ts_regexp_legacy_set_input(void* str); // TsRegExp.cpp
+void* ts_get_global_RegExp();                          // defined below
+
+static bool legacy_regexp_receiver_ok(void* ctx) {
+    void* self = ctx ? ctx : ts_get_call_this();
+    if (!self) return false;
+    void* raw = ts_value_get_object((TsValue*)self);
+    if (!raw) raw = self;
+    void* g = ts_get_global_RegExp();  // cached (getter runs post-construction)
+    void* graw = g ? ts_value_get_object((TsValue*)g) : nullptr;
+    return raw && graw && raw == graw;
+}
+
+static TsValue* legacy_regexp_get_common(void* ctx, int which) {
+    if (!legacy_regexp_receiver_ok(ctx)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "RegExp legacy accessor called on a non-%RegExp% receiver"));
+        return ts_value_make_undefined();
+    }
+    void* s = ts_regexp_legacy_static(which);
+    if (!s) return ts_value_make_string(TsString::GetInterned(""));
+    return ts_value_make_string(s);
+}
+
+static void installLegacyRegExpAccessors(TsMap* reCtor) {
+#define TS_LEGACY_RE_GET(name, idx) \
+    addAccessorGetter(reCtor, name, (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* { \
+        (void)argc; (void)argv; return legacy_regexp_get_common(ctx, idx); })
+    TS_LEGACY_RE_GET("input", 0);        TS_LEGACY_RE_GET("$_", 0);
+    TS_LEGACY_RE_GET("lastMatch", 1);    TS_LEGACY_RE_GET("$&", 1);
+    TS_LEGACY_RE_GET("lastParen", 2);    TS_LEGACY_RE_GET("$+", 2);
+    TS_LEGACY_RE_GET("leftContext", 3);  TS_LEGACY_RE_GET("$`", 3);
+    TS_LEGACY_RE_GET("rightContext", 4); TS_LEGACY_RE_GET("$'", 4);
+    TS_LEGACY_RE_GET("$1", 5);  TS_LEGACY_RE_GET("$2", 6);
+    TS_LEGACY_RE_GET("$3", 7);  TS_LEGACY_RE_GET("$4", 8);
+    TS_LEGACY_RE_GET("$5", 9);  TS_LEGACY_RE_GET("$6", 10);
+    TS_LEGACY_RE_GET("$7", 11); TS_LEGACY_RE_GET("$8", 12);
+    TS_LEGACY_RE_GET("$9", 13);
+#undef TS_LEGACY_RE_GET
+    // input / $_ additionally have a SETTER (ToString-coerces the value).
+    auto inputSetter = +[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        if (!legacy_regexp_receiver_ok(ctx)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "RegExp legacy accessor called on a non-%RegExp% receiver"));
+            return ts_value_make_undefined();
+        }
+        TsValue* v = (argc >= 1 && argv) ? argv[0] : nullptr;
+        extern void* ts_string_from_value(TsValue* val);   // ToString (observable)
+        ts_regexp_legacy_set_input(ts_string_from_value(v));
+        return ts_value_make_undefined();
+    };
+    for (const char* nm : { "__setter_input", "__setter_$_" }) {
+        TsValue* fn = ts_value_make_native_function((void*)inputSetter, nullptr);
+        TsFunction* f = (TsFunction*)ts_value_get_object(fn);
+        if (f) { f->arity = 1; f->is_constructor = false; }
+        TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned(nm);
+        TsValue vv; vv.type = ValueType::FUNCTION_PTR; vv.ptr_val = fn;
+        reCtor->SetWithAttrs(k, vv, 0);  // hidden bookkeeping slot
+    }
+}
+
 void* ts_get_global_RegExp() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -2285,6 +2353,7 @@ void* ts_get_global_RegExp() {
         TsMap* reCtor = makeSimpleConstructorGlobal("RegExp");
         addAccessorGetter(reCtor, "[Symbol.species]", (void*)species_this_getter);
         addMethod(reCtor, "escape", (void*)ts_regexp_escape_native, 1);
+        installLegacyRegExpAccessors(reCtor);
         cached = wrapAsCallable(reCtor, "RegExp", 2);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // Populate RegExp.prototype with the spec-required methods so that

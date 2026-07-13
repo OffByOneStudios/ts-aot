@@ -26,6 +26,96 @@ extern "C" void* ts_alloc(size_t size);
 extern "C" void ts_throw(TsValue* err);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
+// --- Annex B legacy RegExp statics (tc39 proposal-regexp-legacy-features) ---
+// RegExp.input/$_ , lastMatch/$& , lastParen/$+ , leftContext/$` ,
+// rightContext/$' and $1..$9, refreshed on every successful TsRegExp::Exec
+// (the single ICU match chokepoint: exec/test/String-match all drive it).
+// Slots are GC ROOTS (TsString* held in a C++ struct is otherwise invisible
+// to the collector — runtime-safety GC-rooting rule). Reads before any match
+// yield the empty string per the proposal's initial [[RegExpInput]] = "".
+namespace {
+struct LegacyRegExpStatics {
+    TsString* input = nullptr;
+    TsString* lastMatch = nullptr;
+    TsString* lastParen = nullptr;
+    TsString* leftContext = nullptr;
+    TsString* rightContext = nullptr;
+    TsString* dollar[9] = {};
+};
+LegacyRegExpStatics g_regexp_statics;
+
+void legacy_statics_root_once() {
+    static bool rooted = false;
+    if (rooted) return;
+    rooted = true;
+    ts_gc_register_root((void**)&g_regexp_statics.input);
+    ts_gc_register_root((void**)&g_regexp_statics.lastMatch);
+    ts_gc_register_root((void**)&g_regexp_statics.lastParen);
+    ts_gc_register_root((void**)&g_regexp_statics.leftContext);
+    ts_gc_register_root((void**)&g_regexp_statics.rightContext);
+    for (int i = 0; i < 9; i++)
+        ts_gc_register_root((void**)&g_regexp_statics.dollar[i]);
+}
+
+// Separate NOINLINE frame: Exec's entry can ts_throw (lastIndex-writable
+// check) while locals here would be unconstructed — keeping every non-POD
+// local in this dedicated no-throw frame satisfies the longjmp POD rule.
+__declspec(noinline)
+void legacy_statics_update(TsString* subject, const icu::UnicodeString& input,
+                           icu::RegexMatcher* matcher, UErrorCode& status) {
+    legacy_statics_root_once();
+    auto mk = [](const icu::UnicodeString& us) -> TsString* {
+        std::string u8;
+        us.toUTF8String(u8);
+        return TsString::Create(u8.c_str());
+    };
+    int32_t start0 = matcher->start(status);
+    int32_t end0 = matcher->end(status);
+    if (U_FAILURE(status)) return;
+    g_regexp_statics.input = ts_ensure_flat(subject);
+    g_regexp_statics.lastMatch = mk(input.tempSubStringBetween(start0, end0));
+    g_regexp_statics.leftContext = mk(input.tempSubStringBetween(0, start0));
+    g_regexp_statics.rightContext =
+        mk(input.tempSubStringBetween(end0, input.length()));
+    int32_t count = matcher->groupCount();
+    TsString* empty = TsString::GetInterned("");
+    TsString* lastParen = empty;
+    for (int i = 0; i < 9; i++) g_regexp_statics.dollar[i] = empty;
+    for (int32_t g = 1; g <= count; g++) {
+        UErrorCode gs = U_ZERO_ERROR;
+        int32_t gStart = matcher->start(g, gs);
+        TsString* val = empty;   // non-participating group reads ""
+        if (gStart != -1 && U_SUCCESS(gs)) {
+            val = mk(matcher->group(g, gs));
+            lastParen = val;     // last PARTICIPATING group
+        }
+        if (g <= 9) g_regexp_statics.dollar[g - 1] = val;
+    }
+    g_regexp_statics.lastParen = lastParen;
+}
+} // namespace
+
+// Accessor for TsGlobals.cpp's RegExp legacy static getters.
+// which: 0=input 1=lastMatch 2=lastParen 3=leftContext 4=rightContext
+// 5..13 = $1..$9. Returns nullptr when never set (getter substitutes "").
+extern "C" void* ts_regexp_legacy_static(int which) {
+    switch (which) {
+        case 0: return g_regexp_statics.input;
+        case 1: return g_regexp_statics.lastMatch;
+        case 2: return g_regexp_statics.lastParen;
+        case 3: return g_regexp_statics.leftContext;
+        case 4: return g_regexp_statics.rightContext;
+        default:
+            if (which >= 5 && which <= 13)
+                return g_regexp_statics.dollar[which - 5];
+            return nullptr;
+    }
+}
+extern "C" void ts_regexp_legacy_set_input(void* str) {
+    legacy_statics_root_once();
+    g_regexp_statics.input = str ? ts_ensure_flat(str) : nullptr;
+}
+
 // ECMA-262 22.2.3.4 (RegExpInitialize) step 1: validate the flags string.
 // Each code unit must be one of d g i m s u v y, with NO duplicates; otherwise
 // throw a SyntaxError. Returns true if flags are valid (or null).
@@ -852,6 +942,10 @@ void* TsRegExp::Exec(TsString* str) {
                 matches->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
             }
         }
+
+        // Annex B legacy statics (RegExp.lastMatch/$1..$9/...) refresh on
+        // every successful builtin match. Dedicated no-throw frame.
+        legacy_statics_update(str, input, matcher, status);
 
         // Create the match array wrapper with index and input
         TsRegExpMatchArray* result = TsRegExpMatchArray::Create(matches, matchIndex, str);
