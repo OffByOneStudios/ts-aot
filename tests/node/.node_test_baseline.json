@@ -171,6 +171,7 @@
   "net/socket_config.ts": "pass",
   "net/socket_properties.ts": "pass",
   "number/number_static_methods.ts": "pass",
+  "object/builtin_proto_contract.js": "pass",
   "object/object_basic.js": "pass",
   "object/object_basic.ts": "pass",
   "object/object_create.js": "pass",
