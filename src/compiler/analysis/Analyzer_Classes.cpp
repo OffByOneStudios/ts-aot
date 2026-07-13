@@ -312,8 +312,25 @@ void Analyzer::visitStaticBlock(ast::StaticBlock* node) {
 }
 
 void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr<ClassType> classType) {
+    // Re-entry guard: a class-expression initializer that extends its own
+    // enclosing class (`class F { Inner = class extends F {} }`) re-enters
+    // this class's member analysis through base resolution -- with `this`
+    // now bound during initializer analysis that recursed unboundedly.
+    static thread_local std::set<PropertyDefinition*> inProgress;
+    if (inProgress.count(node)) return;
+    inProgress.insert(node);
+    struct Eraser {
+        std::set<PropertyDefinition*>& s; PropertyDefinition* n;
+        ~Eraser() { s.erase(n); }
+    } eraser{inProgress, node};
     if (node->initializer) {
+        // Field initializers run with `this` bound to the instance (ES class
+        // fields semantics). Without the binding, `b = () => this` reported
+        // "Undefined variable this" — 26-test tsconf false-reject family.
+        symbols.enterScope();
+        symbols.define("this", classType);
         node->initializer->accept(this);
+        symbols.exitScope();
         auto type = lastType;
         std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
         std::string name = manglePrivateName(node->name, baseName);

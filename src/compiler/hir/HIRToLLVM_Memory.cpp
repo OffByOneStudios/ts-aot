@@ -923,6 +923,16 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     // Pin boxed key — value boxing below can trigger GC
     keyBoxed = gcPin(keyBoxed, "gc.pin.key");
 
+    // Crash floor: a producer that setValue'd nothing (unmaterialized
+    // `this` in analyzer-typed field-initializer chains) hands a null SSA
+    // value here; store undefined instead of dereferencing null
+    // (neg_crash gate -- assignParameterPropertyToPropertyDeclaration*).
+    if (!val) {
+        val = llvm::ConstantExpr::getIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0AULL),
+            getGCPtrTy());  // NANBOX_UNDEFINED
+    }
+
     // Box the value based on HIR type information
     if (!val->getType()->isPointerTy()) {
         // Primitive types

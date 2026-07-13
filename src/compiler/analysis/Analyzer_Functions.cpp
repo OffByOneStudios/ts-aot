@@ -156,6 +156,10 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
 
     symbols.enterScope();
+    // ES `arguments` object: bound in every non-arrow function scope (typed
+    // mode previously reported "Undefined variable arguments" - 13-test
+    // tsconf false-reject family). Typed Any: array-like + callee.
+    symbols.define("arguments", std::make_shared<Type>(TypeKind::Any));
 
     // Re-define type parameters in the new scope for the body
     for (const auto& tpType : funcType->typeParameters) {
@@ -276,6 +280,10 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     bool needsReturnTypeInference = false;  // Track if we need to infer return type
     
     symbols.enterScope();
+    // ES `arguments` object: bound in every non-arrow function scope (typed
+    // mode previously reported "Undefined variable arguments" - 13-test
+    // tsconf false-reject family). Typed Any: array-like + callee.
+    symbols.define("arguments", std::make_shared<Type>(TypeKind::Any));
     // Register type parameters
     for (const auto& tp : node->typeParameters) {
         auto tpType = std::make_shared<TypeParameterType>(tp->name);
@@ -582,6 +590,10 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     bool isUntypedModule = activeOptions.suppressErrors;
 
     symbols.enterScope();
+    // ES `arguments` object: bound in every non-arrow function scope (typed
+    // mode previously reported "Undefined variable arguments" - 13-test
+    // tsconf false-reject family). Typed Any: array-like + callee.
+    symbols.define("arguments", std::make_shared<Type>(TypeKind::Any));
 
     // Restore all module-level symbols (including non-exported ones like local const variables).
     // These were saved during analyzeModule() before the module scope was exited.
