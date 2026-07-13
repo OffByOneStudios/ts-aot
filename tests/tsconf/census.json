@@ -1,0 +1,897 @@
+{
+ "total_tests": 5907,
+ "global_option_frequency": {
+  "target": 5415,
+  "strict": 1481,
+  "module": 860,
+  "allowjs": 555,
+  "checkjs": 536,
+  "declaration": 530,
+  "noemit": 469,
+  "lib": 327,
+  "notypesandsymbols": 285,
+  "noemithelpers": 256,
+  "jsx": 227,
+  "outdir": 215,
+  "experimentaldecorators": 134,
+  "noimplicitany": 117,
+  "skiplibcheck": 100,
+  "usedefineforclassfields": 87,
+  "strictnullchecks": 86,
+  "moduleresolution": 85,
+  "noimplicitreferences": 73,
+  "allowunreachablecode": 59,
+  "traceresolution": 57,
+  "importhelpers": 47,
+  "emitdeclarationonly": 42,
+  "ignoredeprecations": 36,
+  "alwaysstrict": 36,
+  "noimplicitoverride": 30,
+  "outfile": 25,
+  "allowunusedlabels": 25,
+  "emitdecoratormetadata": 22,
+  "currentdirectory": 22,
+  "downleveliteration": 21,
+  "sourcemap": 21,
+  "esmoduleinterop": 19,
+  "nounusedlocals": 14,
+  "verbatimmodulesyntax": 13,
+  "suppressoutputpathcheck": 13,
+  "isolatedmodules": 12,
+  "rootdir": 11,
+  "typeroots": 11,
+  "noimplicitthis": 10,
+  "resolvejsonmodule": 8,
+  "strictpropertyinitialization": 7,
+  "preservevalueimports": 6,
+  "rewriterelativeimportextensions": 6,
+  "useunknownincatchvariables": 5,
+  "noimplicitreturns": 5,
+  "allowarbitraryextensions": 5,
+  "allowimportingtsextensions": 5,
+  "types": 5,
+  "nolib": 4,
+  "skipdefaultlibcheck": 4,
+  "noemitonerror": 3,
+  "nouncheckedindexedaccess": 3,
+  "importsnotusedasvalues": 3,
+  "nopropertyaccessfromindexsignature": 2,
+  "declarationmap": 2,
+  "preserveconstenums": 2,
+  "strictbindcallapply": 2,
+  "jsxfactory": 2,
+  "jsximportsource": 2,
+  "resolvepackagejsonexports": 2,
+  "baseurl": 2,
+  "todo": 1,
+  "reference": 1,
+  "stripinternal": 1,
+  "removecomments": 1,
+  "allowumdglobalaccess": 1,
+  "strictfunctiontypes": 1,
+  "nounusedparameters": 1,
+  "pretty": 1,
+  "reactnamespace": 1,
+  "jsxfragmentfactory": 1,
+  "customconditions": 1,
+  "resolvepackagejsonimports": 1,
+  "maxnodemodulejsdepth": 1,
+  "libreplacement": 1,
+  "nouncheckedsideeffectimports": 1,
+  "moduledetection": 1,
+  "suppressimplicitanyindexerrors": 1,
+  "exactoptionalpropertytypes": 1,
+  "strictbuiltiniteratorreturn": 1
+ },
+ "option_example": {
+  "target": "fixSignatureCaching.ts",
+  "strict": "fixSignatureCaching.ts",
+  "todo": "fixSignatureCaching.ts",
+  "reference": "fixSignatureCaching.ts",
+  "nopropertyaccessfromindexsignature": "additionalChecks\\noPropertyAccessFromIndexSignature1.ts",
+  "module": "ambient\\ambientDeclarationsExternal.ts",
+  "declaration": "ambient\\ambientModuleDeclarationWithReservedIdentifierInDottedPath.ts",
+  "lib": "async\\asyncFunctionDeclarationParameterEvaluation.ts",
+  "noemithelpers": "async\\asyncFunctionDeclarationParameterEvaluation.ts",
+  "notypesandsymbols": "async\\asyncFunctionDeclarationParameterEvaluation.ts",
+  "isolatedmodules": "async\\es2017\\asyncAwaitIsolatedModules_es2017.ts",
+  "strictnullchecks": "async\\es2017\\awaitInheritedPromise_es2017.ts",
+  "noemit": "async\\es2017\\await_incorrectThisType.ts",
+  "allowjs": "async\\es2017\\asyncArrowFunction\\asyncArrowFunction_allowJs.ts",
+  "checkjs": "async\\es2017\\asyncArrowFunction\\asyncArrowFunction_allowJs.ts",
+  "downleveliteration": "async\\es5\\asyncArrowFunction\\asyncArrowFunction11_es5.ts",
+  "usedefineforclassfields": "classes\\classExpressions\\classWithStaticFieldInParameterBindingPattern.2.ts",
+  "declarationmap": "classes\\classStaticBlock\\classStaticBlock25.ts",
+  "sourcemap": "classes\\classStaticBlock\\classStaticBlock25.ts",
+  "experimentaldecorators": "classes\\constructorDeclarations\\superCalls\\derivedClassSuperProperties.ts",
+  "outfile": "classes\\members\\classTypes\\genericSetterInClassTypeJsDoc.ts",
+  "noimplicitany": "classes\\members\\privateNames\\privateNameAmbientNoImplicitAny.ts",
+  "importhelpers": "classes\\members\\privateNames\\privateNameEmitHelpers.ts",
+  "nounusedlocals": "classes\\members\\privateNames\\privateNameInInExpressionUnused.ts",
+  "strictpropertyinitialization": "classes\\members\\privateNames\\privateNamesAndIndexedAccess.ts",
+  "outdir": "classes\\members\\privateNames\\privateNamesIncompatibleModifiersJs.ts",
+  "noemitonerror": "classes\\propertyMemberDeclarations\\autoAccessor1.ts",
+  "allowunreachablecode": "controlFlow\\assertionTypePredicates1.ts",
+  "useunknownincatchvariables": "controlFlow\\controlFlowAliasingCatchVariables.ts",
+  "esmoduleinterop": "controlFlow\\controlFlowOptionalChain3.tsx",
+  "jsx": "controlFlow\\controlFlowOptionalChain3.tsx",
+  "stripinternal": "declarationEmit\\declarationEmitWorkWithInlineComments.ts",
+  "emitdeclarationonly": "declarationEmit\\leaveOptionalParameterAsWritten.ts",
+  "nolib": "declarationEmit\\libReferenceNoLib.ts",
+  "traceresolution": "declarationEmit\\typesVersionsDeclarationEmit.ambient.ts",
+  "noimplicitreferences": "declarationEmit\\typesVersionsDeclarationEmit.ambient.ts",
+  "emitdecoratormetadata": "decorators\\decoratorMetadata-jsdoc.ts",
+  "skiplibcheck": "dynamicImport\\importCallExpressionNestedAMD.ts",
+  "moduleresolution": "es2020\\modules\\exportAsNamespace5.ts",
+  "ignoredeprecations": "es6\\arrowFunction\\emitArrowFunctionWhenUsingArguments03.ts",
+  "alwaysstrict": "es6\\arrowFunction\\emitArrowFunctionWhenUsingArguments03.ts",
+  "rootdir": "es6\\moduleExportsAmd\\outFilerootDirModuleNamesAmd.ts",
+  "removecomments": "es6\\templates\\templateStringWithCommentsInArrowFunction.ts",
+  "noimplicitreturns": "es6\\yieldExpressions\\generatorNoImplicitReturns.ts",
+  "allowunusedlabels": "expressions\\assignmentOperator\\compoundAssignmentLHSIsValue.ts",
+  "noimplicitthis": "expressions\\thisKeyword\\thisInObjectLiterals.ts",
+  "nouncheckedindexedaccess": "expressions\\typeSatisfaction\\typeSatisfaction_propertyValueConformance2.ts",
+  "allowumdglobalaccess": "externalModules\\umd9.ts",
+  "verbatimmodulesyntax": "externalModules\\verbatimModuleSyntaxAmbientConstEnum.ts",
+  "preservevalueimports": "externalModules\\verbatimModuleSyntaxCompat.ts",
+  "importsnotusedasvalues": "externalModules\\verbatimModuleSyntaxCompat.ts",
+  "preserveconstenums": "externalModules\\es6\\es6modulekindWithES5Target5.ts",
+  "rewriterelativeimportextensions": "externalModules\\rewriteRelativeImportExtensions\\cjsErrors.ts",
+  "allowarbitraryextensions": "externalModules\\rewriteRelativeImportExtensions\\nonTSExtensions.ts",
+  "resolvejsonmodule": "externalModules\\rewriteRelativeImportExtensions\\nonTSExtensions.ts",
+  "allowimportingtsextensions": "externalModules\\typeOnly\\allowsImportingTsExtension.ts",
+  "strictfunctiontypes": "functions\\strictBindCallApply2.ts",
+  "strictbindcallapply": "functions\\strictBindCallApply2.ts",
+  "suppressoutputpathcheck": "jsdoc\\checkJsdocOptionalParamOrder.ts",
+  "nounusedparameters": "jsdoc\\importTag24.ts",
+  "noimplicitoverride": "jsdoc\\jsdocOverrideTag1.ts",
+  "pretty": "jsdoc\\typedefCrossModule5.ts",
+  "types": "jsdoc\\declarations\\jsDeclarationsTypeReferences.ts",
+  "reactnamespace": "jsx\\tsxReactEmitNesting.tsx",
+  "jsxfactory": "jsx\\inline\\inlineJsxAndJsxFragPragmaOverridesCompilerOptions.tsx",
+  "jsxfragmentfactory": "jsx\\inline\\inlineJsxAndJsxFragPragmaOverridesCompilerOptions.tsx",
+  "jsximportsource": "jsx\\jsxs\\jsxJsxsCjsTransformCustomImport.tsx",
+  "customconditions": "moduleResolution\\customConditions.ts",
+  "resolvepackagejsonexports": "moduleResolution\\customConditions.ts",
+  "resolvepackagejsonimports": "moduleResolution\\packageJsonImportsExportsOptionCompat.ts",
+  "currentdirectory": "moduleResolution\\packageJsonMain.ts",
+  "typeroots": "moduleResolution\\scopedPackages.ts",
+  "baseurl": "moduleResolution\\typesVersions.emptyTypes.ts",
+  "maxnodemodulejsdepth": "moduleResolution\\untypedModuleImport_allowJs.ts",
+  "libreplacement": "moduleResolution\\bundler\\bundlerCommonJS.ts",
+  "nouncheckedsideeffectimports": "node\\nodeModulesNoDirectoryModule.ts",
+  "moduledetection": "node\\allowJs\\nodeModulesAllowJsExportlessJsModuleDetectionAuto.ts",
+  "skipdefaultlibcheck": "parser\\ecmascript5\\StrictMode\\parserStrictMode8.ts",
+  "suppressimplicitanyindexerrors": "types\\nonPrimitive\\nonPrimitiveIndexingWithForInSupressError.ts",
+  "exactoptionalpropertytypes": "types\\spread\\spreadDuplicateExact.ts",
+  "strictbuiltiniteratorreturn": "types\\typeAliases\\builtinIteratorReturn.ts"
+ },
+ "per_directory": {
+  ".": {
+   "tests": 2,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 2,
+    "strict": 2,
+    "todo": 1,
+    "reference": 1
+   }
+  },
+  "Symbols": {
+   "tests": 8,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 8,
+   "top_options": {
+    "target": 8,
+    "strict": 1
+   }
+  },
+  "additionalChecks": {
+   "tests": 1,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 1,
+    "nopropertyaccessfromindexsignature": 1
+   }
+  },
+  "ambient": {
+   "tests": 22,
+   "multifile": 10,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 20,
+    "module": 14,
+    "strict": 10,
+    "declaration": 3
+   }
+  },
+  "async": {
+   "tests": 185,
+   "multifile": 6,
+   "tsx": 0,
+   "variants_gt1": 67,
+   "top_options": {
+    "target": 177,
+    "noemithelpers": 161,
+    "lib": 66,
+    "strict": 37,
+    "isolatedmodules": 3,
+    "noemit": 3,
+    "module": 3,
+    "notypesandsymbols": 2
+   }
+  },
+  "asyncGenerators": {
+   "tests": 3,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 1,
+   "top_options": {
+    "target": 3,
+    "strict": 3,
+    "noemit": 2,
+    "lib": 1,
+    "noemithelpers": 1,
+    "notypesandsymbols": 1
+   }
+  },
+  "classes": {
+   "tests": 466,
+   "multifile": 18,
+   "tsx": 0,
+   "variants_gt1": 103,
+   "top_options": {
+    "target": 463,
+    "strict": 130,
+    "usedefineforclassfields": 65,
+    "declaration": 29,
+    "notypesandsymbols": 23,
+    "noemit": 16,
+    "allowjs": 8,
+    "checkjs": 8
+   }
+  },
+  "constEnums": {
+   "tests": 9,
+   "multifile": 1,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 6,
+    "declaration": 3,
+    "strict": 1,
+    "noemit": 1,
+    "module": 1
+   }
+  },
+  "controlFlow": {
+   "tests": 57,
+   "multifile": 1,
+   "tsx": 1,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 57,
+    "strict": 22,
+    "strictnullchecks": 13,
+    "noemit": 10,
+    "declaration": 8,
+    "allowunreachablecode": 7,
+    "lib": 3,
+    "allowjs": 1
+   }
+  },
+  "declarationEmit": {
+   "tests": 23,
+   "multifile": 11,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 23,
+    "declaration": 23,
+    "module": 20,
+    "traceresolution": 4,
+    "strict": 2,
+    "lib": 2,
+    "outfile": 2,
+    "nolib": 2
+   }
+  },
+  "decorators": {
+   "tests": 88,
+   "multifile": 16,
+   "tsx": 0,
+   "variants_gt1": 48,
+   "top_options": {
+    "target": 85,
+    "experimentaldecorators": 74,
+    "strict": 22,
+    "emitdecoratormetadata": 20,
+    "module": 15,
+    "nolib": 1,
+    "noemithelpers": 1,
+    "notypesandsymbols": 1
+   }
+  },
+  "directives": {
+   "tests": 6,
+   "multifile": 3,
+   "tsx": 1,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 6,
+    "allowjs": 2,
+    "checkjs": 2,
+    "noemit": 2,
+    "module": 1,
+    "jsx": 1
+   }
+  },
+  "dynamicImport": {
+   "tests": 71,
+   "multifile": 67,
+   "tsx": 0,
+   "variants_gt1": 14,
+   "top_options": {
+    "target": 70,
+    "module": 38,
+    "lib": 21,
+    "skiplibcheck": 12,
+    "noimplicitany": 9,
+    "usedefineforclassfields": 4,
+    "declaration": 3,
+    "strictnullchecks": 1
+   }
+  },
+  "emitter": {
+   "tests": 13,
+   "multifile": 12,
+   "tsx": 0,
+   "variants_gt1": 4,
+   "top_options": {
+    "target": 13,
+    "strict": 12,
+    "lib": 12
+   }
+  },
+  "enums": {
+   "tests": 14,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 14,
+    "strict": 3,
+    "declaration": 3,
+    "notypesandsymbols": 1
+   }
+  },
+  "es2016": {
+   "tests": 1,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 1
+   }
+  },
+  "es2017": {
+   "tests": 12,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 7,
+   "top_options": {
+    "target": 12,
+    "lib": 10
+   }
+  },
+  "es2018": {
+   "tests": 4,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 4,
+    "lib": 2
+   }
+  },
+  "es2019": {
+   "tests": 13,
+   "multifile": 4,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 13,
+    "allowjs": 3,
+    "checkjs": 3,
+    "noimplicitany": 2,
+    "noemit": 2,
+    "strict": 2,
+    "lib": 2,
+    "module": 2
+   }
+  },
+  "es2020": {
+   "tests": 15,
+   "multifile": 7,
+   "tsx": 0,
+   "variants_gt1": 4,
+   "top_options": {
+    "target": 15,
+    "module": 8,
+    "esmoduleinterop": 5,
+    "lib": 4,
+    "declaration": 4,
+    "notypesandsymbols": 3,
+    "strict": 2,
+    "moduleresolution": 1
+   }
+  },
+  "es2021": {
+   "tests": 12,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 9,
+   "top_options": {
+    "target": 12,
+    "strict": 10,
+    "lib": 1,
+    "allowunreachablecode": 1
+   }
+  },
+  "es2022": {
+   "tests": 7,
+   "multifile": 1,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 7,
+    "module": 4,
+    "declaration": 4,
+    "lib": 1,
+    "noemit": 1,
+    "strict": 1
+   }
+  },
+  "es2023": {
+   "tests": 2,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 1,
+   "top_options": {
+    "target": 2,
+    "strict": 2,
+    "lib": 1
+   }
+  },
+  "es2024": {
+   "tests": 3,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 3,
+    "lib": 3,
+    "noemit": 3,
+    "strict": 3
+   }
+  },
+  "es2025": {
+   "tests": 4,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 4,
+    "lib": 4,
+    "noemit": 4,
+    "strict": 4
+   }
+  },
+  "es5": {
+   "tests": 1,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 1,
+   "top_options": {
+    "target": 1,
+    "lib": 1
+   }
+  },
+  "es6": {
+   "tests": 1045,
+   "multifile": 53,
+   "tsx": 0,
+   "variants_gt1": 161,
+   "top_options": {
+    "target": 702,
+    "strict": 192,
+    "module": 57,
+    "declaration": 54,
+    "ignoredeprecations": 27,
+    "alwaysstrict": 27,
+    "experimentaldecorators": 19,
+    "noimplicitany": 16
+   }
+  },
+  "es7": {
+   "tests": 45,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 18,
+    "strict": 3,
+    "allowunreachablecode": 1
+   }
+  },
+  "esDecorators": {
+   "tests": 110,
+   "multifile": 46,
+   "tsx": 0,
+   "variants_gt1": 38,
+   "top_options": {
+    "target": 110,
+    "notypesandsymbols": 99,
+    "noemithelpers": 61,
+    "module": 44,
+    "importhelpers": 35,
+    "moduleresolution": 35,
+    "strict": 6,
+    "lib": 4
+   }
+  },
+  "esnext": {
+   "tests": 2,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 1,
+   "top_options": {
+    "target": 2,
+    "lib": 1,
+    "strict": 1
+   }
+  },
+  "expressions": {
+   "tests": 376,
+   "multifile": 5,
+   "tsx": 0,
+   "variants_gt1": 26,
+   "top_options": {
+    "target": 363,
+    "strict": 115,
+    "allowunreachablecode": 17,
+    "notypesandsymbols": 13,
+    "declaration": 10,
+    "noemit": 9,
+    "noimplicitany": 8,
+    "lib": 6
+   }
+  },
+  "externalModules": {
+   "tests": 227,
+   "multifile": 162,
+   "tsx": 0,
+   "variants_gt1": 57,
+   "top_options": {
+    "target": 224,
+    "module": 202,
+    "strict": 33,
+    "noemit": 15,
+    "notypesandsymbols": 15,
+    "moduleresolution": 14,
+    "noimplicitreferences": 14,
+    "verbatimmodulesyntax": 13
+   }
+  },
+  "functions": {
+   "tests": 18,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 5,
+   "top_options": {
+    "target": 18,
+    "strict": 14,
+    "notypesandsymbols": 3,
+    "allowunreachablecode": 2,
+    "noemit": 2,
+    "strictfunctiontypes": 1,
+    "strictbindcallapply": 1
+   }
+  },
+  "generators": {
+   "tests": 15,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 15,
+    "strict": 9,
+    "noemit": 7,
+    "lib": 7,
+    "strictnullchecks": 4,
+    "noimplicitreturns": 4,
+    "noimplicitany": 4,
+    "downleveliteration": 1
+   }
+  },
+  "importAssertion": {
+   "tests": 5,
+   "multifile": 3,
+   "tsx": 0,
+   "variants_gt1": 3,
+   "top_options": {
+    "target": 5,
+    "module": 5,
+    "declaration": 3
+   }
+  },
+  "importAttributes": {
+   "tests": 11,
+   "multifile": 9,
+   "tsx": 0,
+   "variants_gt1": 4,
+   "top_options": {
+    "target": 11,
+    "module": 11,
+    "declaration": 3,
+    "moduleresolution": 2,
+    "lib": 2,
+    "strict": 1,
+    "noemit": 1
+   }
+  },
+  "importDefer": {
+   "tests": 17,
+   "multifile": 17,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "module": 17,
+    "target": 17,
+    "declaration": 1
+   }
+  },
+  "interfaces": {
+   "tests": 66,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 66,
+    "strictnullchecks": 2,
+    "strictpropertyinitialization": 2,
+    "allowunreachablecode": 1
+   }
+  },
+  "internalModules": {
+   "tests": 76,
+   "multifile": 14,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 76,
+    "strict": 5,
+    "module": 2,
+    "ignoredeprecations": 1,
+    "alwaysstrict": 1
+   }
+  },
+  "jsdoc": {
+   "tests": 341,
+   "multifile": 332,
+   "tsx": 0,
+   "variants_gt1": 56,
+   "top_options": {
+    "target": 336,
+    "allowjs": 306,
+    "checkjs": 302,
+    "noemit": 172,
+    "declaration": 130,
+    "outdir": 112,
+    "strict": 92,
+    "module": 44
+   }
+  },
+  "jsx": {
+   "tests": 211,
+   "multifile": 178,
+   "tsx": 207,
+   "variants_gt1": 6,
+   "top_options": {
+    "jsx": 211,
+    "target": 199,
+    "module": 108,
+    "skiplibcheck": 86,
+    "strict": 21,
+    "lib": 7,
+    "noimplicitany": 5,
+    "strictnullchecks": 5
+   }
+  },
+  "moduleResolution": {
+   "tests": 51,
+   "multifile": 51,
+   "tsx": 0,
+   "variants_gt1": 16,
+   "top_options": {
+    "target": 51,
+    "module": 36,
+    "moduleresolution": 26,
+    "traceresolution": 26,
+    "noemit": 18,
+    "notypesandsymbols": 18,
+    "noimplicitreferences": 15,
+    "strict": 11
+   }
+  },
+  "node": {
+   "tests": 94,
+   "multifile": 94,
+   "tsx": 0,
+   "variants_gt1": 81,
+   "top_options": {
+    "target": 94,
+    "module": 93,
+    "declaration": 70,
+    "outdir": 52,
+    "checkjs": 26,
+    "allowjs": 24,
+    "noimplicitreferences": 22,
+    "noemit": 11
+   }
+  },
+  "nonjsExtensions": {
+   "tests": 5,
+   "multifile": 5,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 5,
+    "allowarbitraryextensions": 4,
+    "lib": 3,
+    "module": 3,
+    "resolvejsonmodule": 1
+   }
+  },
+  "override": {
+   "tests": 31,
+   "multifile": 4,
+   "tsx": 0,
+   "variants_gt1": 4,
+   "top_options": {
+    "target": 31,
+    "noimplicitoverride": 29,
+    "declaration": 13,
+    "strict": 5,
+    "noemit": 5,
+    "allowjs": 4,
+    "lib": 3,
+    "emitdeclarationonly": 3
+   }
+  },
+  "parser": {
+   "tests": 819,
+   "multifile": 20,
+   "tsx": 0,
+   "variants_gt1": 80,
+   "top_options": {
+    "target": 809,
+    "strict": 161,
+    "allowjs": 10,
+    "checkjs": 10,
+    "outdir": 10,
+    "lib": 9,
+    "module": 8,
+    "allowunusedlabels": 7
+   }
+  },
+  "pedantic": {
+   "tests": 2,
+   "multifile": 0,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 2,
+    "strict": 2,
+    "nouncheckedindexedaccess": 2
+   }
+  },
+  "references": {
+   "tests": 15,
+   "multifile": 15,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 15,
+    "noimplicitreferences": 15,
+    "traceresolution": 15,
+    "currentdirectory": 11,
+    "typeroots": 9,
+    "types": 2,
+    "allowjs": 1
+   }
+  },
+  "salsa": {
+   "tests": 191,
+   "multifile": 179,
+   "tsx": 0,
+   "variants_gt1": 2,
+   "top_options": {
+    "target": 191,
+    "allowjs": 166,
+    "checkjs": 157,
+    "noemit": 131,
+    "strict": 96,
+    "outdir": 29,
+    "declaration": 27,
+    "noimplicitany": 18
+   }
+  },
+  "scanner": {
+   "tests": 35,
+   "multifile": 2,
+   "tsx": 0,
+   "variants_gt1": 9,
+   "top_options": {
+    "target": 33,
+    "strict": 1,
+    "allowjs": 1,
+    "checkjs": 1,
+    "noemit": 1
+   }
+  },
+  "statements": {
+   "tests": 203,
+   "multifile": 1,
+   "tsx": 0,
+   "variants_gt1": 107,
+   "top_options": {
+    "target": 203,
+    "strict": 110,
+    "lib": 92,
+    "notypesandsymbols": 90,
+    "module": 90,
+    "noemithelpers": 28,
+    "experimentaldecorators": 24,
+    "allowunreachablecode": 20
+   }
+  },
+  "types": {
+   "tests": 845,
+   "multifile": 16,
+   "tsx": 3,
+   "variants_gt1": 11,
+   "top_options": {
+    "target": 788,
+    "strict": 327,
+    "declaration": 125,
+    "noemit": 33,
+    "noimplicitany": 30,
+    "strictnullchecks": 30,
+    "lib": 23,
+    "module": 10
+   }
+  },
+  "typings": {
+   "tests": 9,
+   "multifile": 9,
+   "tsx": 0,
+   "variants_gt1": 0,
+   "top_options": {
+    "target": 9,
+    "traceresolution": 5,
+    "noimplicitreferences": 5,
+    "currentdirectory": 5,
+    "module": 2,
+    "types": 1,
+    "jsx": 1
+   }
+  }
+ }
+}

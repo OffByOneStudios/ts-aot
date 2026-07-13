@@ -1,6 +1,12 @@
 # TSCONF-001: TypeScript Conformance Harness (test262-grade rigor for TS)
 
-**Status:** Planned (ticket only — no implementation yet)
+**Status:** Phase 0 COMPLETE (2026-07-13) — see `tests/tsconf/PHASE0.md`.
+Parser (`parse_meta.py`), census (`census.json`), data-derived skip policy
+(`skip_policy.py`: run 4,402 / acceptance denominator 2,088 / negative 2,314 /
+skip 1,505 across 7 counted reasons), twoslash extractor (795 blocks).
+User defaults recorded 2026-07-13: permissive negative policy (neg-crash
+gates at 0), TC39 decorators = skipped family, compiler/ corpus out until
+Phase 4. Next: Phase 1 acceptance sweep (`ts-aot -c` compile-only).
 **Created:** 2026-07-05
 **Depends on:** test262 harness infrastructure (`tests/test262/`), gate-battery discipline
 
@@ -140,7 +146,7 @@ changes), same gate-battery integration so a runtime change gates against
 
 ## Phases
 
-1. **Phase 0 — Vendor + inventory: DONE 2026-07-05 (vendor half).** Both
+1. **Phase 0 — Vendor + inventory: DONE (vendor 2026-07-05, census+policy 2026-07-13).** Both
    corpora pinned and checked out under `tests/tsconf/upstream/` (gitignored):
    microsoft/TypeScript **v6.0.3** (npm `latest`; 7.0.1-rc is the Go compiler,
    confirming the 6.x pin policy) and TypeScript-Website **1e398d64**.
