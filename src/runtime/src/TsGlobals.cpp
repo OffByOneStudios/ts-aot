@@ -4350,6 +4350,80 @@ void* ts_get_global_ArrayBuffer() {
                 constexpr uint8_t ATTR_W = 0x02, ATTR_C = 0x04;
                 abProto->SetWithAttrs(rk, rv, ATTR_W | ATTR_C);
             }
+            // WHY slice/transfer/transferToFixedLength WERE MISSING HERE:
+            // ArrayBuffer's methods are implemented in
+            // TsBuffer::GetPropertyVirtual (extensions/node/core/src/
+            // TsBuffer.cpp), which serves INSTANCE property reads only. This
+            // `.prototype` object is a separate TsMap that carries only what
+            // is explicitly installed on it, so a method that exists on
+            // instances is invisible to every prototype-surface consumer:
+            // ArrayBuffer.prototype.slice.call(...), feature detection,
+            // test262 verifyProperty, and `.length`/`.name` reads all found
+            // undefined. CONTRACT: any method served by a type's instance
+            // dispatch MUST also be installed on its exposed prototype —
+            // checked by tests/node/builtin_proto_contract.js; add new
+            // methods to BOTH surfaces (or better, only here and let the
+            // instance read inherit).
+            addMethod(abProto, "slice", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
+                if (!buf) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                if (buf->IsDetached()) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                int64_t len = (int64_t)buf->GetLength();
+                int64_t start = 0, end = len;
+                if (argc >= 1 && argv[0] && !ts_value_is_undefined(argv[0]))
+                    start = (int64_t)ts_to_number(argv[0]);
+                if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1]))
+                    end = (int64_t)ts_to_number(argv[1]);
+                return ts_value_make_object(buf->Slice(start, end));
+            }, 2);
+            {
+                // transfer / transferToFixedLength share one body (ES2024
+                // 25.1.5.4/.5); both detach the receiver and copy min(old,new)
+                // bytes into a fresh fixed-length buffer.
+                auto transferImpl = +[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                    if (!ctx) ctx = ts_get_call_this();
+                    void* raw = ts_nanbox_safe_unbox(ctx);
+                    TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
+                    if (!buf) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "ArrayBuffer.prototype.transfer called on non-ArrayBuffer"));
+                        return ts_value_make_undefined();
+                    }
+                    if (buf->IsDetached()) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "ArrayBuffer.prototype.transfer called on detached ArrayBuffer"));
+                        return ts_value_make_undefined();
+                    }
+                    int64_t oldLen = (int64_t)buf->GetLength();
+                    int64_t newLen = oldLen;
+                    if (argc >= 1 && argv[0] && !ts_value_is_undefined(argv[0])) {
+                        double d = ts_to_number(argv[0]);
+                        if (!(d == d) || d < 0) {
+                            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                                "Invalid array buffer length"));
+                            return ts_value_make_undefined();
+                        }
+                        newLen = (int64_t)d;
+                    }
+                    TsBuffer* out = TsBuffer::Create((size_t)newLen);
+                    int64_t copyLen = newLen < oldLen ? newLen : oldLen;
+                    if (copyLen > 0) std::memcpy(out->GetData(), buf->GetData(), (size_t)copyLen);
+                    buf->Detach();
+                    return ts_value_make_object(out);
+                };
+                addMethod(abProto, "transfer", (void*)transferImpl, 0);
+                addMethod(abProto, "transferToFixedLength", (void*)transferImpl, 0);
+            }
             (void)requireBuffer;
         }
 
