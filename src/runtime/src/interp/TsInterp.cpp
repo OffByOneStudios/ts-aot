@@ -82,6 +82,7 @@ extern "C" {
     void* ts_regexp_create(void* pattern, void* flags);
     uint8_t ts_integrity_get(void* raw);
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
+    TsValue* ts_this_coerce_sloppy(TsValue* t);  // OrdinaryCallBindThis (TsGlobals.cpp)
 }
 
 namespace {
@@ -993,10 +994,13 @@ TsValue* interpTramp(void* closurePtr, TsValue* argsArrBoxed, TsValue*, TsValue*
         thisV = ts_cell_get(c->getCell(2));
     } else {
         thisV = (TsValue*)ts_get_call_this();
-        // OrdinaryCallBindThis: sloppy callee coerces nullish this to
-        // globalThis; strict callee keeps it as-is.
-        if (!fd->strict && (!thisV || ts_value_is_nullish(thisV)))
-            thisV = globalThis;
+        // OrdinaryCallBindThis (ES 10.2.1.2): a sloppy callee coerces nullish
+        // this to globalThis AND ToObject-wraps a non-nullish primitive
+        // (Function("this.x=1").apply(1) must set on a Number wrapper — the
+        // raw nanboxed int previously reached ts_object_set_dynamic's magic16
+        // read and crashed 0xc0000005). Strict callees keep this as-is.
+        if (!fd->strict)
+            thisV = ts_this_coerce_sloppy(thisV);
     }
 
     TsArray* args = argsArrBoxed
