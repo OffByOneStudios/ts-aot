@@ -152,7 +152,25 @@ private:
     // --- Type annotation parsing (Parser_TypeAnnotations.cpp) ---
     std::string parseTypeAnnotation();       // After ':'
     std::string parseReturnTypeAnnotation(); // After ':' for return types
-    std::string scanTypeExpression();        // Scan a complete type expression
+    std::string scanTypeExpression();
+    // Structural type recognizer (see Parser_TypeAnnotations.cpp header
+    // comment). These consume tokens per the TS type grammar; the public
+    // string-returning methods above slice the consumed source range.
+    void typeExpr();
+    void typeNonConditional();
+    void typeOperand();
+    void typePrimary();
+    void typeObjectBody();
+    void typeObjectMemberNamed();
+    void typeTupleBody();
+    void typeTemplate();
+    void typeParenOrFunction();
+    void typeFunctionParams();
+    void typeSkipBalanced(TokenKind open, TokenKind close);
+    void typeEntityName();
+    void typeName();
+    void typeArgumentsIfPresent();
+    void typeExpectCloseAngle();        // Scan a complete type expression
     void skipTypeExpression();               // Skip over type expression tokens
     std::vector<std::string> parseTypeArguments(); // <T, U> in call expressions
 

@@ -384,14 +384,17 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         }
     }
 
-    // 'as' type assertion (TypeScript)
-    if (current_.kind == TokenKind::KW_as && !current_.hadNewlineBefore) {
+    // 'as' type assertion (TypeScript) — LOOPED: `x as any as T` chains.
+    // (The old heuristic type scanner absorbed the second `as` into the
+    // first type string; the structural recognizer stops correctly, so the
+    // chain must be consumed here.)
+    while (current_.kind == TokenKind::KW_as && !current_.hadNewlineBefore) {
         advance();
         auto asExpr = std::make_unique<ast::AsExpression>();
         setLocation(asExpr.get(), expr->line, expr->column);
         asExpr->expression = std::move(expr);
         asExpr->type = scanTypeExpression();
-        return asExpr;
+        expr = std::move(asExpr);
     }
 
     return expr;
