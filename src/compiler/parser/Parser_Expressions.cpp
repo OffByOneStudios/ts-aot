@@ -1203,6 +1203,37 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
         case TokenKind::KW_new:
             return parseNewExpression();
 
+        case TokenKind::LessThan: {
+            // TypeScript-only expression forms in .ts (non-JSX) files:
+            //   1. Generic arrow function: `<T extends X>(a: T): T => ...`
+            //      Type parameters are ERASED here — ts-aot monomorphizes
+            //      from call-site types; an arrow's own type-parameter list
+            //      only feeds checker inference we run permissively.
+            //   2. Old-style type assertion: `<T>expr` — runtime
+            //      pass-through, same representation as `expr as T`.
+            auto savedLt = saveState();
+            try {
+                auto tps = parseTypeParameterList();
+                if (!tps.empty() && check(TokenKind::OpenParen)) {
+                    auto inner = parseArrowFunctionOrParenthesized();
+                    if (inner && inner->getKind() == "ArrowFunction") {
+                        return inner;  // generic arrow; type params erased
+                    }
+                }
+            } catch (...) {
+                // not a generic arrow — fall through to assertion
+            }
+            restoreState(savedLt);
+            {
+                auto typeArgs = parseTypeArguments();  // consumes <...>
+                auto asExpr = std::make_unique<ast::AsExpression>();
+                setLocation(asExpr.get(), tok);
+                asExpr->type = typeArgs.empty() ? "any" : typeArgs[0];
+                asExpr->expression = parseUnaryExpression();
+                return asExpr;
+            }
+        }
+
         case TokenKind::OpenParen:
             return parseArrowFunctionOrParenthesized();
 
