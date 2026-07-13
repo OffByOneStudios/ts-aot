@@ -113,6 +113,17 @@ inline Cpl normal(TsValue* v = nullptr) { Cpl c; c.k = Cpl::Normal; c.v = v; ret
 inline Cpl thrown(TsValue* ex)          { Cpl c; c.k = Cpl::Thrown; c.v = ex; return c; }
 inline bool isAbrupt(const Cpl& c)      { return c.k != Cpl::Normal; }
 
+// ES2015+ UpdateEmpty(stmtResult, undefined): if / iteration / with / switch /
+// try / labelled statements produce undefined (NOT empty) when their inner
+// completion carries no value, REPLACING the running statement-list value —
+// eval('1; if(true){}') and eval('1; do{}while(false)') are undefined, not 1.
+// Applied at the execStmt dispatch arms for those statement forms only; plain
+// blocks and declarations keep empty completions (eval('1; {}') stays 1).
+inline Cpl updateEmptyUndef(Cpl c) {
+    if (c.k == Cpl::Normal && !c.v) c.v = jsUndefined();
+    return c;
+}
+
 Cpl throwTyped(const char* ctor, const std::string& msg) {
     return thrown((TsValue*)ts_error_create_typed(ctor, msg.c_str()));
 }
@@ -2149,7 +2160,7 @@ Cpl execBlock(ast::BlockStatement* b, TsMap* env, TsValue* thisV, bool strict) {
         wenv->Set(key("\x01w"), nanbox_to_tagged(h.v));
         predeclareLexical(b->statements, wenv);
         instantiateBlockFns(b->statements, wenv, thisV, strict);
-        return execStmts(b->statements, wenv, thisV, strict);
+        return updateEmptyUndef(execStmts(b->statements, wenv, thisV, strict));
     }
     TsMap* benv = b->isSynthetic ? env : envNew(env, false);
     if (!b->isSynthetic) {
@@ -2164,7 +2175,12 @@ Cpl execStmts(std::vector<ast::StmtPtr>& stmts, TsMap* env, TsValue* thisV,
     TsValue* completion = nullptr;
     for (auto& s : stmts) {
         Cpl c = execStmt(s.get(), env, thisV, strict);
-        if (isAbrupt(c)) return c;
+        if (isAbrupt(c)) {
+            // UpdateEmpty(c, V): break/continue with an empty value carry the
+            // list's running completion value out ('{ 5; break; }' -> Brk(5)).
+            if ((c.k == Cpl::Brk || c.k == Cpl::Cont) && !c.v) c.v = completion;
+            return c;
+        }
         if (c.v) completion = c.v;   // track statement completion values
     }
     return normal(completion);
@@ -2174,9 +2190,12 @@ Cpl execStmts(std::vector<ast::StmtPtr>& stmts, TsMap* env, TsValue* thisV,
 // after this body completion, false when the caller must return `out`.
 bool loopBody(const Cpl& c, const std::string& label, Cpl* out, TsValue** completion) {
     if (c.k == Cpl::Normal) { if (c.v) *completion = c.v; return true; }
-    if (c.k == Cpl::Cont && (c.label.empty() || c.label == label)) return true;
+    if (c.k == Cpl::Cont && (c.label.empty() || c.label == label)) {
+        if (c.v) *completion = c.v;   // UpdateEmpty threaded through continue
+        return true;
+    }
     if (c.k == Cpl::Brk && (c.label.empty() || c.label == label)) {
-        *out = normal(*completion);
+        *out = normal(c.v ? c.v : *completion);
         return false;
     }
     *out = c;
@@ -2440,18 +2459,18 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
     if (auto* i = dynamic_cast<ast::IfStatement*>(s)) {
         Cpl c = evalExpr(i->condition.get(), env, thisV, strict);
         if (isAbrupt(c)) return c;
-        if (ts_value_to_bool(c.v)) return execBranch(i->thenStatement.get(), env, thisV, strict);
-        if (i->elseStatement)      return execBranch(i->elseStatement.get(), env, thisV, strict);
-        return normal();
+        if (ts_value_to_bool(c.v)) return updateEmptyUndef(execBranch(i->thenStatement.get(), env, thisV, strict));
+        if (i->elseStatement)      return updateEmptyUndef(execBranch(i->elseStatement.get(), env, thisV, strict));
+        return normal(jsUndefined());
     }
     if (auto* w = dynamic_cast<ast::WhileStatement*>(s))
-        return execLoopWhile(w, env, thisV, strict, "");
+        return updateEmptyUndef(execLoopWhile(w, env, thisV, strict, ""));
     if (auto* f = dynamic_cast<ast::ForStatement*>(s))
-        return execLoopFor(f, env, thisV, strict, "");
+        return updateEmptyUndef(execLoopFor(f, env, thisV, strict, ""));
     if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s))
-        return execForOf(fo, env, thisV, strict, "");
+        return updateEmptyUndef(execForOf(fo, env, thisV, strict, ""));
     if (auto* fi = dynamic_cast<ast::ForInStatement*>(s))
-        return execForIn(fi, env, thisV, strict, "");
+        return updateEmptyUndef(execForIn(fi, env, thisV, strict, ""));
     if (auto* r = dynamic_cast<ast::ReturnStatement*>(s)) {
         Cpl v = r->expression ? evalExpr(r->expression.get(), env, thisV, strict)
                               : normal(jsUndefined());
@@ -2471,21 +2490,22 @@ Cpl execStmt(Statement* s, TsMap* env, TsValue* thisV, bool strict) {
         return thrown(v.v);
     }
     if (auto* t = dynamic_cast<ast::TryStatement*>(s))
-        return execTry(t, env, thisV, strict);
+        return updateEmptyUndef(execTry(t, env, thisV, strict));
     if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s))
-        return execSwitch(sw, env, thisV, strict);
+        return updateEmptyUndef(execSwitch(sw, env, thisV, strict));
     if (auto* l = dynamic_cast<ast::LabeledStatement*>(s)) {
         Statement* inner = l->statement.get();
         if (auto* w = dynamic_cast<ast::WhileStatement*>(inner))
-            return execLoopWhile(w, env, thisV, strict, l->label);
+            return updateEmptyUndef(execLoopWhile(w, env, thisV, strict, l->label));
         if (auto* f = dynamic_cast<ast::ForStatement*>(inner))
-            return execLoopFor(f, env, thisV, strict, l->label);
+            return updateEmptyUndef(execLoopFor(f, env, thisV, strict, l->label));
         if (auto* fo = dynamic_cast<ast::ForOfStatement*>(inner))
-            return execForOf(fo, env, thisV, strict, l->label);
+            return updateEmptyUndef(execForOf(fo, env, thisV, strict, l->label));
         if (auto* fi = dynamic_cast<ast::ForInStatement*>(inner))
-            return execForIn(fi, env, thisV, strict, l->label);
+            return updateEmptyUndef(execForIn(fi, env, thisV, strict, l->label));
         Cpl c = execStmt(inner, env, thisV, strict);
-        if (c.k == Cpl::Brk && c.label == l->label) return normal(c.v);
+        if (c.k == Cpl::Brk && c.label == l->label) return updateEmptyUndef(normal(c.v));
+        if (c.k == Cpl::Normal) return updateEmptyUndef(c);
         return c;
     }
     if (auto* fd = dynamic_cast<ast::FunctionDeclaration*>(s)) {
