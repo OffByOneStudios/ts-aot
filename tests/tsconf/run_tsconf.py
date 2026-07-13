@@ -242,9 +242,106 @@ def compare_and_save_baseline(results, baseline_path, axis):
     return new_pass, regress
 
 
+TSC_DIFF_CACHE = os.path.join(HERE, "tsc_diff_cache.json")
+
+
+def tsc_syntax_verdict(path, text, cache, cache_lock):
+    """tsc-as-reference-parser: 'ok' | 'syntax_error' | 'tsc_fail'.
+    --noCheck suppresses semantic diagnostics; what remains (TS1xxx) is
+    grammar. Cached by content hash."""
+    key = hashlib.sha1(("diff-v6.0.3|" + text).encode("utf-8", "replace")).hexdigest()
+    with cache_lock:
+        if key in cache:
+            return cache[key]
+    try:
+        r = subprocess.run(["node", TSC_JS, "--noEmit", "--noCheck", "--skipLibCheck",
+                            "--target", "esnext", path],
+                           capture_output=True, text=True, timeout=60,
+                           encoding="utf-8", errors="replace")
+        out = (r.stdout or "") + (r.stderr or "")
+        import re as _re
+        syn = _re.findall(r"error TS1\d{3}", out)
+        v = "syntax_error" if syn else ("ok" if r.returncode in (0, 2) else "tsc_fail")
+        # returncode 2 = semantic diagnostics only (suppressed classes vary)
+        if r.returncode not in (0, 2) and not syn:
+            v = "tsc_fail"
+    except Exception:
+        v = "tsc_fail"
+    with cache_lock:
+        cache[key] = v
+    return v
+
+
+def run_differential(tests, jobs):
+    """Compare our parse/compile verdict against tsc's SYNTAX verdict.
+    FALSE REJECTS (tsc ok, we reject at PARSE) are our parser bugs;
+    they are the drift signal the structural recognizer is gated on."""
+    import threading
+    acc = load_acc_baseline()
+    cache = {}
+    if os.path.exists(TSC_DIFF_CACHE):
+        with open(TSC_DIFF_CACHE, encoding="utf-8") as f:
+            cache = json.load(f)
+    lock = threading.Lock()
+
+    ours_parse_reject = set()
+    with open(RESULTS, encoding="utf-8") as f:
+        last = {}
+        for line in f:
+            r = json.loads(line)
+            if r["axis"] == "accept":
+                last[r["path"]] = r
+        for p, r in last.items():
+            reason = r.get("reason", "")
+            if r["status"] in ("compile_error", "neg_reject") and (
+                    "SyntaxError" in reason or "Expected" in reason or
+                    "Unexpected token" in reason):
+                ours_parse_reject.add(p)
+
+    rows = []
+    def one(path):
+        rp = rel(path)
+        st = acc.get(rp)
+        if st is None:
+            return None
+        text = open(path, encoding="utf-8", errors="replace").read()
+        tv = tsc_syntax_verdict(path, text, cache, lock)
+        return (rp, st, tv, rp in ours_parse_reject)
+
+    with ThreadPoolExecutor(max_workers=jobs) as ex:
+        done = 0
+        for res in ex.map(one, tests):
+            if res:
+                rows.append(res)
+            done += 1
+            if done % 400 == 0:
+                print(f"  [{done}/{len(tests)}]", flush=True)
+    with open(TSC_DIFF_CACHE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=0, sort_keys=True)
+
+    GOOD = {"pass", "neg_accept"}
+    false_rejects = [(p, st) for p, st, tv, isparse in rows
+                     if tv == "ok" and st in ("compile_error", "crash") and isparse]
+    other_rejects = [(p, st) for p, st, tv, isparse in rows
+                     if tv == "ok" and st in ("compile_error", "crash") and not isparse]
+    false_accepts = [(p, st) for p, st, tv, _ in rows
+                     if tv == "syntax_error" and st in GOOD]
+    agree_ok = sum(1 for _, st, tv, _ in rows if tv == "ok" and st in GOOD)
+    print(f"\n== tsc parse-differential ({len(rows)} scored) ==")
+    print(f"  agree (both accept):                {agree_ok}")
+    print(f"  FALSE PARSE REJECTS (tsc ok, we syntax-error): {len(false_rejects)}")
+    print(f"  analyzer rejects (tsc ok, we error post-parse): {len(other_rejects)}")
+    print(f"  FALSE ACCEPTS (tsc syntax-error, we accept):    {len(false_accepts)}")
+    for p, st in false_rejects[:15]:
+        print(f"    FR {p}")
+    for p, st in false_accepts[:10]:
+        print(f"    FA {p}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["accept", "oracle", "report"])
+    ap.add_argument("mode", choices=["accept", "oracle", "report", "diff"])
     ap.add_argument("-j", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dir", default="")
@@ -258,6 +355,10 @@ def main():
                  if rel(t).split("/")[0] in RUNTIME_DIRS]
     if args.limit:
         tests = tests[:args.limit]
+
+    if args.mode == "diff":
+        runnable = [t for t in tests]
+        return run_differential(runnable, args.j)
 
     if args.mode == "report":
         counts = collections.Counter()
