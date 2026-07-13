@@ -1021,7 +1021,21 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                     auto sv = result;
                     if (result->type && result->type->kind == HIRTypeKind::Any &&
                         infoS->elemType && infoS->elemType->kind != HIRTypeKind::Any) {
-                        infoS->elemType = HIRType::makeAny();
+                        // Do NOT retype the slot to Any: this store is on the
+                        // CONDITIONAL branch (with-object did not take the
+                        // write). Retyping made the skip branch leave the old
+                        // raw representation (e.g. double 0.0) in a slot that
+                        // later reads now load as a pointer -> null/garbage
+                        // (S11.13.2_A5.* global-x clobber). Unbox the boxed
+                        // result to the slot's element type instead.
+                        if (infoS->elemType->kind == HIRTypeKind::Float64) {
+                            sv = builder_.createUnboxFloat(result);
+                        } else if (infoS->elemType->kind == HIRTypeKind::Int64) {
+                            sv = builder_.createUnboxInt(result);
+                        }
+                        // Pointer-shaped slots (String/Object/...) store the
+                        // boxed value directly (ptr-to-ptr, no representation
+                        // pun).
                     }
                     builder_.createStore(sv, infoS->value, infoS->elemType);
                     broadcastCaptureWrite(infoS, sv);
