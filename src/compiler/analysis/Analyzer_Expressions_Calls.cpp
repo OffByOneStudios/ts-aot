@@ -298,6 +298,10 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    // Step-2 checker: arity + argument assignability (typed mode only via
+    // reportError's suppressErrors gate).
+    checkCallArguments(node, calleeType, argTypes);
+
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         if (id->name == "BigInt") {

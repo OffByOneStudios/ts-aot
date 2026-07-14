@@ -87,6 +87,22 @@ void Analyzer::visitReturnStatement(ast::ReturnStatement* node) {
     if (node->expression) {
         visit(node->expression.get());
         currentReturnType = lastType;
+        // Step-2 checker: returned value vs the DECLARED (annotated) return
+        // type of the enclosing function. Only concrete, non-generic pairs
+        // are compared (declaredReturnType_ is null when unannotated).
+        if (declaredReturnType_ && lastType &&
+            declaredReturnType_->kind != TypeKind::Any &&
+            declaredReturnType_->kind != TypeKind::Unknown &&
+            declaredReturnType_->kind != TypeKind::TypeParameter &&
+            declaredReturnType_->kind != TypeKind::Function &&
+            lastType->kind != TypeKind::Any &&
+            lastType->kind != TypeKind::Unknown &&
+            lastType->kind != TypeKind::TypeParameter &&
+            !lastType->isAssignableTo(declaredReturnType_)) {
+            reportError(fmt::format("Type {} is not assignable to type {}",
+                                    lastType->toString(),
+                                    declaredReturnType_->toString()));
+        }
     }
 }
 

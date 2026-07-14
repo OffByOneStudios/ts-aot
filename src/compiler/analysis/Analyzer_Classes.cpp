@@ -196,7 +196,7 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
                 } else {
                     methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
                 }
-                methodType->isOptional.push_back(param->isOptional);
+                methodType->isOptional.push_back(param->isOptional || param->initializer != nullptr);
                 if (param->isRest) methodType->hasRest = true;
             }
             if (method->isStatic) {
@@ -605,6 +605,10 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
     functionDepth++;
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     for (const auto& stmt : node->body) {
         visit(stmt.get());
         if (stmt->getKind() == "ReturnStatement") {
@@ -771,7 +775,7 @@ void Analyzer::visitClassExpression(ast::ClassExpression* node) {
                 } else {
                     methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
                 }
-                methodType->isOptional.push_back(param->isOptional);
+                methodType->isOptional.push_back(param->isOptional || param->initializer != nullptr);
                 if (param->isRest) methodType->hasRest = true;
             }
 

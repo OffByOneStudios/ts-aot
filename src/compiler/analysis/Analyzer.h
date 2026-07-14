@@ -108,6 +108,15 @@ public:
     void registerTypesFromExtensions();
 
     void reportError(const std::string& message);
+    // Step-2 checker (2026-07-13): argument/arity checking for ordinary
+    // calls. Conservative: see Analyzer_Helpers.cpp.
+    void checkCallArguments(ast::CallExpression* node,
+                            std::shared_ptr<Type> calleeType,
+                            const std::vector<std::shared_ptr<Type>>& argTypes);
+    // Declared (annotated) return type of the function body currently being
+    // analyzed; null when unannotated or outside a function. Checked by
+    // visitReturnStatement.
+    std::shared_ptr<Type> declaredReturnType_;
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
     std::shared_ptr<Type> substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env);

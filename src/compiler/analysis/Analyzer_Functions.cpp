@@ -128,7 +128,7 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
 
         funcType->paramTypes.push_back(pType);
-        funcType->isOptional.push_back(param->isOptional);
+        funcType->isOptional.push_back(param->isOptional || param->initializer != nullptr);
         if (param->isRest) funcType->hasRest = true;
     }
 
@@ -195,12 +195,27 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
 
     functionDepth++;
+    // Step-2 checker: a nested body must not inherit the enclosing
+    // function's declared return type (callbacks returning boolean
+    // inside `(): number` false-fired 63x).
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     std::shared_ptr<Type> oldReturnType = currentReturnType;
     currentReturnType = nullptr;
+    // Step-2 checker: expose the declared annotation to visitReturnStatement.
+    // Async/generator bodies return the UNWRAPPED type (T of Promise<T>), so
+    // only plain functions are checked in this pass.
+    std::shared_ptr<Type> oldDeclaredReturn = declaredReturnType_;
+    declaredReturnType_ =
+        (!node->returnType.empty() && !node->isAsync && !node->isGenerator)
+            ? funcType->returnType : nullptr;
 
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+    declaredReturnType_ = oldDeclaredReturn;
 
     if (node->returnType.empty() && currentReturnType) {
         // Update function return type based on inferred return type
@@ -372,7 +387,7 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
             } else {
                 methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
-            methodType->isOptional.push_back(param->isOptional);
+            methodType->isOptional.push_back(param->isOptional || param->initializer != nullptr);
             if (param->isRest) methodType->hasRest = true;
         }
     }
@@ -402,6 +417,13 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
 
     functionDepth++;
+    // Step-2 checker: a nested body must not inherit the enclosing
+    // function's declared return type (callbacks returning boolean
+    // inside `(): number` false-fired 63x).
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     for (auto& stmt : node->body) {
         visit(stmt.get());
         // Infer return type from return statements
@@ -720,6 +742,13 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     }
 
     functionDepth++;
+    // Step-2 checker: a nested body must not inherit the enclosing
+    // function's declared return type (callbacks returning boolean
+    // inside `(): number` false-fired 63x).
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
@@ -825,6 +854,13 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
     }
     
     functionDepth++;
+    // Step-2 checker: a nested body must not inherit the enclosing
+    // function's declared return type (callbacks returning boolean
+    // inside `(): number` false-fired 63x).
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     visit(node->body.get());
     functionDepth--;
     funcType->returnType = lastType;
@@ -943,7 +979,7 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
             pType = std::make_shared<Type>(TypeKind::Any);
         }
         funcType->paramTypes.push_back(pType);
-        funcType->isOptional.push_back(param->isOptional);
+        funcType->isOptional.push_back(param->isOptional || param->initializer != nullptr);
         if (param->isRest) funcType->hasRest = true;
     }
 
@@ -961,6 +997,13 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
 
     functionDepth++;
+    // Step-2 checker: a nested body must not inherit the enclosing
+    // function's declared return type (callbacks returning boolean
+    // inside `(): number` false-fired 63x).
+    struct DeclaredReturnGuard { std::shared_ptr<Type>& slot; std::shared_ptr<Type> saved;
+        DeclaredReturnGuard(std::shared_ptr<Type>& s) : slot(s), saved(s) { s = nullptr; }
+        ~DeclaredReturnGuard() { slot = saved; }
+    } declaredReturnGuard{declaredReturnType_};
     for (auto& stmt : node->body) {
         visit(stmt.get());
         // Infer return type from return statements

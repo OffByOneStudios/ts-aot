@@ -185,6 +185,12 @@ struct Type : public std::enable_shared_from_this<Type> {
             case TypeKind::Namespace: return "namespace";
             case TypeKind::Enum: return "enum";
             case TypeKind::Tuple: return "tuple";
+            case TypeKind::BigInt: return "bigint";
+            case TypeKind::Symbol: return "symbol";
+            case TypeKind::Null: return "null";
+            case TypeKind::Undefined: return "undefined";
+            case TypeKind::Never: return "never";
+            case TypeKind::Unknown: return "unknown";
             default: return "unknown";
         }
     }
@@ -489,7 +495,11 @@ inline bool ClassType::isAssignableTo(std::shared_ptr<Type> other) {
         }
         return true;
     }
-    return false;
+    // Union / Intersection / structural-object targets: delegate to the base
+    // lattice (previously returned false -- `RegExp` was "not assignable" to
+    // `string | RegExp`, which fired everywhere once the step-2 checker ran
+    // the lattice at call/assignment/return sites).
+    return Type::isAssignableTo(other);
 }
 
 inline bool InterfaceType::isAssignableTo(std::shared_ptr<Type> other) {
@@ -504,7 +514,7 @@ inline bool InterfaceType::isAssignableTo(std::shared_ptr<Type> other) {
         }
         return true;
     }
-    return false;
+    return Type::isAssignableTo(other);  // Union/Intersection targets (see ClassType)
 }
 
 inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
@@ -698,16 +708,11 @@ inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
         }
     }
 
-    // Handle Union (Target)
-    if (other->kind == TypeKind::Union) {
-        auto unionOther = std::static_pointer_cast<UnionType>(other);
-        for (auto& t : unionOther->types) {
-            if (this->isAssignableTo(t)) return true;
-        }
-        return false;
-    }
-
-    // Handle Union (Source)
+    // Handle Union (Source) -- MUST run before the union-target branch:
+    // for union-to-union, each SOURCE arm must fit the target union
+    // (arm-by-arm). With the target branch first, `number|string` was asked
+    // to fit `string` whole and every union-to-union check failed, including
+    // identity (`A|B` -> `A|B`).
     if (kind == TypeKind::Union) {
         auto unionThis = std::static_pointer_cast<UnionType>(shared_from_this());
         for (auto& t : unionThis->types) {
@@ -716,9 +721,22 @@ inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
             // practical contexts (e.g., conditional type inference results).
             // Without this, the `unknown` arm blocks the assignment.
             if (t->kind == TypeKind::Unknown) continue;
+            // Non-strictNullChecks semantics (ts-aot default): null and
+            // undefined are assignable to every type, so those arms never
+            // block a union source (`double | undefined` -> `double`).
+            if (t->kind == TypeKind::Undefined || t->kind == TypeKind::Null) continue;
             if (!t->isAssignableTo(other)) return false;
         }
         return true;
+    }
+
+    // Handle Union (Target)
+    if (other->kind == TypeKind::Union) {
+        auto unionOther = std::static_pointer_cast<UnionType>(other);
+        for (auto& t : unionOther->types) {
+            if (this->isAssignableTo(t)) return true;
+        }
+        return false;
     }
 
     // Handle Intersection (Target)
@@ -741,6 +759,11 @@ inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
 
     if (kind == other->kind) return true;
     if (isNumber() && other->isNumber()) return true;
+    // Numeric enums interconvert with numbers (pre-TS5 semantics; enum
+    // arithmetic like `E.a | E.b` types as int and flows back into
+    // enum-typed parameters throughout the conformance corpus).
+    if (isNumber() && other->kind == TypeKind::Enum) return true;
+    if (kind == TypeKind::Enum && other->isNumber()) return true;
     return false;
 }
 

@@ -95,6 +95,28 @@ void Analyzer::visitConditionalExpression(ast::ConditionalExpression* node) {
     }
 }
 
+namespace {
+bool checkableExpected(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TypeKind::Any: case TypeKind::Unknown: case TypeKind::Never:
+        case TypeKind::TypeParameter: case TypeKind::Function:
+        case TypeKind::Void: case TypeKind::Namespace:
+        case TypeKind::Undefined: case TypeKind::Null:
+            return false;
+        default:
+            return true;
+    }
+}
+bool checkableActual(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    if (t->kind == TypeKind::Any || t->kind == TypeKind::Unknown ||
+        t->kind == TypeKind::TypeParameter || t->kind == TypeKind::Never)
+        return false;
+    return true;
+}
+} // namespace
+
 void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Assignment to a phantom auto-defined name promotes it to a real
     // sloppy-mode implicit global — later reads stop flagging unresolved.
@@ -151,7 +173,21 @@ void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
     }
 
     visit(node->left.get());
+    auto lhsType = lastType;
     visit(node->right.get());
+    auto rhsType = lastType;
+
+    // Step-2 checker: assignability on plain assignment (previously only
+    // var-declaration INITIALIZERS were checked; `let x: number; x = "s"`
+    // was silently accepted).
+    bool lhsIsPattern = dynamic_cast<ast::ArrayLiteralExpression*>(node->left.get()) ||
+                        dynamic_cast<ast::ObjectLiteralExpression*>(node->left.get());
+    if (!lhsIsPattern &&
+        lhsType && rhsType && checkableExpected(lhsType) && checkableActual(rhsType) &&
+        !rhsType->isAssignableTo(lhsType)) {
+        reportError(fmt::format("Type {} is not assignable to type {}",
+                                rhsType->toString(), lhsType->toString()));
+    }
 }
 
 } // namespace ts

@@ -414,7 +414,101 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
         }
     }
     
-    return overloads[0]; // Fallback
+    // Step-2 checker: previously a silent fallback -- assignability-based
+    // overload selection existed but was never allowed to say no.
+    reportError("No overload matches this call");
+    return overloads[0]; // error recovery: keep analyzing with the first
+}
+
+namespace {
+// A type usable as an EXPECTED side of a check: concrete and not a shape the
+// inference engine models loosely. Function-typed params are excluded --
+// contextual callback typing owns those and our inferred arrow types are not
+// signature-exact. TypeParameters are excluded: monomorphization + the
+// existing constraint checks own generics.
+bool checkableExpected(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TypeKind::Any: case TypeKind::Unknown: case TypeKind::Never:
+        case TypeKind::TypeParameter: case TypeKind::Function:
+        case TypeKind::Void: case TypeKind::Namespace:
+        case TypeKind::Undefined: case TypeKind::Null:
+            return false;
+        default:
+            return true;
+    }
+}
+bool checkableActual(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    if (t->kind == TypeKind::Any || t->kind == TypeKind::Unknown ||
+        t->kind == TypeKind::TypeParameter || t->kind == TypeKind::Never)
+        return false;
+    return true;
+}
+} // namespace
+
+// ES/TS call checking (step 2): arity + argument-vs-parameter assignability
+// for calls whose callee resolved to a concrete, NON-GENERIC FunctionType.
+// Skips calls containing spread elements (statically uncountable) and any
+// side that inference models loosely (see checkableExpected/Actual). Errors
+// route through reportError, so untyped-JS modules stay permissive.
+void Analyzer::checkCallArguments(ast::CallExpression* node,
+                                  std::shared_ptr<Type> calleeType,
+                                  const std::vector<std::shared_ptr<Type>>& argTypes) {
+    if (!node || !calleeType || calleeType->kind != TypeKind::Function) return;
+    auto fn = std::static_pointer_cast<FunctionType>(calleeType);
+    if (!fn->typeParameters.empty()) return;   // generics: monomorphizer's job
+    for (auto& a : node->arguments)
+        if (dynamic_cast<ast::SpreadElement*>(a.get())) return;
+
+    // Arity. paramTypes may legitimately be empty for stdlib entries typed
+    // loosely -- only enforce when the signature carries parameter info OR
+    // is genuinely zero-arg (node available to distinguish real decls).
+    size_t declared = fn->paramTypes.size();
+    size_t required = 0;
+    for (size_t i = 0; i < declared; i++) {
+        bool optional = (i < fn->isOptional.size() && fn->isOptional[i]) ||
+                        (fn->hasRest && i == declared - 1);
+        if (!optional) required++;
+    }
+    size_t given = node->arguments.size();
+    // declared == 0 also covers hoisted-but-not-yet-parameterized
+    // signatures (forward calls saw "Expected 0 arguments, but got 1").
+    if (fn->node && declared > 0) {  // only real user declarations get arity enforcement
+        if (given < required) {
+            reportError(fmt::format(
+                "Expected {}{} arguments, but got {}",
+                required == declared ? "" : "at least ", required, given));
+        } else if (!fn->hasRest && given > declared) {
+            reportError(fmt::format(
+                "Expected {} arguments, but got {}", declared, given));
+        }
+    }
+
+    // Per-argument assignability -- USER-DECLARED functions only: stdlib
+    // FunctionType entries are hand-approximated signatures (path.format,
+    // EventEmitter statics) and false-fire.
+    if (!fn->node) return;
+    for (size_t i = 0; i < argTypes.size(); i++) {
+        std::shared_ptr<Type> expected;
+        if (i < declared) {
+            expected = fn->paramTypes[i];
+            if (fn->hasRest && i == declared - 1 &&
+                expected && expected->kind == TypeKind::Array) {
+                expected = std::static_pointer_cast<ArrayType>(expected)->elementType;
+            }
+        } else if (fn->hasRest && declared > 0) {
+            expected = fn->paramTypes.back();
+            if (expected && expected->kind == TypeKind::Array)
+                expected = std::static_pointer_cast<ArrayType>(expected)->elementType;
+        }
+        if (!checkableExpected(expected) || !checkableActual(argTypes[i])) continue;
+        if (!argTypes[i]->isAssignableTo(expected)) {
+            reportError(fmt::format(
+                "Argument of type {} is not assignable to parameter of type {}",
+                argTypes[i]->toString(), expected->toString()));
+        }
+    }
 }
 
 void Analyzer::reportError(const std::string& message) {

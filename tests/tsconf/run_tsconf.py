@@ -237,8 +237,15 @@ def compare_and_save_baseline(results, baseline_path, axis):
     GOOD = {"pass", "neg_accept", "neg_reject", "runtime_match"}
     new_pass = [p for p, s in cur.items() if s in GOOD and old.get(p) not in (None, s) and old.get(p) not in GOOD]
     regress = [p for p, s in cur.items() if s not in GOOD and old.get(p) in GOOD]
-    with open(baseline_path, "w", encoding="utf-8") as f:
-        json.dump(cur, f, indent=0, sort_keys=True)
+    # Save only CLEAN sweeps (test262 --auto-baseline discipline). Saving on
+    # regressions absorbed the regression list into the baseline and made
+    # back-to-back sweeps lie -- bit three separate sessions.
+    if not regress or os.environ.get("TSCONF_FORCE_BASELINE"):
+        with open(baseline_path, "w", encoding="utf-8") as f:
+            json.dump(cur, f, indent=0, sort_keys=True)
+    else:
+        print("  (baseline NOT saved: regressions present; "
+              "set TSCONF_FORCE_BASELINE=1 to override)")
     return new_pass, regress
 
 
