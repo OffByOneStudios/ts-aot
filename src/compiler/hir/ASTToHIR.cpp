@@ -2729,10 +2729,28 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             // performs a write). TS conformance code uses `var e: SomeType;`
             // re-declarations as pure type assertions after `var e = value;`
             // — storing undefined here clobbered the live value (enumBasics
-            // family of runtime diffs).
-            if (!node->initializer) {
+            // family of runtime diffs). VAR ONLY: an initializer-less
+            // `let x;` DOES initialize to undefined (ECMA-262 14.3.1.2
+            // InitializeReferencedBinding) — skipping that store leaves the
+            // TDZ sentinel in the slot and later reads throw
+            // (classStaticBlock28).
+            if (!node->initializer && node->varKind == ast::VarKind::Var) {
                 // Leave elemType alone: the slot already holds a live value
                 // whose storage type is authoritative.
+                return;
+            }
+            // Initializer-less `let x;` ends the TDZ: store undefined, but
+            // only over the sentinel — a deferred class static block may
+            // have already written the real value under our hoisted-class
+            // execution order (see ts_tdz_init_undefined).
+            if (!node->initializer && existingInfo->isTDZ) {
+                auto cur = builder_.createLoad(HIRType::makeAny(),
+                                               existingInfo->value);
+                auto initv = builder_.createCall("ts_tdz_init_undefined",
+                                                 {cur}, HIRType::makeAny());
+                builder_.createStore(initv, existingInfo->value,
+                                     HIRType::makeAny());
+                broadcastCaptureWrite(existingInfo, initv);
                 return;
             }
             // Variable was pre-hoisted: just store the init value into the existing alloca
