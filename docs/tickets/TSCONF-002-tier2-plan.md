@@ -16,8 +16,21 @@
 - Known pre-existing miscompile for the runtime axis: typed method default
   'm(a = 99, b: number = 7)' drops b's default (function form correct);
   repro tmp/p0_trt6.ts.
+Parallel track (runtime axis) 2026-07-14: 86.4% stale -> 94.1% fresh
+(95/101). Merged: enum objects as values (+ var-redecl no-write, readonly
+type-literal members); uncaught exceptions/unhandled rejections to STDERR;
+let-TDZ conditional init (ts_tdz_init_undefined — preserves deferred
+static-block writes under hoisted-class execution order).
+Remaining runtime singles (~5 + 1 timeout): console.log object inspection
+(we print [object Object], node prints '{}' / 'C {}' — quotedConstructors),
+computed-key object destructuring binds undefined
+(privateNameComputedPropertyName1), deferred static-block EXECUTION ORDER
+(runs at user_main entry, not class-evaluation position — classStaticBlock28
+prints NaN vs 1; the honest fix is ordering, a dedicated session), 2 exit
+mismatches, privateStaticNameShadowing timeout.
+
 Remaining: Phase 3 (checker precision), Phase 4 (parse tail), Phase 5
-(stdlib/template singles), parallel runtime axis (oracle re-run).
+(stdlib/template singles).
 **Position at planning:** acceptance 1,074/1,272 = 84.4% · crashes 5 + neg_crash 18 ·
 runtime axis 86.4% (stale — predates Tier 1; re-run first) · node 301/301 · golden 267/279.
 **Predecessor:** Tier 1 complete (see memory `tsconf-tier1-complete-2026-07-14`; 11 commits, 71.3%→84.4%).
