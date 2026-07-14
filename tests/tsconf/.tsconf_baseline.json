@@ -80,7 +80,7 @@
 "async/es5/asyncArrowFunction/asyncArrowFunctionCapturesArguments_es5.ts": "neg_accept",
 "async/es5/asyncArrowFunction/asyncArrowFunctionCapturesThis_es5.ts": "neg_accept",
 "async/es5/asyncArrowFunction/asyncUnParenthesizedArrowFunction_es5.ts": "neg_accept",
-"async/es5/asyncAwaitNestedClasses_es5.ts": "neg_crash",
+"async/es5/asyncAwaitNestedClasses_es5.ts": "neg_accept",
 "async/es5/asyncClass_es5.ts": "neg_reject",
 "async/es5/asyncConstructor_es5.ts": "neg_reject",
 "async/es5/asyncDeclare_es5.ts": "neg_accept",
