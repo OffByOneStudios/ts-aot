@@ -431,9 +431,13 @@ void Analyzer::visitForOfStatement(ast::ForOfStatement* node) {
     auto iterableType = lastType;
     
     std::shared_ptr<Type> elemType;
-    if (iterableType->kind == TypeKind::Array) {
-        elemType = std::static_pointer_cast<ArrayType>(iterableType)->elementType;
-    } else if (iterableType->kind == TypeKind::String) {
+    if (iterableType && iterableType->kind == TypeKind::Array) {
+        // dynamic cast: a kind==Array type built as a plain Type (not ArrayType)
+        // must not have elementType read past the end of the object.
+        if (auto arr = std::dynamic_pointer_cast<ArrayType>(iterableType))
+            elemType = arr->elementType;
+        if (!elemType) elemType = std::make_shared<Type>(TypeKind::Any);
+    } else if (iterableType && iterableType->kind == TypeKind::String) {
         elemType = std::make_shared<Type>(TypeKind::String); // Iterating string yields strings
     } else {
         elemType = std::make_shared<Type>(TypeKind::Any);
