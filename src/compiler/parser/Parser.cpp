@@ -5045,9 +5045,12 @@ ast::StmtPtr Parser::parseInterfaceDeclaration(bool isExported, bool isDefaultEx
     expect(TokenKind::OpenBrace, "'{'");
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         // Parse interface members: methods, properties, call signatures, construct signatures
-        // Call signature: (params): ReturnType
-        if (check(TokenKind::OpenParen)) {
+        // Call signature: (params): ReturnType — optionally generic: <T>(params): T
+        if (check(TokenKind::OpenParen) || check(TokenKind::LessThan)) {
             auto sig = std::make_unique<ast::CallSignature>();
+            if (check(TokenKind::LessThan)) {
+                sig->typeParameters = parseTypeParameterList();
+            }
             sig->parameters = parseParameterList();
             if (check(TokenKind::Colon)) {
                 sig->returnType = parseReturnTypeAnnotation();
@@ -5120,6 +5123,20 @@ ast::StmtPtr Parser::parseInterfaceDeclaration(bool isExported, bool isDefaultEx
             expect(TokenKind::CloseBracket, "']'");
             name = "[computed]";
             nameNode = std::move(cpn);
+        } else if (check(TokenKind::StringLiteral)) {
+            // ECMA/TS PropertyName: string-literal member ('interface I
+            // { "a-b": T; "m"(): T }') — same grammar the class-member
+            // parser already accepts.
+            name = Lexer::getStringValue(current_.text);
+            advance();
+        } else if (check(TokenKind::NumericLiteral)) {
+            name = canonicalNumericPropertyName(current_.text);
+            advance();
+        } else if (check(TokenKind::BigIntLiteral)) {
+            std::string lex(current_.text);
+            if (!lex.empty() && lex.back() == 'n') lex.pop_back();
+            name = lex;
+            advance();
         } else {
             name = identifierName();
         }
