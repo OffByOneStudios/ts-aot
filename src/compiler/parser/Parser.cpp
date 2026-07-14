@@ -2641,7 +2641,11 @@ void Parser::parseClassBodyInto(std::vector<ast::NodePtr>& members,
             // PrototypePropertyNameList of ClassElementList contains
             // more than one occurrence of "constructor".
             if (auto* m = dynamic_cast<ast::MethodDefinition*>(member.get())) {
-                if (m->name == "constructor" && !m->isStatic && !m->isGetter && !m->isSetter) {
+                if (m->name == "constructor" && !m->isStatic && !m->isGetter && !m->isSetter &&
+                    m->hasBody) {
+                    // TS constructor OVERLOAD SIGNATURES (bodiless) don't
+                    // count toward the ES one-constructor early error; only
+                    // implementations do.
                     constructorCount++;
                     if (constructorCount > 1) {
                         throw std::runtime_error(fmt::format(
