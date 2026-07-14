@@ -1,4 +1,5 @@
 #include "ASTToHIR_Internal.h"
+#include "BuiltinRegistry.h"
 
 namespace ts::hir {
 
@@ -937,6 +938,31 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        // "use fast": a global-builtin method with a typed RuntimeCall
+        // resolution (Math.sqrt -> ts_math_sqrt: double) lowers to a DIRECT
+        // typed call. The generic CallMethod stamps the result Any, which
+        // routes every downstream arithmetic op through the boxed ts_value_*
+        // dispatcher, and evaluating the receiver emits a dead
+        // ts_get_global_Math() per call — together the dominant cost of the
+        // SoA benchmark's inner loop. Gated on fastCode_ (use-fast gating
+        // policy); a local binding shadowing the global still wins.
+        if (fastCode_) {
+            if (auto* gid = dynamic_cast<ast::Identifier*>(propAccess->expression.get())) {
+                if (!lookupVariable(gid->name)) {
+                    auto res = BuiltinRegistry::instance().resolveGlobalBuiltin(
+                        gid->name, propAccess->name, (int)args.size());
+                    if (res.kind == BuiltinResolution::Kind::RuntimeCall &&
+                        res.runtimeFunction && res.returnType &&
+                        res.returnType->kind != HIRTypeKind::Void &&
+                        res.returnType->kind != HIRTypeKind::Any) {
+                        lastValue_ = builder_.createCall(res.runtimeFunction,
+                                                         args, res.returnType);
+                        return;
+                    }
+                }
+            }
+        }
+
         // Fallback: Dynamic method call
         auto obj = lowerExpression(propAccess->expression.get());
         // Private method CALL (`obj.#m()`) on an untyped receiver: brand-check the
@@ -952,6 +978,22 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             auto func = builder_.createCall("ts_object_get_private",
                 {boxedObj, keyStr}, HIRType::makeAny());
             lastValue_ = builder_.createCallWithThis(func, boxedObj, args, HIRType::makeAny());
+            return;
+        }
+        // "use fast": NativeArray.get returns its unboxed element type. The
+        // Any default made every `arr.get(j) - x` binary op take the boxed
+        // ts_value_* path (3 runtime calls + 2 boxes per op) even though the
+        // access itself lowers to an inline load — the other half of the SoA
+        // benchmark's 2.3x deficit.
+        if (fastCode_ && obj && obj->type &&
+            obj->type->kind == HIRTypeKind::Class &&
+            obj->type->className == "NativeArray" &&
+            propAccess->name == "get") {
+            auto elemT = (obj->type->elementType &&
+                          obj->type->elementType->kind == HIRTypeKind::Int64)
+                             ? HIRType::makeInt64()
+                             : HIRType::makeFloat64();
+            lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, elemT);
             return;
         }
         lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
