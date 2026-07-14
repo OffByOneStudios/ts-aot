@@ -2969,6 +2969,20 @@ ast::NodePtr Parser::parseClassMember() {
         advance();
     }
 
+    // TS 4.9 auto-accessor: `accessor x = 1`. Contextual keyword -- only a
+    // modifier when a property name follows on the same line. Lowered as a
+    // plain field (permissive: the get/set-pair-over-private-backing
+    // distinction is only observable via decorators/inheritance tricks).
+    if (current_.kind == TokenKind::Identifier && current_.text == "accessor") {
+        auto saved = saveState();
+        advance();
+        bool nameFollows = !current_.hadNewlineBefore &&
+            (isIdentifierOrKeyword() || check(TokenKind::OpenBracket) ||
+             check(TokenKind::Hash) || check(TokenKind::StringLiteral) ||
+             check(TokenKind::NumericLiteral) || check(TokenKind::BigIntLiteral));
+        if (!nameFollows) restoreState(saved);
+    }
+
     // async
     // In class bodies, async is always a method modifier (no ASI concern like in expressions)
     if (current_.kind == TokenKind::KW_async) {
