@@ -1510,11 +1510,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             };
             std::vector<MethDestructuredParam> methDestructuredParams;
 
-            // Handle regular parameters
+            // Handle regular parameters. A TypeScript `this` parameter is
+            // type-only: it gets no formal (the synthetic 'this' already
+            // exists) and must not consume a spec.argTypes slot — call sites
+            // record only real arguments. realParamIdx tracks the formal/
+            // argTypes position independently of the AST index.
+            size_t realParamIdx = 0;
             for (size_t paramIdx = 0; paramIdx < methodNode->parameters.size(); ++paramIdx) {
                 auto& param = methodNode->parameters[paramIdx];
+                if (param->isThisParameter) continue;
                 std::shared_ptr<HIRType> paramType;
-                size_t specIdx = paramIdx + argTypeOffset;
+                size_t specIdx = realParamIdx + argTypeOffset;
                 if (specIdx < spec.argTypes.size() && spec.argTypes[specIdx]) {
                     paramType = convertType(spec.argTypes[specIdx]);
                 } else if (!param->type.empty()) {
@@ -1546,11 +1552,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
                         dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
                     if (param->initializer || param->isRest || isDestructured) {
-                        func->firstNonSimpleParamIndex = paramIdx;
+                        func->firstNonSimpleParamIndex = realParamIdx;
                     }
                 }
 
                 func->params.push_back({paramName, paramType});
+                realParamIdx++;
             }
 
             // If the method body uses `arguments`, pad with hidden __argN__
@@ -1675,7 +1682,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 // counterpart. Skip destructured params — they are handled by
                 // the methDestructuredParams loop below which applies defaults
                 // before pattern extraction.
-                size_t astParamIdx = (i >= argTypeOffset) ? (i - argTypeOffset) : SIZE_MAX;
+                // A leading type-only `this` parameter has no formal, so the
+                // AST index runs one ahead of the HIR index for real params.
+                size_t thisParamShift = (!methodNode->parameters.empty() &&
+                    methodNode->parameters[0]->isThisParameter) ? 1 : 0;
+                size_t astParamIdx = (i >= argTypeOffset)
+                    ? (i - argTypeOffset + thisParamShift) : SIZE_MAX;
                 ast::Parameter* astParam = (astParamIdx < methodNode->parameters.size())
                     ? methodNode->parameters[astParamIdx].get() : nullptr;
                 bool isDestructured = astParam && (
