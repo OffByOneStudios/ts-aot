@@ -595,6 +595,12 @@ Analyzer::Analyzer() {
     dateClass->staticMethods["now"] = now;
     
     symbols.defineType("Date", dateClass);
+    // SharedArrayBuffer: typed-profile VALUE symbol (Any -- no extension
+    // entry yet; the runtime constructor resolves via BuiltinGlobals).
+    // Without it, `new SharedArrayBuffer(1024)` in typed TS reported
+    // "Undefined variable SharedArrayBuffer" while the TYPE resolved fine.
+    if (!symbols.lookup("SharedArrayBuffer"))
+        symbols.define("SharedArrayBuffer", std::make_shared<Type>(TypeKind::Any));
 
     // Register RegExpMatchArray - result type of RegExp.exec()
     auto regexpMatchArrayClass = std::make_shared<ClassType>("RegExpMatchArray");
