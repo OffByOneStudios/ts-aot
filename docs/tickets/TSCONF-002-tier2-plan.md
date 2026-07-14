@@ -1,11 +1,23 @@
 # TSCONF-002: Tier 2 — analyzer tail, crash-zero, runtime axis
 
-**Status:** Phase 0 COMPLETE (2026-07-14) — crash 0 / neg_crash 0 (was 5+18),
-acceptance 84.7%, 5 gated merges 0-lost. Roots: void-call-as-value null HIR
-operand; sliced ArrayType (plain Type(kind=Array)); this-parameters occupying
-real param slots (analyzer+parser+4 codegen sites); parser label-stack RAII;
-deferred-static-init drain loops (the 0xbaadf00d flake — iteration
-invalidation, 9/10 repro, now 20/20 clean). Remaining phases below.
+**Status:** Phases 0+1+2 COMPLETE (2026-07-14) — acceptance 87.1%
+(1096/1259), crash 0 / neg_crash 0.
+- Phase 0 (crash zero): 5 gated merges 0-lost. Roots: void-call-as-value
+  null HIR operand; sliced ArrayType (plain Type(kind=Array));
+  this-parameters occupying real param slots (analyzer+parser+4 codegen
+  sites); parser label-stack RAII; deferred-static-init drain loops (the
+  0xbaadf00d flake — iteration invalidation, 9/10 repro, now 20/20 clean).
+- Phase 1: the await-unwrap diagnosis was STALE — the real root was
+  method-shorthand members in object type literals ('{ fn(a): void }')
+  never registering in parseType's field scanner. +19, 86.2%.
+- Phase 2: user ratified mixins-na counted skip family (36 tests; 2 real
+  non-mixin failures deliberately left: classExtendingBuiltinType,
+  accessorsOverrideProperty5). 87.1%.
+- Known pre-existing miscompile for the runtime axis: typed method default
+  'm(a = 99, b: number = 7)' drops b's default (function form correct);
+  repro tmp/p0_trt6.ts.
+Remaining: Phase 3 (checker precision), Phase 4 (parse tail), Phase 5
+(stdlib/template singles), parallel runtime axis (oracle re-run).
 **Position at planning:** acceptance 1,074/1,272 = 84.4% · crashes 5 + neg_crash 18 ·
 runtime axis 86.4% (stale — predates Tier 1; re-run first) · node 301/301 · golden 267/279.
 **Predecessor:** Tier 1 complete (see memory `tsconf-tier1-complete-2026-07-14`; 11 commits, 71.3%→84.4%).
