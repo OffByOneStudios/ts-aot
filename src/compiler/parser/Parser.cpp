@@ -2377,9 +2377,9 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         iterationDepth_ = 0; switchDepth_ = 0;
         // ECMA-262 8.6 (ContainsUndefinedBreakTarget/ContinueTarget walks
         // stop at function boundaries): a label in the outer scope is NOT
-        // visible inside the function body.
-        std::vector<ActiveLabel> savedLabels;
-        savedLabels.swap(activeLabels_);
+        // visible inside the function body. RAII so a SyntaxError thrown in
+        // the body restores the outer label set during unwind.
+        LabelBoundaryGuard labelGuard(this);
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -2433,7 +2433,6 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         functionDepth_--;
         nonArrowFunctionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
-        activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -2940,15 +2939,12 @@ ast::NodePtr Parser::parseClassMember() {
             // nested function re-increments it, so its returns still work).
             int prevFuncDepth = functionDepth_;
             functionDepth_ = 0;
-            std::vector<ActiveLabel> savedLabels;
-            savedLabels.swap(activeLabels_);
-            // try/catch to guarantee swap-back of activeLabels_ even if
-            // a contained parse throws. parseLabeledOrExpressionStatement's
-            // own try/catch does `activeLabels_.pop_back()` during unwind;
-            // if activeLabels_ is still empty (the swapped-out state) at
-            // that moment, the pop_back is undefined behavior. Swapping
-            // back here keeps activeLabels_ matching the outer scope's
-            // view at every catch site upstream.
+            // RAII: restores the outer label set on EVERY exit path,
+            // including the early-error throws below (arguments/super/await
+            // checks) which the old manual swap-backs missed —
+            // parseLabeledOrExpressionStatement's catch pop_back()s an empty
+            // activeLabels_ otherwise (UB).
+            LabelBoundaryGuard labelGuard(this);
             // ECMA-262 15.7.1: the ClassStaticBlockBody is its own lexical scope;
             // duplicate let/const and let-vs-var conflicts are early errors.
             pushLexicalScope();
@@ -2959,7 +2955,6 @@ ast::NodePtr Parser::parseClassMember() {
                 }
             } catch (...) {
                 popLexicalScope();
-                activeLabels_.swap(savedLabels);
                 iterationDepth_ = prevIter;
                 switchDepth_ = prevSwitch;
                 functionDepth_ = prevFuncDepth;
@@ -2996,7 +2991,6 @@ ast::NodePtr Parser::parseClassMember() {
                         "a class static initialization block", fileName_, block->line));
                 }
             }
-            activeLabels_.swap(savedLabels);
             iterationDepth_ = prevIter;
             switchDepth_ = prevSwitch;
             functionDepth_ = prevFuncDepth;
@@ -3408,8 +3402,9 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
         // ECMA-262 8.6: label scope does not cross function/method bodies.
-        std::vector<ActiveLabel> savedLabels;
-        savedLabels.swap(activeLabels_);
+        // RAII so a SyntaxError thrown in the body restores the outer label
+        // set during unwind.
+        LabelBoundaryGuard labelGuard(this);
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -3460,7 +3455,6 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         functionDepth_--;
         nonArrowFunctionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
-        activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -4527,7 +4521,10 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             try {
                 node->statement = parseStatementOnly(allowAnnexB);
             } catch (...) {
-                activeLabels_.pop_back();
+                // Guard: a function-boundary frame between here and the throw
+                // swaps activeLabels_ out; its RAII guard restores it during
+                // unwind, but never pop an empty vector (UB) if a path is missed.
+                if (!activeLabels_.empty()) activeLabels_.pop_back();
                 throw;
             }
             activeLabels_.pop_back();

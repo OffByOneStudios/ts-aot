@@ -761,6 +761,10 @@ llvm::GlobalVariable* HIRToLLVM::getOrCreateGlobal(const std::string& name, std:
 
     // Create the global variable
     llvm::Type* llvmType = getLLVMType(type);
+    // A void-typed slot (e.g. `var x: void` / `var r = voidA && voidB`) holds
+    // undefined at runtime; LLVM cannot create a void global (getNullValue
+    // of void crashes). Same widening lowerStore applies to void allocas.
+    if (llvmType->isVoidTy()) llvmType = getGCPtrTy();
     llvm::Constant* init = llvm::Constant::getNullValue(llvmType);
     // Module-level let/const (__modvar_*): seed with the TDZ sentinel
     // (NANBOX_TDZ = 0x9) so reads before the declaration executes are

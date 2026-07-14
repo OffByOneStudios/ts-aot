@@ -1129,6 +1129,15 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
 void HIRToLLVM::lowerStoreGlobal(HIRInstruction* inst) {
     std::string globalName = getOperandString(inst->operands[0]);
     llvm::Value* value = getOperandValue(inst->operands[1]);
+    // Null or void-typed value (e.g. `var r = voidA && voidB` at module
+    // scope): its runtime value is undefined; CreateStore on a void value
+    // crashes in DataLayout::getABITypeAlign.
+    if (!value || value->getType()->isVoidTy()) {
+        SPDLOG_WARN("  lowerStoreGlobal: {} value, storing undefined",
+                    value ? "void-typed" : "null");
+        llvm::Value* undefBits = llvm::ConstantInt::get(builder_->getInt64Ty(), 0x000000000000000AULL);
+        value = builder_->CreateIntToPtr(undefBits, getGCPtrTy());
+    }
 
     // EVAL-001 §11: eval-tainted toplevel vars are globalThis-backed —
     // write the property (shared with eval'd code), never an LLVM slot.
