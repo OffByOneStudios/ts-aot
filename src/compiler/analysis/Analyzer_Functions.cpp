@@ -102,6 +102,7 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         
         if (!isPromise) {
             auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            if (!promiseClass) { promiseClass = std::make_shared<ClassType>("Promise"); }
             auto wrapped = std::make_shared<ClassType>("Promise");
             wrapped->typeParameters = promiseClass->typeParameters;
             wrapped->methods = promiseClass->methods;
@@ -779,6 +780,7 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
         
         if (!isPromise) {
             auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            if (!promiseClass) { promiseClass = std::make_shared<ClassType>("Promise"); }
             
             std::string mangledName = "Promise_" + inferredReturnType->toString();
             std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
@@ -864,6 +866,11 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
     visit(node->body.get());
     functionDepth--;
     funcType->returnType = lastType;
+    // An empty arrow body as the first-visited statement leaves lastType
+    // null -- the async Promise-wrap below dereferenced it (segfault on
+    // `var foo = async (): Promise<void> => {};` as line 1).
+    if (!funcType->returnType)
+        funcType->returnType = std::make_shared<Type>(TypeKind::Void);
 
     if (node->isAsync) {
         // Wrap return type in Promise if it's not already a Promise
@@ -875,6 +882,7 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
         
         if (!isPromise) {
             auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            if (!promiseClass) { promiseClass = std::make_shared<ClassType>("Promise"); }
             
             std::string mangledName = "Promise_" + funcType->returnType->toString();
             std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
@@ -957,6 +965,7 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         
         if (!isPromise) {
             auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            if (!promiseClass) { promiseClass = std::make_shared<ClassType>("Promise"); }
             
             std::string mangledName = "Promise_" + funcType->returnType->toString();
             std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
