@@ -1096,6 +1096,28 @@ ast::Decorator Parser::parseDecorator() {
     expect(TokenKind::At, "'@'");
     ast::Decorator dec;
 
+    // Parenthesized decorator expression: @((target, ctx) => {...}) or any
+    // @(expr). The expression IS the decorator.
+    if (check(TokenKind::OpenParen)) {
+        advance();  // (
+        auto expr = parseAssignmentExpression();
+        expect(TokenKind::CloseParen, "')'");
+        if (check(TokenKind::OpenParen)) {   // immediate factory call
+            advance();
+            auto call = std::make_unique<ast::CallExpression>();
+            call->callee = std::move(expr);
+            while (!check(TokenKind::CloseParen) && !isAtEnd()) {
+                call->arguments.push_back(parseAssignmentExpression());
+                if (!check(TokenKind::CloseParen)) expect(TokenKind::Comma, "','");
+            }
+            expect(TokenKind::CloseParen, "')'");
+            expr = std::move(call);
+        }
+        dec.name = "(expression)";
+        dec.expression = std::shared_ptr<ast::Expression>(expr.release());
+        return dec;
+    }
+
     // Parse the decorator expression: could be @name, @name.prop, @name(args)
     // First get the name
     dec.name = identifierName();
@@ -3126,6 +3148,16 @@ ast::NodePtr Parser::parseClassMember() {
         return nullptr;
     }
 
+    // TS optional METHOD: `name?(): T` / `name?<T>()`. Consume the '?'
+    // only when a method opener follows (a plain `name?:` optional
+    // property keeps its '?' for the property path below).
+    if (check(TokenKind::QuestionMark)) {
+        auto savedOpt = saveState();
+        advance();
+        if (!check(TokenKind::OpenParen) && !check(TokenKind::LessThan)) {
+            restoreState(savedOpt);
+        }
+    }
     // Is it a method (has parentheses)?
     if (check(TokenKind::OpenParen) || check(TokenKind::LessThan)) {
         // ECMA-262 15.7.1 Static Semantics: Early Errors for ClassElement
