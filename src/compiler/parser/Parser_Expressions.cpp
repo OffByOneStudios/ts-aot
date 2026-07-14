@@ -2483,7 +2483,29 @@ ast::ExprPtr Parser::parseNewExpression() {
             auto access = std::make_unique<ast::PropertyAccessExpression>();
             setLocation(access.get(), node->expression->line, node->expression->column);
             access->expression = std::move(node->expression);
-            access->name = identifierName();
+            if (current_.kind == TokenKind::Hash) {
+                // Private member as the new-callee chain: `new this.#ctor()`.
+                // Same rules as the postfix member path (adjacency +
+                // AllPrivateIdentifiersValid recording).
+                advance();  // consume '#'
+                if (current_.offset != previous_.offset + 1) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: no whitespace or line terminator "
+                        "allowed between '#' and identifier",
+                        previous_.line, previous_.column));
+                }
+                int privLine = current_.line;
+                access->name = "#" + identifierName();
+                if (classPrivateScopes_.empty()) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: private name '{}' is not in "
+                        "scope; private names are only valid inside a class",
+                        fileName_, privLine, access->name));
+                }
+                classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
+            } else {
+                access->name = identifierName();
+            }
             node->expression = std::move(access);
         } else if (check(TokenKind::OpenBracket)) {
             advance();

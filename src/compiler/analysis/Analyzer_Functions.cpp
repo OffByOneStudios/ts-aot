@@ -904,6 +904,12 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
     funcType->node = node;
 
     symbols.enterScope();
+    // A function EXPRESSION has its own dynamic `this` (only arrows are
+    // lexical). Without the rebind, the enclosing method's this=ClassType
+    // leaked in and `function() { this.x = 10 }` inside a getter reported
+    // "Unknown property x" (privateNameAccessorsCallExpression family).
+    symbols.define("this", std::make_shared<Type>(TypeKind::Any));
+    symbols.define("arguments", std::make_shared<Type>(TypeKind::Any));
 
     // Register type parameters
     for (const auto& tp : node->typeParameters) {
