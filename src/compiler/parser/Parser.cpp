@@ -2532,7 +2532,10 @@ void Parser::parseClassHeritageClause(std::string& baseClass,
                 check(TokenKind::LessThan)) {
                 baseClass = firstName;
                 if (check(TokenKind::LessThan)) {
-                    skipTypeExpression();
+                    // Positioned ON '<': these are type ARGUMENTS on a
+                    // heritage base (extends Base<T>). The structural
+                    // typeExpr would read '<' as a generic FUNCTION type.
+                    parseTypeArguments();
                 }
                 simple = true;
             } else {
@@ -2596,7 +2599,7 @@ void Parser::parseClassHeritageClause(std::string& baseClass,
             implementsOut.push_back(identifierName());
             // Skip generic type args
             if (check(TokenKind::LessThan)) {
-                skipTypeExpression();
+                parseTypeArguments();  // heritage type args (see above)
             }
         } while (match(TokenKind::Comma));
     }
@@ -4949,7 +4952,7 @@ ast::StmtPtr Parser::parseInterfaceDeclaration(bool isExported, bool isDefaultEx
         do {
             node->baseInterfaces.push_back(identifierName());
             if (check(TokenKind::LessThan)) {
-                skipTypeExpression();
+                parseTypeArguments();  // heritage type args (see above)
             }
         } while (match(TokenKind::Comma));
     }
