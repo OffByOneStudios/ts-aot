@@ -1656,7 +1656,9 @@ void ts_promise_settle_microtask(void* data) {
     auto task = static_cast<PromiseResolveTask*>(data);
     TsPromise* promise = task->promise;
     if (promise->state == PromiseState::Rejected && !promise->handled) {
-        ts_console_log_value(nanbox_from_tagged(promise->value));
+        // Unhandled rejection: node reports to STDERR (stdout stays clean —
+        // oracle-differential tests compare stdout).
+        ts_console_error_value(nanbox_from_tagged(promise->value));
     }
 
     for (auto& cb : promise->callbacks) {

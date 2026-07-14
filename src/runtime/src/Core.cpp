@@ -1413,30 +1413,29 @@ void ts_pop_exception_handler() {
 void ts_throw(TsValue* exception) {
     currentException = exception;
     if (exceptionStack.empty()) {
+        // EVERYTHING goes to stderr: node prints uncaught exceptions to
+        // stderr with empty stdout, and oracle-differential tests compare
+        // stdout. ts_console_log_value writes to STDOUT and polluted it
+        // (~385ch of exception dump = whole family of false runtime diffs).
         fprintf(stderr, "FATAL: Uncaught exception: ");
-        ts_console_log_value(exception);
-        fprintf(stderr, "\n"); fflush(stderr);
-        // Debug: try to extract error message
+        ts_console_error_value(exception);
         if (exception) {
             void* raw = ts_value_get_object(exception);
             if (raw) {
                 void* msgVal = ts_object_get_property(raw, "message");
                 if (msgVal) {
                     fprintf(stderr, "  .message = ");
-                    ts_console_log_value((TsValue*)msgVal);
-                    fprintf(stderr, "\n");
+                    ts_console_error_value((TsValue*)msgVal);
                 }
                 void* nameVal = ts_object_get_property(raw, "name");
                 if (nameVal) {
                     fprintf(stderr, "  .name = ");
-                    ts_console_log_value((TsValue*)nameVal);
-                    fprintf(stderr, "\n");
+                    ts_console_error_value((TsValue*)nameVal);
                 }
                 void* stackVal = ts_object_get_property(raw, "stack");
                 if (stackVal) {
                     fprintf(stderr, "  .stack = ");
-                    ts_console_log_value((TsValue*)stackVal);
-                    fprintf(stderr, "\n");
+                    ts_console_error_value((TsValue*)stackVal);
                 }
             }
         }
