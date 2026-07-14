@@ -160,6 +160,15 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         return;
     }
 
+    // Defensive: a Store carrying a null HIRValue operand (e.g. a lowering
+    // path that consumed a void call result) must not be dereferenced.
+    if (auto* nullChk = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (!*nullChk) {
+            SPDLOG_ERROR("      lowerStore: null HIRValue operand[0], skipping store");
+            return;
+        }
+    }
+
     // SROA: If storing a scalar-replaced object to a local alloca, propagate
     // the SR mapping to the alloca HIR value ID (so loads will find it)
     if (auto* valHir = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
