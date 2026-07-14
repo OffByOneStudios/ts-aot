@@ -148,6 +148,13 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
                 fieldName = fieldName.substr(9);
                 fieldName.erase(0, fieldName.find_first_not_of(" \t\n\r"));
             }
+            // String-literal member name ('{ "a-b": T }'): the property key
+            // is the string VALUE — strip the quotes so member lookup works.
+            if (fieldName.size() >= 2 &&
+                ((fieldName.front() == '"' && fieldName.back() == '"') ||
+                 (fieldName.front() == '\'' && fieldName.back() == '\''))) {
+                fieldName = fieldName.substr(1, fieldName.size() - 2);
+            }
             // Generic method `fn<T>(...)`: drop the type-parameter list from the name
             if (auto lt = fieldName.find('<'); lt != std::string::npos)
                 fieldName.erase(lt);
