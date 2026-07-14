@@ -1,6 +1,11 @@
 # TSCONF-002: Tier 2 — analyzer tail, crash-zero, runtime axis
 
-**Status:** Planned (2026-07-14)
+**Status:** Phase 0 COMPLETE (2026-07-14) — crash 0 / neg_crash 0 (was 5+18),
+acceptance 84.7%, 5 gated merges 0-lost. Roots: void-call-as-value null HIR
+operand; sliced ArrayType (plain Type(kind=Array)); this-parameters occupying
+real param slots (analyzer+parser+4 codegen sites); parser label-stack RAII;
+deferred-static-init drain loops (the 0xbaadf00d flake — iteration
+invalidation, 9/10 repro, now 20/20 clean). Remaining phases below.
 **Position at planning:** acceptance 1,074/1,272 = 84.4% · crashes 5 + neg_crash 18 ·
 runtime axis 86.4% (stale — predates Tier 1; re-run first) · node 301/301 · golden 267/279.
 **Predecessor:** Tier 1 complete (see memory `tsconf-tier1-complete-2026-07-14`; 11 commits, 71.3%→84.4%).
