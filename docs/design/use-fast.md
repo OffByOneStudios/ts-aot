@@ -471,17 +471,20 @@ The seam (§14) is the only place boxing/roots reappear.
     stay calls (cold). Verified: default IR has 0 element calls (inline),
     non-fast IR unchanged. Probes tmp/oob.ts + tmp/uad.ts (both silent by
     default; loud abort under `--fast-checks` + `TS_FAST_CHECKS=1`).
-- **SoA benchmark — DONE, with a negative headline.** `examples/benchmarks/soa/`
-  (nbody_fast.ts vs nbody_dynamic.ts, identical checksum, `run.py` harness).
-  **On this workload the fast path is currently ~2.2x SLOWER** (fast ≈2400 ms,
-  dynamic ≈1080 ms, ratio ≈0.45x). Differential probes ruled out the per-access
-  call (inlining moved 2615→2407 ms) and statepoints (`--no-gc-statepoints` no
-  faster). The dynamic typed-`number[]` path is already highly optimized;
-  today's `NativeArray` inline access doesn't beat it. **OPEN FOLLOW-UP** (the
-  real next lever): profile the inner-loop IR of both paths — suspects are
-  redundant handle reloads per access, `Math.sqrt` blocking vectorization, and
-  index-conversion overhead — and close the gap before claiming a SoA win. See
-  the benchmark README for the full write-up.
+- **SoA benchmark — RESOLVED 2026-07-14: fast wins 5.28x** (fast ≈217 ms,
+  dynamic ≈1147 ms, identical checksum). The 2026-07-06 result was inverted
+  (fast ~2.2x slower); the IR profile found the real root — none of the
+  original suspects. `arr.get(j)` and `Math.sqrt` carried HIR result type
+  **Any**, so every downstream arithmetic op lowered through the boxed
+  `ts_value_*` dispatcher (3 runtime calls + 2 NaN-boxes per op), and each
+  `Math.sqrt` evaluated its receiver as a dead `ts_get_global_Math()` call.
+  Fix (fast-gated, `ASTToHIR_Expressions_Calls.cpp`): `NativeArray.get`
+  stamps its unboxed element type; global builtins with typed RuntimeCall
+  resolutions lower to direct typed calls. Inner loop is now native
+  fmul/fadd/fsub + one `ts_math_sqrt(double)`. Lesson recorded: in a fast
+  file, ANY value whose HIR type degrades to Any silently re-boxes all
+  arithmetic it touches — future fast-mode features must stamp precise HIR
+  types on every producer.
 - Gates for all Phase 3 changes: node 300/300, golden 267/279 no-reg, fast
   15/15, 2k 0 lost / 0 gained (the dynamic path is untouched — every change is
   gated on a `NativeArray` receiver or the fast directive).

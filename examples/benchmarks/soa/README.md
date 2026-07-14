@@ -13,26 +13,27 @@ python examples/benchmarks/soa/run.py --runs 3
   (SoA), inline unboxed loads/stores.
 - `nbody_dynamic.ts` — the same math over dynamic `number[]` arrays.
 
-## Current result (honest, 2026-07-06)
+## Current result (2026-07-14): fast wins 5.3x
 
-On this workload the fast path is currently **~2.2x SLOWER** than the dynamic
-path (fast ≈ 2400 ms, dynamic ≈ 1080 ms, ratio ≈ 0.45x). This is a real,
-reproducible measurement, and the benchmark exists precisely to surface it.
+fast ≈ **217 ms**, dynamic ≈ 1147 ms, ratio ≈ **5.28x** (identical checksums).
 
-What we ruled out with differential probes:
-- **Not the per-access runtime call.** Inlining `.get`/`.set` to a raw
-  load/store (base + 16 + i·8) moved it only 2615 → 2407 ms.
-- **Not GC statepoints.** `--no-gc-statepoints` on the fast build was no faster
-  (2557 ms).
+### History: the 2026-07-06 result was inverted (fast ~2.2x SLOWER)
 
-So the dynamic typed-`number[]` path is already very well optimized (unboxed
-contiguous doubles with a specialized fast representation), and today's
-`NativeArray` inline access does not yet beat it. The remaining suspects — not
-yet isolated — are redundant handle reloads per access (each `arr.get(j)`
-re-derives the base pointer), missed vectorization (the inner loop's `Math.sqrt`
-is a call/safepoint), and index-conversion overhead. **This is the open
-follow-up:** profile the inner-loop IR of both paths and close the gap before
-claiming a SoA win.
+The original suspects (per-access call overhead, GC statepoints, redundant
+handle reloads) were all ruled out by differential probes at the time — and
+were indeed all wrong. The actual root, found by reading the inner-loop IR:
+the HIR result type of `arr.get(j)` (and of `Math.sqrt`) was **Any**, so every
+arithmetic op touching those values lowered through the boxed
+`ts_value_sub/mul/div` runtime dispatcher — three runtime calls plus two
+NaN-boxings *per subtract* — even though the element access itself was already
+an inline unboxed load. The loop also paid a dead `ts_get_global_Math()` call
+per iteration (~31M calls total) just to evaluate the receiver of `Math.sqrt`.
+
+Fix (both gated on the fast directive, in `ASTToHIR_Expressions_Calls.cpp`):
+`NativeArray.get` stamps its unboxed element type on the call result, and a
+global-builtin method with a typed RuntimeCall resolution (all of `Math.*`)
+lowers to a direct typed call with no receiver evaluation. The inner loop is
+now pure native `fmul/fadd/fsub` plus one `ts_math_sqrt(double)` call.
 
 The **dev-mode safety checks** (Phase 3's other half) are complete and working:
 build with `--fast-checks` and run with `TS_FAST_CHECKS=1` to get loud
