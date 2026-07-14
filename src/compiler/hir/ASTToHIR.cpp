@@ -2515,6 +2515,14 @@ void ASTToHIR::lowerStatement(ast::Statement* stmt) {
 std::shared_ptr<HIRValue> ASTToHIR::lowerExpression(ast::Expression* expr) {
     lastValue_ = nullptr;
     expr->accept(this);
+    // A call whose callee returns void yields no HIR value (createCall with a
+    // Void return type has no result). As a VALUE the call is `undefined`
+    // (ECMA-262 [[Call]] with no explicit return), so materialize it — value
+    // positions (var init, object/array literal, argument) otherwise propagate
+    // a null operand into HIR and segfault HIRToLLVM::lowerStore.
+    if (!lastValue_ && dynamic_cast<ast::CallExpression*>(expr)) {
+        lastValue_ = builder_.createConstUndefined();
+    }
     return lastValue_;
 }
 
