@@ -111,21 +111,85 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         std::string inner = typeName.substr(1, typeName.size() - 2);
 
         // Parse fields (simple parser for common cases)
-        // This handles: { a: number, b: string } but not nested objects with commas
+        // Handles `a: number`, method shorthand `fn(a: T): R` (the first ':'
+        // is INSIDE the parens — a plain find(':') made the member vanish and
+        // every later `o.fn(...)` failed "Unknown property fn"), and a bare
+        // call signature `(a: T): R` (callable type literal).
         size_t pos = 0;
         while (pos < inner.size()) {
             // Skip whitespace (including \r for Windows line endings)
             while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t' || inner[pos] == '\r')) pos++;
             if (pos >= inner.size()) break;
 
-            // Find field name (ends at :)
-            size_t colonPos = inner.find(':', pos);
-            if (colonPos == std::string::npos) break;
+            // Member name ends at the first ':' OR '(' at bracket depth 0.
+            // '(' means method shorthand / call signature.
+            size_t nameEnd = std::string::npos;
+            bool isMethodShorthand = false;
+            {
+                int d = 0;
+                for (size_t scan = pos; scan < inner.size(); ++scan) {
+                    char c = inner[scan];
+                    if (d == 0 && c == ':') { nameEnd = scan; break; }
+                    if (d == 0 && c == '(') { nameEnd = scan; isMethodShorthand = true; break; }
+                    if (c == '<' || c == '(' || c == '[' || c == '{') d++;
+                    else if (c == '>' || c == ')' || c == ']' || c == '}') d--;
+                }
+            }
+            if (nameEnd == std::string::npos) break;
+            size_t colonPos = nameEnd;
 
             std::string fieldName = inner.substr(pos, colonPos - pos);
             // Trim whitespace and handle optional marker
             fieldName.erase(0, fieldName.find_first_not_of(" \t\n\r"));
             fieldName.erase(fieldName.find_last_not_of(" \t\n\r?") + 1);
+            // Generic method `fn<T>(...)`: drop the type-parameter list from the name
+            if (auto lt = fieldName.find('<'); lt != std::string::npos)
+                fieldName.erase(lt);
+
+            if (isMethodShorthand) {
+                // Balanced-scan the parameter list "(...)".
+                int pd = 0;
+                size_t closeParen = colonPos;
+                for (; closeParen < inner.size(); ++closeParen) {
+                    if (inner[closeParen] == '(') pd++;
+                    else if (inner[closeParen] == ')') { pd--; if (pd == 0) break; }
+                }
+                if (closeParen >= inner.size()) break;
+                std::string paramsStr = inner.substr(colonPos, closeParen - colonPos + 1);
+                // Optional ": returnType" after the params, up to , or ; at depth 0
+                pos = closeParen + 1;
+                while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t' || inner[pos] == '\r')) pos++;
+                std::string retStr = "any";
+                if (pos < inner.size() && inner[pos] == ':') {
+                    pos++;
+                    while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t' || inner[pos] == '\r')) pos++;
+                    size_t retStart = pos;
+                    int rd = 0;
+                    while (pos < inner.size()) {
+                        char c = inner[pos];
+                        if (c == '{' || c == '<' || c == '(' || c == '[') rd++;
+                        else if (c == '>') { if (pos > 0 && inner[pos-1] != '=') rd--; }
+                        else if (c == '}' || c == ')' || c == ']') rd--;
+                        else if ((c == ',' || c == ';') && rd == 0) break;
+                        pos++;
+                    }
+                    retStr = inner.substr(retStart, pos - retStart);
+                    retStr.erase(0, retStr.find_first_not_of(" \t\n\r"));
+                    if (!retStr.empty()) retStr.erase(retStr.find_last_not_of(" \t\n\r") + 1);
+                    if (retStr.empty()) retStr = "any";
+                }
+                auto memberType = parseType(paramsStr + " => " + retStr, symbols);
+                if (fieldName.empty()) {
+                    // Bare call signature: the whole literal is callable.
+                    // (Members after it are dropped — acceptable for the
+                    // dominant `Promise<{ (...): R }>` shape.)
+                    return memberType;
+                }
+                objType->fields[fieldName] = memberType;
+                if (pos < inner.size() && (inner[pos] == ',' || inner[pos] == ';')) pos++;
+                continue;
+            }
+
             if (fieldName.empty()) break;
 
             pos = colonPos + 1;
