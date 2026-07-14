@@ -60,6 +60,33 @@ SKIP_OPTIONS = {
 import re as _re
 _NS_RE = _re.compile(r'^\s*(export\s+)?(declare\s+)?(namespace|module)\s+[A-Za-z_$][\w$.]*\s*\{', _re.M)
 
+# Mixins / dynamic base classes are N/A-BY-DESIGN (recorded in
+# docs/conformance/typescript-features.md: "Requires dynamic class
+# construction incompatible with AOT"; user-ratified 2026-07-14 in
+# TSCONF-002 Phase 2). A class is dynamic-based when it extends a CALL
+# (`extends Mixin(Base)`) or a VALUE binding (function parameter /
+# const/var holding a class), not a statically-known class declaration.
+_EXT_RE = _re.compile(r'\bclass\s+[A-Za-z_$]?[\w$]*\s*(?:<[^>{]*>)?\s*extends\s+([A-Za-z_$][\w$]*)\s*(\()?')
+
+def _is_mixin_test(tc):
+    for f in tc.files:
+        src = f.content
+        for m in _EXT_RE.finditer(src):
+            ident, call = m.group(1), m.group(2)
+            if ident in ("null", "undefined"):
+                continue                  # `extends null` is a static feature
+            if call:                      # extends Mixin(Base)
+                return True
+            if _re.search(r'\bclass\s+' + _re.escape(ident) + r'\b', src):
+                continue                  # static base class exists
+            if _re.search(r'\bdeclare\s+(const|var|let)\s+' + _re.escape(ident) + r'\s*:', src):
+                return True               # extends a declared VALUE
+            if _re.search(r'\b(const|let|var)\s+' + _re.escape(ident) + r'\s*=', src):
+                return True               # extends a computed value
+            if ident[0].islower():
+                return True               # parameter-style dynamic base
+    return False
+
 def classify(tc, conformance_root=None):
     """(verdict, reason) for the Phase-1 acceptance sweep."""
     rel = tc.path
@@ -79,6 +106,8 @@ def classify(tc, conformance_root=None):
     for f in tc.files:
         if _NS_RE.search(f.content):
             return "skip", "namespaces-na"
+    if _is_mixin_test(tc):
+        return "skip", "mixins-na"
     if tc.is_multifile:
         # The metadata parser already splits these; the initial sweep skips
         # them until the runner grows the virtual-fs + module-link step.
