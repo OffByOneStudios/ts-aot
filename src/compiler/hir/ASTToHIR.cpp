@@ -2067,8 +2067,16 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
 //==============================================================================
 
 void ASTToHIR::emitDeferredStaticInits() {
-    // Emit static property initializations
-    for (auto& init : deferredStaticInits_) {
+    // Emit static property initializations. DRAIN pattern: lowering an
+    // initializer that is itself a class expression with static fields
+    // (`class A { static B = class B { static C = ... } }`) pushes NEW
+    // entries into deferredStaticInits_ — a range-for over the member
+    // vector dangles `init` on reallocation (the long-known 0xbaadf00d
+    // flake in this function). Swap each batch out and loop until empty.
+    while (!deferredStaticInits_.empty()) {
+    std::vector<StaticPropInit> batch;
+    batch.swap(deferredStaticInits_);
+    for (auto& init : batch) {
         // Restore the class's private-name scope so `this.#x` / `C.#x` in the
         // initializer resolves to the class-qualified storage key.
         auto savedPrivStack = privateClassStack_;
@@ -2097,7 +2105,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         }
         privateClassStack_ = savedPrivStack;
     }
-    deferredStaticInits_.clear();  // Only emit once
+    }  // drain loop
 
     // Install class prototypes. For each class with instance methods or
     // accessors, build a real prototype object holding `__getter_<key>`,
@@ -2111,10 +2119,15 @@ void ASTToHIR::emitDeferredStaticInits() {
     // verifyProperty(C.prototype, "m", { enumerable: false, ... }) and
     // Object.keys(C) tests require non-enumerable. Routes through the
     // ts_object_set_method runtime which uses TsMap::SetWithAttrs.
-    for (auto* hirClass : deferredClassPrototypes_) {
-        emitSingleClassSetup(hirClass);
+    // Same drain pattern: emitSingleClassSetup can lower expressions that
+    // register additional class prototypes.
+    while (!deferredClassPrototypes_.empty()) {
+        std::vector<HIRClass*> protoBatch;
+        protoBatch.swap(deferredClassPrototypes_);
+        for (auto* hirClass : protoBatch) {
+            emitSingleClassSetup(hirClass);
+        }
     }
-    deferredClassPrototypes_.clear();
     emitDeferredStaticInitsTail();
 }
 
@@ -2261,16 +2274,22 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
 }
 
 void ASTToHIR::emitDeferredStaticInitsTail() {
-    // Emit static blocks
-    for (auto& [staticBlock, privSnapshot] : deferredStaticBlocks_) {
-        auto savedPrivStack = privateClassStack_;
-        privateClassStack_ = privSnapshot;
-        for (auto& stmt : staticBlock->body) {
-            lowerStatement(stmt.get());
+    // Emit static blocks. Drain pattern: a static block can contain a class
+    // whose lowering defers more static blocks — range-for over the member
+    // vector would dangle on reallocation (same 0xbaadf00d class as
+    // emitDeferredStaticInits).
+    while (!deferredStaticBlocks_.empty()) {
+        std::vector<std::pair<ast::StaticBlock*, std::vector<PrivateClassCtx>>> batch;
+        batch.swap(deferredStaticBlocks_);
+        for (auto& [staticBlock, privSnapshot] : batch) {
+            auto savedPrivStack = privateClassStack_;
+            privateClassStack_ = privSnapshot;
+            for (auto& stmt : staticBlock->body) {
+                lowerStatement(stmt.get());
+            }
+            privateClassStack_ = savedPrivStack;
         }
-        privateClassStack_ = savedPrivStack;
     }
-    deferredStaticBlocks_.clear();  // Only emit once
 }
 
 void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
