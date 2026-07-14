@@ -251,10 +251,46 @@ void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
         members[member.name] = ev;
     }
 
-    enumValues_[node->name] = std::move(members);
+    enumValues_[node->name] = members;
     if (!reverseMap.empty()) {
-        enumReverseMap_[node->name] = std::move(reverseMap);
+        enumReverseMap_[node->name] = reverseMap;
     }
+
+    // Materialize the runtime enum OBJECT (forward members + numeric reverse
+    // map) into the __enumobj_<name> global. E1.A / E1[x] stay
+    // compile-time-inlined; this covers the enum referenced as a VALUE
+    // (`var e = E1; e.A`), which previously loaded undefined and threw
+    // (enumBasics runtime diff). Ambient enums (declare enum) have no
+    // runtime object per TS semantics. Top-level enums are visited in the
+    // pre-pass with no active block — defer those to user_main entry
+    // (emitDeferredStaticInits); function-local enums emit inline.
+    if (!node->isDeclare) {
+        if (currentBlock_) {
+            emitEnumObject(node->name);
+        } else {
+            deferredEnumObjects_.push_back(node->name);
+        }
+    }
+}
+
+void ASTToHIR::emitEnumObject(const std::string& enumName) {
+    auto mIt = enumValues_.find(enumName);
+    if (mIt == enumValues_.end()) return;
+    auto obj = builder_.createNewObjectDynamic();
+    for (auto& [name, ev] : mIt->second) {
+        auto val = ev.isString
+            ? builder_.createConstString(ev.strValue)
+            : boxValueIfNeeded(builder_.createConstInt(ev.numValue));
+        builder_.createSetPropStatic(obj, name, val);
+    }
+    auto rIt = enumReverseMap_.find(enumName);
+    if (rIt != enumReverseMap_.end()) {
+        for (auto& [num, name] : rIt->second) {
+            builder_.createSetPropStatic(obj, std::to_string(num),
+                                         builder_.createConstString(name));
+        }
+    }
+    builder_.createStoreGlobal("__enumobj_" + enumName, obj);
 }
 
 //==============================================================================

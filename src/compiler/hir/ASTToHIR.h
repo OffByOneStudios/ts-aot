@@ -397,6 +397,10 @@ private:
         std::vector<PrivateClassCtx> privSnapshot;
     };
     std::vector<StaticPropInit> deferredStaticInits_;
+    // Top-level enums whose runtime object (__enumobj_<name>) must be built
+    // at user_main entry (their declarations are visited in the no-block
+    // pre-pass). See visitEnumDeclaration / emitEnumObject.
+    std::vector<std::string> deferredEnumObjects_;
 
     // True while lowering the operand of a `typeof` unary expression. An
     // unresolvable bare identifier under `typeof` yields "undefined" (ECMA-262
@@ -458,6 +462,7 @@ private:
 
     // Emit deferred static initializations and static blocks
     void emitDeferredStaticInits();
+    void emitEnumObject(const std::string& enumName);
 
     // Install a class's computed-name accessors (get/set [expr]) onto the
     // prototype (instance) / constructor object (static).
