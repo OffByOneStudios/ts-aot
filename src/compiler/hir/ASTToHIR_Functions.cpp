@@ -1531,6 +1531,11 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     };
     std::vector<MDDestructuredParam> mdDestructuredParams;
     for (auto& param : node->parameters) {
+        // A TypeScript `this` parameter is type-only: the implicit `this`
+        // formal was already pushed above; keeping the explicit one would
+        // shift every real parameter by one slot (getter read garbage,
+        // setter crashed at runtime — tsconf thisType cluster).
+        if (param->isThisParameter) continue;
         auto paramType = (forceAnyParams || param->type.empty())
             ? HIRType::makeAny()
             : convertTypeFromString(param->type);

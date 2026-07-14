@@ -188,6 +188,15 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         SPDLOG_ERROR("      lowerStore: value is null!");
         return;
     }
+    // A void-typed LLVM value (a void call result that leaked into a value
+    // position) cannot be stored — StoreInst asks DataLayout for the ABI
+    // alignment of void and crashes. Store NaN-boxed undefined instead
+    // (JS: a void call's value IS undefined).
+    if (val->getType()->isVoidTy()) {
+        SPDLOG_WARN("      lowerStore: void-typed value, storing undefined");
+        llvm::Value* undefBits = llvm::ConstantInt::get(builder_->getInt64Ty(), 0x000000000000000AULL);
+        val = builder_->CreateIntToPtr(undefBits, getGCPtrTy());
+    }
     llvm::Value* ptr = getOperandValue(inst->operands[1]);
     SPDLOG_INFO("      lowerStore: ptr={}", ptr ? "non-null" : "NULL");
     if (!ptr) {

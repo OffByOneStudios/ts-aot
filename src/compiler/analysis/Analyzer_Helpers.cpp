@@ -344,6 +344,13 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
                         // Format: "name: type" or "name?: type"
                         size_t colonPos = trimmedParam.find(':');
                         if (colonPos != std::string::npos) {
+                            // A `this: T` entry in a function type is type-only
+                            // (TS this-parameter) — it must not occupy a
+                            // paramTypes slot, or contextual typing shifts by
+                            // one and types the first real param as e.g. void.
+                            std::string headName = trimmedParam.substr(0, colonPos);
+                            headName.erase(headName.find_last_not_of(" ") + 1);
+                            if (headName == "this") continue;
                             std::string paramTypeStr = trimmedParam.substr(colonPos + 1);
                             paramTypeStr.erase(0, paramTypeStr.find_first_not_of(" "));
                             paramTypeStr.erase(paramTypeStr.find_last_not_of(" ") + 1);

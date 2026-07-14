@@ -294,7 +294,23 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
 
     auto methodType = std::make_shared<FunctionType>();
     bool needsReturnTypeInference = false;  // Track if we need to infer return type
-    
+
+    // A TypeScript `this` parameter (get x(this: Foo) / set x(this: Foo, n))
+    // is type-only: it must not occupy a paramTypes slot. The getter/setter
+    // branches below push 0/1 param types, so counting the `this` entry made
+    // the binding loop index past the end of paramTypes (garbage shared_ptr
+    // -> _Incref segfault; tsconf thisType cluster). Filter it out and keep
+    // its annotation for typing `this` in the body scope.
+    std::vector<ast::Parameter*> realParams;
+    std::string thisParamAnnotation;
+    for (const auto& param : node->parameters) {
+        if (param->isThisParameter) {
+            thisParamAnnotation = param->type;
+        } else {
+            realParams.push_back(param.get());
+        }
+    }
+
     symbols.enterScope();
     // ES `arguments` object: bound in every non-arrow function scope (typed
     // mode previously reported "Undefined variable arguments" - 13-test
@@ -328,8 +344,8 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
     } else if (node->isSetter) {
         methodType->returnType = std::make_shared<Type>(TypeKind::Void);
-        if (node->parameters.size() > 0) {
-            methodType->paramTypes.push_back(parseType(node->parameters[0]->type, symbols));
+        if (!realParams.empty()) {
+            methodType->paramTypes.push_back(parseType(realParams[0]->type, symbols));
         } else {
             methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
         }
@@ -380,7 +396,7 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
             }
         }
         
-        for (const auto& param : node->parameters) {
+        for (const auto* param : realParams) {
             // Strategy B Phase 5b: removed UntypedJavaScript branch.
             // For untyped methods with no annotation, both branches default to Any.
             if (!param->type.empty()) {
@@ -397,7 +413,10 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     // Actually, method definitions are added to the ClassType, not just the symbol table.
     
     // Define 'this'
-    if (node->isStatic) {
+    if (!thisParamAnnotation.empty()) {
+        // Explicit `this` parameter annotation wins (method(this: Foo)).
+        symbols.define("this", parseType(thisParamAnnotation, symbols));
+    } else if (node->isStatic) {
         // In static methods, 'this' is the constructor function (which has the class type as its return type)
         auto ctorType = std::make_shared<FunctionType>();
         ctorType->returnType = classType;
@@ -409,9 +428,12 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         symbols.define("this", std::make_shared<Type>(TypeKind::Any));
     }
 
-    // Define parameters in scope
-    for (size_t i = 0; i < node->parameters.size(); ++i) {
-        declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
+    // Define parameters in scope (paramTypes was built from realParams; a
+    // getter contributes none, so guard the index instead of assuming 1:1)
+    for (size_t i = 0; i < realParams.size(); ++i) {
+        auto pt = i < methodType->paramTypes.size() ? methodType->paramTypes[i]
+                                                    : std::make_shared<Type>(TypeKind::Any);
+        declareBindingPattern(realParams[i]->name.get(), pt);
     }
 
     // Track the inferred return type from return statements

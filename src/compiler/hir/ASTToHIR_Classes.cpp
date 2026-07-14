@@ -407,6 +407,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Add explicit parameters
             for (auto& param : methodDef->parameters) {
+                // TypeScript `this` parameter is type-only; the implicit
+                // `this` formal is already pushed above. Keeping it would
+                // shift every real parameter by one slot at runtime.
+                if (param->isThisParameter) continue;
                 auto paramType = param->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(param->type);
@@ -1312,6 +1316,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Add explicit parameters
             for (auto& param : methodDef->parameters) {
+                // TypeScript `this` parameter is type-only; the implicit
+                // `this` formal is already pushed above. Keeping it would
+                // shift every real parameter by one slot at runtime.
+                if (param->isThisParameter) continue;
                 auto paramType = param->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(param->type);
