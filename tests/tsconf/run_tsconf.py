@@ -60,9 +60,23 @@ def is_crash_exit(rc):
     return rc is not None and (rc & 0xFFFFFFFF) in CRASH_EXITS
 
 
+_NEG_BASES = None
+
 def is_negative(path):
+    """A test is negative iff ANY variant baseline has an .errors.txt --
+    comma-valued @target/@module tests emit VARIANT-SUFFIXED baselines
+    (`name(target=esnext).errors.txt`); the unsuffixed check alone
+    misclassified 2,789 of them as positive."""
+    global _NEG_BASES
+    if _NEG_BASES is None:
+        s = set()
+        for fn in os.listdir(BASELINE_REF):
+            if fn.endswith(".errors.txt"):
+                stem = fn[:-len(".errors.txt")]
+                s.add(stem.split("(")[0])
+        _NEG_BASES = s
     base = os.path.splitext(os.path.basename(path))[0]
-    return os.path.exists(os.path.join(BASELINE_REF, base + ".errors.txt"))
+    return base in _NEG_BASES
 
 
 def discover():

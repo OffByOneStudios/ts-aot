@@ -372,7 +372,45 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     return std::make_shared<Type>(TypeKind::Any);
 }
 
-std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes) {
+namespace {
+// A type usable as an EXPECTED side of a check: concrete and not a shape the
+// inference engine models loosely. Function-typed params are excluded --
+// contextual callback typing owns those and our inferred arrow types are not
+// signature-exact. TypeParameters are excluded: monomorphization + the
+// existing constraint checks own generics.
+bool checkableExpected(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TypeKind::Any: case TypeKind::Unknown: case TypeKind::Never:
+        case TypeKind::TypeParameter: case TypeKind::Function:
+        case TypeKind::Void: case TypeKind::Namespace:
+        case TypeKind::Undefined: case TypeKind::Null:
+            return false;
+        default:
+            return true;
+    }
+}
+bool checkableActual(const std::shared_ptr<Type>& t) {
+    if (!t) return false;
+    if (t->kind == TypeKind::Any || t->kind == TypeKind::Unknown ||
+        t->kind == TypeKind::TypeParameter || t->kind == TypeKind::Never)
+        return false;
+    return true;
+}
+} // namespace
+
+// True when a call's argument list has no spread elements (argTypes counts
+// are then exact and overload no-match may error).
+bool Analyzer::callArgsExact(const std::vector<ast::ExprPtr>& args) {
+    for (auto& a : args)
+        if (dynamic_cast<ast::SpreadElement*>(a.get())) return false;
+    return true;
+}
+bool Analyzer::callArgsExact(ast::CallExpression* node) {
+    return node && callArgsExact(node->arguments);
+}
+
+std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes, bool argsExact) {
     if (overloads.empty()) return nullptr;
     
     for (const auto& overload : overloads) {
@@ -405,7 +443,13 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
                     }
                 }
 
-                if (expectedType && !argTypes[i]->isAssignableTo(expectedType)) {
+                // Same leniency as checkCallArguments: loosely-modeled
+                // expected types (generics, Any, Function callbacks) and
+                // loosely-inferred actuals always match -- overload
+                // no-match may only be claimed on concrete disagreement.
+                if (expectedType && checkableExpected(expectedType) &&
+                    argTypes[i] && checkableActual(argTypes[i]) &&
+                    !argTypes[i]->isAssignableTo(expectedType)) {
                     match = false;
                     break;
                 }
@@ -415,37 +459,13 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
     }
     
     // Step-2 checker: previously a silent fallback -- assignability-based
-    // overload selection existed but was never allowed to say no.
-    reportError("No overload matches this call");
+    // overload selection existed but was never allowed to say no. Spread
+    // calls (argsExact=false) keep the silent fallback: argTypes counts are
+    // approximations there (callWithSpreadES6 false-fired).
+    if (argsExact) reportError("No overload matches this call");
     return overloads[0]; // error recovery: keep analyzing with the first
 }
 
-namespace {
-// A type usable as an EXPECTED side of a check: concrete and not a shape the
-// inference engine models loosely. Function-typed params are excluded --
-// contextual callback typing owns those and our inferred arrow types are not
-// signature-exact. TypeParameters are excluded: monomorphization + the
-// existing constraint checks own generics.
-bool checkableExpected(const std::shared_ptr<Type>& t) {
-    if (!t) return false;
-    switch (t->kind) {
-        case TypeKind::Any: case TypeKind::Unknown: case TypeKind::Never:
-        case TypeKind::TypeParameter: case TypeKind::Function:
-        case TypeKind::Void: case TypeKind::Namespace:
-        case TypeKind::Undefined: case TypeKind::Null:
-            return false;
-        default:
-            return true;
-    }
-}
-bool checkableActual(const std::shared_ptr<Type>& t) {
-    if (!t) return false;
-    if (t->kind == TypeKind::Any || t->kind == TypeKind::Unknown ||
-        t->kind == TypeKind::TypeParameter || t->kind == TypeKind::Never)
-        return false;
-    return true;
-}
-} // namespace
 
 // ES/TS call checking (step 2): arity + argument-vs-parameter assignability
 // for calls whose callee resolved to a concrete, NON-GENERIC FunctionType.

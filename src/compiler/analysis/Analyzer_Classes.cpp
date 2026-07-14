@@ -413,6 +413,12 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
             }
             for (const auto& param : method->parameters) {
                 methodType->paramTypes.push_back(parseType(param->type, symbols));
+                // Rest/optional flags were dropped for INTERFACE methods, so
+                // overload resolution demanded exact arity and rejected
+                // `foo(1, 2, "abc")` against `foo(x, y, ...z: string[])`.
+                methodType->isOptional.push_back(
+                    param->isOptional || param->initializer != nullptr);
+                if (param->isRest) methodType->hasRest = true;
             }
             interfaceType->methods[method->name] = methodType;
             interfaceType->methodOverloads[method->name].push_back(methodType);

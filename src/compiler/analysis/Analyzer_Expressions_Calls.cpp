@@ -526,7 +526,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             std::shared_ptr<FunctionType> methodType = nullptr;
 
             if (cls->methodOverloads.count(prop->name)) {
-                methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes);
+                methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes, callArgsExact(node));
                 // For AOT: use implementation's return type, not overload signature's.
                 // The implementation (with body) has the actual runtime return type.
                 // Overload signatures may declare specific types like 'string', but the
@@ -545,7 +545,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             // should resolve to static methods if no instance method matches.
             if (!methodType) {
                 if (cls->staticMethodOverloads.count(prop->name)) {
-                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes, callArgsExact(node));
                     if (methodType && cls->staticMethods.count(prop->name)) {
                         auto implType = cls->staticMethods[prop->name];
                         methodType = std::make_shared<FunctionType>(*methodType);
@@ -567,7 +567,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             std::shared_ptr<FunctionType> methodType = nullptr;
             
             if (inter->methodOverloads.count(prop->name)) {
-                methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes);
+                methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes, callArgsExact(node));
                 // For AOT: use implementation's return type, not overload signature's
                 if (methodType && inter->methods.count(prop->name)) {
                     auto implType = inter->methods[prop->name];
@@ -590,7 +590,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 // Static method
                 std::shared_ptr<FunctionType> methodType = nullptr;
                 if (cls->staticMethodOverloads.count(prop->name)) {
-                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes, callArgsExact(node));
                     // For AOT: use implementation's return type, not overload signature's
                     if (methodType && cls->staticMethods.count(prop->name)) {
                         auto implType = cls->staticMethods[prop->name];
@@ -985,7 +985,7 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
 
                 // Resolve constructor overload
                 if (!classType->constructorOverloads.empty()) {
-                    auto resolvedCtor = resolveOverload(classType->constructorOverloads, ctorArgTypes);
+                    auto resolvedCtor = resolveOverload(classType->constructorOverloads, ctorArgTypes, callArgsExact(node->arguments));
                     if (!resolvedCtor) {
                         reportError(fmt::format("No constructor overload for '{}' matches arguments", classType->name));
                     }

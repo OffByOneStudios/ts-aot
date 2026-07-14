@@ -110,6 +110,8 @@ public:
     void reportError(const std::string& message);
     // Step-2 checker (2026-07-13): argument/arity checking for ordinary
     // calls. Conservative: see Analyzer_Helpers.cpp.
+    bool callArgsExact(ast::CallExpression* node);
+    bool callArgsExact(const std::vector<ast::ExprPtr>& args);
     void checkCallArguments(ast::CallExpression* node,
                             std::shared_ptr<Type> calleeType,
                             const std::vector<std::shared_ptr<Type>>& argTypes);
@@ -302,7 +304,7 @@ private:
     // real sloppy-mode implicit global (erased here).
     std::set<std::string> phantomUnresolved_;
 
-    std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
+    std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes, bool argsExact = true);
 
     void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
     void visitPropertyDefinition(ast::PropertyDefinition* node, std::shared_ptr<ClassType> classType);

@@ -199,7 +199,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
             std::shared_ptr<FunctionType> methodType = nullptr;
             
             if (cls->methodOverloads.count(prop->name)) {
-                methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes);
+                methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes, callArgsExact(node));
             } else if (cls->methods.count(prop->name)) {
                 methodType = cls->methods[prop->name];
             }
@@ -213,7 +213,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
             std::shared_ptr<FunctionType> methodType = nullptr;
             
             if (inter->methodOverloads.count(prop->name)) {
-                methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes);
+                methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes, callArgsExact(node));
             } else if (inter->methods.count(prop->name)) {
                 methodType = inter->methods[prop->name];
             }
@@ -229,7 +229,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                 // Static method
                 std::shared_ptr<FunctionType> methodType = nullptr;
                 if (cls->staticMethodOverloads.count(prop->name)) {
-                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes, callArgsExact(node));
                 } else if (cls->staticMethods.count(prop->name)) {
                     methodType = cls->staticMethods[prop->name];
                 }
@@ -393,7 +393,7 @@ void Analyzer::visitNewExpression(NewExpression* node) {
 
                 // Resolve constructor overload
                 if (!classType->constructorOverloads.empty()) {
-                    auto resolvedCtor = resolveOverload(classType->constructorOverloads, ctorArgTypes);
+                    auto resolvedCtor = resolveOverload(classType->constructorOverloads, ctorArgTypes, callArgsExact(node->arguments));
                     if (!resolvedCtor) {
                         reportError(fmt::format("No constructor overload for '{}' matches arguments", classType->name));
                     }
