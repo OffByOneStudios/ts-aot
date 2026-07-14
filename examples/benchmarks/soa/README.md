@@ -13,9 +13,26 @@ python examples/benchmarks/soa/run.py --runs 3
   (SoA), inline unboxed loads/stores.
 - `nbody_dynamic.ts` — the same math over dynamic `number[]` arrays.
 
-## Current result (2026-07-14): fast wins 5.3x
+## Current result (2026-07-14): fast beats our dynamic path 5.4x; V8 still ahead
 
-fast ≈ **217 ms**, dynamic ≈ 1147 ms, ratio ≈ **5.28x** (identical checksums).
+Three-way, identical checksums (`nbody_node.js` is the same algorithm in
+plain JS, run by node when it's on PATH):
+
+| Contender | wall time | minus startup* | vs fast |
+|---|---|---|---|
+| fast (ts-aot, NativeArray SoA) | 212 ms | ~194 ms | — |
+| dynamic (ts-aot, number[]) | 1149 ms | ~1131 ms | 5.4x slower |
+| node v22 (V8 JIT, plain JS) | 128 ms | ~101 ms | **1.6x faster** |
+
+\* startup measured separately: ts-aot empty exe ≈ 18 ms, `node -e 0` ≈ 27 ms.
+
+**The honest headline:** the fast path now crushes our own dynamic path, but
+V8 is still ~1.9x faster on pure compute. The likely remaining gap: our inner
+loop calls `ts_math_sqrt` as an out-of-line runtime function every iteration
+(V8 inlines to the hardware `sqrtsd` instruction and can vectorize the loop),
+and locals still round-trip through stack slots pending mem2reg quality. Next
+lever: lower `Math.sqrt` (fast files) to the `llvm.sqrt.f64` intrinsic so the
+call disappears and the vectorizer can run.
 
 ### History: the 2026-07-06 result was inverted (fast ~2.2x SLOWER)
 
