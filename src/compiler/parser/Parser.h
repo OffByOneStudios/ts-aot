@@ -348,6 +348,21 @@ private:
         bool isIteration;
     };
     std::vector<ActiveLabel> activeLabels_;
+    // ECMA-262 8.6: labels do not cross function boundaries. Function bodies
+    // swap activeLabels_ out for the body and back on exit. The swap-back
+    // MUST be RAII: a SyntaxError thrown inside the body (e.g. `break target`
+    // to an outer label) unwinds through the body frame, and a bare local
+    // savedLabels vector destructs during unwind — the outer labeled
+    // statement's catch then pop_back()s an EMPTY activeLabels_ (UB crash,
+    // tsconf parser_breakTarget5).
+    struct LabelBoundaryGuard {
+        Parser* p_;
+        std::vector<ActiveLabel> saved_;
+        explicit LabelBoundaryGuard(Parser* p) : p_(p) {
+            saved_.swap(p_->activeLabels_);
+        }
+        ~LabelBoundaryGuard() { p_->activeLabels_.swap(saved_); }
+    };
     // ECMA-262 15.7.1 / 15.7.2 Static Semantics: AllPrivateIdentifiersValid.
     // Each entry is a single class body's PrivateBoundNames plus the
     // unresolved `#x` references seen inside it. Class boundaries push

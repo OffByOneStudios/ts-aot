@@ -309,6 +309,13 @@ bool ASTToHIR::hasTerminator() {
 }
 
 std::shared_ptr<HIRValue> ASTToHIR::boxValueIfNeeded(std::shared_ptr<HIRValue> value) {
+    // A void-typed value used as a VALUE is `undefined` (e.g. a variable
+    // declared `: void` flowing through `&&`/`||`). Passing it through
+    // produced void-typed LLVM phis/stores that fail the verifier or crash
+    // getABITypeAlign (logicalAnd/OrOperatorWithEveryType).
+    if (value && value->type && value->type->kind == HIRTypeKind::Void) {
+        return builder_.createConstUndefined();
+    }
     // If value is already Any/ptr type, no boxing needed
     if (!value->type || value->type->kind == HIRTypeKind::Any ||
         value->type->kind == HIRTypeKind::Ptr) {
