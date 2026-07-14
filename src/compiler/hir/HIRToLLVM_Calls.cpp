@@ -6,6 +6,45 @@ namespace ts::hir {
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
+    // "use fast": unary Math runtime calls with bit-exact LLVM intrinsic
+    // equivalents lower to the intrinsic. An out-of-line ts_math_sqrt call
+    // per iteration was the last non-native op in the SoA benchmark's inner
+    // loop — as an intrinsic it becomes a single sqrtsd and stops blocking
+    // the vectorizer. Only intrinsics with exactly ECMA-262 semantics are
+    // mapped (sqrt/fabs/floor/ceil/trunc; NOT round — llvm.round is
+    // half-away-from-zero, JS is half-up).
+    if (fastModule_ && inst->operands.size() == 2) {
+        static const std::unordered_map<std::string, llvm::Intrinsic::ID> kMathIntrinsic = {
+            {"ts_math_sqrt",  llvm::Intrinsic::sqrt},
+            {"ts_math_abs",   llvm::Intrinsic::fabs},
+            {"ts_math_floor", llvm::Intrinsic::floor},
+            {"ts_math_ceil",  llvm::Intrinsic::ceil},
+            {"ts_math_trunc", llvm::Intrinsic::trunc},
+        };
+        auto iit = kMathIntrinsic.find(funcName);
+        if (iit != kMathIntrinsic.end()) {
+            llvm::Value* a = getOperandValue(inst->operands[1]);
+            if (a) {
+                llvm::Type* t = a->getType();
+                if (t->isIntegerTy())
+                    a = builder_->CreateSIToFP(a, builder_->getDoubleTy());
+                else if (t->isPointerTy()) {
+                    auto ft = llvm::FunctionType::get(builder_->getDoubleTy(),
+                                                      { getGCPtrTy() }, false);
+                    auto fn = module_->getOrInsertFunction("ts_value_get_double", ft);
+                    a = builder_->CreateCall(ft, fn.getCallee(), { a });
+                }
+                if (a->getType()->isDoubleTy()) {
+                    llvm::Function* intr = llvm::Intrinsic::getDeclaration(
+                        module_.get(), iit->second, { builder_->getDoubleTy() });
+                    llvm::Value* r = builder_->CreateCall(intr, { a });
+                    if (inst->result) setValue(inst->result, r);
+                    return;
+                }
+            }
+        }
+    }
+
     // GEN-001 Stage 3: in suspendable-agen mode the body-started marker IS
     // suspension point 0 -> 1 (D5). Lower it like a yield's suspend/resume
     // sequence minus value plumbing: set_state(1) + ret void + relocate to
