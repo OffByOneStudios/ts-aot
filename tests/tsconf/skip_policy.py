@@ -57,6 +57,9 @@ SKIP_OPTIONS = {
 # normally), @target/@module (compile ONCE with our default; comma-variants
 # collapse to the first value — a counted simplification, not a skip).
 
+import re as _re
+_NS_RE = _re.compile(r'^\s*(export\s+)?(declare\s+)?(namespace|module)\s+[A-Za-z_$][\w$.]*\s*\{', _re.M)
+
 def classify(tc, conformance_root=None):
     """(verdict, reason) for the Phase-1 acceptance sweep."""
     rel = tc.path
@@ -68,6 +71,14 @@ def classify(tc, conformance_root=None):
     for opt, reason in SKIP_OPTIONS.items():
         if opt in tc.options:
             return "skip", reason
+    # Namespaces / internal modules are N/A-BY-DESIGN (recorded in
+    # docs/conformance/typescript-features.md: "legacy pattern - use ES
+    # modules"; user-ratified in the Tier-1 plan 2026-07-14). Identifier-named
+    # namespace/module declarations only -- string-named `declare module "x"`
+    # is the ambient-module feature, which we DO parse.
+    for f in tc.files:
+        if _NS_RE.search(f.content):
+            return "skip", "namespaces-na"
     if tc.is_multifile:
         # The metadata parser already splits these; the initial sweep skips
         # them until the runner grows the virtual-fs + module-link step.
