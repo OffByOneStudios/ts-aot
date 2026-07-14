@@ -8,7 +8,15 @@
 "06459776bae2bab95344a9474ff6a15060ff65b1": {
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\37c18ec7559a4e37\\decoratorOnClassMethod15.js:17"
 },
+"06d637639bf62507801b02577c5ef34e62e2f2fc": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_va6rcts5\\29384f134be11762\\decoratorOnClassConstructorParameter5.js:24"
+},
 "0745c863dab3aa3b25e5ff2541f8bbc7bbeb821d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"07983ce11a74f84a52808d314ffc5e7ca888d72a": {
 "exit": 0,
 "stderr_head": "",
 "stdout": ""
@@ -103,10 +111,20 @@
 "stderr_head": "",
 "stdout": ""
 },
+"2ca60c4fd24cd2c99773e7dc1340a18069f129cf": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "3030c210dfdb092522e60856f45122ffa46c34af": {
 "exit": 0,
 "stderr_head": "",
 "stdout": "a b c d e\na b c d\n"
+},
+"30cdc0c391785169cc2e0287afd51f2541dfeb8c": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
 },
 "3178381dc83070fffd5fc7a31afef4d30bbc2ab0": {
 "exit": 0,
@@ -199,6 +217,16 @@
 "48598a9558ecfcb6adc807b41d8bc1432c46ee1a": {
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\21707b8f8fc2bd11\\decoratorOnClass9.js:20"
 },
+"4d4c5a4f5843b120b8043605ef203563769a6ae8": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"5140dae7e711e2030987bf3d6c50d0aacb6e1f8f": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "526e1ff32a55d3bdba170d415338835659d6b515": {
 "exit": 0,
 "stderr_head": "",
@@ -237,6 +265,11 @@
 "61c197ac05eb823b15ad9fea447fed0acf70c554": {
 "exit": 1,
 "stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\ff45244ba9c7709f\\classWithStaticFieldInParameterBindingPattern.js:9\n    _b).x]: b = \"\" } = _a; })();\n                       ^\n\nTypeError: Cannot destr",
+"stdout": ""
+},
+"640baff088fda007f893cf0fc3e6ab906d5aecb4": {
+"exit": 0,
+"stderr_head": "",
 "stdout": ""
 },
 "64c3ec4106356c18ca96d17bc6c477a86d8fa2d6": {
@@ -283,6 +316,11 @@
 "stderr_head": "",
 "stdout": ""
 },
+"72d32bd0d38da880a28d546c6217e7b08d0d5783": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "77dc5943d820806b5b83e90d9f291053211cb745": {
 "exit": 0,
 "stderr_head": "",
@@ -292,6 +330,9 @@
 "exit": 0,
 "stderr_head": "",
 "stdout": ""
+},
+"7c97cc0d608ed79f178f0c7aff46f36f0c8a0e3c": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_va6rcts5\\962efbc0df8f28b4\\thisAndSuperInStaticMembers1.js:6"
 },
 "7cfa3c41373b827236bf1d4716ddae543aa470c9": {
 "exit": 0,
@@ -311,9 +352,24 @@
 "stderr_head": "",
 "stdout": "1 undefined undefined\n1 2 undefined\n"
 },
+"7fd89e4b7a9fcc123c2df775c50b556161792aba": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"800ba3dd2510a608bed18060bba96a4c7b21baf4": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "80f8c53bb00ce841d03ef2cdc1418b5f9c3cc47f": {
 "exit": 1,
 "stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\0ae460f02c4abfe0\\classWithStaticFieldInParameterBindingPattern.2.js:13\n    _b).x]: b = \"\" } = _a; var C; })();\n                       ^\n\nTypeError: Ca",
+"stdout": ""
+},
+"81165806cf81107a996cef271d2d9d94e1fc08f3": {
+"exit": 0,
+"stderr_head": "",
 "stdout": ""
 },
 "81501d6434f5727e8d5b3d92fff925014600810b": {
@@ -355,6 +411,11 @@
 "stderr_head": "",
 "stdout": ""
 },
+"8fd0e5d1cb4c55e5f24462a3c20a6ee23b76330d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "90438c4bc3dba1df37173b53f1849bc8b66989d7": {
 "exit": 0,
 "stderr_head": "",
@@ -363,10 +424,18 @@
 "917f92613967b32f50673f00365e84ef2edae977": {
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\e607e0f969cd7f50\\decoratorOnClassMethod4.js:12"
 },
+"91a1e56b3efb1a08959bab58d4bdeb2e5b4f77bd": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_va6rcts5\\d8f7768668613c5b\\thisAndSuperInStaticMembers2.js:6"
+},
 "91b51bc479d516aa9d603884b16f549be954d07c": {
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\caa2d6e303ca63cc\\asyncGeneratorParameterEvaluation.js:10"
 },
 "920af234f7ef3e1d556eeac0ba84183bc554b3ea": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"92e1ce4a2e7da3d2543e6247580be6fce0be5fb7": {
 "exit": 0,
 "stderr_head": "",
 "stdout": ""
@@ -415,15 +484,28 @@
 "stderr_head": "",
 "stdout": ""
 },
+"9ce152f270163334fd75369fb578d39027b4d9f2": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "9d2f86b1265181a408f3f904278d8ee75e2328d9": {
 "exit": 0,
 "stderr_head": "",
 "stdout": "123\n"
 },
+"9f8a555d719af546474fc88b03e94f0d1fb177ca": {
+"oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_va6rcts5\\2ccdf22867caeecd\\decoratorOnClassProperty13.js:29"
+},
 "a01bd63129ff7d9bad58dc1d49c087b5c8827a48": {
 "exit": 0,
 "stderr_head": "",
 "stdout": "{}\n"
+},
+"a199cccafba40a5d41e97fc251be01cc12149043": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
 },
 "a425711c089ee5bb6aca9aca7fb0fa919b118010": {
 "exit": 0,
@@ -472,6 +554,16 @@
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\94689ae81667597b\\decoratorOnClassMethod10.js:12"
 },
 "ade2c89c3b2334d7dc52b8239fe968122507e119": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"af4142fddc59cd51370e8548a772d775054b9d9e": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"af649164adc1b67e1dae93d43ca3264077215106": {
 "exit": 0,
 "stderr_head": "",
 "stdout": ""
@@ -616,6 +708,11 @@
 "stderr_head": "C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\a3da304785cf5573\\classPropertyIsPublicByDefault.js:13\nc.x;\n  ^\n\nTypeError: Cannot read properties of undefined (reading 'x')\n    at Object.<anonymous>",
 "stdout": ""
 },
+"d5c4173da608d0da38605fb8b19f8c49f15b256b": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "d5f80366032ec1ea86a7880c9d145bad11aff14a": {
 "exit": 0,
 "stderr_head": "",
@@ -658,6 +755,16 @@
 "stderr_head": "",
 "stdout": ""
 },
+"e4bec8611ac0b4ccbf6f41336e3337e2e352a39d": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"e5b792aeb5ae8db69cc051abb6dc877c3fe10ad9": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
 "e8111eab7d8ce0b75d352ecf53d97ac4c8c3096c": {
 "exit": 0,
 "stderr_head": "",
@@ -680,6 +787,16 @@
 "oracle_error": "oracle-unrunnable-ambient: C:\\Users\\cgrin\\AppData\\Local\\Temp\\tsconf_krjoo3ng\\924b0ccef8f2a293\\decoratorOnClassProperty12.js:10"
 },
 "ec58e35eeb05dc7d1f66283c75e51b791d60eda6": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"efbf79f55eca2cbe884a149ce8915b4e3b7379fa": {
+"exit": 0,
+"stderr_head": "",
+"stdout": ""
+},
+"f151bc0dc60da0b48cb2729d3697ebb652efeba4": {
 "exit": 0,
 "stderr_head": "",
 "stdout": ""
