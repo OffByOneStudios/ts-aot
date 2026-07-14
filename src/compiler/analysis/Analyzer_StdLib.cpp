@@ -201,6 +201,9 @@ Analyzer::Analyzer() {
     // Well-known symbols (ES2015)
     symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::Symbol);
     symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::Symbol);
+    // TS 5.2 explicit resource management (`using` declarations).
+    symbolType->fields["dispose"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["asyncDispose"] = std::make_shared<Type>(TypeKind::Symbol);
     symbolType->fields["hasInstance"] = std::make_shared<Type>(TypeKind::Symbol);
     symbolType->fields["isConcatSpreadable"] = std::make_shared<Type>(TypeKind::Symbol);
     symbolType->fields["match"] = std::make_shared<Type>(TypeKind::Symbol);

@@ -2230,9 +2230,64 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
         case TokenKind::KW_enum:
             result = parseEnumDeclaration(false, false);
             break;
-        default:
+        default: {
+            // TS 5.2 `using x = expr` / `await using x = expr` (explicit
+            // resource management). Contextual: only a declaration when
+            // IDENT '=' follows on the same line -- `using = 5`, `using.x`,
+            // labels etc. stay expressions. Parsed as a const declaration;
+            // [Symbol.dispose] at block exit is not yet emitted
+            // (acceptance-scoped; runtime axis will need the try/finally).
+            bool isUsingDecl = false;
+            bool isAwaitUsing = false;
+            if ((current_.kind == TokenKind::Identifier && current_.text == "using") ||
+                (current_.kind == TokenKind::KW_await)) {
+                auto savedU = saveState();
+                if (current_.kind == TokenKind::KW_await) {
+                    advance();
+                    if (current_.kind == TokenKind::Identifier &&
+                        current_.text == "using" && !current_.hadNewlineBefore) {
+                        isAwaitUsing = true;
+                    } else {
+                        restoreState(savedU);
+                    }
+                }
+                if (current_.kind == TokenKind::Identifier && current_.text == "using" &&
+                    (isAwaitUsing || !isUsingDecl)) {
+                    auto savedU2 = saveState();
+                    advance();
+                    if ((current_.kind == TokenKind::Identifier ||
+                         Lexer::isKeyword(current_.kind)) &&
+                        !current_.hadNewlineBefore) {
+                        advance();
+                        if (check(TokenKind::Equals) || check(TokenKind::Colon)) {
+                            isUsingDecl = true;
+                        }
+                    }
+                    restoreState(savedU2);
+                    if (!isUsingDecl && isAwaitUsing) restoreState(savedU);
+                }
+            }
+            if (isUsingDecl) {
+                // parseVariableDeclarationList consumes the leading keyword
+                // itself; 'using' (an Identifier token) stands in for it.
+                auto stmts = parseVariableDeclarationList(false);
+                for (auto& s0 : stmts) {
+                    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(s0.get()))
+                        vd->varKind = ast::VarKind::Const;
+                }
+                if (stmts.size() == 1) {
+                    result = std::move(stmts[0]);
+                } else {
+                    auto block = std::make_unique<ast::BlockStatement>();
+                    block->isSynthetic = true;
+                    for (auto& s0 : stmts) block->statements.push_back(std::move(s0));
+                    result = std::move(block);
+                }
+                break;
+            }
             result = parseLabeledOrExpressionStatement();
             break;
+        }
     }
 
     if (result && !decorators.empty()) {
