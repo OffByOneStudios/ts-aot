@@ -7816,6 +7816,19 @@ void* ts_tdz_check(void* v, void* nameStr) {
     return v;
 }
 
+// `let x;` (no initializer) ends the TDZ by initializing to undefined —
+// but ONLY when the slot still holds the sentinel. Under our hoisted-class
+// execution order, a deferred class static block may have already written
+// the real value (classStaticBlock17: `let friendA; class A { static {
+// friendA = {...} } }` runs the block at user_main entry); the spec order
+// (let first, block after) yields the block's value, so preserving a
+// non-sentinel value matches spec-final state on both orderings.
+void* ts_tdz_init_undefined(void* v) {
+    if ((uint64_t)(uintptr_t)v == NANBOX_TDZ)
+        return (void*)(uintptr_t)NANBOX_UNDEFINED;
+    return v;
+}
+
 // ----- new.target (ES 13.3.12 NewTarget meta-property) -----
 // A single ambient register holding the active [[Construct]] target. The
 // construct paths (compiler-inlined class construction, the unified
