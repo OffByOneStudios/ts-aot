@@ -1045,6 +1045,20 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // A bare reference to an enum NAME is the runtime enum object (forward
+    // members + numeric reverse map), materialized at the declaration into
+    // the __enumobj_<name> global by visitEnumDeclaration. E1.A / E1[x]
+    // stay compile-time-inlined via enumValues_/enumReverseMap_ in the
+    // property/element paths; this only covers the enum used as a VALUE
+    // (`var e = E1`). A local binding of the same name still shadows.
+    if (enumValues_.count(node->name) && !lookupVariable(node->name)) {
+        size_t enumCapScope = 0;
+        if (!(currentFunction_ && isCapturedVariable(node->name, &enumCapScope))) {
+            lastValue_ = builder_.createLoadGlobal("__enumobj_" + node->name);
+            return;
+        }
+    }
+
     // JavaScript built-in globals must be resolved BEFORE moduleGlobalVars_ check.
     // In untyped JS modules, identifiers like String, Object, Array may appear in
     // moduleGlobalVars_ (from Analyzer function usage tracking) but should resolve

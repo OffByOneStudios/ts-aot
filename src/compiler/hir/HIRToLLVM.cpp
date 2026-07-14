@@ -333,7 +333,8 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
         for (auto& gv : module_->globals()) {
             if (gv.getName().starts_with("__modvar_") ||
-                gv.getName().starts_with("__closure_cache_")) {
+                gv.getName().starts_with("__closure_cache_") ||
+                gv.getName().starts_with("__enumobj_")) {
                 ctorBuilder.CreateCall(regFt, regFn.getCallee(), {&gv});
             }
         }

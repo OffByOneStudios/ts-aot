@@ -142,6 +142,12 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
             // Trim whitespace and handle optional marker
             fieldName.erase(0, fieldName.find_first_not_of(" \t\n\r"));
             fieldName.erase(fieldName.find_last_not_of(" \t\n\r?") + 1);
+            // `readonly x: T` — the modifier is type-only, strip it
+            // (enumBasics: `{ readonly A: E1.A; ... }` members vanished).
+            if (fieldName.rfind("readonly ", 0) == 0) {
+                fieldName = fieldName.substr(9);
+                fieldName.erase(0, fieldName.find_first_not_of(" \t\n\r"));
+            }
             // Generic method `fn<T>(...)`: drop the type-parameter list from the name
             if (auto lt = fieldName.find('<'); lt != std::string::npos)
                 fieldName.erase(lt);

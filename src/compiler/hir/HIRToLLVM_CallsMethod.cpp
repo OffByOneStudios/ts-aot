@@ -1088,6 +1088,18 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
             setValue(inst->result, result);
         }
         return;
+    } else if (globalName.find("__enumobj_") == 0) {
+        // Runtime enum object slot (built at user_main entry by
+        // emitDeferredStaticInits) — an LLVM global, not a runtime global.
+        llvm::GlobalVariable* gv = module_->getGlobalVariable(globalName);
+        if (!gv) {
+            gv = getOrCreateGlobal(globalName, HIRType::makeAny());
+        }
+        result = builder_->CreateLoad(getGCPtrTy(), gv, globalName);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
     } else if (globalName.find("_VTable_Global") != std::string::npos) {
         // VTable globals are LLVM globals, not runtime globals
         llvm::GlobalVariable* vtableGlobal = module_->getGlobalVariable(globalName);

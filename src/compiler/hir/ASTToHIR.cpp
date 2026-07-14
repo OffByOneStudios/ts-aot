@@ -2067,6 +2067,15 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
 //==============================================================================
 
 void ASTToHIR::emitDeferredStaticInits() {
+    // Runtime enum objects first: top-level enums are visited in the
+    // pre-pass with no active block; their __enumobj_<name> globals are
+    // built here so any code (including static initializers below) can
+    // reference the enum as a value.
+    for (auto& enumName : deferredEnumObjects_) {
+        emitEnumObject(enumName);
+    }
+    deferredEnumObjects_.clear();
+
     // Emit static property initializations. DRAIN pattern: lowering an
     // initializer that is itself a class expression with static fields
     // (`class A { static B = class B { static C = ... } }`) pushes NEW
@@ -2713,6 +2722,17 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 broadcastCaptureWrite(existingInfo, boxedInit);
                 if (node->varKind == ast::VarKind::Const)
                     existingInfo->isConst = true;
+                return;
+            }
+            // An initializer-less `var x;` RE-declaration must not assign
+            // (ECMA-262 14.3.2: only VariableDeclaration WITH Initializer
+            // performs a write). TS conformance code uses `var e: SomeType;`
+            // re-declarations as pure type assertions after `var e = value;`
+            // — storing undefined here clobbered the live value (enumBasics
+            // family of runtime diffs).
+            if (!node->initializer) {
+                // Leave elemType alone: the slot already holds a live value
+                // whose storage type is authoritative.
                 return;
             }
             // Variable was pre-hoisted: just store the init value into the existing alloca
