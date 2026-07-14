@@ -843,9 +843,18 @@ void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value*
         // IMPORTANT: Skip for generator/async impl functions — their state machine
         // saves/restores across yields, so stack allocas don't survive between calls.
         // Their state is already in the GC-tracked async context data buffer.
+        // "use fast": a NativeArray handle is malloc-backed (off the GC heap,
+        // never moved or collected) — pinning it is pure stack traffic AND
+        // the pin store/reload pair defeats LICM on hot loops (the SoA
+        // benchmark reloaded every component-array handle per element
+        // access). Use the SSA value directly.
+        bool isNonGCHandle = fastModule_ && hirValue->type &&
+            hirValue->type->kind == HIRTypeKind::Class &&
+            hirValue->type->className == "NativeArray";
         if (llvmValue && llvmValue->getType()->isPointerTy() &&
             currentFunction_ &&
             !generatorDataBuf_ &&
+            !isNonGCHandle &&
             !llvm::isa<llvm::Constant>(llvmValue) &&
             !llvm::isa<llvm::AllocaInst>(llvmValue) &&
             !llvm::isa<llvm::Argument>(llvmValue)) {
