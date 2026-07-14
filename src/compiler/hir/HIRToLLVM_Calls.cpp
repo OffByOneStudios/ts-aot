@@ -6,6 +6,20 @@ namespace ts::hir {
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
+    // ts_tdz_sentinel() returns the compile-time constant NANBOX_TDZ (0x9)
+    // unconditionally — materialize the constant instead of a runtime call.
+    // Block-scoped let/const re-seed their slots at every block ENTRY, so a
+    // hot loop body paid one call per declaration per iteration (6 calls/
+    // iteration in the SoA benchmark's inner loop, ~186M total). As a
+    // Constant it's also exempt from GC pinning, and DSE can drop the
+    // seed store entirely when the declaration's own store follows.
+    if (funcName == "ts_tdz_sentinel" && inst->operands.size() == 1) {
+        llvm::Value* sentinel = llvm::ConstantExpr::getIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 9), getGCPtrTy());
+        if (inst->result) setValue(inst->result, sentinel);
+        return;
+    }
+
     // "use fast": unary Math runtime calls with bit-exact LLVM intrinsic
     // equivalents lower to the intrinsic. An out-of-line ts_math_sqrt call
     // per iteration was the last non-native op in the SoA benchmark's inner

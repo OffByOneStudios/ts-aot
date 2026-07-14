@@ -20,19 +20,26 @@ plain JS, run by node when it's on PATH):
 
 | Contender | wall time | minus startup* | vs fast |
 |---|---|---|---|
-| fast (ts-aot, NativeArray SoA) | 185 ms | ~167 ms | — |
-| dynamic (ts-aot, number[]) | 1148 ms | ~1130 ms | 6.2x slower |
-| node v22 (V8 JIT, plain JS) | 128 ms | ~101 ms | **1.4x faster** |
+| fast (ts-aot, NativeArray SoA) | **123 ms** | ~105 ms | — |
+| dynamic (ts-aot, number[]) | 1087 ms | ~1069 ms | 8.8x slower |
+| node v22 (V8 JIT, plain JS) | 128 ms | ~101 ms | 1.04x slower |
 
 \* startup measured separately: ts-aot empty exe ≈ 18 ms, `node -e 0` ≈ 27 ms.
 
-**The honest headline:** the fast path crushes our own dynamic path, and the
-`Math.sqrt` → `llvm.sqrt.f64` intrinsic (fast modules) took another 27 ms
-(212 → 185), but V8 is still ~1.65x faster on pure compute. The remaining
-suspect: every loop-carried value round-trips a `gc.pin` stack slot per
-iteration (V8 keeps them in registers) — closing that means teaching the
-pin/spill machinery that NativeArray handles and unboxed doubles in a fast
-frame need no GC pinning at all.
+**The fast path now matches V8** (slightly ahead on wall time, effectively
+tied on pure compute) and beats our own dynamic path 8.8x. The journey from
+the inverted 2026-07-06 result, each step measured on this benchmark:
+
+| Change | fast time |
+|---|---|
+| baseline (2026-07-06 write-up) | 2653 ms |
+| typed CallMethod results (NativeArray.get element type; Math.* direct typed calls) | 217 ms |
+| `Math.sqrt/abs/floor/ceil/trunc` → LLVM intrinsics (fast modules) | 185 ms |
+| no GC pin for NativeArray handles (fast modules) + `ts_tdz_sentinel` as inline constant (all modes — a hot loop body paid one runtime CALL per block-scoped declaration per iteration) | 123 ms |
+
+The sentinel fix also sped the dynamic path up (1148 → 1087 ms): every
+block-scoped `let`/`const` in every program was re-seeding its TDZ slot
+through an out-of-line call at each block entry.
 
 ### History: the 2026-07-06 result was inverted (fast ~2.2x SLOWER)
 
