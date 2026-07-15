@@ -59,7 +59,15 @@ global-builtin method with a typed RuntimeCall resolution (all of `Math.*`)
 lowers to a direct typed call with no receiver evaluation. The inner loop is
 now pure native `fmul/fadd/fsub` plus one `ts_math_sqrt(double)` call.
 
-The **dev-mode safety checks** (Phase 3's other half) are complete and working:
-build with `--fast-checks` and run with `TS_FAST_CHECKS=1` to get loud
-bounds / use-after-dispose / double-dispose aborts; the release default inlines
-with no checks.
+## Safety tiers (2026-07-14: safety is the DEFAULT)
+
+| Build | nbody time | what you get |
+|---|---|---|
+| default | 128.3 ms | inline bounds check on every element access (length compare + loud abort); negative/NaN indexes caught. **This matches V8, which also bounds-checks at this speed.** |
+| `--fast-unchecked` | 122.6 ms | raw access, no checks — the explicit unsafe opt-out (Rust `get_unchecked` analog), for kernels that have earned it |
+| `--fast-checks` | 299 ms | dev diagnostics via the runtime: bounds + use-after-dispose + double-dispose (loud with `TS_FAST_CHECKS=1`) |
+
+Bounds safety costs **4.6%** on this kernel — LLVM hoists the length load and
+the branch predicts perfectly. Known residual unsafety even in the default
+tier: use-after-`dispose()` of a Persistent array and a Temp array escaping
+its arena frame (caught only by `--fast-checks` dev builds).

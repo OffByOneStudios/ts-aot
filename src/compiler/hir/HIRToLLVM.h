@@ -75,15 +75,32 @@ public:
     // on each return, so Temp allocations are bulk-freed at frame exit.
     void setFastModule(bool enable) { fastModule_ = enable; }
 
-    // "use fast" Phase 3: dev-mode NativeArray safety. When enabled, element
-    // access lowers to the bounds/dispose-checked runtime CALL; when disabled
-    // (release default), it lowers to an inline unboxed load/store. Public so
-    // the NativeArrayHandler can consult it.
+    // "use fast" NativeArray safety tiers (safety is the DEFAULT):
+    //   default        -> inline unboxed load/store guarded by an INLINE
+    //                     bounds check (length compare + noreturn abort);
+    //                     hoistable/eliminable by LLVM like V8's checks.
+    //   --fast-checks  -> the bounds/dispose-checked runtime CALL (richer
+    //                     dev diagnostics: use-after-dispose, double-dispose).
+    //   --fast-unchecked -> raw inline access, NO bounds check. The explicit
+    //                     unsafe marker (Rust get_unchecked analog); for
+    //                     kernels that have earned it.
     void setFastChecks(bool enable) { fastChecks_ = enable; }
     bool fastChecks() const { return fastChecks_; }
+    void setFastUnchecked(bool enable) { fastUnchecked_ = enable; }
+    bool fastUnchecked() const { return fastUnchecked_; }
     // Expose the addrspace(1)->addrspace(0) cast for handlers doing inline
     // memory access on a NativeArray handle.
     llvm::Value* toRawPtr(llvm::Value* v) { return gcPtrToRaw(v); }
+    // NativeArray element-access helpers shared by the [i] sugar
+    // (lowerGet/SetElem) and NativeArrayHandler (.get/.set):
+    llvm::Value* emitNativeArrayIndex(llvm::Value* v);  // any -> i64
+    llvm::Value* emitNativeArrayF64(llvm::Value* v);    // any -> double
+    llvm::Value* emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx);
+    // Inline bounds check: load length (offset 8), unsigned-compare the
+    // index (negative/NaN indexes wrap huge and fail), branch to a
+    // noreturn ts_native_array_bounds_abort on out-of-range. Leaves the
+    // builder in the continuation block.
+    void emitNativeArrayBoundsCheck(llvm::Value* arr, llvm::Value* i64Idx);
 
     // Enable debug info emission (CodeView on Windows, DWARF on Linux/Mac).
     // When enabled, source file/line metadata is attached to LLVM IR instructions.
@@ -128,6 +145,7 @@ private:
     bool enableGCStatepoints_ = false;
     bool fastModule_ = false;                // entry program had "use fast"
     bool fastChecks_ = false;                // dev-mode NativeArray checks (--fast-checks)
+    bool fastUnchecked_ = false;             // NO bounds checks (--fast-unchecked, explicit unsafe)
     llvm::Value* arenaMarker_ = nullptr;     // per-function ts_native_arena_mark() token
 
     // Debug info emission
@@ -613,11 +631,6 @@ private:
     void lowerSetElem(HIRInstruction* inst);
     void lowerGetElemTyped(HIRInstruction* inst);
     void lowerSetElemTyped(HIRInstruction* inst);
-    // "use fast" NativeArray element-sugar helpers (mirror
-    // NativeArrayHandler's private toI64/toF64/slotPtr).
-    llvm::Value* emitNativeArrayIndex(llvm::Value* v);  // any -> i64
-    llvm::Value* emitNativeArrayF64(llvm::Value* v);    // any -> double
-    llvm::Value* emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx);
     void lowerArrayLength(HIRInstruction* inst);
     void lowerArrayPush(HIRInstruction* inst);
 
