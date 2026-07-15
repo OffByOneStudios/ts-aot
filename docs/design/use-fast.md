@@ -476,13 +476,19 @@ The seam (§14) is the only place boxing/roots reappear.
     free (so use-after-dispose is caught instead of reading freed memory — an
     intentional dev leak, like Unity's leak detector); release frees as before.
   - Compiler: `--fast-checks` (`Driver`/`main.cpp` -> `HIRToLLVM::fastChecks_`)
-    selects **which lowering** `.get`/`.set` get. **Release default = inline**
-    unboxed load/store (`base + 16 + i·8`, raw addrspace-0 handle so it's off
-    the GC statepoint path); **`--fast-checks` = the checked runtime call.**
-    This is the RFC's "checks compiled out in release." `.length`/`.dispose`
-    stay calls (cold). Verified: default IR has 0 element calls (inline),
-    non-fast IR unchanged. Probes tmp/oob.ts + tmp/uad.ts (both silent by
-    default; loud abort under `--fast-checks` + `TS_FAST_CHECKS=1`).
+    selects **which lowering** `.get`/`.set` get. `.length`/`.dispose`
+    stay calls (cold).
+  - **REVISED 2026-07-14 — safety is the DEFAULT** (user decision: "we can't
+    have explicitly unmarked unsafe code; Rust doesn't even do that"). Three
+    tiers, measured on the nbody kernel:
+    | tier | nbody | semantics |
+    |---|---|---|
+    | default | 128.3 ms | inline unboxed load/store guarded by an **inline bounds check** (length at base+8, unsigned compare so negative/NaN indexes fail, branch to noreturn `ts_native_array_bounds_abort`). LLVM hoists the length load; cost measured **4.6%**. Matches V8, which also bounds-checks at this speed. |
+    | `--fast-unchecked` | 122.6 ms | raw access, NO check — the explicit unsafe marker (Rust `get_unchecked` analog) |
+    | `--fast-checks` | 299 ms | dev runtime call: bounds + use-after-dispose + double-dispose (loud with `TS_FAST_CHECKS=1`) |
+    Residual unsafety in the default tier: use-after-dispose (Persistent)
+    and Temp-array frame escape — dev-mode only. The original "checks
+    compiled out in release" Unity framing is retired for bounds.
 - **SoA benchmark — RESOLVED 2026-07-14: fast wins 5.28x** (fast ≈217 ms,
   dynamic ≈1147 ms, identical checksum). The 2026-07-06 result was inverted
   (fast ~2.2x slower); the IR profile found the real root — none of the

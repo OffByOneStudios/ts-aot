@@ -145,6 +145,19 @@ void* arena_alloc(size_t n) {
 
 extern "C" {
 
+// Inline-bounds-check failure (the compiler's DEFAULT NativeArray element
+// lowering: compare index against the length field, branch here on
+// out-of-range). Always loud, always fatal — safety is the default; the
+// explicit escape hatch is --fast-unchecked. NaN indexes arrive as INT64_MIN
+// (cvttsd2si) and negative/huge values all fail the unsigned compare.
+[[noreturn]] void ts_native_array_bounds_abort(int64_t i, int64_t len) {
+    std::fprintf(stderr,
+        "[use fast] NativeArray index %lld out of bounds [0, %lld)\n",
+        (long long)i, (long long)len);
+    std::fflush(stderr);
+    std::abort();
+}
+
 // Push an arena frame; returns a LIFO token (frame depth). The compiler emits
 // this at fast-function entry.
 uint64_t ts_native_arena_mark() {

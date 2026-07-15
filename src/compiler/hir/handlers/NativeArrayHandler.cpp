@@ -79,7 +79,11 @@ public:
                 auto fn = module.getOrInsertFunction(rn, ft);
                 return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
             }
-            // Release: inline unboxed load. slot ptr = base + 16 + i*8.
+            // Default: inline unboxed load guarded by an inline bounds check
+            // (safety is the default; --fast-unchecked removes the check).
+            // slot ptr = base + 16 + i*8.
+            if (!lowerer.fastUnchecked())
+                lowerer.emitNativeArrayBoundsCheck(arr, idx);
             llvm::Value* slot = slotPtr(arr, idx, lowerer);
             llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
                                    : (llvm::Type*)builder.getDoubleTy();
@@ -106,7 +110,10 @@ public:
                 builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
                 return llvm::ConstantPointerNull::get(builder.getPtrTy());
             }
-            // Release: inline unboxed store.
+            // Default: inline unboxed store guarded by an inline bounds check
+            // (safety is the default; --fast-unchecked removes the check).
+            if (!lowerer.fastUnchecked())
+                lowerer.emitNativeArrayBoundsCheck(arr, idx);
             llvm::Value* slot = slotPtr(arr, idx, lowerer);
             builder.CreateStore(v, slot);
             return llvm::ConstantPointerNull::get(builder.getPtrTy());

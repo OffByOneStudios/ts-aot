@@ -1359,6 +1359,31 @@ llvm::Value* HIRToLLVM::emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Id
     return builder_->CreateGEP(builder_->getInt8Ty(), raw, off, "na.slot");
 }
 
+void HIRToLLVM::emitNativeArrayBoundsCheck(llvm::Value* arr, llvm::Value* i64Idx) {
+    llvm::Value* raw = toRawPtr(arr);
+    llvm::Value* lenPtr = builder_->CreateGEP(
+        builder_->getInt8Ty(), raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 8), "na.lenptr");
+    llvm::Value* len = builder_->CreateLoad(builder_->getInt64Ty(), lenPtr, "na.len");
+    // Unsigned compare: a negative index (or the INT64_MIN a NaN converts
+    // to) wraps huge and fails the same test as index >= length.
+    llvm::Value* inBounds = builder_->CreateICmpULT(i64Idx, len, "na.inbounds");
+    llvm::Function* f = builder_->GetInsertBlock()->getParent();
+    auto* failBB = llvm::BasicBlock::Create(context_, "na.oob", f);
+    auto* contBB = llvm::BasicBlock::Create(context_, "na.cont", f);
+    builder_->CreateCondBr(inBounds, contBB, failBB);
+    builder_->SetInsertPoint(failBB);
+    auto ft = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getInt64Ty(), builder_->getInt64Ty() }, false);
+    auto fn = module_->getOrInsertFunction("ts_native_array_bounds_abort", ft);
+    if (auto* fdecl = llvm::dyn_cast<llvm::Function>(fn.getCallee()))
+        fdecl->addFnAttr(llvm::Attribute::NoReturn);
+    builder_->CreateCall(ft, fn.getCallee(), { i64Idx, len });
+    builder_->CreateUnreachable();
+    builder_->SetInsertPoint(contBB);
+}
+
 void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
@@ -1387,6 +1412,7 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 auto fn = module_->getOrInsertFunction(rn, ft);
                 loaded = builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx });
             } else {
+                if (!fastUnchecked_) emitNativeArrayBoundsCheck(arr, i64Idx);
                 llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
                 llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
                                          : (llvm::Type*)builder_->getDoubleTy();
@@ -1600,6 +1626,7 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
                 auto fn = module_->getOrInsertFunction(rn, ft);
                 builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx, v });
             } else {
+                if (!fastUnchecked_) emitNativeArrayBoundsCheck(arr, i64Idx);
                 llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
                 builder_->CreateStore(v, slot);
             }

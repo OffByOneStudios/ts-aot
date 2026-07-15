@@ -69,7 +69,8 @@ int main(int argc, char** argv) {
             ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
             ("gc-statepoints", "Enable LLVM GC statepoint precise-root infrastructure (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("no-gc-statepoints", "Disable LLVM GC statepoints (use conservative stack scan)", cxxopts::value<bool>()->default_value("false"))
-            ("fast-checks", "\"use fast\": emit dev-mode NativeArray bounds/dispose checks (default: inline, unchecked)", cxxopts::value<bool>()->default_value("false"))
+            ("fast-checks", "\"use fast\": NativeArray access via the dev-mode runtime (adds dispose/double-dispose diagnostics; default: inline bounds-checked)", cxxopts::value<bool>()->default_value("false"))
+            ("fast-unchecked", "\"use fast\": remove NativeArray bounds checks (UNSAFE - explicit opt-out, the Rust get_unchecked analog)", cxxopts::value<bool>()->default_value("false"))
             ("coverage", "Emit LLVM source-based coverage instrumentation", cxxopts::value<bool>()->default_value("false"))
             ("timing", "Print a per-phase wall-clock breakdown of the compile to stderr", cxxopts::value<bool>()->default_value("false"))
             ("batch", "Compile many files in ONE process (amortizes process load + LLVM init + extension load). Arg is a manifest: one job per line, 'INPUT<TAB>OUTPUT'. Prints 'INPUT<TAB>OUTPUT<TAB>RC' per job to stdout.", cxxopts::value<std::string>())
@@ -180,6 +181,7 @@ int main(int argc, char** argv) {
         driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>()
                                          && !result["no-gc-statepoints"].as<bool>();
         driverOpts.fastChecks = result["fast-checks"].as<bool>();
+        driverOpts.fastUnchecked = result["fast-unchecked"].as<bool>();
         driverOpts.coverage = result["coverage"].as<bool>();
         driverOpts.timing = result["timing"].as<bool>();
         driverOpts.tMainStart = _tMainStart;

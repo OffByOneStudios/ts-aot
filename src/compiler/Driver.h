@@ -30,6 +30,7 @@ struct DriverOptions {
     bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
     bool enableGCStatepoints = false;  // --gc-statepoints: enable LLVM GC statepoint infrastructure
     bool fastChecks = false;           // --fast-checks: dev-mode NativeArray bounds/dispose checks ("use fast")
+    bool fastUnchecked = false;        // --fast-unchecked: remove NativeArray bounds checks (explicit unsafe)
     bool coverage = false;             // --coverage: emit LLVM source-based coverage instrumentation
     bool timing = false;               // --timing: print a per-phase wall-clock breakdown to stderr
     std::string batchManifest;         // --batch <file>: compile many inputs in one process (amortizes startup)
