@@ -613,6 +613,11 @@ private:
     void lowerSetElem(HIRInstruction* inst);
     void lowerGetElemTyped(HIRInstruction* inst);
     void lowerSetElemTyped(HIRInstruction* inst);
+    // "use fast" NativeArray element-sugar helpers (mirror
+    // NativeArrayHandler's private toI64/toF64/slotPtr).
+    llvm::Value* emitNativeArrayIndex(llvm::Value* v);  // any -> i64
+    llvm::Value* emitNativeArrayF64(llvm::Value* v);    // any -> double
+    llvm::Value* emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx);
     void lowerArrayLength(HIRInstruction* inst);
     void lowerArrayPush(HIRInstruction* inst);
 

@@ -877,6 +877,12 @@ public:
         if (!elemType) {
             if (arr->type && arr->type->kind == HIRTypeKind::Array && arr->type->elementType) {
                 elemType = arr->type->elementType;
+            } else if (arr->type && arr->type->kind == HIRTypeKind::Class &&
+                       arr->type->className == "NativeArray" && arr->type->elementType) {
+                // "use fast" NativeArray sugar: arr[i] yields the unboxed
+                // element type — an Any result would re-box all downstream
+                // arithmetic (the SoA-benchmark trap).
+                elemType = arr->type->elementType;
             } else {
                 elemType = HIRType::makeAny();
             }
