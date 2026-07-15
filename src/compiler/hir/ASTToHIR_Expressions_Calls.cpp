@@ -1633,6 +1633,101 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     }
                 }
             }
+
+            // Imported user-module function: its specializations are emitted
+            // under the CALLEE module's hash (`f_m<hash>_<types>`), but
+            // mangledName above used the CALLER's module path, so both
+            // lookups missed and the call would fall through to a weak
+            // undefined-returning stub (silent cross-module breakage —
+            // capitalize()/sumSquares() returned undefined/NaN). Retry
+            // tolerant of the module hash: match specializations of the form
+            // `<exported>_m<digits><typeSuffix>` where typeSuffix is the same
+            // arg-type mangling this call site computed. When two modules
+            // export the same name, prefer the one whose source file matches
+            // the import specifier's basename.
+            if (!targetFunc && specializations_) {
+                // Look up the import binding in the CALL's own file (falls
+                // back to any file that imports this name — covers nodes
+                // with an empty sourceFile).
+                const std::pair<std::string, std::string>* imp = nullptr;
+                auto fileIt = userModuleImports_.find(node->sourceFile);
+                if (fileIt != userModuleImports_.end()) {
+                    auto it2 = fileIt->second.find(ident->name);
+                    if (it2 != fileIt->second.end()) imp = &it2->second;
+                }
+                if (!imp && node->sourceFile.empty()) {
+                    for (auto& [file, m] : userModuleImports_) {
+                        auto it2 = m.find(ident->name);
+                        if (it2 != m.end()) { imp = &it2->second; break; }
+                    }
+                }
+                if (imp) {
+                    auto baseName = [](std::string s) {
+                        auto sl = s.find_last_of("/\\");
+                        if (sl != std::string::npos) s = s.substr(sl + 1);
+                        auto dot = s.rfind('.');
+                        if (dot != std::string::npos) s = s.substr(0, dot);
+                        return s;
+                    };
+                    std::string wantBase = baseName(imp->first);
+                    // Candidate binding names: the exported name, and (for
+                    // aliased imports) the LOCAL name — the monomorphizer
+                    // creates the specialization under the usage (local)
+                    // name when it resolves the alias via findFunction.
+                    std::vector<std::string> candidates = { imp->second };
+                    if (ident->name != imp->second) candidates.push_back(ident->name);
+                    std::string resolvedName;
+                    for (const auto& cand : candidates) {
+                        if (!resolvedName.empty()) break;
+                        std::string bare = Monomorphizer::generateMangledName(
+                            cand, argTypes, node->resolvedTypeArguments, "");
+                        std::string typeSuffix = bare.substr(cand.size());
+                        auto moduleMangled = [&](const std::string& fn,
+                                                 bool requireSuffix) -> bool {
+                            if (fn.size() <= cand.size() + 2) return false;
+                            if (fn.compare(0, cand.size(), cand) != 0) return false;
+                            size_t p = cand.size();
+                            if (fn.compare(p, 2, "_m") != 0) return false;
+                            p += 2;
+                            size_t d = p;
+                            while (d < fn.size() && fn[d] >= '0' && fn[d] <= '9') ++d;
+                            if (d == p) return false;
+                            if (requireSuffix)
+                                return fn.compare(d, std::string::npos, typeSuffix) == 0;
+                            return d == fn.size() || fn[d] == '_';
+                        };
+                        // Two passes: exact type-suffix first (the
+                        // monomorphizer created that variant from this very
+                        // call site), then any variant with matching arity.
+                        for (int pass = 0; pass < 2 && resolvedName.empty(); ++pass) {
+                            const Specialization* pick = nullptr;
+                            for (const auto& spec : *specializations_) {
+                                if (spec.originalName != cand) continue;
+                                if (!moduleMangled(spec.specializedName, pass == 0)) continue;
+                                if (pass == 1) {
+                                    auto* fd = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
+                                    if (!fd || fd->parameters.size() != args.size()) continue;
+                                }
+                                bool baseMatch = spec.node &&
+                                    baseName(spec.node->sourceFile) == wantBase;
+                                if (baseMatch) { pick = &spec; break; }
+                                if (!pick) pick = &spec;
+                            }
+                            if (pick) resolvedName = pick->specializedName;
+                        }
+                    }
+                    if (!resolvedName.empty()) {
+                        callName = resolvedName;
+                        for (auto& f : module_->functions) {
+                            if (f->name == callName) { targetFunc = f.get(); break; }
+                        }
+                    } else {
+                        SPDLOG_WARN("[IMPORT] unresolved imported call '{}' from '{}'"
+                                    " — no matching specialization; will stub",
+                                    ident->name, imp->first);
+                    }
+                }
+            }
         }
         // If still not found, determine if this is a runtime function or user function
         if (!targetFunc) {

@@ -2873,6 +2873,38 @@ ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const 
         }
     }
 
+    // Fallback: check if 'name' is an ALIASED named import in the calling
+    // module: `import { add as myAdd } from './math_lib'`. The local name
+    // never matches any FunctionDeclaration, so no specialization was created
+    // and the call fell to a weak undefined-returning stub. Resolve the alias
+    // to the exported name in the source module.
+    if (!firstMatch && !modulePath.empty()) {
+        auto callingModIt2 = analyzer.modules.find(modulePath);
+        if (callingModIt2 != analyzer.modules.end() && callingModIt2->second->ast) {
+            for (auto& stmt : callingModIt2->second->ast->body) {
+                auto* importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
+                if (!importDecl) continue;
+                for (const auto& is : importDecl->namedImports) {
+                    if (is.isTypeOnly || is.name != name || is.propertyName.empty()) continue;
+                    std::string spec = importDecl->moduleSpecifier;
+                    if (spec.size() > 2 && spec.substr(0, 2) == "./") {
+                        spec = spec.substr(2);
+                    }
+                    for (auto& [srcPath, srcMod] : analyzer.modules) {
+                        if (!srcMod->ast) continue;
+                        if (srcPath.find(spec) == std::string::npos) continue;
+                        for (auto& srcStmt : srcMod->ast->body) {
+                            auto* func = dynamic_cast<ast::FunctionDeclaration*>(srcStmt.get());
+                            if (func && func->name == is.propertyName && !func->body.empty()) {
+                                return func;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Fallback: check if 'name' is a default import alias in the calling module.
     // E.g., `import myAdd from './math_default'` uses "myAdd" locally but the
     // exported function may be named "add" or anonymous.

@@ -163,6 +163,8 @@
   "modules/cross_module_multi.ts": "pass",
   "modules/cross_module_multi_models.ts": "pass",
   "modules/cross_module_multi_utils.ts": "pass",
+  "modules/cross_module_typed.ts": "pass",
+  "modules/cross_module_typed_lib.ts": "pass",
   "net/net_ref_unref.ts": "pass",
   "net/net_utilities.ts": "pass",
   "net/server_address.ts": "pass",

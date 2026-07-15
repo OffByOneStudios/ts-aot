@@ -366,6 +366,13 @@ int Driver::run() {
         // Reserve a high shape-ID sub-range (top 256 of MAX_SHAPES=4096) for the
         // precompiled prelude so its shapes don't collide with the user object's.
         if (options.preludeObject) astToHir.setShapeIdBase(3840);
+        // Feed every module's import bindings: import declarations stay in the
+        // module ASTs (not moved into module-init specs), and call sites need
+        // them to resolve imported user functions to their module-mangled
+        // specializations instead of a weak undefined-returning stub.
+        for (auto& [modPath, mod] : analyzer.modules) {
+            if (mod && mod->ast) astToHir.registerModuleImports(mod->ast.get());
+        }
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
         auto t3 = std::chrono::steady_clock::now();
         ms_astHir = MS(t2, t3);
