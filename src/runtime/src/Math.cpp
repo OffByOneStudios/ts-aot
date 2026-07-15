@@ -74,25 +74,34 @@ double ts_math_sign(double a) {
     if (a < 0) return -1.0;
     return a; // handles 0, -0, NaN
 }
-float ts_math_fround(double a) { return (float)a; }
+// ABI NOTE: the compiler lowers these with the generic Math conventions —
+// fround as double(double) (MathHandler single-arg-double list) and
+// imul/clz32 as i64(i64) — so the C signatures MUST match. fround used to
+// return float (callers read xmm0 as double -> fround(1.5) printed
+// 1.5000002...), and imul returned int32 (callers read zero-extended rax ->
+// imul(-1,5) printed 4294967291 instead of -5).
+double ts_math_fround(double a) { return (double)(float)a; }
 
-int32_t ts_math_clz32(int32_t a) {
-    if (a == 0) return 32;
+int64_t ts_math_clz32(int64_t a) {
+    uint32_t v = (uint32_t)(uint64_t)a;   // ES ToUint32
+    if (v == 0) return 32;
 #ifdef _MSC_VER
     unsigned long leading_zero = 0;
-    if (_BitScanReverse(&leading_zero, (unsigned long)a)) {
-        return 31 - (int32_t)leading_zero;
+    if (_BitScanReverse(&leading_zero, (unsigned long)v)) {
+        return 31 - (int64_t)leading_zero;
     }
     return 32;
 #else
-    return __builtin_clz(a);
+    return __builtin_clz(v);
 #endif
 }
 
-int32_t ts_math_imul(int32_t a, int32_t b) {
-    // C-style multiplication that matches JavaScript's Math.imul semantics
-    // Returns the result of the C-like 32-bit multiplication of the two parameters
-    return a * b;
+int64_t ts_math_imul(int64_t a, int64_t b) {
+    // ES Math.imul: ToInt32 both operands, 32-bit wrapping multiply,
+    // SIGNED 32-bit result.
+    uint32_t x = (uint32_t)(uint64_t)a;
+    uint32_t y = (uint32_t)(uint64_t)b;
+    return (int64_t)(int32_t)(x * y);
 }
 
 }

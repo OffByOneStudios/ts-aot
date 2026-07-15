@@ -75,14 +75,16 @@ function user_main(): number {
         failures++;
     }
 
-    // Test 9: null and undefined comparison (both nullish)
-    // Note: In this runtime, null === undefined evaluates to true
-    // (both are represented as the same NaN-boxed null value)
-    if (null === undefined) {
-        console.log("PASS: null === undefined (runtime treats both as nullish)");
-    } else {
-        console.log("FAIL: null === undefined expected true in this runtime");
+    // Test 9: null and undefined comparison (both nullish).
+    // ECMA-262 7.2.16: different types are NOT strictly equal. This test
+    // originally encoded the old broken behavior (a shared NaN-box made
+    // null === undefined true); the runtime has since been fixed, so the
+    // expectation follows the spec.
+    if ((null as any) === (undefined as any)) {
+        console.log("FAIL: null === undefined must be false (ES 7.2.16)");
         failures++;
+    } else {
+        console.log("PASS: null === undefined is false");
     }
 
     // Test 10: Different types are not strictly equal
