@@ -698,6 +698,45 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
     setSourceLine(node);
+
+    // "use fast" STRUCT literal: a literal whose contextual type is a struct
+    // (`const v: Vec2 = {x: 1.5, y: 2.5}`) lowers into the STRUCT's own
+    // shape with by-NAME static field stores — order-independent, and the
+    // fields get the struct's unboxed slot typing (a plain literal lowering
+    // would mint a fresh shape whose layout only accidentally matches).
+    if (fastCode_ && node->inferredType) {
+        auto ct = std::dynamic_pointer_cast<ts::ClassType>(node->inferredType);
+        if (ct && ct->isStruct && module_) {
+            HIRShape* sshape = nullptr;
+            for (auto& sh : module_->shapes) {
+                if (sh->className == ct->name) { sshape = sh.get(); break; }
+            }
+            if (sshape) {
+                auto obj = builder_.createNewObjectDynamic(sshape);
+                obj->type = HIRType::makeClass(ct->name, sshape->id);
+                for (auto& prop : node->properties) {
+                    if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                        if (pa->name.empty() || !pa->initializer) continue;
+                        pa->initializer->accept(this);
+                        if (lastValue_)
+                            builder_.createSetPropStatic(obj, pa->name, lastValue_);
+                    } else if (auto* spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+                        if (spa->name.empty()) continue;
+                        // Shorthand {x} reads the variable named x.
+                        ast::Identifier idNode;
+                        idNode.name = spa->name;
+                        idNode.accept(this);
+                        if (lastValue_)
+                            builder_.createSetPropStatic(obj, spa->name, lastValue_);
+                    }
+                    // FastCheck limits struct literals to plain properties.
+                }
+                lastValue_ = obj;
+                return;
+            }
+        }
+    }
+
     // Pre-scan: check if ALL properties are static string names (eligible for flat object)
     HIRShape* flatShape = nullptr;
     bool allStatic = true;

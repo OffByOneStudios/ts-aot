@@ -838,6 +838,17 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
     }
     node->resolvedTypeArguments = resolvedTypeArguments;
 
+    // "use fast" NativeArray<T>: type the instance with element-typed
+    // get/set (parseType instantiates), so struct elements check
+    // (p.get(0).x) instead of the base registration's number-typed get.
+    if (fastFile_ && constructorName == "NativeArray") {
+        std::string t = node->typeArguments.empty() ? std::string("number")
+                                                    : node->typeArguments[0];
+        lastType = parseType("NativeArray<" + t + ">", symbols);
+        node->inferredType = lastType;
+        return;
+    }
+
     visit(node->expression.get());
     
     // Handle new net.SocketAddress() or new net.BlockList() - property access expression

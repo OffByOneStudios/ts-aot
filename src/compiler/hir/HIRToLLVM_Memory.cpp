@@ -1441,6 +1441,24 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
         if (*naRecv && (*naRecv)->type &&
             (*naRecv)->type->kind == HIRTypeKind::Class &&
             (*naRecv)->type->className == "NativeArray") {
+            // STRUCT element (AoS): runtime memcpy helper — returns a fresh
+            // flat object of the struct's shape (bounds checked inside,
+            // always-abort).
+            if ((*naRecv)->type->elementType &&
+                (*naRecv)->type->elementType->kind == HIRTypeKind::Class) {
+                llvm::Value* i64IdxS = emitNativeArrayIndex(idx);
+                auto ft = llvm::FunctionType::get(
+                    builder_->getPtrTy(),
+                    { builder_->getPtrTy(), builder_->getInt64Ty(),
+                      builder_->getInt32Ty() }, false);
+                auto fn = module_->getOrInsertFunction("ts_native_array_get_struct", ft);
+                llvm::Value* obj = builder_->CreateCall(ft, fn.getCallee(),
+                    { arr, i64IdxS,
+                      llvm::ConstantInt::get(builder_->getInt32Ty(),
+                          (*naRecv)->type->elementType->shapeId) });
+                if (inst->result) setValue(inst->result, obj);
+                return;
+            }
             NaElem e = naElemInfo((*naRecv)->type->elementType);
             llvm::Value* i64Idx = emitNativeArrayIndex(idx);
             llvm::Value* loaded;
@@ -1667,6 +1685,20 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
         if (*naRecv && (*naRecv)->type &&
             (*naRecv)->type->kind == HIRTypeKind::Class &&
             (*naRecv)->type->className == "NativeArray") {
+            // STRUCT element (AoS): memcpy the struct's payload into the
+            // slot (bounds checked inside the runtime helper, always-abort).
+            // Runs BEFORE the numeric coercions — the value is a flat obj.
+            if ((*naRecv)->type->elementType &&
+                (*naRecv)->type->elementType->kind == HIRTypeKind::Class) {
+                llvm::Value* i64IdxS = emitNativeArrayIndex(idx);
+                auto ft = llvm::FunctionType::get(
+                    builder_->getVoidTy(),
+                    { builder_->getPtrTy(), builder_->getInt64Ty(),
+                      builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_native_array_set_struct", ft);
+                builder_->CreateCall(ft, fn.getCallee(), { arr, i64IdxS, val });
+                return;
+            }
             NaElem e = naElemInfo((*naRecv)->type->elementType);
             llvm::Value* i64Idx = emitNativeArrayIndex(idx);
             llvm::Value* v = e.isInt ? emitNativeArrayIndex(val)   // to i64

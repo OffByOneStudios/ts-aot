@@ -28,6 +28,8 @@
 // native memory, so the arena's "no GC pointers" contract holds.
 #include "TsBuffer.h"
 #include "TsRuntime.h"
+// Struct elements (AoS): flat-object payloads memcpy in/out of native slots.
+#include "TsFlatObject.h"
 
 namespace {
 constexpr uint32_t NARR_MAGIC    = 0x4E415252;  // 'NARR'
@@ -402,6 +404,43 @@ void ts_native_array_set_int(void* arr, int64_t i, int32_t code, int64_t v) {
 // parser/codec workloads reading file bytes). Copy, never zero-copy: Buffer
 // data is GC-heap memory that can move; a native alias would dangle.
 //==========================================================================
+
+//==========================================================================
+// Struct elements (AoS — NativeArray<Vec2>): the element slot holds the
+// struct's flat-object PAYLOAD bytes (numFields * 8, raw slot values —
+// struct fields are unboxed f64/i64, so the copy is bit-agnostic).
+//   get -> allocate a fresh flat object of the struct's shape and memcpy
+//          the slot into its payload (VALUE semantics: an independent copy,
+//          like Unity's NativeArray<T> indexer).
+//   set -> memcpy the struct's payload into the slot.
+// These are runtime calls (not inline), so the bounds check lives here and
+// ALWAYS aborts loudly (safety is the default tier).
+//==========================================================================
+void* ts_native_array_get_struct(void* arr, int64_t i, int32_t shapeId) {
+    TsNativeArray* a = resolve(arr, "get");
+    if (!a) return ts_value_make_undefined();
+    if (i < 0 || i >= a->length) ts_native_array_bounds_abort(i, a ? a->length : 0);
+    void* obj = ts_flat_object_create((uint32_t)shapeId);
+    if (!obj) return ts_value_make_undefined();
+    size_t es = elem_size(a);
+    std::memcpy((char*)obj + 16, (char*)slots(a) + (size_t)i * es, es);
+    return obj;
+}
+
+void ts_native_array_set_struct(void* arr, int64_t i, void* v) {
+    TsNativeArray* a = resolve(arr, "set");
+    if (!a) return;
+    if (i < 0 || i >= a->length) ts_native_array_bounds_abort(i, a->length);
+    void* raw = ts_value_get_object((TsValue*)v);
+    if (!raw) raw = v;
+    if (!raw || *(uint32_t*)raw != FLAT_MAGIC) {
+        if (fast_checks_enabled())
+            fast_check_fail_msg("set", "value is not a struct instance");
+        return;
+    }
+    size_t es = elem_size(a);
+    std::memcpy((char*)slots(a) + (size_t)i * es, (char*)raw + 16, es);
+}
 
 // arr.copyFrom(buf): copy min(arrayBytes, buf.length) bytes into the array.
 // Returns the number of bytes copied.

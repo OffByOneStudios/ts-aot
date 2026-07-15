@@ -29,6 +29,35 @@ std::shared_ptr<HIRType> ASTToHIR::fastNativeElemType(const std::string& arg) {
     return HIRType::makeFloat64();      // f64 / number / default
 }
 
+// Instance variant: a non-primitive type arg naming a registered class shape
+// is a STRUCT element (AoS — NativeArray<Vec2>); everything else falls to
+// the primitive mapping above.
+std::shared_ptr<HIRType> ASTToHIR::fastNativeElemTypeResolved(const std::string& arg) {
+    if (!arg.empty() && module_) {
+        for (auto& shape : module_->shapes) {
+            if (shape->className == arg) {
+                return HIRType::makeClass(arg, shape->id);
+            }
+        }
+    }
+    return fastNativeElemType(arg);
+}
+
+unsigned ASTToHIR::fastNativeElemBytes(const std::shared_ptr<HIRType>& elem) {
+    if (!elem) return 8;
+    if (elem->kind == HIRTypeKind::Class) {
+        if (module_) {
+            for (auto& shape : module_->shapes) {
+                if (shape->id == elem->shapeId) {
+                    return (unsigned)shape->propertyOffsets.size() * 8;
+                }
+            }
+        }
+        return 0;  // unknown struct shape
+    }
+    return elem->numericBits ? elem->numericBits / 8 : 8;
+}
+
 std::shared_ptr<HIRValue> ASTToHIR::createValue(std::shared_ptr<HIRType> type) {
     // Delegate to builder to ensure we use the same value counter as HIRFunction
     return builder_.createValue(type);
@@ -591,7 +620,7 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
             if (auto lt = typeStr.find('<'); lt != std::string::npos) {
                 arg = typeStr.substr(lt + 1, typeStr.rfind('>') - lt - 1);
             }
-            t->elementType = fastNativeElemType(arg);
+            t->elementType = fastNativeElemTypeResolved(arg);
             return t;
         }
     }

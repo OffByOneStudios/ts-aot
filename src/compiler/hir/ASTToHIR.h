@@ -62,6 +62,12 @@ public:
     // "use fast": NativeArray<T> element HIRType (with sized-slot
     // numericBits metadata) from the type-argument source string.
     static std::shared_ptr<HIRType> fastNativeElemType(const std::string& arg);
+    // Instance variant: also resolves STRUCT element types (AoS) against the
+    // module's registered class shapes — Class(name, shapeId).
+    std::shared_ptr<HIRType> fastNativeElemTypeResolved(const std::string& arg);
+    // Element byte size for a resolved element type (numericBits/8, struct
+    // shape numSlots*8, default 8). 0 if the struct shape is unknown.
+    unsigned fastNativeElemBytes(const std::shared_ptr<HIRType>& elem);
 
 private:
     //==========================================================================

@@ -989,10 +989,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             obj->type->kind == HIRTypeKind::Class &&
             obj->type->className == "NativeArray" &&
             (propAccess->name == "get" || propAccess->name == "getUnchecked")) {
-            auto elemT = (obj->type->elementType &&
-                          obj->type->elementType->kind == HIRTypeKind::Int64)
-                             ? HIRType::makeInt64()
-                             : HIRType::makeFloat64();
+            // Result carries the ELEMENT type: Int64/Float64 for numeric
+            // slots (with its sized-slot metadata), or the struct Class for
+            // AoS elements so `p.get(i).x` lowers with static offsets.
+            auto elemT = obj->type->elementType ? obj->type->elementType
+                                                : HIRType::makeFloat64();
             lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, elemT);
             return;
         }
@@ -2193,9 +2194,10 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // right runtime slot accessor. Gated on fastCode_ so the name is inert
     // outside fast files.
     if (fastCode_ && className == "NativeArray") {
-        // Element type from the type argument string (raw source string),
-        // including sized-slot widths (u8/i16/u32/f32/... -> numericBits).
-        auto elemType = fastNativeElemType(
+        // Element type from the type argument string (raw source string):
+        // sized-slot widths (u8/i16/u32/f32/... -> numericBits) or a STRUCT
+        // element (AoS) resolved against the registered class shapes.
+        auto elemType = fastNativeElemTypeResolved(
             node->typeArguments.empty() ? std::string() : node->typeArguments[0]);
 
         // Coerce a numeric HIR value to Int64 (length / allocator are i64 in
@@ -2235,9 +2237,17 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         // (kind | bytes << 8) — the 16-byte header layout can't grow (inline
         // lowering hardcodes length@+8, slots@+16), and the runtime needs the
         // size for dispose/quarantine/arena-scrub byte math. 0 = legacy 8.
+        // Struct elements (AoS): numFields*8 payload bytes; one packed byte
+        // caps a struct element at 255 bytes (31 fields).
         {
-            unsigned bytes = 8;
-            if (elemType->numericBits) bytes = elemType->numericBits / 8;
+            unsigned bytes = fastNativeElemBytes(elemType);
+            if (bytes == 0 || bytes > 255) {
+                throw std::runtime_error(
+                    "use fast: NativeArray struct element '" +
+                    (node->typeArguments.empty() ? std::string("?")
+                                                 : node->typeArguments[0]) +
+                    "' has an unknown or too-large layout (max 31 fields)");
+            }
             if (bytes != 8) {
                 auto packed = builder_.createConstInt((int64_t)bytes << 8);
                 allocVal = builder_.createOrI64(allocVal, packed);
