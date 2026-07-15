@@ -45,6 +45,12 @@ public:
                                      const std::vector<Specialization>& specializations,
                                      const std::string& moduleName);
 
+    // Pre-register user-module import bindings from a module's AST. The
+    // Driver feeds every analyzed module before lower(): import declarations
+    // stay in each module's own AST body (never moved into module-init
+    // specs), so lower() cannot discover them from the entry program alone.
+    void registerModuleImports(ast::Program* moduleAst);
+
 private:
     //==========================================================================
     // State
@@ -89,6 +95,18 @@ private:
     // Map from locally imported name -> (extension module name, exported name)
     // E.g., { "join" -> {"path", "join"} } for `import { join } from 'path'`
     std::map<std::string, std::pair<std::string, std::string>> extensionImports_;
+
+    // USER-module imports (`import { f } from './lib'`), keyed by the
+    // IMPORTING file's sourceFile, then local name -> (specifier, exported
+    // name). The callee's specializations are emitted under the CALLEE
+    // module's hash suffix (f_m<hash>_<types>); call sites use this map to
+    // resolve that name when the caller-side mangling (caller module path)
+    // misses. Keyed per file because two modules may import the same local
+    // name from different sources. Populated by a pre-scan in lower() (the
+    // Monomorphizer moves module toplevel statements — including import
+    // declarations — into module-init spec bodies, which lower AFTER class
+    // specializations that may already contain calls to imported functions).
+    std::map<std::string, std::map<std::string, std::pair<std::string, std::string>>> userModuleImports_;
 
     // Value counter for SSA names (%v0, %v1, etc.)
     int valueCounter_ = 0;

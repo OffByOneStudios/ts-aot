@@ -114,6 +114,27 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
+    // Pre-scan IMPORT declarations reachable from the entry program and spec
+    // bodies (module ASTs keep theirs — the Driver feeds those separately via
+    // registerModuleImports, so do NOT clear the map here). Call sites use
+    // the map to resolve imported user functions to their module-mangled
+    // specializations regardless of lowering order.
+    {
+        auto scanImports = [&](ast::Statement* s) {
+            if (auto* imp = dynamic_cast<ast::ImportDeclaration*>(s)) {
+                visitImportDeclaration(imp);
+            }
+        };
+        for (auto& s0 : program->body) scanImports(s0.get());
+        for (const auto& spec : specializations) {
+            auto* fn = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
+            if (!fn) continue;
+            if (fn->name != "__synthetic_user_main" && fn->name != "user_main" &&
+                fn->name.rfind("__module_init", 0) != 0) continue;
+            for (auto& s0 : fn->body) scanImports(s0.get());
+        }
+    }
+
     valueCounter_ = 0;
     blockCounter_ = 0;
     scopes_.clear();

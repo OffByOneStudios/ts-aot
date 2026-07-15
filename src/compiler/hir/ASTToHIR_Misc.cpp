@@ -3,6 +3,36 @@
 namespace ts::hir {
 
 
+void ASTToHIR::registerModuleImports(ast::Program* moduleAst) {
+    // Runs BEFORE lower() (module_/builder_ not initialized) — populate the
+    // maps directly; do not go through visitImportDeclaration/setSourceLine.
+    if (!moduleAst) return;
+    auto& registry = ext::ExtensionRegistry::instance();
+    for (auto& stmt : moduleAst->body) {
+        auto* node = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
+        if (!node || node->isTypeOnly) continue;
+        // Backfill a missing sourceFile so the per-file keying matches the
+        // call-site nodes from the same module.
+        if (node->sourceFile.empty()) node->sourceFile = moduleAst->sourceFile;
+        std::string modSpec = node->moduleSpecifier;
+        if (modSpec.size() > 5 && modSpec.substr(0, 5) == "node:") {
+            modSpec = modSpec.substr(5);
+        }
+        if (registry.isRegisteredModule(modSpec) || registry.isRegisteredObject(modSpec)) {
+            continue;  // extension imports are handled in visitImportDeclaration
+        }
+        auto& fileMap = userModuleImports_[node->sourceFile];
+        for (const auto& spec : node->namedImports) {
+            if (spec.isTypeOnly) continue;
+            std::string exportedName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+            fileMap[spec.name] = { modSpec, exportedName };
+        }
+        if (!node->defaultImport.empty()) {
+            fileMap[node->defaultImport] = { modSpec, "default" };
+        }
+    }
+}
+
 void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
     setSourceLine(node);
     // Type-only imports are erased entirely - no runtime effect
@@ -27,6 +57,20 @@ void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
         }
         if (!node->defaultImport.empty()) {
             extensionImports_[node->defaultImport] = { modSpec, "default" };
+        }
+    } else {
+        // User-module import: record local name -> (specifier, exported name)
+        // keyed by the importing file, so direct call sites can resolve the
+        // callee's module-mangled specialization (see visitCallExpression's
+        // import-retry fallback).
+        auto& fileMap = userModuleImports_[node->sourceFile];
+        for (const auto& spec : node->namedImports) {
+            if (spec.isTypeOnly) continue;
+            std::string exportedName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+            fileMap[spec.name] = { modSpec, exportedName };
+        }
+        if (!node->defaultImport.empty()) {
+            fileMap[node->defaultImport] = { modSpec, "default" };
         }
     }
 }
