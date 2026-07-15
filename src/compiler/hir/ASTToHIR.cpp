@@ -2772,6 +2772,17 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 builder_.createStore(initv, existingInfo->value,
                                      HIRType::makeAny());
                 broadcastCaptureWrite(existingInfo, initv);
+                // Module-level `let x;` must end the TDZ in the __modvar_
+                // GLOBAL too — this early return skips the tail sync below,
+                // and the sentinel-seeded global is what PutValue TDZ checks
+                // read (assignDestructureName): `let x; ({x} = o)` wrongly
+                // threw "Cannot access 'x' before initialization"
+                // (test262 dstr family).
+                if (isModuleGlobalVar(ident->name) &&
+                    (!currentFunction_ ||
+                     currentFunction_->name.find("__module_init_") == 0)) {
+                    builder_.createStoreGlobal(modVarName(ident->name), initv);
+                }
                 return;
             }
             // Variable was pre-hoisted: just store the init value into the existing alloca

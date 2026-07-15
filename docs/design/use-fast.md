@@ -498,7 +498,24 @@ The seam (§14) is the only place boxing/roots reappear.
     KNOWN GAP (banked): fast->fast user function calls lower through the
     dynamic closure path with Any results — a typed direct-call path would
     both speed them up and let NativeArray types flow through returns
-    (probe tmp/p8_min2.ts).
+    (probe tmp/p8_min2.ts). [RESOLVED 2026-07-15 — corrected diagnosis:
+    calls were always direct; the gap was Any RESULT types, fixed via
+    annotated-return-type flow.]
+- **Cross-module calls — FIXED (2026-07-15).** The program-gap survey found
+  fast mode was effectively SINGLE-FILE: an imported function call compiled
+  to a caller-side mangled name (caller module hash + arg-inferred types)
+  that never matched the callee's specialization (callee hash + declared
+  types); a weak undefined-returning stub swallowed the link failure, so
+  `import { kernel } from './fast_lib'` returned NaN silently. Not
+  fast-specific — ALL cross-module direct calls (incl. aliased imports)
+  were broken. Fix: Driver feeds per-file import maps to ASTToHIR; call
+  sites retry specialization lookup tolerant of the module hash;
+  Monomorphizer resolves aliased named imports. fast->fast kernel imports
+  now flow typed (tests/fast/test_cross_module.ts returns 328350).
+  STILL OPEN: dynamic entry importing a fast module is a COMPILE error
+  ("Undefined variable NativeArray") — analyzer/HIR fast-gating keys on the
+  ENTRY file's directive, not per-module. The flagship "dynamic app + fast
+  kernel module" pattern needs per-module fast propagation (next).
 - **SoA benchmark — RESOLVED 2026-07-14: fast wins 5.28x** (fast ≈217 ms,
   dynamic ≈1147 ms, identical checksum). The 2026-07-06 result was inverted
   (fast ~2.2x slower); the IR profile found the real root — none of the
