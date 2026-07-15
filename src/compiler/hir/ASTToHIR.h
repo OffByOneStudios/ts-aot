@@ -59,6 +59,10 @@ public:
         fastModulePaths_ = std::move(paths);
     }
 
+    // "use fast": NativeArray<T> element HIRType (with sized-slot
+    // numericBits metadata) from the type-argument source string.
+    static std::shared_ptr<HIRType> fastNativeElemType(const std::string& arg);
+
 private:
     //==========================================================================
     // State

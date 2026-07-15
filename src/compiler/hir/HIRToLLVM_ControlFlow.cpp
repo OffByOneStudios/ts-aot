@@ -531,7 +531,14 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
                 auto* candidate = stack.pop_back_val();
                 if (!candidate || visited.count(candidate)) continue;
                 visited.insert(candidate);
-                if (visited.size() > 32) break;  // depth limit
+                // Depth limit: must comfortably exceed the fragment count a
+                // single HIR block can split into. Each NativeArray bounds
+                // check adds 2 blocks (na.oob + na.cont) and unbox diamonds
+                // add 3 — a fast function doing ~15 checked accesses in one
+                // block blew the old limit of 32, silently DROPPING a phi
+                // edge (verifier: "PHINode should have one entry for each
+                // predecessor"). Keep a cap only as a runaway guard.
+                if (visited.size() > 1024) break;
                 // Suspendable-agen suspension points end a block with
                 // `ret void` and relocate emission into a yield_resume_N
                 // block (GEN-001 Stage 4b) — follow the recorded hop so the
