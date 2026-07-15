@@ -20,6 +20,16 @@ namespace {
 // node for banned constructs, then descend into its children.
 struct FastChecker {
     Analyzer* self;
+    // Struct (value-type) class names declared in this file: `new S()` of a
+    // struct is stack/SROA-allocatable and allowed; `new C()` of a reference
+    // class is a managed heap allocation and rejected.
+    std::set<std::string> structNames;
+    // Capture detection: one entry per ENCLOSING non-module function, holding
+    // its params + var/let/const locals (NOT nested function names — a direct
+    // call to a sibling function is statically resolved, no heap cell).
+    // An identifier inside a nested function that names an outer function's
+    // local is a capturing closure.
+    std::vector<std::set<std::string>> fnLocalsStack;
 
     void err(ast::Node* n, const std::string& what,
              const std::string& why, const std::string& fix) {
@@ -30,6 +40,125 @@ struct FastChecker {
     }
 
     static bool isAnyType(const std::string& t) { return t == "any"; }
+
+    // Collect the declared data locals of ONE function body: parameter names
+    // plus var/let/const binding identifiers, without descending into nested
+    // functions (their locals belong to their own frame).
+    static void collectBindingNames(ast::Node* name, std::set<std::string>& out) {
+        if (!name) return;
+        if (auto* id = dynamic_cast<ast::Identifier*>(name)) {
+            out.insert(id->name);
+        } else if (auto* be = dynamic_cast<ast::BindingElement*>(name)) {
+            collectBindingNames(be->name.get(), out);
+        } else if (auto* op = dynamic_cast<ast::ObjectBindingPattern*>(name)) {
+            for (auto& el : op->elements) collectBindingNames(el.get(), out);
+        } else if (auto* ap = dynamic_cast<ast::ArrayBindingPattern*>(name)) {
+            for (auto& el : ap->elements) collectBindingNames(el.get(), out);
+        }
+    }
+
+    static void collectLocals(ast::Node* n, std::set<std::string>& out) {
+        if (!n) return;
+        if (dynamic_cast<ast::FunctionDeclaration*>(n) ||
+            dynamic_cast<ast::FunctionExpression*>(n) ||
+            dynamic_cast<ast::ArrowFunction*>(n) ||
+            dynamic_cast<ast::ClassDeclaration*>(n)) {
+            return;  // nested frame owns its locals
+        }
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(n)) {
+            collectBindingNames(vd->name.get(), out);
+            return;
+        }
+        if (auto* b = dynamic_cast<ast::BlockStatement*>(n)) {
+            for (auto& s : b->statements) collectLocals(s.get(), out);
+            return;
+        }
+        if (auto* i = dynamic_cast<ast::IfStatement*>(n)) {
+            collectLocals(i->thenStatement.get(), out);
+            collectLocals(i->elseStatement.get(), out);
+            return;
+        }
+        if (auto* w = dynamic_cast<ast::WhileStatement*>(n)) {
+            collectLocals(w->body.get(), out); return;
+        }
+        if (auto* f = dynamic_cast<ast::ForStatement*>(n)) {
+            collectLocals(f->initializer.get(), out);
+            collectLocals(f->body.get(), out); return;
+        }
+        if (auto* fo = dynamic_cast<ast::ForOfStatement*>(n)) {
+            collectLocals(fo->initializer.get(), out);
+            collectLocals(fo->body.get(), out); return;
+        }
+        if (auto* sw = dynamic_cast<ast::SwitchStatement*>(n)) {
+            for (auto& cl : sw->clauses) {
+                if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get()))
+                    for (auto& s : cc->statements) collectLocals(s.get(), out);
+                else if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                    for (auto& s : dc->statements) collectLocals(s.get(), out);
+            }
+            return;
+        }
+        if (auto* t = dynamic_cast<ast::TryStatement*>(n)) {
+            for (auto& s : t->tryBlock) collectLocals(s.get(), out);
+            if (t->catchClause)
+                for (auto& s : t->catchClause->block) collectLocals(s.get(), out);
+            for (auto& s : t->finallyBlock) collectLocals(s.get(), out);
+            return;
+        }
+        if (auto* l = dynamic_cast<ast::LabeledStatement*>(n)) {
+            collectLocals(l->statement.get(), out); return;
+        }
+    }
+
+    // Enter a nested function: push the CURRENT function's locals as an
+    // enclosing frame, walk the nested body with its own locals shielding
+    // lookups, pop on exit.
+    struct FrameGuard {
+        std::vector<std::set<std::string>>& stack;
+        explicit FrameGuard(std::vector<std::set<std::string>>& s,
+                            std::set<std::string> locals) : stack(s) {
+            stack.push_back(std::move(locals));
+        }
+        ~FrameGuard() { stack.pop_back(); }
+    };
+
+    bool capturesEnclosingLocal(const std::string& name,
+                                const std::set<std::string>& ownLocals) const {
+        if (ownLocals.count(name)) return false;
+        for (auto& frame : fnLocalsStack)
+            if (frame.count(name)) return true;
+        return false;
+    }
+
+    // Locals of the function whose body is currently being walked
+    // (null at module level).
+    const std::set<std::string>* currentOwnLocals = nullptr;
+
+    // Walk a function body with capture context: params + body locals become
+    // the new frame; if we were already inside a function, its locals become
+    // an ENCLOSING frame that nested identifiers may not reference.
+    void walkFunctionBody(ast::Node* bodyNode,
+                          std::vector<ast::StmtPtr>* bodyStmts,
+                          std::vector<std::unique_ptr<ast::Parameter>>& params) {
+        std::set<std::string> locals;
+        for (auto& p : params) collectBindingNames(p->name.get(), locals);
+        if (bodyStmts)
+            for (auto& s : *bodyStmts) collectLocals(s.get(), locals);
+        else
+            collectLocals(bodyNode, locals);
+
+        const std::set<std::string>* saved = currentOwnLocals;
+        if (saved) {
+            FrameGuard g(fnLocalsStack, *saved);
+            currentOwnLocals = &locals;
+            if (bodyStmts) walkStmts(*bodyStmts); else walk(bodyNode);
+            currentOwnLocals = saved;
+        } else {
+            currentOwnLocals = &locals;
+            if (bodyStmts) walkStmts(*bodyStmts); else walk(bodyNode);
+            currentOwnLocals = nullptr;
+        }
+    }
 
     void checkParams(std::vector<std::unique_ptr<ast::Parameter>>& params) {
         for (auto& p : params) {
@@ -84,6 +213,13 @@ struct FastChecker {
                 err(n, "'arguments'",
                     "the arguments object is a heap-allocated array-like.",
                     "Use explicit named or rest parameters.");
+            if (currentOwnLocals && !fnLocalsStack.empty() &&
+                capturesEnclosingLocal(id->name, *currentOwnLocals))
+                err(n, "capturing closure (captures '" + id->name + "')",
+                    "capturing an enclosing function's local forces a "
+                    "heap-allocated closure cell.",
+                    "Carry the state explicitly in a struct parameter "
+                    "(context struct) instead.");
             return;
         }
         if (auto* be = dynamic_cast<ast::BinaryExpression*>(n)) {
@@ -108,7 +244,17 @@ struct FastChecker {
             return;
         }
         if (auto* ne = dynamic_cast<ast::NewExpression*>(n)) {
-            walk(ne->expression.get());
+            // Managed allocation: `new` of a REFERENCE class hits the GC
+            // heap. Structs (value types, stack/SROA) and NativeArray
+            // (unmanaged container) are the allowed allocation forms.
+            if (auto* ctorId = dynamic_cast<ast::Identifier*>(ne->expression.get())) {
+                if (ctorId->name != "NativeArray" && !structNames.count(ctorId->name))
+                    err(n, "'new " + ctorId->name + "' (reference-class allocation)",
+                        "reference classes are GC-heap allocated with dynamic "
+                        "dispatch.",
+                        "Declare it as a 'struct' value type, use a "
+                        "NativeArray, or allocate outside the fast file.");
+            }
             for (auto& arg : ne->arguments) walk(arg.get());
             return;
         }
@@ -139,10 +285,18 @@ struct FastChecker {
             walk(sp->expression.get()); return;
         }
         if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(n)) {
+            err(n, "array literal",
+                "a managed array is GC-heap allocated with boxed elements.",
+                "Use a NativeArray<T> (Allocator.Temp for scratch, "
+                ".Persistent for long-lived).");
             for (auto& el : arr->elements) walk(el.get());
             return;
         }
         if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(n)) {
+            err(n, "object literal",
+                "an object literal is a GC-heap allocation with dynamic "
+                "shape.",
+                "Declare a 'struct' value type and construct it with 'new'.");
             for (auto& prop : obj->properties) walk(prop.get());
             return;
         }
@@ -160,7 +314,7 @@ struct FastChecker {
                     "async needs a heap-allocated frame.",
                     "Keep async code outside the fast file.");
             checkParams(arrow->parameters);
-            walk(arrow->body.get());
+            walkFunctionBody(arrow->body.get(), nullptr, arrow->parameters);
             return;
         }
         if (auto* fe = dynamic_cast<ast::FunctionExpression*>(n)) {
@@ -173,7 +327,7 @@ struct FastChecker {
                     "'any' returns force boxing.",
                     "Annotate a concrete return type.");
             checkParams(fe->parameters);
-            walkStmts(fe->body);
+            walkFunctionBody(nullptr, &fe->body, fe->parameters);
             return;
         }
 
@@ -262,7 +416,7 @@ struct FastChecker {
                     "'any' returns force boxing.",
                     "Annotate a concrete return type.");
             checkParams(fd->parameters);
-            walkStmts(fd->body);
+            walkFunctionBody(nullptr, &fd->body, fd->parameters);
             return;
         }
         if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(n)) {
@@ -273,7 +427,7 @@ struct FastChecker {
                             "they need a heap-allocated frame.",
                             "Keep them outside the fast file.");
                     checkParams(md->parameters);
-                    walkStmts(md->body);
+                    walkFunctionBody(nullptr, &md->body, md->parameters);
                 } else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
                     if (pd->initializer) walk(pd->initializer.get());
                 }
@@ -289,6 +443,12 @@ struct FastChecker {
 void Analyzer::performFastCheck(ast::Program* program) {
     if (!program || !program->isFast) return;
     FastChecker fc{this};
+    // Pre-scan struct declarations so `new S()` of a value type is allowed
+    // regardless of declaration order.
+    for (auto& s : program->body) {
+        if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(s.get()))
+            if (cd->isStruct) fc.structNames.insert(cd->name);
+    }
     for (auto& s : program->body) fc.walk(s.get());
 }
 

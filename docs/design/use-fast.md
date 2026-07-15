@@ -395,10 +395,16 @@ The seam (§14) is the only place boxing/roots reappear.
   **Phase 1b is functionally complete**: `struct` value types with fixed-width
   unboxed fields, static-offset access, methods/params/returns, true value
   semantics, and stack-alloc when non-escaping — all behind `use fast`.
-- **Remaining FastCheck rules** (deferred until the alternatives exist so the
-  diagnostic can name them): reject reference-class `new`, managed array/object
-  literals (→ point at `NativeArray`), non-discriminated unions, capturing
-  closures (→ point at context structs).
+- **Remaining FastCheck rules — DONE (2026-07-14)** (were deferred until the
+  alternatives existed): reject reference-class `new` (structs + NativeArray
+  stay allowed; diagnostic points at both), managed array/object literals
+  (→ NativeArray / struct+new), and capturing closures (scope-stack detection:
+  an identifier in a nested function naming an ENCLOSING function's local;
+  sibling nested-function CALLS are exempt — statically resolved, no heap
+  cell; module-level bindings are globals, not captures; → context structs).
+  Tests: test_reject_ref_class_new / _managed_literals / _capture.ts.
+  Still open from the original list: non-discriminated unions (type-level,
+  needs the analyzer's union model).
 
 ### Phase 2 status (2026-07-06)
 
