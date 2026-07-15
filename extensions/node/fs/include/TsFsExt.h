@@ -12,7 +12,7 @@ extern "C" {
 // Synchronous File Operations
 // =============================================================================
 
-void* ts_fs_readFileSync(void* path);
+void* ts_fs_readFileSync(void* path, void* options);
 void ts_fs_writeFileSync(void* path, void* content);
 void ts_fs_appendFileSync(void* path, void* content);
 void ts_fs_unlinkSync(void* path);

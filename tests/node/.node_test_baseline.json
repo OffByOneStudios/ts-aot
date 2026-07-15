@@ -113,6 +113,7 @@
   "fs/fs_metadata.ts": "fail",
   "fs/fs_operations.ts": "pass",
   "fs/fs_promises_watch.ts": "pass",
+  "fs/fs_readfile_encoding.ts": "pass",
   "fs/fs_stats_dates.ts": "pass",
   "fs/fs_stats_type_methods.ts": "fail",
   "fs/fs_sync.js": "fail",

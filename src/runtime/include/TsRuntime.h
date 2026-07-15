@@ -269,7 +269,7 @@ int64_t ts_parseInt(void* value);
 TsValue* ts_promise_all(TsValue* iterable);
 
 // --- File System (fs) ---
-void* ts_fs_readFileSync(void* path);
+void* ts_fs_readFileSync(void* path, void* options);
 void ts_fs_writeFileSync(void* path, void* content);
 bool ts_fs_existsSync(void* path);
 void ts_fs_mkdirSync(void* path, void* options);
