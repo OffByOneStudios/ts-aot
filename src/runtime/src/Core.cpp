@@ -377,6 +377,27 @@ int64_t ts_process_get_exit_code() {
     return process_exit_code;
 }
 
+// user_main's numeric return value is the process exit code (test
+// convention: `return failures;`). Called by the synthetic main's wrapper
+// right after user_main returns — ONLY when an EXPLICIT user_main exists
+// (synthetic-wrapped top-level programs return module-init values that must
+// not leak into the exit code). Echoes the value so the call slots into the
+// generic ptr(ptr) runtime-call signature. A later process.exitCode
+// assignment (event-loop callbacks) still wins: ts_main returns
+// process_exit_code at the very end, after the loop drains.
+void* ts_main_set_exit_code_from(void* v) {
+    uint64_t nb = (uint64_t)(uintptr_t)v;
+    if (nanbox_is_int32(nb)) {
+        process_exit_code = (int64_t)nanbox_to_int32(nb);
+    } else if (nanbox_is_double(nb)) {
+        double d = nanbox_to_double(nb);
+        if (d == d && d >= -2147483648.0 && d <= 2147483647.0) {
+            process_exit_code = (int64_t)d;
+        }
+    }
+    return v;
+}
+
 void ts_process_set_exit_code(int64_t code) {
     process_exit_code = code;
 }
@@ -1814,7 +1835,11 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*),
         fflush(stderr);
     }
 
-    return 0;
+    // Exit code: user_main's numeric return (set via
+    // ts_main_set_exit_code_from by the synthetic main's wrapper) or an
+    // explicit process.exitCode assignment — whichever ran LAST wins,
+    // matching node (exitCode set in a late callback overrides).
+    return (int)process_exit_code;
 }
 
 }

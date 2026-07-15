@@ -1981,9 +1981,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         } else {
             call->inferredType = analyzer.parseType(userDefinedMain->returnType, analyzer.getSymbolTable());
         }
-        
+
+        // return ts_main_set_exit_code_from(user_main());
+        // An EXPLICIT user_main's numeric return becomes the process exit
+        // code (test convention `return failures;` — previously discarded,
+        // so failing tests exited 0 and rc-judging runners counted them
+        // green). The runtime helper ECHOES its boxed argument, so the
+        // synthetic main still returns user_main's value. Synthetic-wrapped
+        // top-level programs (no explicit user_main) are NOT wrapped: their
+        // return value is the last module-init result, not an exit code.
+        auto wrap = std::make_unique<ast::CallExpression>();
+        auto wrapId = std::make_unique<ast::Identifier>();
+        wrapId->name = "ts_main_set_exit_code_from";
+        {
+            auto wrapFt = std::make_shared<FunctionType>();
+            wrapFt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            wrapFt->returnType = std::make_shared<Type>(TypeKind::Any);
+            wrapId->inferredType = wrapFt;
+        }
+        wrap->callee = std::move(wrapId);
+        wrap->arguments.push_back(std::move(call));
+        wrap->inferredType = std::make_shared<Type>(TypeKind::Any);
+
         auto stmt = std::make_unique<ast::ReturnStatement>();
-        stmt->expression = std::move(call);
+        stmt->expression = std::move(wrap);
         userMain->body.push_back(std::move(stmt));
         
         // Also create a specialization for the user-defined user_main
