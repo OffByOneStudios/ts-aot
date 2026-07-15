@@ -1317,9 +1317,85 @@ void HIRToLLVM::lowerNewArrayTyped(HIRInstruction* inst) {
     lowerNewArrayBoxed(inst);
 }
 
+// "use fast" NativeArray element-sugar helpers (mirror NativeArrayHandler's
+// private toI64/toF64/slotPtr — slot = raw(base) + 16-byte header + i*8;
+// raw addrspace-0 handle keeps the access off the GC statepoint path).
+llvm::Value* HIRToLLVM::emitNativeArrayIndex(llvm::Value* v) {
+    if (!v) return llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+    llvm::Type* t = v->getType();
+    if (t->isDoubleTy()) return builder_->CreateFPToSI(v, builder_->getInt64Ty());
+    if (t->isIntegerTy(64)) return v;
+    if (t->isIntegerTy(1)) return builder_->CreateZExt(v, builder_->getInt64Ty());
+    if (t->isIntegerTy()) return builder_->CreateSExtOrTrunc(v, builder_->getInt64Ty());
+    if (t->isPointerTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getInt64Ty(),
+                                          { builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+        return builder_->CreateCall(ft, fn.getCallee(), { v });
+    }
+    return llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+}
+
+llvm::Value* HIRToLLVM::emitNativeArrayF64(llvm::Value* v) {
+    if (!v) return llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
+    llvm::Type* t = v->getType();
+    if (t->isDoubleTy()) return v;
+    if (t->isIntegerTy(1)) return builder_->CreateUIToFP(v, builder_->getDoubleTy());
+    if (t->isIntegerTy()) return builder_->CreateSIToFP(v, builder_->getDoubleTy());
+    if (t->isPointerTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getDoubleTy(),
+                                          { builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_value_get_double", ft);
+        return builder_->CreateCall(ft, fn.getCallee(), { v });
+    }
+    return llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
+}
+
+llvm::Value* HIRToLLVM::emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx) {
+    llvm::Value* raw = toRawPtr(arr);
+    llvm::Value* off = builder_->CreateAdd(
+        builder_->CreateMul(i64Idx, llvm::ConstantInt::get(builder_->getInt64Ty(), 8)),
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 16));
+    return builder_->CreateGEP(builder_->getInt8Ty(), raw, off, "na.slot");
+}
+
 void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
+
+    // "use fast": NativeArray element sugar `arr[i]` — same lowering as
+    // `.get(i)` (NativeArrayHandler). Without this branch a Class-typed
+    // receiver routes to dynamic property access, which reads undefined on
+    // the malloc-backed handle (the documented corruption gotcha that kept
+    // `[i]` disabled). Checked runtime call under --fast-checks; inline
+    // unboxed load otherwise.
+    if (auto* naRecv = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*naRecv && (*naRecv)->type &&
+            (*naRecv)->type->kind == HIRTypeKind::Class &&
+            (*naRecv)->type->className == "NativeArray") {
+            bool naIsInt = (*naRecv)->type->elementType &&
+                           (*naRecv)->type->elementType->kind == HIRTypeKind::Int64;
+            llvm::Value* i64Idx = emitNativeArrayIndex(idx);
+            llvm::Value* loaded;
+            if (fastChecks_) {
+                const char* rn = naIsInt ? "ts_native_array_get_i64"
+                                         : "ts_native_array_get_f64";
+                llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
+                                         : (llvm::Type*)builder_->getDoubleTy();
+                auto ft = llvm::FunctionType::get(
+                    rt, { builder_->getPtrTy(), builder_->getInt64Ty() }, false);
+                auto fn = module_->getOrInsertFunction(rn, ft);
+                loaded = builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx });
+            } else {
+                llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
+                llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
+                                         : (llvm::Type*)builder_->getDoubleTy();
+                loaded = builder_->CreateLoad(rt, slot, "na.idx.get");
+            }
+            if (inst->result) setValue(inst->result, loaded);
+            return;
+        }
+    }
 
     llvm::Value* result;
 
@@ -1498,6 +1574,38 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // "use fast": NativeArray element sugar `arr[i] = v` — same lowering as
+    // `.set(i, v)`. Must run BEFORE the value-boxing below (the slot holds an
+    // unboxed f64/i64) and before the `.find("Array")` indexed-collection
+    // check, which routed NativeArray to ts_array_set and corrupted (the
+    // documented gotcha).
+    if (auto* naRecv = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*naRecv && (*naRecv)->type &&
+            (*naRecv)->type->kind == HIRTypeKind::Class &&
+            (*naRecv)->type->className == "NativeArray") {
+            bool naIsInt = (*naRecv)->type->elementType &&
+                           (*naRecv)->type->elementType->kind == HIRTypeKind::Int64;
+            llvm::Value* i64Idx = emitNativeArrayIndex(idx);
+            llvm::Value* v = naIsInt ? emitNativeArrayIndex(val)   // to i64
+                                     : emitNativeArrayF64(val);    // to f64
+            if (fastChecks_) {
+                const char* rn = naIsInt ? "ts_native_array_set_i64"
+                                         : "ts_native_array_set_f64";
+                llvm::Type* vt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
+                                         : (llvm::Type*)builder_->getDoubleTy();
+                auto ft = llvm::FunctionType::get(
+                    builder_->getVoidTy(),
+                    { builder_->getPtrTy(), builder_->getInt64Ty(), vt }, false);
+                auto fn = module_->getOrInsertFunction(rn, ft);
+                builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx, v });
+            } else {
+                llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
+                builder_->CreateStore(v, slot);
+            }
+            return;
+        }
+    }
 
     // Box value if not a pointer (needed for both array and dynamic set)
     if (!val->getType()->isPointerTy()) {

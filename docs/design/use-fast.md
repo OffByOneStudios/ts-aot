@@ -418,11 +418,17 @@ The seam (§14) is the only place boxing/roots reappear.
   (ASTToHIR + an explicit i64,i64->ptr signature in `HIRToLLVM_Calls.cpp` — the
   generic all-ptr fallback would mislink the int args); (4) `.length` ->
   `ts_native_array_length` (`HIRToLLVM_Memory.cpp`, mirroring String.length).
-  Test `tests/fast/test_native_array.ts`. `arr[i]` indexing sugar is deferred
-  (the className "NativeArray" matches the `.find("Array")` indexed-collection
-  check in lowerSetElem/lowerGetElem — wire a NativeArray branch there before
-  enabling `[i]`, else it routes to ts_array_get/set and corrupts). Gates: node
-  300/300, golden no-reg, fast 14/14, 2k 0 lost/0 gained.
+  Test `tests/fast/test_native_array.ts`. Gates: node 300/300, golden no-reg,
+  fast 14/14, 2k 0 lost/0 gained.
+  **`arr[i]` indexing sugar — DONE (2026-07-14).** The deferred gotcha (the
+  className matching `.find("Array")` routed `[i]` to ts_array_get/set and
+  corrupted) is defused: lowerGetElem/lowerSetElem now have first-class
+  NativeArray branches (inline unboxed slot access; the checked runtime call
+  under `--fast-checks` — bounds/dispose diagnostics work through the sugar),
+  and createGetElem infers the unboxed element type from the receiver so
+  downstream arithmetic stays native (the SoA-benchmark re-boxing trap).
+  Test `tests/fast/test_native_array_index.ts` (f64 + i64, both forms
+  interoperating, loop pattern).
 - **2c — Temp arena — DONE** (`a75a5500`). **Measure-first finding that
   reframed 2c:** the original scope (flip statepoints / lift the stack-alloc cap
   / drop write barriers) delivers almost nothing. A non-escaping local struct is
