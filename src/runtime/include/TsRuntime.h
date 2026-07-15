@@ -399,6 +399,7 @@ TsValue* ts_new_from_constructor_8(TsValue* constructorFn, TsValue* arg1, TsValu
 #define TS_THUNK_VARIADIC 3  // Collects args into TsArray
 void ts_builtin_register(const char* module, const char* name, void* fn_ptr, int thunk_type);
 void ts_builtin_register_str_prop(const char* module, const char* name, const char* value);
+void ts_builtin_register_post_init(const char* module, void (*callback)(void*));
 void ts_builtin_register_special(const char* name, void* fn_ptr);
 void* ts_builtin_lookup_special(const char* name);
 

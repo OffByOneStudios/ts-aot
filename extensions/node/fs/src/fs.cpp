@@ -59,6 +59,76 @@ static TsValue* bool_return_helper(void* context) {
     return ts_value_make_bool(val);
 }
 
+// Stats/Dirent type predicates (st.isFile() etc). The flag is stored TWO
+// ways because a METHOD call clobbers the native function's context with
+// the receiver (ts_call_with_this_N's `func->context = thisArg` override —
+// the same mechanism the flat-object BoundMethodCtx had to dodge):
+//  - encoded in the context (1=true, 2=false): survives a BARE call
+//    (`const f = st.isFile; f()`);
+//  - as a hidden "_<name>" data property on the Stats/Dirent map: method
+//    calls hand us the receiver as `context`, so read the flag off it.
+// Before this, every method-call predicate returned false (context was a
+// map pointer, never 1) — the fs_stats/fs_dirs test family.
+static TsValue* type_flag_helper(void* ctx, const char* hiddenKey) {
+    uintptr_t u = (uintptr_t)ctx;
+    if (std::getenv("TS_DEBUG_FSFLAG")) {
+        uint64_t nb0 = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        fprintf(stderr, "[fsflag] key=%s ctx=%p isptr=%d magic0=%08x\n",
+                hiddenKey, ctx, (int)nanbox_is_ptr(nb0),
+                nanbox_is_ptr(nb0) && nanbox_to_ptr(nb0)
+                    ? *(uint32_t*)nanbox_to_ptr(nb0) : 0);
+    }
+    if (u == 1) return ts_value_make_bool(true);
+    if (u == 2) return ts_value_make_bool(false);
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+    if (nanbox_is_ptr(nb)) {
+        void* raw = nanbox_to_ptr(nb);
+        // TsMap magic 'MAPS' sits at offset 16 for real C++ TsMap objects
+        // (offset 0 is the vtable) — same dual probe ts_typeof uses.
+        if (raw && (*(uint32_t*)raw == 0x4D415053 ||
+                    *(uint32_t*)((char*)raw + 16) == 0x4D415053)) {
+            TsMap* m = (TsMap*)raw;
+            TsValue v = m->Get(TsValue(TsString::Create(hiddenKey)));
+            if (v.type == ValueType::NUMBER_INT) return ts_value_make_bool(v.i_val == 1);
+            if (v.type == ValueType::NUMBER_DBL) return ts_value_make_bool(v.d_val == 1.0);
+        }
+    }
+    return ts_value_make_bool(false);
+}
+#define TS_FS_TYPE_FLAG(NAME) \
+    static TsValue* flag_##NAME(void* ctx) { return type_flag_helper(ctx, "_" #NAME); }
+TS_FS_TYPE_FLAG(isFile)
+TS_FS_TYPE_FLAG(isDirectory)
+TS_FS_TYPE_FLAG(isSymbolicLink)
+TS_FS_TYPE_FLAG(isBlockDevice)
+TS_FS_TYPE_FLAG(isCharacterDevice)
+TS_FS_TYPE_FLAG(isFIFO)
+TS_FS_TYPE_FLAG(isSocket)
+#undef TS_FS_TYPE_FLAG
+
+// Install the seven predicates + their hidden flags on a Stats/Dirent map.
+static void set_type_flags(TsMap* m, bool isFile, bool isDirectory,
+                           bool isSymbolicLink, bool isBlockDevice,
+                           bool isCharacterDevice, bool isFIFO, bool isSocket) {
+    struct Entry { const char* name; const char* hidden;
+                   TsValue* (*fn)(void*); bool val; };
+    const Entry entries[] = {
+        { "isFile", "_isFile", flag_isFile, isFile },
+        { "isDirectory", "_isDirectory", flag_isDirectory, isDirectory },
+        { "isSymbolicLink", "_isSymbolicLink", flag_isSymbolicLink, isSymbolicLink },
+        { "isBlockDevice", "_isBlockDevice", flag_isBlockDevice, isBlockDevice },
+        { "isCharacterDevice", "_isCharacterDevice", flag_isCharacterDevice, isCharacterDevice },
+        { "isFIFO", "_isFIFO", flag_isFIFO, isFIFO },
+        { "isSocket", "_isSocket", flag_isSocket, isSocket },
+    };
+    for (const auto& e : entries) {
+        m->Set(TsString::Create(e.hidden), TsValue((int64_t)(e.val ? 1 : 0)));
+        m->Set(TsString::Create(e.name),
+               nanbox_to_tagged(ts_value_make_function(
+                   (void*)e.fn, (void*)(uintptr_t)(e.val ? 1 : 2))));
+    }
+}
+
 // Helper to convert bool to the context encoding (1=true, 2=false)
 #define BOOL_TO_CONTEXT(b) ((void*)(uintptr_t)((b) ? 1 : 2))
 
@@ -75,21 +145,11 @@ public:
 
         d->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
         
-        bool isFile = (type == UV_DIRENT_FILE);
-        bool isDirectory = (type == UV_DIRENT_DIR);
-        bool isSymbolicLink = (type == UV_DIRENT_LINK);
-        bool isBlockDevice = (type == UV_DIRENT_BLOCK);
-        bool isCharacterDevice = (type == UV_DIRENT_CHAR);
-        bool isFIFO = (type == UV_DIRENT_FIFO);
-        bool isSocket = (type == UV_DIRENT_SOCKET);
-
-        d->Set(TsString::Create("isFile"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile))));
-        d->Set(TsString::Create("isDirectory"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory))));
-        d->Set(TsString::Create("isSymbolicLink"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink))));
-        d->Set(TsString::Create("isBlockDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice))));
-        d->Set(TsString::Create("isCharacterDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice))));
-        d->Set(TsString::Create("isFIFO"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO))));
-        d->Set(TsString::Create("isSocket"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket))));
+        set_type_flags(d,
+                       type == UV_DIRENT_FILE, type == UV_DIRENT_DIR,
+                       type == UV_DIRENT_LINK, type == UV_DIRENT_BLOCK,
+                       type == UV_DIRENT_CHAR, type == UV_DIRENT_FIFO,
+                       type == UV_DIRENT_SOCKET);
 
         return d;
     }
@@ -120,13 +180,8 @@ static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     bool isSocket = false;
 #endif
 
-    stats->Set(TsString::Create("isFile"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile))));
-    stats->Set(TsString::Create("isDirectory"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory))));
-    stats->Set(TsString::Create("isSymbolicLink"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink))));
-    stats->Set(TsString::Create("isBlockDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice))));
-    stats->Set(TsString::Create("isCharacterDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice))));
-    stats->Set(TsString::Create("isFIFO"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO))));
-    stats->Set(TsString::Create("isSocket"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket))));
+    set_type_flags(stats, isFile, isDirectory, isSymbolicLink, isBlockDevice,
+                   isCharacterDevice, isFIFO, isSocket);
     
     stats->Set(TsString::Create("size"), TsValue((double)st->st_size));
     
@@ -3613,6 +3668,15 @@ double ts_fs_writevSync(double fd, void* buffers_val, double position) {
 
 } // extern "C"
 
+// Attach non-function module members after create_builtin_module("fs")
+// builds the map: fs.constants (F_OK/R_OK/W_OK/X_OK). The dynamic
+// require('fs') path previously had NO constants at all.
+static void fs_module_post_init(void* modPtr) {
+    TsMap* mod = (TsMap*)modPtr;
+    mod->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("constants"))),
+             nanbox_to_tagged((TsValue*)ts_fs_get_constants()));
+}
+
 // Register fs functions for create_builtin_module("fs")
 static struct FsRegistrar {
     FsRegistrar() {
@@ -3622,6 +3686,10 @@ static struct FsRegistrar {
         ts_builtin_register("fs", "unlinkSync", (void*)ts_fs_unlinkSync, TS_THUNK_VOID);
         ts_builtin_register("fs", "mkdirSync", (void*)ts_fs_mkdirSync, TS_THUNK_VOID);
         ts_builtin_register("fs", "statSync", (void*)ts_fs_statSync, TS_THUNK_FN);
+        ts_builtin_register("fs", "lstatSync", (void*)ts_fs_lstatSync, TS_THUNK_FN);
         ts_builtin_register("fs", "readdirSync", (void*)ts_fs_readdirSync, TS_THUNK_FN);
+        ts_builtin_register("fs", "appendFileSync", (void*)ts_fs_appendFileSync, TS_THUNK_VOID);
+        ts_builtin_register("fs", "rmdirSync", (void*)ts_fs_rmdirSync, TS_THUNK_VOID);
+        ts_builtin_register_post_init("fs", fs_module_post_init);
     }
 } g_fs_registrar;

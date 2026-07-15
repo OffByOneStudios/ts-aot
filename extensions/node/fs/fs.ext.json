@@ -1281,6 +1281,11 @@
       "properties": {
         "promises": {
           "type": "FsPromises"
+        },
+        "constants": {
+          "type": "any",
+          "getter": "ts_fs_get_constants",
+          "lowering": { "args": [], "returns": "ptr" }
         }
       },
       "nestedObjects": {
