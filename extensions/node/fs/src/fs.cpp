@@ -589,7 +589,11 @@ static TsBuffer* unboxBuffer(void* ptr) {
     return nullptr;
 }
 
-void* ts_fs_readFileSync(void* path) {
+// Node: readFileSync(path) -> Buffer; readFileSync(path, encoding) or
+// readFileSync(path, { encoding }) -> string. The encoding argument was
+// previously dropped entirely, so `readFileSync(f, "utf8") === "..."` was
+// always false (object vs string).
+void* ts_fs_readFileSync(void* path, void* options) {
     TsString* pathStr = unboxString(path);
     if (!pathStr) return TsBuffer::Create(0);  // Return empty buffer
     const char* pathCStr = pathStr->ToUtf8();
@@ -601,10 +605,37 @@ void* ts_fs_readFileSync(void* path) {
 
     std::streamsize size = t.tellg();
     t.seekg(0, std::ios::beg);
-    
+
     TsBuffer* buf = TsBuffer::Create((size_t)size);
     t.read((char*)buf->GetData(), size);
-    
+
+    // Resolve the encoding: a string argument, or an options object's
+    // `encoding` property. Any recognized text encoding -> return a string
+    // (decoded like Buffer.toString, which handles utf8/latin1/etc.).
+    TsString* enc = nullptr;
+    if (options) {
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)options);
+        if (nanbox_is_ptr(nb) && nanbox_to_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (ts_is_any_string(raw)) {
+                enc = ts_ensure_flat(raw);
+            } else {
+                extern TsValue* ts_object_get_property(void* obj, const char* key);
+                TsValue* ev = ts_object_get_property(raw, "encoding");
+                if (ev) {
+                    uint64_t evNb = nanbox_from_tsvalue_ptr(ev);
+                    if (nanbox_is_ptr(evNb) && nanbox_to_ptr(evNb) &&
+                        ts_is_any_string(nanbox_to_ptr(evNb))) {
+                        enc = ts_ensure_flat(nanbox_to_ptr(evNb));
+                    }
+                }
+            }
+        }
+    }
+    if (enc) {
+        TsString* s = buf->ToString(enc);
+        if (s) return ts_value_make_string(s);
+    }
     return buf;
 }
 

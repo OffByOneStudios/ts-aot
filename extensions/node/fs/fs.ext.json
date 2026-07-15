@@ -661,10 +661,11 @@
         "readFileSync": {
           "call": "ts_fs_readFileSync",
           "params": [
-            {"name": "path", "type": "string"}
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
-          "returns": "Buffer",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "returns": "any",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
         },
         "writeFileSync": {
           "call": "ts_fs_writeFileSync",
