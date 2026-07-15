@@ -1833,6 +1833,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
         // Determine return type from target function if available
         auto returnType = (targetFunc && targetFunc->returnType) ? targetFunc->returnType : HIRType::makeAny();
+        // "use fast": a direct call to a user function carries its ANNOTATED
+        // return type. targetFunc was previously resolved only for
+        // default-param calls — every other direct call degraded to Any,
+        // which re-boxed downstream arithmetic and lost NativeArray element
+        // types across function boundaries (probe tmp/p8_min2.ts). The
+        // annotation string converts order-independently (the callee's spec
+        // may not be generated yet). Async/generators return Promise/
+        // Generator, not the annotation — FastCheck bans them in fast files,
+        // but guard anyway.
+        if (fastCode_ && returnType->kind == HIRTypeKind::Any && foundFuncNode &&
+            !foundFuncNode->returnType.empty() &&
+            !foundFuncNode->isAsync && !foundFuncNode->isGenerator) {
+            returnType = convertTypeFromString(foundFuncNode->returnType);
+        }
         lastValue_ = builder_.createCall(callName, args, returnType);
         if (!internalCallee) {
             builder_.createCall("ts_set_call_this", {savedPlainThis},
