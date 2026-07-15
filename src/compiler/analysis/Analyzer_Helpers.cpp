@@ -321,6 +321,30 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     if (typeName == "null") return std::make_shared<Type>(TypeKind::Null);
     if (typeName == "undefined") return std::make_shared<Type>(TypeKind::Undefined);
     
+    // "use fast" NativeArray<T> instantiation: clone the registered class
+    // with element-typed get/set so STRUCT elements type-check
+    // (p.get(0).x — the base registration types get() as number).
+    if (fastFile_ && typeName.starts_with("NativeArray<") && typeName.ends_with(">")) {
+        auto innerName = typeName.substr(12, typeName.size() - 13);
+        auto elemType = parseType(innerName, symbols);
+        auto base = std::dynamic_pointer_cast<ClassType>(symbols.lookupType("NativeArray"));
+        auto inst = std::make_shared<ClassType>("NativeArray");
+        if (base) { inst->methods = base->methods; inst->fields = base->fields; }
+        auto g = std::make_shared<FunctionType>();
+        g->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+        g->returnType = elemType;
+        inst->methods["get"] = g;
+        inst->methods["getUnchecked"] = g;
+        auto s = std::make_shared<FunctionType>();
+        s->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+        s->paramTypes.push_back(elemType);
+        s->returnType = std::make_shared<Type>(TypeKind::Void);
+        inst->methods["set"] = s;
+        inst->methods["setUnchecked"] = s;
+        inst->typeArguments = { elemType };
+        return inst;
+    }
+
     if (typeName.starts_with("Promise<") && typeName.ends_with(">")) {
         auto innerName = typeName.substr(8, typeName.size() - 9);
         auto innerType = parseType(innerName, symbols);

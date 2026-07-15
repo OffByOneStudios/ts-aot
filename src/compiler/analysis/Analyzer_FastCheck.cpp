@@ -293,10 +293,22 @@ struct FastChecker {
             return;
         }
         if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(n)) {
+            // STRUCT literal: a contextually-typed literal (`const v: Vec2 =
+            // {x, y}`) is a fixed-shape VALUE construction, not a dynamic
+            // heap object — ASTToHIR lowers it into the struct's own shape
+            // by field NAME. The analyzer stamps inferredType from the
+            // declared type (Analyzer_Statements annotation override).
+            auto ct = std::dynamic_pointer_cast<ClassType>(obj->inferredType);
+            if (ct && ct->isStruct) {
+                for (auto& prop : obj->properties) walk(prop.get());
+                return;
+            }
             err(n, "object literal",
                 "an object literal is a GC-heap allocation with dynamic "
                 "shape.",
-                "Declare a 'struct' value type and construct it with 'new'.");
+                "Declare a 'struct' value type and construct it with 'new' "
+                "(or annotate the binding with the struct type to use a "
+                "struct literal).");
             for (auto& prop : obj->properties) walk(prop.get());
             return;
         }

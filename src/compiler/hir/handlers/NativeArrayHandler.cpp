@@ -51,10 +51,54 @@ public:
 
         // Sized element descriptor from the receiver's elementType (bytes /
         // int-vs-float / signedness; legacy default is an 8-byte f64 slot).
+        // A Class elementType is a STRUCT element (AoS) — handled by the
+        // runtime memcpy helpers below.
         HIRToLLVM::NaElem e;
+        uint32_t structShapeId = 0;
+        bool isStructElem = false;
         if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
-            if (*valPtr && (*valPtr)->type)
-                e = HIRToLLVM::naElemInfo((*valPtr)->type->elementType);
+            if (*valPtr && (*valPtr)->type) {
+                auto& et = (*valPtr)->type->elementType;
+                if (et && et->kind == HIRTypeKind::Class) {
+                    isStructElem = true;
+                    structShapeId = et->shapeId;
+                } else {
+                    e = HIRToLLVM::naElemInfo(et);
+                }
+            }
+        }
+
+        if (isStructElem && (methodName == "get" || methodName == "getUnchecked")) {
+            llvm::Value* idx = toI64(inst->operands.size() > 2
+                                         ? lowerer.getOperandValue(inst->operands[2])
+                                         : nullptr,
+                                     lowerer);
+            // Runtime call: bounds-checked inside (always aborts on OOB);
+            // returns a fresh flat object of the struct's shape (value copy).
+            auto ft = llvm::FunctionType::get(
+                builder.getPtrTy(),
+                { builder.getPtrTy(), builder.getInt64Ty(), builder.getInt32Ty() },
+                false);
+            auto fn = module.getOrInsertFunction("ts_native_array_get_struct", ft);
+            return builder.CreateCall(ft, fn.getCallee(),
+                { arr, idx,
+                  llvm::ConstantInt::get(builder.getInt32Ty(), structShapeId) });
+        }
+        if (isStructElem && (methodName == "set" || methodName == "setUnchecked")) {
+            llvm::Value* idx = toI64(inst->operands.size() > 2
+                                         ? lowerer.getOperandValue(inst->operands[2])
+                                         : nullptr,
+                                     lowerer);
+            llvm::Value* v = inst->operands.size() > 3
+                                 ? lowerer.getOperandValue(inst->operands[3])
+                                 : llvm::ConstantPointerNull::get(builder.getPtrTy());
+            auto ft = llvm::FunctionType::get(
+                builder.getVoidTy(),
+                { builder.getPtrTy(), builder.getInt64Ty(), builder.getPtrTy() },
+                false);
+            auto fn = module.getOrInsertFunction("ts_native_array_set_struct", ft);
+            builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
+            return llvm::ConstantPointerNull::get(builder.getPtrTy());
         }
 
         if (methodName == "dispose") {

@@ -516,6 +516,28 @@ The seam (§14) is the only place boxing/roots reappear.
   ("Undefined variable NativeArray") — analyzer/HIR fast-gating keys on the
   ENTRY file's directive, not per-module. The flagship "dynamic app + fast
   kernel module" pattern needs per-module fast propagation (next).
+  [RESOLVED 2026-07-15, merge a5923323 — "use fast" is per-MODULE across all
+  three layers; tests/fast/test_dynamic_entry_fast_kernel.ts.]
+- **Sized element slots + Buffer bridge — DONE (2026-07-15, merge 9fe91199).**
+  `NativeArray<u8|i8|u16|i16|u32|i32|f32>` store at exact width (wrap on
+  store, sign/zero-extend on load, f32 rounds); element byte size packs into
+  allocKind's second byte (header frozen at 16 bytes). `arr.copyFrom(buf)` /
+  `arr.toBuffer()` move file bytes across the GC boundary with one memcpy
+  each way — the parser/codec unlock. Also fixed en route: variable
+  declarations now prefer the initializer's NativeArray HIRType (i64 arrays
+  silently lived in f64 slots before); lowerPhi's 32-block fragment-walk cap
+  silently dropped phi edges past ~15 checked accesses per block (now 1024).
+- **AoS struct elements + struct literals — DONE (2026-07-15).**
+  `NativeArray<Vec2>` elements are struct payloads (numFields*8 bytes)
+  memcpy'd via runtime helpers with VALUE semantics (`get` returns an
+  independent copy; bounds always abort). The analyzer instantiates
+  `NativeArray<T>` per type argument so `p.get(i).x` checks. Contextually
+  typed STRUCT LITERALS (`const q: Vec2 = {x, y}`) are allowed by FastCheck
+  and lower by field NAME into the struct's own shape — order-independent,
+  unboxed slots. The §18 worked example is now expressible with one
+  adjustment: literals need a struct-annotated binding (`const q: Particle =
+  {...}; p.set(i, q)`) — direct `p[i] = {...}` contextual typing is a
+  follow-up. tests/fast/test_native_array_struct.ts.
 - **SoA benchmark — RESOLVED 2026-07-14: fast wins 5.28x** (fast ≈217 ms,
   dynamic ≈1147 ms, identical checksum). The 2026-07-06 result was inverted
   (fast ~2.2x slower); the IR profile found the real root — none of the
