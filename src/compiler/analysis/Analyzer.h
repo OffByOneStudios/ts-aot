@@ -80,6 +80,11 @@ public:
     // reject constructs outside the high-performance subset with diagnostics.
     void performFastCheck(ast::Program* program);
 
+    // "use fast": register NativeArray/Allocator into the CURRENT symbol
+    // scope (global for a fast entry, module scope for a fast imported
+    // module). Idempotent.
+    void registerFastBuiltins();
+
     // Get the symbol table (for later passes)
     SymbolTable& getSymbolTable() { return symbols; }
     const SymbolTable& getSymbolTable() const { return symbols; }

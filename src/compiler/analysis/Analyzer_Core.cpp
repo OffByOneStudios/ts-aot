@@ -96,10 +96,31 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
 
     // "use fast" Phase 2b: register the NativeArray<T> builtin container type
     // and constructor ONLY in fast files, so the name is invisible to normal
-    // TS/JS compilation (docs/design/use-fast.md). NativeArray<T> exposes
-    // get(i)/set(i,v)/dispose() methods + a length field; element get/set slots
-    // are chosen from T at HIR-lowering time.
+    // TS/JS compilation (docs/design/use-fast.md).
     if (fastFile_) {
+        registerFastBuiltins();
+    }
+
+    visitProgram(program);
+    // symbols.exitScope();
+
+    mainModule->analyzed = true;
+    moduleOrder.push_back(currentFilePath);
+
+    performEscapeAnalysis(program);
+    performFastCheck(program);  // "use fast" subset enforcement (docs/design/use-fast.md)
+    activeOptions = prevOptions;  // Strategy B Phase 5e-i: restore profile
+}
+
+// "use fast": NativeArray<T> + Allocator surface. Registered into the
+// CURRENT symbol scope — global scope for a fast entry file (analyze()),
+// the module's own scope for a fast imported module (analyzeModule()), so
+// the names stay invisible to non-fast files either way. Idempotent.
+// NativeArray<T> exposes get(i)/set(i,v)/dispose() methods + a length
+// field; element get/set slots are chosen from T at HIR-lowering time.
+void Analyzer::registerFastBuiltins() {
+    if (symbols.lookupType("NativeArray")) return;
+    {
         auto naClass = std::make_shared<ClassType>("NativeArray");
         auto naGet = std::make_shared<FunctionType>();
         naGet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
@@ -136,16 +157,6 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         allocObj->fields["Persistent"] = std::make_shared<Type>(TypeKind::Double);
         symbols.define("Allocator", allocObj);
     }
-
-    visitProgram(program);
-    // symbols.exitScope();
-    
-    mainModule->analyzed = true;
-    moduleOrder.push_back(currentFilePath);
-
-    performEscapeAnalysis(program);
-    performFastCheck(program);  // "use fast" subset enforcement (docs/design/use-fast.md)
-    activeOptions = prevOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
 void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
@@ -173,7 +184,18 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     }
 
     symbols.enterScope();
-    
+
+    // Per-module "use fast": the directive is a property of EACH file, not
+    // the entry program. A fast module imported by a dynamic entry needs the
+    // fast surface (NativeArray/Allocator, i64/f32 aliases in parseType) and
+    // the FastCheck enforcement; a dynamic module under a fast entry must
+    // NOT accidentally inherit them.
+    bool oldFastFile = fastFile_;
+    fastFile_ = module->ast && module->ast->isFast;
+    if (fastFile_) {
+        registerFastBuiltins();  // defines into THIS module's scope
+    }
+
     // Inject module and exports for CommonJS support
     auto moduleType = std::make_shared<ObjectType>();
     moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
@@ -277,9 +299,14 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     }
 
     symbols.exitScope();
-    
+
     module->analyzed = true;
     moduleOrder.push_back(module->path);
+
+    // "use fast" subset enforcement for fast MODULES (self-gated on
+    // module->ast->isFast, so this is a no-op for dynamic modules).
+    performFastCheck(module->ast.get());
+    fastFile_ = oldFastFile;
 
     currentModule = oldModule;
     currentFilePath = oldPath;

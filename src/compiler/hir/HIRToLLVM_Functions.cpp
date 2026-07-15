@@ -1322,7 +1322,8 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     // Skip async/generator functions (their state-machine returns don't map to
     // a single balanced frame) — FastCheck rejects those in fast files anyway.
     arenaMarker_ = nullptr;
-    if (fastModule_ && !isAsyncFunction_ && !isGeneratorFunction_ &&
+    if ((fastModule_ || fastSourceFiles_.count(fn->sourceFile)) &&
+        !isAsyncFunction_ && !isGeneratorFunction_ &&
         !rpoOrder.empty() && rpoOrder[0]) {
         if (llvm::BasicBlock* entryBB = getBlock(rpoOrder[0])) {
             llvm::IRBuilder<>::InsertPointGuard guard(*builder_);

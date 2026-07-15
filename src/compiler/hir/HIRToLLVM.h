@@ -75,6 +75,17 @@ public:
     // on each return, so Temp allocations are bulk-freed at frame exit.
     void setFastModule(bool enable) { fastModule_ = enable; }
 
+    // Per-module "use fast": source files (parser-stamped paths) of fast
+    // MODULES. Functions whose sourceFile is in this set get the Temp arena
+    // frame even when the entry program is dynamic (hot-5% kernel pattern).
+    void setFastSourceFiles(std::set<std::string> files) {
+        fastSourceFiles_ = std::move(files);
+    }
+    // ANY compiled file (entry or module) carried "use fast". Gates the
+    // fast-only lowerings that key on values/calls only fast code produces
+    // (ts_math_* intrinsic map, no-gc.pin for NativeArray handles).
+    void setFastAny(bool enable) { fastAny_ = enable; }
+
     // "use fast" NativeArray safety tiers (safety is the DEFAULT):
     //   default        -> inline unboxed load/store guarded by an INLINE
     //                     bounds check (length compare + noreturn abort);
@@ -142,6 +153,8 @@ private:
     // GC statepoint infrastructure (experimental)
     bool enableGCStatepoints_ = false;
     bool fastModule_ = false;                // entry program had "use fast"
+    bool fastAny_ = false;                   // entry OR any module had "use fast"
+    std::set<std::string> fastSourceFiles_;  // sourceFiles of fast modules
     bool fastChecks_ = false;                // dev-mode NativeArray checks (--fast-checks)
     llvm::Value* arenaMarker_ = nullptr;     // per-function ts_native_arena_mark() token
 

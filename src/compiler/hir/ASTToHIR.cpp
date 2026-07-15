@@ -22,6 +22,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     // prologue is no longer visible in program->body here).
     strictCode_ = program->isStrict;
     fastCode_ = program->isFast;
+    entryFast_ = program->isFast;
 
     valueCounter_ = 0;
     blockCounter_ = 0;
@@ -77,6 +78,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     builder_ = HIRBuilder(module_.get());
     strictCode_ = program->isStrict;  // stamped by the parser (see above)
     fastCode_ = program->isFast;
+    entryFast_ = program->isFast;
     // EVAL-001 §11: source references `eval` -> main-module toplevel vars
     // deopt to globalThis-backed storage (globalObjectVars).
     evalTaint_ = program->referencesEval;
@@ -220,6 +222,10 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (!funcNode) continue;
         // Set currentModulePath_ so modVarName() generates unique globals per module
         currentModulePath_ = spec.modulePath;
+        // Per-module "use fast": module-global types from a fast module must
+        // convert with the fast numeric aliases active.
+        fastCode_ = entryFast_ || (!spec.modulePath.empty() &&
+                                   fastModulePaths_.count(spec.modulePath));
         // Remember the FIRST (entry) module's path: user functions like
         // user_main carry no modulePath in their spec, but bare CommonJS
         // `module`/`exports` reads inside them (visitIdentifier hook) need a
@@ -1034,6 +1040,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
         // Track current module path for cross-module function name disambiguation
         currentModulePath_ = spec.modulePath;
+        // Per-module "use fast": a spec from a fast MODULE lowers with the
+        // fast-gated paths (NativeArray handlers, typed builtins, numeric
+        // aliases) even when the entry program is dynamic.
+        fastCode_ = entryFast_ || (!spec.modulePath.empty() &&
+                                   fastModulePaths_.count(spec.modulePath));
 
         // Get the node - could be FunctionDeclaration or MethodDefinition
         if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
@@ -1135,8 +1146,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->returnType = convertType(spec.returnType);
             } else if (!funcNode->returnType.empty()) {
                 func->returnType = convertTypeFromString(funcNode->returnType);
-            } else {
-                func->returnType = HIRType::makeAny();
+            }
+            if (!func->returnType || func->returnType->kind == HIRTypeKind::Any) {
+                // Per-module "use fast": the Monomorphizer re-analyzed this
+                // function's return type OUTSIDE the fast module's analyzer
+                // context (fastFile_ off -> f64/i64 aliases unparsed -> Any).
+                // Recover it from the annotation with the fast aliases active.
+                if (fastCode_ && !funcNode->returnType.empty() &&
+                    !funcNode->isAsync && !funcNode->isGenerator) {
+                    func->returnType = convertTypeFromString(funcNode->returnType);
+                }
+                if (!func->returnType) func->returnType = HIRType::makeAny();
             }
 
             // Push function to module BEFORE lowering body so recursive calls

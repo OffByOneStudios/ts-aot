@@ -370,9 +370,22 @@ int Driver::run() {
         // module ASTs (not moved into module-init specs), and call sites need
         // them to resolve imported user functions to their module-mangled
         // specializations instead of a weak undefined-returning stub.
+        // Also collect the per-module "use fast" surface: module paths (keying
+        // Specialization::modulePath) for ASTToHIR's per-spec fast lowering,
+        // and source files for HIRToLLVM's per-function arena gating.
+        std::set<std::string> fastModulePaths, fastSourceFiles;
+        bool fastAny = program && program->isFast;
         for (auto& [modPath, mod] : analyzer.modules) {
-            if (mod && mod->ast) astToHir.registerModuleImports(mod->ast.get());
+            if (!mod || !mod->ast) continue;
+            astToHir.registerModuleImports(mod->ast.get());
+            if (mod->ast->isFast) {
+                fastAny = true;
+                fastModulePaths.insert(modPath);
+                if (!mod->ast->sourceFile.empty())
+                    fastSourceFiles.insert(mod->ast->sourceFile);
+            }
         }
+        astToHir.setFastModulePaths(fastModulePaths);
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
         auto t3 = std::chrono::steady_clock::now();
         ms_astHir = MS(t2, t3);
@@ -433,8 +446,11 @@ int Driver::run() {
         hir::HIRToLLVM hirToLlvm(*hirContext);
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
         // "use fast" Phase 2c: enable the NativeArray Temp arena frame when the
-        // entry program carried the directive.
+        // entry program carried the directive; per-module fast modules get
+        // per-function arena frames via their source files.
         hirToLlvm.setFastModule(program && program->isFast);
+        hirToLlvm.setFastAny(fastAny);
+        hirToLlvm.setFastSourceFiles(fastSourceFiles);
         // Phase 3: --fast-checks makes NativeArray access emit the checked
         // runtime call instead of an inline load/store.
         hirToLlvm.setFastChecks(options.fastChecks);

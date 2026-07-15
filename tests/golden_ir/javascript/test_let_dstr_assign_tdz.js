@@ -1,4 +1,4 @@
-// RUN: ts-aot %s -o %t.exe && %t.exe
+// RUN: %ts-aot %s -o %t.exe && %t.exe
 // OUTPUT: len 2
 // OUTPUT: arr0 7
 // OUTPUT: tdz-throws true
