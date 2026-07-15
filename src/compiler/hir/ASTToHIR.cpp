@@ -2689,6 +2689,20 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             initValue->type->className == "Generator") {
             varType = initValue->type;
         }
+        // "use fast" NativeArray: the analyzer's ClassType carries no element
+        // info, but the lowered initializer (ctor / annotated call result)
+        // has the full elementType incl. sized-slot width — without this the
+        // receiver degraded to default f64 8-byte slots (u8 stores didn't
+        // wrap; i64 arrays silently lived in f64 slots, exact only < 2^53).
+        // An explicit `: NativeArray<T>` annotation also wins over the
+        // analyzer's element-less conversion.
+        if (initValue && initValue->type && initValue->type->kind == HIRTypeKind::Class &&
+            initValue->type->className == "NativeArray") {
+            varType = initValue->type;
+        } else if (fastCode_ && !node->type.empty() &&
+                   node->type.rfind("NativeArray", 0) == 0) {
+            varType = convertTypeFromString(node->type);
+        }
 
         // Decide whether to reuse an existing alloca or create a fresh one:
         //  - `var` is function-scoped & hoisted: reuse the pre-hoisted alloca in

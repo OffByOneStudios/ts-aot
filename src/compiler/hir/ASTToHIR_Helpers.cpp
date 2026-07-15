@@ -2,6 +2,32 @@
 
 namespace ts::hir {
 
+// "use fast" NativeArray<T> element type from the type-argument source
+// string. Values flow through HIR at Int64/Float64; numericBits/-Unsigned
+// describe the sized STORAGE slot (u8 -> 1-byte slot, f32 -> 4-byte, ...).
+// Empty / unknown args default to f64 (8-byte).
+std::shared_ptr<HIRType> ASTToHIR::fastNativeElemType(const std::string& arg) {
+    auto intElem = [](uint8_t bits, bool uns) {
+        auto e = HIRType::makeInt64();
+        e->numericBits = bits;          // 0 = full 8-byte slot
+        e->numericUnsigned = uns;
+        return e;
+    };
+    if (arg == "i8")  return intElem(8, false);
+    if (arg == "u8")  return intElem(8, true);
+    if (arg == "i16") return intElem(16, false);
+    if (arg == "u16") return intElem(16, true);
+    if (arg == "i32") return intElem(32, false);
+    if (arg == "u32") return intElem(32, true);
+    if (arg == "i64" || arg == "int" || arg == "isize") return intElem(0, false);
+    if (arg == "u64" || arg == "usize") return intElem(0, true);
+    if (arg == "f32") {
+        auto e = HIRType::makeFloat64();
+        e->numericBits = 32;
+        return e;
+    }
+    return HIRType::makeFloat64();      // f64 / number / default
+}
 
 std::shared_ptr<HIRValue> ASTToHIR::createValue(std::shared_ptr<HIRType> type) {
     // Delegate to builder to ensure we use the same value counter as HIRFunction
@@ -561,16 +587,11 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
         // escape abort.
         if (typeStr == "NativeArray" || typeStr.rfind("NativeArray<", 0) == 0) {
             auto t = HIRType::makeClass("NativeArray");
-            auto elem = HIRType::makeFloat64();
+            std::string arg;
             if (auto lt = typeStr.find('<'); lt != std::string::npos) {
-                std::string arg = typeStr.substr(lt + 1,
-                    typeStr.rfind('>') - lt - 1);
-                bool isInt = (arg == "int" || arg == "isize" || arg == "usize" ||
-                              (arg.size() >= 2 && (arg[0] == 'i' || arg[0] == 'u') &&
-                               std::isdigit((unsigned char)arg[1])));
-                if (isInt) elem = HIRType::makeInt64();
+                arg = typeStr.substr(lt + 1, typeStr.rfind('>') - lt - 1);
             }
-            t->elementType = elem;
+            t->elementType = fastNativeElemType(arg);
             return t;
         }
     }

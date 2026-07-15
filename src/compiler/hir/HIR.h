@@ -59,6 +59,14 @@ struct HIRType {
     // Is this a typed (unboxed) array?
     bool isTypedArray = false;
 
+    // "use fast" exact-width metadata, set ONLY on NativeArray elementType
+    // (from the NativeArray<u8|i16|u32|f32|...> annotation). 0 = default
+    // 8-byte slot (Int64/Float64). Values still flow through HIR at
+    // Int64/Float64 width; the STORAGE is sized (zext/sext on load,
+    // trunc on store; fpext/fptrunc for f32).
+    uint8_t numericBits = 0;
+    bool numericUnsigned = false;
+
     HIRType(HIRTypeKind k) : kind(k) {}
 
     static std::shared_ptr<HIRType> makeVoid() { return std::make_shared<HIRType>(HIRTypeKind::Void); }

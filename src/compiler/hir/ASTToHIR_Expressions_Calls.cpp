@@ -2193,16 +2193,10 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // right runtime slot accessor. Gated on fastCode_ so the name is inert
     // outside fast files.
     if (fastCode_ && className == "NativeArray") {
-        // Element type from the type argument string (i*/u*/int -> Int64,
-        // else Float64). typeArguments are raw source strings here.
-        auto elemType = HIRType::makeFloat64();
-        if (!node->typeArguments.empty()) {
-            const std::string& t = node->typeArguments[0];
-            bool isInt = (t == "int" || t == "isize" || t == "usize" ||
-                          (t.size() >= 2 && (t[0] == 'i' || t[0] == 'u') &&
-                           std::isdigit((unsigned char)t[1])));
-            if (isInt) elemType = HIRType::makeInt64();
-        }
+        // Element type from the type argument string (raw source string),
+        // including sized-slot widths (u8/i16/u32/f32/... -> numericBits).
+        auto elemType = fastNativeElemType(
+            node->typeArguments.empty() ? std::string() : node->typeArguments[0]);
 
         // Coerce a numeric HIR value to Int64 (length / allocator are i64 in
         // the ts_native_array_new signature).
@@ -2235,6 +2229,19 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                                          : toI64(lowerExpression(argExpr));
         } else {
             allocVal = builder_.createConstInt(0);  // default Allocator.Temp
+        }
+
+        // Pack the element byte size into the allocKind word's second byte
+        // (kind | bytes << 8) — the 16-byte header layout can't grow (inline
+        // lowering hardcodes length@+8, slots@+16), and the runtime needs the
+        // size for dispose/quarantine/arena-scrub byte math. 0 = legacy 8.
+        {
+            unsigned bytes = 8;
+            if (elemType->numericBits) bytes = elemType->numericBits / 8;
+            if (bytes != 8) {
+                auto packed = builder_.createConstInt((int64_t)bytes << 8);
+                allocVal = builder_.createOrI64(allocVal, packed);
+            }
         }
 
         auto naType = HIRType::makeClass("NativeArray");

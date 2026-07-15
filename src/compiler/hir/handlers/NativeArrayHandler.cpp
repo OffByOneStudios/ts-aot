@@ -36,7 +36,8 @@ public:
         if (className != "NativeArray") return false;
         return methodName == "get" || methodName == "set" ||
                methodName == "getUnchecked" || methodName == "setUnchecked" ||
-               methodName == "dispose";
+               methodName == "dispose" ||
+               methodName == "copyFrom" || methodName == "toBuffer";
     }
 
     llvm::Value* lowerMethod(const std::string& methodName,
@@ -48,13 +49,12 @@ public:
         // operands[0] = receiver, [1] = method name, [2..] = args
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[0]);
 
-        // Element type: Int64 -> i64 slots, otherwise f64 slots.
-        bool isInt = false;
+        // Sized element descriptor from the receiver's elementType (bytes /
+        // int-vs-float / signedness; legacy default is an 8-byte f64 slot).
+        HIRToLLVM::NaElem e;
         if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
-            if (*valPtr && (*valPtr)->type && (*valPtr)->type->elementType &&
-                (*valPtr)->type->elementType->kind == HIRTypeKind::Int64) {
-                isInt = true;
-            }
+            if (*valPtr && (*valPtr)->type)
+                e = HIRToLLVM::naElemInfo((*valPtr)->type->elementType);
         }
 
         if (methodName == "dispose") {
@@ -65,6 +65,26 @@ public:
             return llvm::ConstantPointerNull::get(builder.getPtrTy());
         }
 
+        // Buffer bridge: bulk byte copy between GC Buffers and native memory
+        // (one memcpy instead of a per-byte boxed loop).
+        if (methodName == "copyFrom") {
+            llvm::Value* buf = inst->operands.size() > 2
+                                   ? lowerer.getOperandValue(inst->operands[2])
+                                   : llvm::ConstantPointerNull::get(builder.getPtrTy());
+            auto ft = llvm::FunctionType::get(
+                builder.getInt64Ty(), { builder.getPtrTy(), builder.getPtrTy() }, false);
+            auto fn = module.getOrInsertFunction("ts_native_array_copy_from_buffer", ft);
+            llvm::Value* n = builder.CreateCall(ft, fn.getCallee(), { arr, buf });
+            // Analyzer types copyFrom's result as number (Double).
+            return builder.CreateSIToFP(n, builder.getDoubleTy());
+        }
+        if (methodName == "toBuffer") {
+            auto ft = llvm::FunctionType::get(
+                builder.getPtrTy(), { builder.getPtrTy() }, false);
+            auto fn = module.getOrInsertFunction("ts_native_array_to_buffer", ft);
+            return builder.CreateCall(ft, fn.getCallee(), { arr });
+        }
+
         if (methodName == "get" || methodName == "getUnchecked") {
             bool unchecked = (methodName == "getUnchecked");
             llvm::Value* idx = toI64(inst->operands.size() > 2
@@ -72,25 +92,36 @@ public:
                                          : nullptr,
                                      lowerer);
             if (lowerer.fastChecks() && !unchecked) {
-                // Dev build: bounds/dispose-checked runtime call.
-                const char* rn = isInt ? "ts_native_array_get_i64" : "ts_native_array_get_f64";
-                llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
-                                       : (llvm::Type*)builder.getDoubleTy();
+                // Dev build: bounds/dispose-checked runtime call (sized slots
+                // use the code-carrying accessors).
+                if (e.bytes == 8) {
+                    const char* rn = e.isInt ? "ts_native_array_get_i64"
+                                             : "ts_native_array_get_f64";
+                    llvm::Type* rt = e.isInt ? (llvm::Type*)builder.getInt64Ty()
+                                             : (llvm::Type*)builder.getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        rt, { builder.getPtrTy(), builder.getInt64Ty() }, false);
+                    auto fn = module.getOrInsertFunction(rn, ft);
+                    return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
+                }
+                int32_t code = (int32_t)e.bytes | (e.isUnsigned ? 0x100 : 0);
+                const char* rn = e.isInt ? "ts_native_array_get_int"
+                                         : "ts_native_array_get_fp";
+                llvm::Type* rt = e.isInt ? (llvm::Type*)builder.getInt64Ty()
+                                         : (llvm::Type*)builder.getDoubleTy();
                 auto ft = llvm::FunctionType::get(
-                    rt, { builder.getPtrTy(), builder.getInt64Ty() }, false);
+                    rt, { builder.getPtrTy(), builder.getInt64Ty(),
+                          builder.getInt32Ty() }, false);
                 auto fn = module.getOrInsertFunction(rn, ft);
-                return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
+                return builder.CreateCall(ft, fn.getCallee(),
+                    { arr, idx, llvm::ConstantInt::get(builder.getInt32Ty(), code) });
             }
-            // Default: inline unboxed load guarded by an inline bounds check.
+            // Default: inline sized load guarded by an inline bounds check.
             // getUnchecked is the IN-LANGUAGE unsafe opt-out (Rust
             // get_unchecked analog) — no check, in any build mode.
-            // slot ptr = base + 16 + i*8.
             if (!unchecked)
                 lowerer.emitNativeArrayBoundsCheck(arr, idx);
-            llvm::Value* slot = slotPtr(arr, idx, lowerer);
-            llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
-                                   : (llvm::Type*)builder.getDoubleTy();
-            return builder.CreateLoad(rt, slot, "na.get");
+            return lowerer.emitNativeArrayLoad(arr, idx, e);
         }
 
         if (methodName == "set" || methodName == "setUnchecked") {
@@ -102,24 +133,39 @@ public:
             llvm::Value* raw = inst->operands.size() > 3
                                    ? lowerer.getOperandValue(inst->operands[3])
                                    : nullptr;
-            llvm::Value* v = isInt ? toI64(raw, lowerer) : toF64(raw, lowerer);
+            llvm::Value* v = e.isInt ? toI64(raw, lowerer) : toF64(raw, lowerer);
             if (lowerer.fastChecks() && !unchecked) {
-                const char* rn = isInt ? "ts_native_array_set_i64" : "ts_native_array_set_f64";
-                llvm::Type* vt = isInt ? (llvm::Type*)builder.getInt64Ty()
-                                       : (llvm::Type*)builder.getDoubleTy();
+                if (e.bytes == 8) {
+                    const char* rn = e.isInt ? "ts_native_array_set_i64"
+                                             : "ts_native_array_set_f64";
+                    llvm::Type* vt = e.isInt ? (llvm::Type*)builder.getInt64Ty()
+                                             : (llvm::Type*)builder.getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        builder.getVoidTy(),
+                        { builder.getPtrTy(), builder.getInt64Ty(), vt }, false);
+                    auto fn = module.getOrInsertFunction(rn, ft);
+                    builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
+                    return llvm::ConstantPointerNull::get(builder.getPtrTy());
+                }
+                int32_t code = (int32_t)e.bytes | (e.isUnsigned ? 0x100 : 0);
+                const char* rn = e.isInt ? "ts_native_array_set_int"
+                                         : "ts_native_array_set_fp";
+                llvm::Type* vt = e.isInt ? (llvm::Type*)builder.getInt64Ty()
+                                         : (llvm::Type*)builder.getDoubleTy();
                 auto ft = llvm::FunctionType::get(
-                    builder.getVoidTy(), { builder.getPtrTy(), builder.getInt64Ty(), vt },
-                    false);
+                    builder.getVoidTy(),
+                    { builder.getPtrTy(), builder.getInt64Ty(),
+                      builder.getInt32Ty(), vt }, false);
                 auto fn = module.getOrInsertFunction(rn, ft);
-                builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
+                builder.CreateCall(ft, fn.getCallee(),
+                    { arr, idx, llvm::ConstantInt::get(builder.getInt32Ty(), code), v });
                 return llvm::ConstantPointerNull::get(builder.getPtrTy());
             }
-            // Default: inline unboxed store guarded by an inline bounds
+            // Default: inline sized store guarded by an inline bounds
             // check; setUnchecked skips it (in-language unsafe opt-out).
             if (!unchecked)
                 lowerer.emitNativeArrayBoundsCheck(arr, idx);
-            llvm::Value* slot = slotPtr(arr, idx, lowerer);
-            builder.CreateStore(v, slot);
+            lowerer.emitNativeArrayStore(arr, idx, e, v);
             return llvm::ConstantPointerNull::get(builder.getPtrTy());
         }
 
@@ -127,19 +173,6 @@ public:
     }
 
 private:
-    // Inline slot address: raw(base) + 16 + i*8. The 16-byte header is
-    // magic(4) + allocKind(4) + length(8); 8-byte element slots follow (matches
-    // TsNativeArray in the runtime). Uses the raw (addrspace 0) handle so the
-    // load/store isn't entangled with GC statepoints — NativeArray memory is
-    // off the GC heap.
-    llvm::Value* slotPtr(llvm::Value* arr, llvm::Value* idx, HIRToLLVM& lowerer) {
-        auto& b = lowerer.builder();
-        llvm::Value* raw = lowerer.toRawPtr(arr);
-        llvm::Value* off = b.CreateAdd(
-            b.CreateMul(idx, llvm::ConstantInt::get(b.getInt64Ty(), 8)),
-            llvm::ConstantInt::get(b.getInt64Ty(), 16));
-        return b.CreateGEP(b.getInt8Ty(), raw, off, "na.slot");
-    }
 
     // Coerce a value to i64 (index / integer slot).
     llvm::Value* toI64(llvm::Value* v, HIRToLLVM& lowerer) {

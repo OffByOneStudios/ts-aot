@@ -23,16 +23,34 @@
 #include <cstring>
 #include <vector>
 
+// Buffer bridge only (copyFrom/toBuffer): TsBuffer is GC-managed; these
+// functions COPY bytes across the boundary and never store GC pointers in
+// native memory, so the arena's "no GC pointers" contract holds.
+#include "TsBuffer.h"
+#include "TsRuntime.h"
+
 namespace {
 constexpr uint32_t NARR_MAGIC    = 0x4E415252;  // 'NARR'
 constexpr uint32_t NARR_DISPOSED = 0x44495350;  // 'DISP' — freed Persistent handle
 
 struct TsNativeArray {
     uint32_t magic;
-    int32_t  allocKind;   // 0 = Temp, 1 = Persistent
+    int32_t  allocKind;   // low byte: 0 = Temp, 1 = Persistent;
+                          // byte 1: element size in bytes (0 = legacy 8).
+                          // Packed because the 16-byte header layout is
+                          // frozen (compiled code hardcodes length@+8,
+                          // slots@+16).
     int64_t  length;      // element count
-    // 8-byte element slots follow inline (length * 8 bytes).
+    // Sized element slots follow inline (length * elem_size bytes).
 };
+
+inline size_t elem_size(const TsNativeArray* a) {
+    unsigned b = ((unsigned)a->allocKind >> 8) & 0xFF;
+    return b ? b : 8;
+}
+inline int32_t alloc_kind(const TsNativeArray* a) {
+    return a->allocKind & 0xFF;
+}
 
 //==========================================================================
 // Dev-mode safety checks (docs/design/use-fast.md Phase 3 — the Unity
@@ -205,7 +223,9 @@ static void arena_scrub_headers(ArenaBlock* b, size_t start, size_t end) {
     while (off + sizeof(TsNativeArray) <= end) {
         TsNativeArray* a = (TsNativeArray*)(b->data() + off);
         if (a->magic != NARR_MAGIC && a->magic != NARR_DISPOSED) break;
-        size_t advance = sizeof(TsNativeArray) + (size_t)a->length * 8;
+        // Payload is 8-byte aligned by arena_alloc's rounding — mirror it.
+        size_t payload = ((size_t)a->length * elem_size(a) + 7) & ~size_t(7);
+        size_t advance = sizeof(TsNativeArray) + payload;
         a->magic = 0;
         a->length = 0;
         off += advance;
@@ -234,13 +254,18 @@ void ts_native_arena_release(uint64_t token) {
     }
 }
 
-// Allocate a NativeArray of `length` 8-byte slots, zero-initialized.
-// allocKind 0 = Temp (arena, bulk-released), 1 = Persistent (malloc/free).
+// Allocate a NativeArray of `length` sized slots, zero-initialized.
+// allocKind low byte: 0 = Temp (arena, bulk-released), 1 = Persistent
+// (malloc + quarantine). Byte 1: element size in bytes (0 = legacy 8-byte
+// slots) — packed by the compiler for NativeArray<u8|i16|u32|f32|...>.
 void* ts_native_array_new(int64_t length, int32_t allocKind) {
     if (length < 0) length = 0;
-    size_t total = sizeof(TsNativeArray) + (size_t)length * 8;
+    unsigned eb = ((unsigned)allocKind >> 8) & 0xFF;
+    if (!eb) eb = 8;
+    size_t payload = ((size_t)length * eb + 7) & ~size_t(7);  // 8-align (arena walk)
+    size_t total = sizeof(TsNativeArray) + payload;
     TsNativeArray* a;
-    if (allocKind == 1) {
+    if ((allocKind & 0xFF) == 1) {
         a = quarantine_take(total);
         if (!a) a = (TsNativeArray*)std::malloc(total);
     } else {
@@ -250,7 +275,7 @@ void* ts_native_array_new(int64_t length, int32_t allocKind) {
     a->magic = NARR_MAGIC;
     a->allocKind = allocKind;
     a->length = length;
-    std::memset(slots(a), 0, (size_t)length * 8);
+    std::memset(slots(a), 0, payload);
     return a;
 }
 
@@ -309,8 +334,9 @@ void ts_native_array_dispose(void* arr) {
                 ? "called twice (double dispose)" : "called on an invalid handle");
         return;
     }
-    if (a->allocKind == 1) {
-        size_t cap = sizeof(TsNativeArray) + (size_t)a->length * 8;
+    if (alloc_kind(a) == 1) {
+        size_t cap = sizeof(TsNativeArray) +
+                     (((size_t)a->length * elem_size(a) + 7) & ~size_t(7));
         a->magic = NARR_DISPOSED;
         a->length = 0;
         if (!fast_checks_enabled()) quarantine_push(a, cap);
@@ -320,6 +346,91 @@ void ts_native_array_dispose(void* arr) {
     }
     // Temp: no-op; ts_native_arena_release reclaims the whole frame. Using a
     // Temp array after dispose() is legal (valid until frame exit).
+}
+
+//==========================================================================
+// Sized-slot checked accessors (--fast-checks tier). `code` = element byte
+// size | (0x100 if unsigned). The default tier lowers sized access INLINE;
+// these exist so dev builds keep bounds/dispose diagnostics for u8..f32.
+//==========================================================================
+double ts_native_array_get_fp(void* arr, int64_t i, int32_t code) {
+    TsNativeArray* a = resolve(arr, "get");
+    if (!a || !in_bounds(a, i, "get")) return 0.0;
+    char* p = (char*)slots(a) + (size_t)i * (code & 0xFF);
+    if ((code & 0xFF) == 4) { float f; std::memcpy(&f, p, 4); return (double)f; }
+    double v; std::memcpy(&v, p, 8); return v;
+}
+
+void ts_native_array_set_fp(void* arr, int64_t i, int32_t code, double v) {
+    TsNativeArray* a = resolve(arr, "set");
+    if (!a || !in_bounds(a, i, "set")) return;
+    char* p = (char*)slots(a) + (size_t)i * (code & 0xFF);
+    if ((code & 0xFF) == 4) { float f = (float)v; std::memcpy(p, &f, 4); return; }
+    std::memcpy(p, &v, 8);
+}
+
+int64_t ts_native_array_get_int(void* arr, int64_t i, int32_t code) {
+    TsNativeArray* a = resolve(arr, "get");
+    if (!a || !in_bounds(a, i, "get")) return 0;
+    unsigned bytes = code & 0xFF;
+    bool uns = (code & 0x100) != 0;
+    char* p = (char*)slots(a) + (size_t)i * bytes;
+    switch (bytes) {
+        case 1: return uns ? (int64_t)*(uint8_t*)p  : (int64_t)*(int8_t*)p;
+        case 2: return uns ? (int64_t)*(uint16_t*)p : (int64_t)*(int16_t*)p;
+        case 4: return uns ? (int64_t)*(uint32_t*)p : (int64_t)*(int32_t*)p;
+        default: { int64_t v; std::memcpy(&v, p, 8); return v; }
+    }
+}
+
+void ts_native_array_set_int(void* arr, int64_t i, int32_t code, int64_t v) {
+    TsNativeArray* a = resolve(arr, "set");
+    if (!a || !in_bounds(a, i, "set")) return;
+    unsigned bytes = code & 0xFF;
+    char* p = (char*)slots(a) + (size_t)i * bytes;
+    switch (bytes) {
+        case 1: *(uint8_t*)p  = (uint8_t)v;  return;
+        case 2: *(uint16_t*)p = (uint16_t)v; return;
+        case 4: *(uint32_t*)p = (uint32_t)v; return;
+        default: std::memcpy(p, &v, 8);      return;
+    }
+}
+
+//==========================================================================
+// Buffer bridge: bulk byte COPY between GC-managed Buffers and native
+// memory (one memcpy instead of a per-byte boxed loop — the fast path for
+// parser/codec workloads reading file bytes). Copy, never zero-copy: Buffer
+// data is GC-heap memory that can move; a native alias would dangle.
+//==========================================================================
+
+// arr.copyFrom(buf): copy min(arrayBytes, buf.length) bytes into the array.
+// Returns the number of bytes copied.
+int64_t ts_native_array_copy_from_buffer(void* arr, void* buf) {
+    TsNativeArray* a = resolve(arr, "copyFrom");
+    if (!a) return 0;
+    void* raw = ts_value_get_object((TsValue*)buf);
+    if (!raw) raw = buf;
+    TsBuffer* b = dynamic_cast<TsBuffer*>((TsObject*)raw);
+    if (!b) {
+        if (fast_checks_enabled())
+            fast_check_fail_msg("copyFrom", "argument is not a Buffer");
+        return 0;
+    }
+    size_t arrBytes = (size_t)a->length * elem_size(a);
+    size_t n = b->GetLength() < arrBytes ? b->GetLength() : arrBytes;
+    std::memcpy(slots(a), b->GetData(), n);
+    return (int64_t)n;
+}
+
+// arr.toBuffer(): allocate a new Buffer holding a copy of the array's bytes.
+void* ts_native_array_to_buffer(void* arr) {
+    TsNativeArray* a = resolve(arr, "toBuffer");
+    if (!a) return ts_value_make_undefined();
+    size_t arrBytes = (size_t)a->length * elem_size(a);
+    TsBuffer* b = TsBuffer::Create(arrBytes);
+    if (!b) return ts_value_make_undefined();
+    std::memcpy(b->GetData(), slots(a), arrBytes);
+    return ts_value_make_object(b);
 }
 
 }  // extern "C"

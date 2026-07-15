@@ -1351,12 +1351,55 @@ llvm::Value* HIRToLLVM::emitNativeArrayF64(llvm::Value* v) {
     return llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
 }
 
-llvm::Value* HIRToLLVM::emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx) {
+HIRToLLVM::NaElem HIRToLLVM::naElemInfo(const std::shared_ptr<HIRType>& elem) {
+    NaElem e;
+    if (!elem) return e;                       // default f64, 8-byte
+    e.isInt = (elem->kind == HIRTypeKind::Int64);
+    e.isUnsigned = elem->numericUnsigned;
+    if (elem->numericBits) e.bytes = elem->numericBits / 8;
+    return e;
+}
+
+llvm::Value* HIRToLLVM::emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx,
+                                            unsigned elemBytes) {
     llvm::Value* raw = toRawPtr(arr);
     llvm::Value* off = builder_->CreateAdd(
-        builder_->CreateMul(i64Idx, llvm::ConstantInt::get(builder_->getInt64Ty(), 8)),
+        builder_->CreateMul(i64Idx,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), elemBytes)),
         llvm::ConstantInt::get(builder_->getInt64Ty(), 16));
     return builder_->CreateGEP(builder_->getInt8Ty(), raw, off, "na.slot");
+}
+
+llvm::Value* HIRToLLVM::emitNativeArrayLoad(llvm::Value* arr, llvm::Value* i64Idx,
+                                            const NaElem& e) {
+    llvm::Value* slot = emitNativeArraySlot(arr, i64Idx, e.bytes);
+    if (e.isInt) {
+        if (e.bytes == 8)
+            return builder_->CreateLoad(builder_->getInt64Ty(), slot, "na.get");
+        llvm::Type* st = builder_->getIntNTy(e.bytes * 8);
+        llvm::Value* v = builder_->CreateLoad(st, slot, "na.get.n");
+        return e.isUnsigned ? builder_->CreateZExt(v, builder_->getInt64Ty())
+                            : builder_->CreateSExt(v, builder_->getInt64Ty());
+    }
+    if (e.bytes == 4) {
+        llvm::Value* f = builder_->CreateLoad(builder_->getFloatTy(), slot, "na.get.f32");
+        return builder_->CreateFPExt(f, builder_->getDoubleTy());
+    }
+    return builder_->CreateLoad(builder_->getDoubleTy(), slot, "na.get");
+}
+
+void HIRToLLVM::emitNativeArrayStore(llvm::Value* arr, llvm::Value* i64Idx,
+                                     const NaElem& e, llvm::Value* v) {
+    llvm::Value* slot = emitNativeArraySlot(arr, i64Idx, e.bytes);
+    if (e.isInt) {
+        if (e.bytes != 8)
+            v = builder_->CreateTrunc(v, builder_->getIntNTy(e.bytes * 8));
+        builder_->CreateStore(v, slot);
+        return;
+    }
+    if (e.bytes == 4)
+        v = builder_->CreateFPTrunc(v, builder_->getFloatTy());
+    builder_->CreateStore(v, slot);
 }
 
 void HIRToLLVM::emitNativeArrayBoundsCheck(llvm::Value* arr, llvm::Value* i64Idx) {
@@ -1398,25 +1441,39 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
         if (*naRecv && (*naRecv)->type &&
             (*naRecv)->type->kind == HIRTypeKind::Class &&
             (*naRecv)->type->className == "NativeArray") {
-            bool naIsInt = (*naRecv)->type->elementType &&
-                           (*naRecv)->type->elementType->kind == HIRTypeKind::Int64;
+            NaElem e = naElemInfo((*naRecv)->type->elementType);
             llvm::Value* i64Idx = emitNativeArrayIndex(idx);
             llvm::Value* loaded;
             if (fastChecks_) {
-                const char* rn = naIsInt ? "ts_native_array_get_i64"
-                                         : "ts_native_array_get_f64";
-                llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
-                                         : (llvm::Type*)builder_->getDoubleTy();
-                auto ft = llvm::FunctionType::get(
-                    rt, { builder_->getPtrTy(), builder_->getInt64Ty() }, false);
-                auto fn = module_->getOrInsertFunction(rn, ft);
-                loaded = builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx });
+                // Dev tier: bounds/dispose-checked runtime call. Legacy
+                // 8-byte slots keep the _i64/_f64 entry points; sized slots
+                // use the code-carrying accessors (bytes | 0x100-unsigned).
+                if (e.bytes == 8) {
+                    const char* rn = e.isInt ? "ts_native_array_get_i64"
+                                             : "ts_native_array_get_f64";
+                    llvm::Type* rt = e.isInt ? (llvm::Type*)builder_->getInt64Ty()
+                                             : (llvm::Type*)builder_->getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        rt, { builder_->getPtrTy(), builder_->getInt64Ty() }, false);
+                    auto fn = module_->getOrInsertFunction(rn, ft);
+                    loaded = builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx });
+                } else {
+                    int32_t code = (int32_t)e.bytes | (e.isUnsigned ? 0x100 : 0);
+                    const char* rn = e.isInt ? "ts_native_array_get_int"
+                                             : "ts_native_array_get_fp";
+                    llvm::Type* rt = e.isInt ? (llvm::Type*)builder_->getInt64Ty()
+                                             : (llvm::Type*)builder_->getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        rt, { builder_->getPtrTy(), builder_->getInt64Ty(),
+                              builder_->getInt32Ty() }, false);
+                    auto fn = module_->getOrInsertFunction(rn, ft);
+                    loaded = builder_->CreateCall(ft, fn.getCallee(),
+                        { arr, i64Idx,
+                          llvm::ConstantInt::get(builder_->getInt32Ty(), code) });
+                }
             } else {
                 emitNativeArrayBoundsCheck(arr, i64Idx);
-                llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
-                llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
-                                         : (llvm::Type*)builder_->getDoubleTy();
-                loaded = builder_->CreateLoad(rt, slot, "na.idx.get");
+                loaded = emitNativeArrayLoad(arr, i64Idx, e);
             }
             if (inst->result) setValue(inst->result, loaded);
             return;
@@ -1610,25 +1667,39 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
         if (*naRecv && (*naRecv)->type &&
             (*naRecv)->type->kind == HIRTypeKind::Class &&
             (*naRecv)->type->className == "NativeArray") {
-            bool naIsInt = (*naRecv)->type->elementType &&
-                           (*naRecv)->type->elementType->kind == HIRTypeKind::Int64;
+            NaElem e = naElemInfo((*naRecv)->type->elementType);
             llvm::Value* i64Idx = emitNativeArrayIndex(idx);
-            llvm::Value* v = naIsInt ? emitNativeArrayIndex(val)   // to i64
+            llvm::Value* v = e.isInt ? emitNativeArrayIndex(val)   // to i64
                                      : emitNativeArrayF64(val);    // to f64
             if (fastChecks_) {
-                const char* rn = naIsInt ? "ts_native_array_set_i64"
-                                         : "ts_native_array_set_f64";
-                llvm::Type* vt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
-                                         : (llvm::Type*)builder_->getDoubleTy();
-                auto ft = llvm::FunctionType::get(
-                    builder_->getVoidTy(),
-                    { builder_->getPtrTy(), builder_->getInt64Ty(), vt }, false);
-                auto fn = module_->getOrInsertFunction(rn, ft);
-                builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx, v });
+                if (e.bytes == 8) {
+                    const char* rn = e.isInt ? "ts_native_array_set_i64"
+                                             : "ts_native_array_set_f64";
+                    llvm::Type* vt = e.isInt ? (llvm::Type*)builder_->getInt64Ty()
+                                             : (llvm::Type*)builder_->getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        builder_->getVoidTy(),
+                        { builder_->getPtrTy(), builder_->getInt64Ty(), vt }, false);
+                    auto fn = module_->getOrInsertFunction(rn, ft);
+                    builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx, v });
+                } else {
+                    int32_t code = (int32_t)e.bytes | (e.isUnsigned ? 0x100 : 0);
+                    const char* rn = e.isInt ? "ts_native_array_set_int"
+                                             : "ts_native_array_set_fp";
+                    llvm::Type* vt = e.isInt ? (llvm::Type*)builder_->getInt64Ty()
+                                             : (llvm::Type*)builder_->getDoubleTy();
+                    auto ft = llvm::FunctionType::get(
+                        builder_->getVoidTy(),
+                        { builder_->getPtrTy(), builder_->getInt64Ty(),
+                          builder_->getInt32Ty(), vt }, false);
+                    auto fn = module_->getOrInsertFunction(rn, ft);
+                    builder_->CreateCall(ft, fn.getCallee(),
+                        { arr, i64Idx,
+                          llvm::ConstantInt::get(builder_->getInt32Ty(), code), v });
+                }
             } else {
                 emitNativeArrayBoundsCheck(arr, i64Idx);
-                llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
-                builder_->CreateStore(v, slot);
+                emitNativeArrayStore(arr, i64Idx, e, v);
             }
             return;
         }

@@ -144,6 +144,16 @@ void Analyzer::registerFastBuiltins() {
         naDispose->returnType = std::make_shared<Type>(TypeKind::Void);
         naClass->methods["dispose"] = naDispose;
 
+        // Buffer bridge: arr.copyFrom(buf) -> bytes copied;
+        // arr.toBuffer() -> a new Buffer with a copy of the array's bytes.
+        auto naCopyFrom = std::make_shared<FunctionType>();
+        naCopyFrom->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        naCopyFrom->returnType = std::make_shared<Type>(TypeKind::Double);
+        naClass->methods["copyFrom"] = naCopyFrom;
+        auto naToBuffer = std::make_shared<FunctionType>();
+        naToBuffer->returnType = std::make_shared<Type>(TypeKind::Any);
+        naClass->methods["toBuffer"] = naToBuffer;
+
         naClass->fields["length"] = std::make_shared<Type>(TypeKind::Double);
         symbols.defineType("NativeArray", naClass);
 

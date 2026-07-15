@@ -104,7 +104,24 @@ public:
     // (lowerGet/SetElem) and NativeArrayHandler (.get/.set):
     llvm::Value* emitNativeArrayIndex(llvm::Value* v);  // any -> i64
     llvm::Value* emitNativeArrayF64(llvm::Value* v);    // any -> double
-    llvm::Value* emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx);
+
+    // Sized-slot element descriptor from the receiver's elementType
+    // (numericBits metadata; 0 = legacy 8-byte slot).
+    struct NaElem {
+        unsigned bytes = 8;       // storage slot size (1/2/4/8)
+        bool isInt = false;       // Int64-kind element (else Float64-kind)
+        bool isUnsigned = false;  // zext (vs sext) on sub-64 int loads
+    };
+    static NaElem naElemInfo(const std::shared_ptr<HIRType>& elem);
+    llvm::Value* emitNativeArraySlot(llvm::Value* arr, llvm::Value* i64Idx,
+                                     unsigned elemBytes = 8);
+    // Sized load/store: value side is always i64 (int elements) or double
+    // (float elements); the STORAGE is elemBytes wide (zext/sext, trunc,
+    // fpext/fptrunc as needed).
+    llvm::Value* emitNativeArrayLoad(llvm::Value* arr, llvm::Value* i64Idx,
+                                     const NaElem& e);
+    void emitNativeArrayStore(llvm::Value* arr, llvm::Value* i64Idx,
+                              const NaElem& e, llvm::Value* v);
     // Inline bounds check: load length (offset 8), unsigned-compare the
     // index (negative/NaN indexes wrap huge and fail), branch to a
     // noreturn ts_native_array_bounds_abort on out-of-range. Leaves the
