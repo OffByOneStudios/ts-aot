@@ -988,7 +988,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         if (fastCode_ && obj && obj->type &&
             obj->type->kind == HIRTypeKind::Class &&
             obj->type->className == "NativeArray" &&
-            propAccess->name == "get") {
+            (propAccess->name == "get" || propAccess->name == "getUnchecked")) {
             auto elemT = (obj->type->elementType &&
                           obj->type->elementType->kind == HIRTypeKind::Int64)
                              ? HIRType::makeInt64()

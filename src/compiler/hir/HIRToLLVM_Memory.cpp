@@ -1412,7 +1412,7 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 auto fn = module_->getOrInsertFunction(rn, ft);
                 loaded = builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx });
             } else {
-                if (!fastUnchecked_) emitNativeArrayBoundsCheck(arr, i64Idx);
+                emitNativeArrayBoundsCheck(arr, i64Idx);
                 llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
                 llvm::Type* rt = naIsInt ? (llvm::Type*)builder_->getInt64Ty()
                                          : (llvm::Type*)builder_->getDoubleTy();
@@ -1626,7 +1626,7 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
                 auto fn = module_->getOrInsertFunction(rn, ft);
                 builder_->CreateCall(ft, fn.getCallee(), { arr, i64Idx, v });
             } else {
-                if (!fastUnchecked_) emitNativeArrayBoundsCheck(arr, i64Idx);
+                emitNativeArrayBoundsCheck(arr, i64Idx);
                 llvm::Value* slot = emitNativeArraySlot(arr, i64Idx);
                 builder_->CreateStore(v, slot);
             }

@@ -112,6 +112,13 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         naSet->returnType = std::make_shared<Type>(TypeKind::Void);
         naClass->methods["set"] = naSet;
 
+        // The explicit UNSAFE forms (Rust get_unchecked analog): same
+        // signatures, no bounds check at the lowering. In-language so unsafe
+        // code is greppable and visible in review — there is no compiler
+        // flag that removes checks.
+        naClass->methods["getUnchecked"] = naGet;
+        naClass->methods["setUnchecked"] = naSet;
+
         auto naDispose = std::make_shared<FunctionType>();
         naDispose->returnType = std::make_shared<Type>(TypeKind::Void);
         naClass->methods["dispose"] = naDispose;

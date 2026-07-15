@@ -431,7 +431,6 @@ int Driver::run() {
         // Phase 3: --fast-checks makes NativeArray access emit the checked
         // runtime call instead of an inline load/store.
         hirToLlvm.setFastChecks(options.fastChecks);
-        hirToLlvm.setFastUnchecked(options.fastUnchecked);
         hirToLlvm.setEmitDebugInfo(options.debug || options.coverage);
         hirToLlvm.setEmitCoverage(options.coverage);
         hirToLlvm.setPreludeObject(options.preludeObject);

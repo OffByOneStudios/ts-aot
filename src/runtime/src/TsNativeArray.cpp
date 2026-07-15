@@ -95,6 +95,33 @@ inline uint64_t* slots(TsNativeArray* a) {
 }
 
 //==========================================================================
+// Persistent quarantine: disposed Persistent chunks are NEVER returned to
+// malloc — they park here (header zeroed) and are reused only for future
+// NativeArrays. Guarantees a stale handle always points at runtime-owned,
+// mapped memory: before reuse the zeroed length makes every bounds check
+// abort; after reuse it aliases a live array (logical bug, not memory UB).
+//==========================================================================
+struct QuarantineEntry { TsNativeArray* chunk; size_t cap; };
+static thread_local std::vector<QuarantineEntry> g_quarantine;
+
+inline void quarantine_push(TsNativeArray* a, size_t cap) {
+    g_quarantine.push_back({ a, cap });
+}
+
+// First-fit reuse; returns null if nothing fits.
+inline TsNativeArray* quarantine_take(size_t need) {
+    for (size_t k = 0; k < g_quarantine.size(); ++k) {
+        if (g_quarantine[k].cap >= need) {
+            TsNativeArray* a = g_quarantine[k].chunk;
+            g_quarantine[k] = g_quarantine.back();
+            g_quarantine.pop_back();
+            return a;
+        }
+    }
+    return nullptr;
+}
+
+//==========================================================================
 // Temp arena: a thread-local chain of bump blocks with LIFO frame markers.
 //==========================================================================
 struct ArenaBlock {
@@ -165,20 +192,46 @@ uint64_t ts_native_arena_mark() {
     return (uint64_t)g_arena_frames.size();
 }
 
+// Zero the NativeArray headers laid out in an arena block range
+// [start, end). The arena is used EXCLUSIVELY for NativeArrays, bump-
+// allocated end-to-end, so the range walks reliably: header, then
+// length*8 slot bytes, then the next header. Zeroing length makes any
+// escaped-Temp handle fail its inline bounds check (loud abort) instead
+// of silently reading recycled memory — until the block is reused, after
+// which an escaped handle aliases a new array (logical bug, never a wild
+// pointer; same containment contract as the Persistent quarantine).
+static void arena_scrub_headers(ArenaBlock* b, size_t start, size_t end) {
+    size_t off = start;
+    while (off + sizeof(TsNativeArray) <= end) {
+        TsNativeArray* a = (TsNativeArray*)(b->data() + off);
+        if (a->magic != NARR_MAGIC && a->magic != NARR_DISPOSED) break;
+        size_t advance = sizeof(TsNativeArray) + (size_t)a->length * 8;
+        a->magic = 0;
+        a->length = 0;
+        off += advance;
+    }
+}
+
 // Pop back to the frame `token` marked, recycling any blocks allocated since.
 // The compiler emits this on each return of a fast function.
 void ts_native_arena_release(uint64_t token) {
     if (token == 0 || token > g_arena_frames.size()) return;
     ArenaFrame f = g_arena_frames[token - 1];
     g_arena_frames.resize(token - 1);
-    // Recycle blocks newer than the marked block onto the freelist.
+    // Recycle blocks newer than the marked block onto the freelist,
+    // scrubbing the headers of the arrays they contained.
     while (g_arena_top && g_arena_top != f.block) {
         ArenaBlock* b = g_arena_top;
+        arena_scrub_headers(b, 0, b->used);
         g_arena_top = b->prev;
         b->prev = g_arena_free;
         g_arena_free = b;
     }
-    if (g_arena_top) g_arena_top->used = f.used;  // rewind within the frame block
+    if (g_arena_top) {
+        // Rewind within the frame block: scrub the released tail.
+        arena_scrub_headers(g_arena_top, f.used, g_arena_top->used);
+        g_arena_top->used = f.used;
+    }
 }
 
 // Allocate a NativeArray of `length` 8-byte slots, zero-initialized.
@@ -186,9 +239,13 @@ void ts_native_arena_release(uint64_t token) {
 void* ts_native_array_new(int64_t length, int32_t allocKind) {
     if (length < 0) length = 0;
     size_t total = sizeof(TsNativeArray) + (size_t)length * 8;
-    TsNativeArray* a = (allocKind == 1)
-        ? (TsNativeArray*)std::malloc(total)
-        : (TsNativeArray*)arena_alloc(total);
+    TsNativeArray* a;
+    if (allocKind == 1) {
+        a = quarantine_take(total);
+        if (!a) a = (TsNativeArray*)std::malloc(total);
+    } else {
+        a = (TsNativeArray*)arena_alloc(total);
+    }
     if (!a) return nullptr;
     a->magic = NARR_MAGIC;
     a->allocKind = allocKind;
@@ -228,14 +285,18 @@ void ts_native_array_set_i64(void* arr, int64_t i, int64_t v) {
     slots(a)[i] = (uint64_t)v;
 }
 
-// Dispose a NativeArray. Persistent (1) is freed; Temp (0) is a no-op — its
-// backing lives in the arena and is bulk-released at frame exit, so calling
-// free() on it would corrupt the C heap.
+// Dispose a NativeArray. Temp (0) is a no-op — its backing lives in the
+// arena and is bulk-released at frame exit.
 //
-// Dev mode (TS_FAST_CHECKS=1): a Persistent handle is marked NARR_DISPOSED but
-// NOT freed, so a later use-after-dispose or double-dispose is caught by
-// resolve() instead of reading freed memory. (This intentionally leaks in dev —
-// a debugging trade, like Unity's leak detector.)
+// Persistent (1) is QUARANTINED, never returned to malloc: the header is
+// zeroed (length = 0, magic = NARR_DISPOSED) and the chunk goes on a
+// NativeArray-only freelist that ts_native_array_new reuses. This is the
+// memory-safety contract for the default (bounds-checked) tier: a stale
+// handle's inline bounds check reads runtime-owned memory and sees length 0
+// -> loud abort. After the chunk is REUSED, a stale handle aliases the new
+// array — a logical bug (dev-mode --fast-checks catches the dispose), but
+// never a wild pointer / heap corruption. Full temporal safety needs
+// ownership tracking, which is explicitly out of scope (RFC §12).
 void ts_native_array_dispose(void* arr) {
     if (!arr) {
         if (fast_checks_enabled()) fast_check_fail_msg("dispose", "called on a null handle");
@@ -249,8 +310,13 @@ void ts_native_array_dispose(void* arr) {
         return;
     }
     if (a->allocKind == 1) {
+        size_t cap = sizeof(TsNativeArray) + (size_t)a->length * 8;
         a->magic = NARR_DISPOSED;
-        if (!fast_checks_enabled()) std::free(a);
+        a->length = 0;
+        if (!fast_checks_enabled()) quarantine_push(a, cap);
+        // Dev mode: keep the chunk out of circulation entirely so
+        // use-after-dispose is ALWAYS caught, never aliased (the
+        // intentional dev leak, like Unity's leak detector).
     }
     // Temp: no-op; ts_native_arena_release reclaims the whole frame. Using a
     // Temp array after dispose() is legal (valid until frame exit).

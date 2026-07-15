@@ -483,12 +483,22 @@ The seam (§14) is the only place boxing/roots reappear.
     tiers, measured on the nbody kernel:
     | tier | nbody | semantics |
     |---|---|---|
-    | default | 128.3 ms | inline unboxed load/store guarded by an **inline bounds check** (length at base+8, unsigned compare so negative/NaN indexes fail, branch to noreturn `ts_native_array_bounds_abort`). LLVM hoists the length load; cost measured **4.6%**. Matches V8, which also bounds-checks at this speed. |
-    | `--fast-unchecked` | 122.6 ms | raw access, NO check — the explicit unsafe marker (Rust `get_unchecked` analog) |
+    | default (`[i]`/`.get`/`.set`) | 128 ms | inline unboxed load/store guarded by an **inline bounds check** (length at base+8, unsigned compare so negative/NaN indexes fail, branch to noreturn `ts_native_array_bounds_abort`). LLVM hoists the length load; cost measured **4.6%**. Matches V8, which also bounds-checks at this speed. |
+    | `.getUnchecked`/`.setUnchecked` | ~123 ms | raw access, NO check — the **in-language** unsafe marker (user decision 2026-07-14: unsafety must be a language construct like Rust's, not a compiler flag; `--fast-unchecked` was removed the same day it was added). Greppable at the call site; unchecked even under `--fast-checks` (Rust debug semantics). |
     | `--fast-checks` | 299 ms | dev runtime call: bounds + use-after-dispose + double-dispose (loud with `TS_FAST_CHECKS=1`) |
-    Residual unsafety in the default tier: use-after-dispose (Persistent)
-    and Temp-array frame escape — dev-mode only. The original "checks
-    compiled out in release" Unity framing is retired for bounds.
+    **Temporal safety (default tier):** Persistent `dispose()` QUARANTINES
+    the chunk (header zeroed -> stale handles abort on the bounds check;
+    memory reused only for future NativeArrays, never returned to malloc),
+    and `ts_native_arena_release` scrubs the headers of released Temp
+    arrays. A stale handle can never reach non-runtime-owned memory; after
+    slot reuse it may alias a new array (logical bug, dev-mode-catchable,
+    never heap corruption). Full temporal safety = ownership tracking,
+    explicitly deferred (§12). The original "checks compiled out in
+    release" Unity framing is retired.
+    KNOWN GAP (banked): fast->fast user function calls lower through the
+    dynamic closure path with Any results — a typed direct-call path would
+    both speed them up and let NativeArray types flow through returns
+    (probe tmp/p8_min2.ts).
 - **SoA benchmark — RESOLVED 2026-07-14: fast wins 5.28x** (fast ≈217 ms,
   dynamic ≈1147 ms, identical checksum). The 2026-07-06 result was inverted
   (fast ~2.2x slower); the IR profile found the real root — none of the

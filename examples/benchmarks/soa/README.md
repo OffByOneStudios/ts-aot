@@ -59,15 +59,22 @@ global-builtin method with a typed RuntimeCall resolution (all of `Math.*`)
 lowers to a direct typed call with no receiver evaluation. The inner loop is
 now pure native `fmul/fadd/fsub` plus one `ts_math_sqrt(double)` call.
 
-## Safety tiers (2026-07-14: safety is the DEFAULT)
+## Safety model (2026-07-14: safe by default, unsafe is in-language)
 
-| Build | nbody time | what you get |
+| Access | nbody time | semantics |
 |---|---|---|
-| default | 128.3 ms | inline bounds check on every element access (length compare + loud abort); negative/NaN indexes caught. **This matches V8, which also bounds-checks at this speed.** |
-| `--fast-unchecked` | 122.6 ms | raw access, no checks — the explicit unsafe opt-out (Rust `get_unchecked` analog), for kernels that have earned it |
-| `--fast-checks` | 299 ms | dev diagnostics via the runtime: bounds + use-after-dispose + double-dispose (loud with `TS_FAST_CHECKS=1`) |
+| `arr[i]` / `.get` / `.set` (default) | 128 ms | inline bounds check (length compare + loud abort); negative/NaN indexes caught. **Matches V8, which also bounds-checks at this speed.** |
+| `.getUnchecked` / `.setUnchecked` | ~123 ms | raw access, no check — the IN-LANGUAGE unsafe marker (Rust `get_unchecked` analog). There is no compiler flag that removes checks; unsafe code is greppable at the call site. |
+| `--fast-checks` build | 299 ms | dev diagnostics via the runtime: adds use-after-dispose / double-dispose (loud with `TS_FAST_CHECKS=1`) |
 
 Bounds safety costs **4.6%** on this kernel — LLVM hoists the length load and
-the branch predicts perfectly. Known residual unsafety even in the default
-tier: use-after-`dispose()` of a Persistent array and a Temp array escaping
-its arena frame (caught only by `--fast-checks` dev builds).
+the branch predicts perfectly.
+
+Temporal safety in the default tier: `dispose()`d Persistent chunks are
+QUARANTINED (header zeroed, reused only for future NativeArrays — a stale
+handle aborts on its bounds check until the chunk is reused), and arena
+frame release scrubs the headers of released Temp arrays the same way. A
+stale handle can therefore never reach non-runtime-owned memory; after slot
+reuse it may alias a new array (a logical bug — `--fast-checks` dev builds
+catch the dispose — but never heap corruption). Full temporal safety would
+need ownership tracking, which the RFC explicitly defers.
