@@ -81,13 +81,11 @@ public:
     //                     hoistable/eliminable by LLVM like V8's checks.
     //   --fast-checks  -> the bounds/dispose-checked runtime CALL (richer
     //                     dev diagnostics: use-after-dispose, double-dispose).
-    //   --fast-unchecked -> raw inline access, NO bounds check. The explicit
-    //                     unsafe marker (Rust get_unchecked analog); for
-    //                     kernels that have earned it.
+    //   getUnchecked/setUnchecked -> raw inline access, NO bounds check.
+    //                     The IN-LANGUAGE unsafe marker (Rust get_unchecked
+    //                     analog); there is no flag that removes checks.
     void setFastChecks(bool enable) { fastChecks_ = enable; }
     bool fastChecks() const { return fastChecks_; }
-    void setFastUnchecked(bool enable) { fastUnchecked_ = enable; }
-    bool fastUnchecked() const { return fastUnchecked_; }
     // Expose the addrspace(1)->addrspace(0) cast for handlers doing inline
     // memory access on a NativeArray handle.
     llvm::Value* toRawPtr(llvm::Value* v) { return gcPtrToRaw(v); }
@@ -145,7 +143,6 @@ private:
     bool enableGCStatepoints_ = false;
     bool fastModule_ = false;                // entry program had "use fast"
     bool fastChecks_ = false;                // dev-mode NativeArray checks (--fast-checks)
-    bool fastUnchecked_ = false;             // NO bounds checks (--fast-unchecked, explicit unsafe)
     llvm::Value* arenaMarker_ = nullptr;     // per-function ts_native_arena_mark() token
 
     // Debug info emission

@@ -554,6 +554,25 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
         if (typeStr == "f32" || typeStr == "f64") {
             return HIRType::makeFloat64();
         }
+        // NativeArray<T> in an annotation position (param / return / field).
+        // Without this, a `function f(): NativeArray<number>` return type
+        // fell to an unknown class -> the caller's element accesses routed
+        // to the DYNAMIC path — both slow and bypassing the scrubbed-header
+        // escape abort.
+        if (typeStr == "NativeArray" || typeStr.rfind("NativeArray<", 0) == 0) {
+            auto t = HIRType::makeClass("NativeArray");
+            auto elem = HIRType::makeFloat64();
+            if (auto lt = typeStr.find('<'); lt != std::string::npos) {
+                std::string arg = typeStr.substr(lt + 1,
+                    typeStr.rfind('>') - lt - 1);
+                bool isInt = (arg == "int" || arg == "isize" || arg == "usize" ||
+                              (arg.size() >= 2 && (arg[0] == 'i' || arg[0] == 'u') &&
+                               std::isdigit((unsigned char)arg[1])));
+                if (isInt) elem = HIRType::makeInt64();
+            }
+            t->elementType = elem;
+            return t;
+        }
     }
     if (typeStr == "string") {
         return HIRType::makeString();

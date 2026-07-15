@@ -35,6 +35,7 @@ public:
                          HIRInstruction*) const override {
         if (className != "NativeArray") return false;
         return methodName == "get" || methodName == "set" ||
+               methodName == "getUnchecked" || methodName == "setUnchecked" ||
                methodName == "dispose";
     }
 
@@ -64,12 +65,13 @@ public:
             return llvm::ConstantPointerNull::get(builder.getPtrTy());
         }
 
-        if (methodName == "get") {
+        if (methodName == "get" || methodName == "getUnchecked") {
+            bool unchecked = (methodName == "getUnchecked");
             llvm::Value* idx = toI64(inst->operands.size() > 2
                                          ? lowerer.getOperandValue(inst->operands[2])
                                          : nullptr,
                                      lowerer);
-            if (lowerer.fastChecks()) {
+            if (lowerer.fastChecks() && !unchecked) {
                 // Dev build: bounds/dispose-checked runtime call.
                 const char* rn = isInt ? "ts_native_array_get_i64" : "ts_native_array_get_f64";
                 llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
@@ -79,10 +81,11 @@ public:
                 auto fn = module.getOrInsertFunction(rn, ft);
                 return builder.CreateCall(ft, fn.getCallee(), { arr, idx });
             }
-            // Default: inline unboxed load guarded by an inline bounds check
-            // (safety is the default; --fast-unchecked removes the check).
+            // Default: inline unboxed load guarded by an inline bounds check.
+            // getUnchecked is the IN-LANGUAGE unsafe opt-out (Rust
+            // get_unchecked analog) — no check, in any build mode.
             // slot ptr = base + 16 + i*8.
-            if (!lowerer.fastUnchecked())
+            if (!unchecked)
                 lowerer.emitNativeArrayBoundsCheck(arr, idx);
             llvm::Value* slot = slotPtr(arr, idx, lowerer);
             llvm::Type* rt = isInt ? (llvm::Type*)builder.getInt64Ty()
@@ -90,7 +93,8 @@ public:
             return builder.CreateLoad(rt, slot, "na.get");
         }
 
-        if (methodName == "set") {
+        if (methodName == "set" || methodName == "setUnchecked") {
+            bool unchecked = (methodName == "setUnchecked");
             llvm::Value* idx = toI64(inst->operands.size() > 2
                                          ? lowerer.getOperandValue(inst->operands[2])
                                          : nullptr,
@@ -99,7 +103,7 @@ public:
                                    ? lowerer.getOperandValue(inst->operands[3])
                                    : nullptr;
             llvm::Value* v = isInt ? toI64(raw, lowerer) : toF64(raw, lowerer);
-            if (lowerer.fastChecks()) {
+            if (lowerer.fastChecks() && !unchecked) {
                 const char* rn = isInt ? "ts_native_array_set_i64" : "ts_native_array_set_f64";
                 llvm::Type* vt = isInt ? (llvm::Type*)builder.getInt64Ty()
                                        : (llvm::Type*)builder.getDoubleTy();
@@ -110,9 +114,9 @@ public:
                 builder.CreateCall(ft, fn.getCallee(), { arr, idx, v });
                 return llvm::ConstantPointerNull::get(builder.getPtrTy());
             }
-            // Default: inline unboxed store guarded by an inline bounds check
-            // (safety is the default; --fast-unchecked removes the check).
-            if (!lowerer.fastUnchecked())
+            // Default: inline unboxed store guarded by an inline bounds
+            // check; setUnchecked skips it (in-language unsafe opt-out).
+            if (!unchecked)
                 lowerer.emitNativeArrayBoundsCheck(arr, idx);
             llvm::Value* slot = slotPtr(arr, idx, lowerer);
             builder.CreateStore(v, slot);
