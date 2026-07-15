@@ -1,4 +1,4 @@
-// RUN: ts-aot %s -o %t.exe && %t.exe
+// RUN: %ts-aot %s -o %t.exe && %t.exe
 // OUTPUT: count: 3
 // OUTPUT: str: hello world done
 

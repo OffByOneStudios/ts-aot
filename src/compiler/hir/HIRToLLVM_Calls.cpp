@@ -27,7 +27,7 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     // the vectorizer. Only intrinsics with exactly ECMA-262 semantics are
     // mapped (sqrt/fabs/floor/ceil/trunc; NOT round — llvm.round is
     // half-away-from-zero, JS is half-up).
-    if (fastModule_ && inst->operands.size() == 2) {
+    if (fastAny_ && inst->operands.size() == 2) {
         static const std::unordered_map<std::string, llvm::Intrinsic::ID> kMathIntrinsic = {
             {"ts_math_sqrt",  llvm::Intrinsic::sqrt},
             {"ts_math_abs",   llvm::Intrinsic::fabs},

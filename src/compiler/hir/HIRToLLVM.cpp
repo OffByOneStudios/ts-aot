@@ -848,7 +848,7 @@ void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value*
         // the pin store/reload pair defeats LICM on hot loops (the SoA
         // benchmark reloaded every component-array handle per element
         // access). Use the SSA value directly.
-        bool isNonGCHandle = fastModule_ && hirValue->type &&
+        bool isNonGCHandle = fastAny_ && hirValue->type &&
             hirValue->type->kind == HIRTypeKind::Class &&
             hirValue->type->className == "NativeArray";
         if (llvmValue && llvmValue->getType()->isPointerTy() &&

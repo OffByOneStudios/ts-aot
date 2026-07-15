@@ -51,6 +51,14 @@ public:
     // specs), so lower() cannot discover them from the entry program alone.
     void registerModuleImports(ast::Program* moduleAst);
 
+    // Per-module "use fast": module paths (analyzer keys, matching
+    // Specialization::modulePath) whose files carry the directive. The
+    // spec-lowering loops set fastCode_ from this so a fast MODULE lowers
+    // fast even under a dynamic entry.
+    void setFastModulePaths(std::set<std::string> paths) {
+        fastModulePaths_ = std::move(paths);
+    }
+
 private:
     //==========================================================================
     // State
@@ -434,6 +442,10 @@ private:
     // fixed-width numeric aliases (i32/f64/...) then, keeping non-fast files a
     // strict TS subset. Set from Program::isFast in lower().
     bool fastCode_ = false;
+    // Entry program's isFast (fastCode_ resets to this between specs; a
+    // spec from a fast MODULE flips fastCode_ on via fastModulePaths_).
+    bool entryFast_ = false;
+    std::set<std::string> fastModulePaths_;
 
     // Lexical `with` nesting depth (ES 14.11). Entries are pushed on the
     // runtime with-stack by the with-block lowering; return/break/continue
