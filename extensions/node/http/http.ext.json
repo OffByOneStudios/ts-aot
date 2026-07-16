@@ -634,7 +634,9 @@
           "type": "HttpsAgent"
         },
         "globalAgent": {
-          "type": "HttpsAgent"
+          "type": "HttpsAgent",
+          "getter": "ts_https_get_global_agent",
+          "lowering": { "args": [], "returns": "ptr" }
         }
       },
       "methods": {

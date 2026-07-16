@@ -964,7 +964,14 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
                                            rhsType->kind == HIRTypeKind::Array ||
                                            rhsType->kind == HIRTypeKind::Ptr));
 
-    if (lhsIsPointer && rhsIsPointer && isObjectComparison) {
+    // A STRING on either side means content equality. Union-typed results
+    // (e.g. URLSearchParams.get's `string | null`) carry an object-ish HIR
+    // kind, so `get(k) === "lit"` matched isObjectComparison and compared
+    // two distinct TsString allocations by POINTER — always false.
+    bool eitherIsString = (lhsType && lhsType->kind == HIRTypeKind::String) ||
+                          (rhsType && rhsType->kind == HIRTypeKind::String);
+
+    if (lhsIsPointer && rhsIsPointer && isObjectComparison && !eitherIsString) {
         // Direct pointer comparison for object === object checks
         llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "ptreq");
         setValue(inst->result, result);
@@ -1079,7 +1086,12 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
                                            rhsType->kind == HIRTypeKind::Array ||
                                            rhsType->kind == HIRTypeKind::Ptr));
 
-    if (lhsIsPointer && rhsIsPointer && isObjectComparison) {
+    // See lowerCmpEqI64: a string on either side means content inequality,
+    // not pointer inequality (union-typed string results vs literals).
+    bool eitherIsStringNe = (lhsType && lhsType->kind == HIRTypeKind::String) ||
+                            (rhsType && rhsType->kind == HIRTypeKind::String);
+
+    if (lhsIsPointer && rhsIsPointer && isObjectComparison && !eitherIsStringNe) {
         // Direct pointer comparison for object !== object checks
         llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ptrne");
         setValue(inst->result, result);
