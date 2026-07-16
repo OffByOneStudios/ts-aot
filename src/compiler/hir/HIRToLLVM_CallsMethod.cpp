@@ -208,12 +208,18 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             if (spec) {
                 // Handle PackArray variadic methods (e.g., EventEmitter.emit)
                 if (spec->variadicHandling == ::hir::VariadicHandling::PackArray) {
-                    // restParamIndex is in spec arg space (0=self, 1=first method arg, ...)
-                    // For CallMethod: operands[0]=obj, [1]=methodName, [2..]=args
-                    // Spec arg 0 = self (obj), spec arg N maps to operands[N+1]
-                    size_t restSpecIdx = spec->restParamIndex + 1; // +1 because self is arg 0
-                    // Fixed operand index where rest starts: self + restSpecIdx method args + 2 (obj, methodName)
-                    size_t restOperandIdx = restSpecIdx + 1; // operands index where rest args begin
+                    // restParamIndex counts FIXED spec args INCLUDING self
+                    // (registration convention: ts_EventEmitter_emit uses
+                    // restParamIndex=2 = self + event; see LoweringRegistry).
+                    // CallMethod operands: [0]=obj, [1]=methodName,
+                    // [2..]=method args — self is NOT an operand, so the
+                    // rest args begin at operand 2 + (restParamIndex - 1).
+                    // The old math added +1 twice and started one operand
+                    // late, silently DROPPING the first emit payload arg
+                    // (`emit('x', a, b)` delivered only b — events_basic).
+                    size_t fixedMethodArgs =
+                        spec->restParamIndex > 0 ? spec->restParamIndex - 1 : 0;
+                    size_t restOperandIdx = 2 + fixedMethodArgs;
 
                     // Create array for rest arguments
                     auto createFt = llvm::FunctionType::get(getGCPtrTy(), {}, false);

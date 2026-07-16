@@ -97,7 +97,7 @@
   "eval/test_interp_classes.js": "pass",
   "eval/test_interp_eval_semantics.js": "pass",
   "events/event_emitter_static_listener_count.ts": "fail",
-  "events/events_basic.js": "fail",
+  "events/events_basic.js": "pass",
   "events/events_basic.ts": "pass",
   "events/events_extended.ts": "pass",
   "events/events_listeners.ts": "pass",
