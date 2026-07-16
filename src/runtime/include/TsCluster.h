@@ -166,10 +166,10 @@ extern "C" {
     void* ts_worker_get_process(void* worker);
     bool ts_worker_is_dead(void* worker);
     bool ts_worker_exited_after_disconnect(void* worker);
-    bool ts_worker_is_connected(void* worker);
+    int32_t ts_worker_is_connected(void* worker);
 
     // Worker methods
-    bool ts_worker_send(void* worker, void* message, void* sendHandle);
+    int32_t ts_worker_send(void* worker, void* message, void* sendHandle);
     void ts_worker_disconnect(void* worker);
     void ts_worker_kill(void* worker, void* signal);
 }

@@ -888,6 +888,15 @@ extern "C" {
             return getCtorPrototype(ts_get_global_Date());
         }
         if (magic0 == 0x464C4154) { // FLAT_MAGIC — class instance
+            // Explicit [[Prototype]] set via Object.setPrototypeOf wins over
+            // the shape-derived chain. Returns the ORIGINAL stored pointer
+            // (identity: getPrototypeOf(o) === p after setPrototypeOf(o, p)).
+            {
+                extern void* ts_flat_object_get_proto(void* obj);
+                void* pv = ts_flat_object_get_proto(objRaw);
+                if (pv == (void*)1) return ts_value_make_null();
+                if (pv) return ts_value_make_object(pv);
+            }
             // Use ShapeDescriptor::constructorSlot (compiler-emitted
             // back-pointer to __closure_cache_<ClassName>_constructor) to
             // find the class's constructor, then return its `prototype`
@@ -959,6 +968,15 @@ extern "C" {
             }
             TsMap* proto = objMap->GetPrototype();
             if (proto) {
+                // A demoted flat-object prototype carries a back-pointer to
+                // the ORIGINAL flat object ("\x01__flat_origin", stamped by
+                // ts_flat_object_to_map_canonical). Return the original so
+                // Object.getPrototypeOf(Object.create(p)) === p holds.
+                TsValue fk; fk.type = ValueType::STRING_PTR;
+                fk.ptr_val = TsString::GetInterned("\x01__flat_origin");
+                TsValue fo = proto->Get(fk);
+                if (fo.type == ValueType::OBJECT_PTR && fo.ptr_val)
+                    return ts_value_make_object(fo.ptr_val);
                 return ts_value_make_object(proto);
             }
             // For explicit Map instances with no user-set prototype,
@@ -1193,12 +1211,21 @@ extern "C" {
         void* objRaw = ts_value_get_object(obj);
         if (!objRaw) objRaw = obj;
 
-        // Flat-object instances cannot have their [[Prototype]] mutated
-        // because the prototype is derived from ShapeDescriptor.constructorSlot
-        // (a static back-pointer to the class constructor's closure cache).
-        // Silently no-op for them — matches Object.setPrototypeOf returning
-        // the receiver per ECMA-262 19.1.2.22 (the value is unchanged).
+        // Flat-object receiver: store the ORIGINAL proto pointer in the
+        // overflow map ("\x01__proto"). The flat get-miss path delegates to
+        // it (replacing the shape-derived constructorSlot chain), and
+        // getPrototypeOf returns it — preserving identity. Was a silent
+        // no-op, so Object.setPrototypeOf({own}, {inherited}) inherited
+        // nothing and getPrototypeOf never matched.
         if (*(uint32_t*)objRaw == 0x464C4154) {  // FLAT_MAGIC
+            extern void ts_flat_object_set_proto(void* obj, void* protoRaw);
+            if (!proto || ts_value_is_nullish(proto)) {
+                ts_flat_object_set_proto(objRaw, nullptr);  // explicit null
+            } else {
+                void* pRaw = ts_value_get_object(proto);
+                if (!pRaw) pRaw = proto;
+                ts_flat_object_set_proto(objRaw, pRaw);
+            }
             return obj;
         }
 
@@ -1219,7 +1246,11 @@ extern "C" {
 
             // Extract source TsMap from proto (convert flat objects)
             TsMap* sourceMap = nullptr;
-            if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
+            if (is_flat_object(protoRaw)) {
+                extern void* ts_flat_object_to_map_canonical(void*);
+                void* canon = ts_flat_object_to_map_canonical(protoRaw);
+                if (canon) protoRaw = canon;
+            }
             uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
             if (protoMagic == 0x4D415053) {
                 sourceMap = (TsMap*)protoRaw;
@@ -1298,7 +1329,11 @@ extern "C" {
 
             // Extract source TsMap from proto (convert flat objects)
             TsMap* sourceMap = nullptr;
-            if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
+            if (is_flat_object(protoRaw)) {
+                extern void* ts_flat_object_to_map_canonical(void*);
+                void* canon = ts_flat_object_to_map_canonical(protoRaw);
+                if (canon) protoRaw = canon;
+            }
             uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
             if (protoMagic == 0x4D415053) {
                 sourceMap = (TsMap*)protoRaw;
@@ -1328,7 +1363,11 @@ extern "C" {
         if (!protoRaw) protoRaw = proto;
 
         // Convert flat objects to TsMap
-        if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
+        if (is_flat_object(protoRaw)) {
+                extern void* ts_flat_object_to_map_canonical(void*);
+                void* canon = ts_flat_object_to_map_canonical(protoRaw);
+                if (canon) protoRaw = canon;
+            }
 
         // Check if proto is a TsMap
         uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);

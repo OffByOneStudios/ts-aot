@@ -9060,7 +9060,25 @@ void* ts_create_arguments_from_params(
         jsonMap->Set(stringifyKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_json_stringify_native, nullptr, "stringify", 3)));
         setToStringTag(jsonMap, "JSON");
         JSON = ts_value_make_object(jsonMap);
-        process = ts_value_make_object(TsMap::Create());
+        // Dynamic-path `process`: populate the data properties the typed path
+        // gets from process.ext.json getters. env is the live map from
+        // ts_get_process_env (shared with typed code, so mutations agree).
+        {
+            TsMap* processMap = TsMap::Create();
+            auto setProc = [&](const char* name, TsValue* boxed) {
+                if (!boxed) return;
+                TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(name);
+                processMap->Set(k, nanbox_to_tagged(boxed));
+            };
+            setProc("env", (TsValue*)ts_get_process_env());
+            void* rawArgv = ts_get_process_argv();
+            if (rawArgv) setProc("argv", (TsValue*)ts_value_make_object(rawArgv));
+            setProc("platform", (TsValue*)ts_process_get_platform());
+            setProc("arch", (TsValue*)ts_process_get_arch());
+            setProc("version", (TsValue*)ts_process_get_version());
+            setProc("pid", (TsValue*)ts_value_make_int(ts_process_get_pid()));
+            process = ts_value_make_object(processMap);
+        }
         Buffer = ts_value_make_object(TsMap::Create());
 
         // Global functions - parseInt/parseFloat are now actual C functions,

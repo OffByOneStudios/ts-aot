@@ -68,7 +68,8 @@ void* ts_module_get_builtin_modules() {
 }
 
 // module.isBuiltin(name) - checks if module is built-in
-bool ts_module_is_builtin(void* nameVal) {
+// int32_t return to match the declared i32 lowering (bool would leave garbage above AL)
+int32_t ts_module_is_builtin(void* nameVal) {
     // The argument may be a raw TsString* or a boxed TsValue*
     // First, try to use it as a raw TsString*
     TsString* name = (TsString*)nameVal;

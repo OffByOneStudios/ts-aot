@@ -183,7 +183,7 @@ bool ts_worker_exited_after_disconnect(void* worker) {
     return w->ExitedAfterDisconnect();
 }
 
-bool ts_worker_is_connected(void* worker) {
+int32_t ts_worker_is_connected(void* worker) {
     void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
@@ -192,7 +192,7 @@ bool ts_worker_is_connected(void* worker) {
     return w->IsConnected();
 }
 
-bool ts_worker_send(void* worker, void* message, void* sendHandle) {
+int32_t ts_worker_send(void* worker, void* message, void* sendHandle) {
     void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);

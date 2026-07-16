@@ -16,7 +16,7 @@
 
 extern "C" {
 
-bool ts_tty_isatty(int64_t fd) {
+int32_t ts_tty_isatty(int64_t fd) {
     uv_handle_type type = uv_guess_handle((int)fd);
     return type == UV_TTY;
 }
@@ -36,7 +36,7 @@ bool ts_tty_read_stream_get_is_raw(void* stream) {
     return tty ? tty->IsRaw() : false;
 }
 
-bool ts_tty_read_stream_set_raw_mode(void* stream, bool mode) {
+int32_t ts_tty_read_stream_set_raw_mode(void* stream, bool mode) {
     TsTTYReadStream* tty = dynamic_cast<TsTTYReadStream*>((TsObject*)stream);
     return tty ? tty->SetRawMode(mode) : false;
 }
@@ -66,22 +66,22 @@ void* ts_tty_write_stream_get_window_size(void* stream) {
     return tty ? tty->GetWindowSize() : nullptr;
 }
 
-bool ts_tty_write_stream_clear_line(void* stream, int64_t dir) {
+int32_t ts_tty_write_stream_clear_line(void* stream, int64_t dir) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     return tty ? tty->ClearLine((int)dir) : false;
 }
 
-bool ts_tty_write_stream_clear_screen_down(void* stream) {
+int32_t ts_tty_write_stream_clear_screen_down(void* stream) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     return tty ? tty->ClearScreenDown() : false;
 }
 
-bool ts_tty_write_stream_cursor_to(void* stream, int64_t x, int64_t y) {
+int32_t ts_tty_write_stream_cursor_to(void* stream, int64_t x, int64_t y) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     return tty ? tty->CursorTo((int)x, (int)y) : false;
 }
 
-bool ts_tty_write_stream_move_cursor(void* stream, int64_t dx, int64_t dy) {
+int32_t ts_tty_write_stream_move_cursor(void* stream, int64_t dx, int64_t dy) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     return tty ? tty->MoveCursor((int)dx, (int)dy) : false;
 }
@@ -91,12 +91,12 @@ int64_t ts_tty_write_stream_get_color_depth(void* stream) {
     return tty ? (int64_t)tty->GetColorDepth() : 1;
 }
 
-bool ts_tty_write_stream_has_colors(void* stream, int64_t count) {
+int32_t ts_tty_write_stream_has_colors(void* stream, int64_t count) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     return tty ? tty->HasColors((int)count) : false;
 }
 
-bool ts_tty_write_stream_write(void* stream, void* data) {
+int32_t ts_tty_write_stream_write(void* stream, void* data) {
     TsTTYWriteStream* tty = dynamic_cast<TsTTYWriteStream*>((TsObject*)stream);
     if (!tty || !data) return false;
 

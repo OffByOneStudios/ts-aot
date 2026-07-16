@@ -186,6 +186,20 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
             // source values, which then compared unequal under _.isEqual).
             return (void*)nanbox_from_tagged(result);
         }
+        // Explicit [[Prototype]] (Object.setPrototypeOf on this flat object):
+        // it REPLACES the shape-derived chain — delegate the miss to it and
+        // do not fall through to vtable/constructorSlot lookup.
+        {
+            TsValue pk; pk.type = ValueType::STRING_PTR;
+            pk.ptr_val = TsString::GetInterned("\x01__proto");
+            TsValue pv = map->Get(pk);
+            if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {
+                extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+                return (void*)ts_object_get_property(pv.ptr_val, key);
+            }
+            if (pv.type == ValueType::NUMBER_INT)  // explicit null proto
+                return (void*)(uintptr_t)NANBOX_UNDEFINED;
+        }
     }
 
     // Check vtable methods (class instances have methods in their vtable).
@@ -714,6 +728,85 @@ extern "C" void* ts_flat_object_to_map(void* obj) {
         }
     }
 
+    return map;
+}
+
+// ---- Explicit [[Prototype]] on flat objects -------------------------------
+// Object.setPrototypeOf(flatObj, p) stores p in the overflow map under
+// "\x01__proto" (OBJECT_PTR = raw proto pointer, NUMBER_INT 0 = explicit
+// null). '\x01' keys are invisible to all enumeration. The get-miss path
+// consults it (replacing the shape-derived chain) and Object.getPrototypeOf
+// returns the ORIGINAL stored pointer, preserving identity.
+
+extern "C" void ts_flat_object_set_proto(void* obj, void* protoRaw) {
+    if (!obj || !is_flat_object(obj)) return;
+    uint32_t shapeId = flat_object_shape_id(obj);
+    ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+    if (!desc) return;
+    void** overflowPtr = (void**)((char*)obj + 16 + desc->numSlots * 8);
+    TsMap* overflow = (TsMap*)*overflowPtr;
+    if (!overflow) {
+        overflow = TsMap::Create();
+        *overflowPtr = overflow;
+        ts_gc_write_barrier(overflowPtr, overflow);
+    }
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("\x01__proto");
+    TsValue v;
+    if (protoRaw) { v.type = ValueType::OBJECT_PTR; v.ptr_val = protoRaw; }
+    else          { v.type = ValueType::NUMBER_INT; v.i_val = 0; }  // explicit null
+    overflow->Set(k, v);
+}
+
+// Returns: OBJECT_PTR proto -> raw pointer; explicit null -> (void*)1;
+// never set -> nullptr.
+extern "C" void* ts_flat_object_get_proto(void* obj) {
+    if (!obj || !is_flat_object(obj)) return nullptr;
+    uint32_t shapeId = flat_object_shape_id(obj);
+    ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+    if (!desc) return nullptr;
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
+    if (!overflow) return nullptr;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("\x01__proto");
+    TsValue v = ((TsMap*)overflow)->Get(k);
+    if (v.type == ValueType::OBJECT_PTR && v.ptr_val) return v.ptr_val;
+    if (v.type == ValueType::NUMBER_INT) return (void*)1;  // explicit null
+    return nullptr;
+}
+
+// Canonical (memoized) flat->map demotion for [[Prototype]] use only.
+// Repeated Object.create(sameFlatProto) must yield the SAME prototype map,
+// and Object.getPrototypeOf must recover the ORIGINAL flat object — the
+// demoted map is stamped with "\x01__flat_origin". Snapshot consumers
+// (parseArgs option demotion etc.) must keep calling ts_flat_object_to_map,
+// which returns a fresh private copy each time.
+extern "C" void* ts_flat_object_to_map_canonical(void* obj) {
+    if (!obj || !is_flat_object(obj)) return nullptr;
+    uint32_t shapeId = flat_object_shape_id(obj);
+    ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+    if (!desc) return nullptr;
+    void** overflowPtr = (void**)((char*)obj + 16 + desc->numSlots * 8);
+    TsValue mk; mk.type = ValueType::STRING_PTR;
+    mk.ptr_val = TsString::GetInterned("\x01__demoted");
+    if (TsMap* overflow = (TsMap*)*overflowPtr) {
+        TsValue mv = overflow->Get(mk);
+        if (mv.type == ValueType::OBJECT_PTR && mv.ptr_val) return mv.ptr_val;
+    }
+    TsMap* map = (TsMap*)ts_flat_object_to_map(obj);
+    if (!map) return nullptr;
+    TsValue ok; ok.type = ValueType::STRING_PTR;
+    ok.ptr_val = TsString::GetInterned("\x01__flat_origin");
+    TsValue ov; ov.type = ValueType::OBJECT_PTR; ov.ptr_val = obj;
+    map->Set(ok, ov);
+    TsMap* overflow = (TsMap*)*overflowPtr;
+    if (!overflow) {
+        overflow = TsMap::Create();
+        *overflowPtr = overflow;
+        ts_gc_write_barrier(overflowPtr, overflow);
+    }
+    TsValue mv; mv.type = ValueType::OBJECT_PTR; mv.ptr_val = map;
+    overflow->Set(mk, mv);
     return map;
 }
 

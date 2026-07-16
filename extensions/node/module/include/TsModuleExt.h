@@ -2,6 +2,7 @@
 #define TS_MODULE_EXT_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Use void* instead of TsValue* for C compatibility - the actual implementation
 // casts to TsValue* internally
@@ -17,7 +18,9 @@ extern "C" {
 void* ts_module_get_builtin_modules();
 
 // module.isBuiltin(name) - checks if module is built-in
-bool ts_module_is_builtin(void* name);
+// Returns int32_t (not bool): the ext.json lowering declares `returns: i32`,
+// so callers read full EAX — a C `bool` return leaves garbage above AL.
+int32_t ts_module_is_builtin(void* name);
 
 // module.createRequire(path) - creates a require function bound to path
 void* ts_module_create_require(void* path);

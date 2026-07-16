@@ -23,12 +23,10 @@
         "title": { "type": "string", "getter": "ts_process_get_title", "lowering": { "args": [], "returns": "ptr" } },
         "debugPort": { "type": "int", "getter": "ts_process_get_debug_port", "lowering": { "args": [], "returns": "i64" } },
         "connected": { "type": "boolean", "getter": "ts_process_get_connected", "lowering": { "args": [], "returns": "i1" } },
-        "channel": { "type": "any", "getter": "ts_process_get_channel", "lowering": { "args": [], "returns": "ptr" } }
+        "channel": { "type": "any", "getter": "ts_process_get_channel", "lowering": { "args": [], "returns": "ptr" } },
+        "env": { "type": "any", "getter": "ts_get_process_env", "lowering": { "args": [], "returns": "ptr" } }
       },
       "nestedObjects": {
-        "env": {
-          "properties": {}
-        },
         "config": {
           "properties": {}
         },
