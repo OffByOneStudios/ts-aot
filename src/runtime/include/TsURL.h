@@ -10,6 +10,11 @@ public:
     static constexpr uint32_t MAGIC = 0x55524C4C; // "URLL"
     static TsURL* Create(TsString* url, TsString* base = nullptr);
 
+    // Dynamic property reads (url.pathname on an any-typed URL). The
+    // compiled path uses the extension getters; without this override the
+    // dynamic path returned undefined for every accessor.
+    TsValue GetPropertyVirtual(const char* key) override;
+
     // Getters
     TsString* GetHref();
     TsString* GetOrigin();
@@ -40,7 +45,10 @@ public:
 
 private:
     TsURL(TsString* url, TsString* base);
-    uint32_t magic = MAGIC;
+    // NOTE: the identifying magic is the BASE TsObject::magic (offset 16 —
+    // what every magic16 probe reads), set in the ctor. A private shadow
+    // member here left the base magic ZERO and made TsURL invisible to all
+    // dynamic property dispatch.
     TsString* href;
     TsString* protocol;
     TsString* host;
@@ -80,7 +88,7 @@ public:
 
 private:
     TsURLSearchParams(TsString* query);
-    uint32_t magic = MAGIC;
+    // Base TsObject::magic set in ctor (see TsURL note).
     void* entries;  // TsArray of {name, value} pairs
     void Parse(TsString* query);
 };

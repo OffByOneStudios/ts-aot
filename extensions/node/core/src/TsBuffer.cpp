@@ -1772,6 +1772,13 @@ extern "C" {
     int64_t ts_buffer_indexof(void* buf, int64_t value, int64_t byteOffset) {
         TsBuffer* buffer = getBuffer(buf);
         if (!buffer) return -1;
+        // A MISSING optional offset arrives as FPToSI(undefined -> NaN) =
+        // INT64_MIN; node also allows negative offsets (count from the end).
+        // One rule covers both: negative -> +length, still negative -> 0.
+        if (byteOffset < 0) {
+            byteOffset += (int64_t)buffer->GetLength();
+            if (byteOffset < 0) byteOffset = 0;
+        }
         return buffer->IndexOf((uint8_t)value, (size_t)byteOffset);
     }
 
@@ -1784,6 +1791,11 @@ extern "C" {
     bool ts_buffer_includes(void* buf, int64_t value, int64_t byteOffset) {
         TsBuffer* buffer = getBuffer(buf);
         if (!buffer) return false;
+        // Same missing-optional / negative-offset clamp as ts_buffer_indexof.
+        if (byteOffset < 0) {
+            byteOffset += (int64_t)buffer->GetLength();
+            if (byteOffset < 0) byteOffset = 0;
+        }
         return buffer->Includes((uint8_t)value, (size_t)byteOffset);
     }
 

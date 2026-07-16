@@ -613,10 +613,49 @@ extern "C" {
 // Server extern "C" Implementation
 // =============================================================================
 
+// Vtable get/set dispatch for TsServer (same pattern as TsServerResponse's
+// statusCode): the compiled property lowering has a getter but no SETTER
+// wiring, so `server.maxConnections = n` fell to the dynamic path and
+// landed in the native-props side map while reads kept returning the C++
+// field's default (-1). The dispatch routes both directions to the field.
+extern "C" void ts_register_vtable_dispatch(uint64_t vtable,
+                                            TsValue (*fn)(void*, const char*),
+                                            bool isEventEmitter);
+extern "C" void ts_register_vtable_set_dispatch(uint64_t vtable,
+                                                bool (*fn)(void*, const char*, TsValue));
+
+static TsValue dispatch_net_server_get(void* obj, const char* key) {
+    TsServer* s = (TsServer*)obj;
+    if (strcmp(key, "maxConnections") == 0) {
+        return TsValue((int64_t)s->maxConnections);
+    }
+    return TsValue();  // UNDEFINED -> unhandled, fall through
+}
+
+static bool dispatch_net_server_set(void* obj, const char* key, TsValue value) {
+    if (strcmp(key, "maxConnections") == 0) {
+        TsServer* s = (TsServer*)obj;
+        if (value.type == ValueType::NUMBER_INT) {
+            s->maxConnections = (int)value.i_val;
+        } else if (value.type == ValueType::NUMBER_DBL) {
+            s->maxConnections = (int)value.d_val;
+        }
+        return true;  // Handled
+    }
+    return false;  // Not handled, fall through to side-map
+}
+
 extern "C" {
     void* ts_net_create_server(void* callback) {
         void* mem = ts_alloc(sizeof(TsServer));
         TsServer* server = new (mem) TsServer();
+        static uint64_t s_server_vtable = 0;
+        if (s_server_vtable == 0) {
+            s_server_vtable = *(uint64_t*)server;
+            ts_register_vtable_dispatch(s_server_vtable, dispatch_net_server_get,
+                                        /*isEventEmitter=*/true);
+            ts_register_vtable_set_dispatch(s_server_vtable, dispatch_net_server_set);
+        }
         if (callback) {
             server->On("connection", callback);
         }
@@ -688,8 +727,13 @@ extern "C" {
         if (!s) return;
         if (value) {
             TsValue vd3 = nanbox_to_tagged((TsValue*)value);
+            // Accept BOTH numeric encodings: `server.maxConnections = 10`
+            // arrives as a nanboxed DOUBLE, which the old INT-only check
+            // silently dropped (reads kept returning the -1 default).
             if (vd3.type == ValueType::NUMBER_INT) {
                 s->maxConnections = (int)vd3.i_val;
+            } else if (vd3.type == ValueType::NUMBER_DBL) {
+                s->maxConnections = (int)vd3.d_val;
             }
         }
     }
