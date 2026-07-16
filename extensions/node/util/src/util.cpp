@@ -342,6 +342,27 @@ static TsString* inspectValue(void* val, int depth, int currentDepth, bool color
                 if (ts_is_unchecked<TsMap>(ptr)) {
                     return inspectMap((TsMap*)ptr, depth, currentDepth, colors);
                 }
+                if (is_flat_object(ptr)) {
+                    // Object literals are FLAT objects (no magic in the
+                    // ladder above) — render node-style { key: value }.
+                    TsArray* keys = (TsArray*)ts_flat_object_keys(ptr);
+                    std::ostringstream result;
+                    result << "{";
+                    int64_t n = keys ? keys->Length() : 0;
+                    for (int64_t i = 0; i < n; i++) {
+                        TsString* k = (TsString*)(uintptr_t)keys->Get((size_t)i);
+                        if (!k) continue;
+                        const char* kc = k->ToUtf8();
+                        void* v = ts_flat_object_get_property(ptr, kc);
+                        TsString* vs = (currentDepth < depth)
+                            ? inspectValue(v, depth, currentDepth + 1, colors)
+                            : TsString::Create("[Object]");
+                        result << (i > 0 ? ", " : " ") << kc << ": "
+                               << (vs ? vs->ToUtf8() : "undefined");
+                    }
+                    result << (n > 0 ? " }" : "}");
+                    return TsString::Create(result.str().c_str());
+                }
             }
             return TsString::Create("[Object]");
         }

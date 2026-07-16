@@ -1302,10 +1302,16 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
 
     tryDepth_++;
     tryScopeStack_.push_back({currentFunction_, exceptionDest});
+    // ES 14.2: the try block is its own lexical scope (like any Block).
+    // Without it, a `const x` declared in one try body registered in the
+    // ENCLOSING scope and a sibling try's `let x = ...; x = ...` resolved to
+    // the stale const info -> spurious "Assignment to constant variable".
+    pushScope();
     for (auto& stmt : node->tryBlock) {
         if (hasTerminator()) break;  // Stop if block already terminated (e.g., by throw)
         lowerStatement(stmt.get());
     }
+    popScope();
     tryScopeStack_.pop_back();
     tryDepth_--;
 
@@ -1379,11 +1385,13 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
         builder_.setInsertPoint(finallyBB);
         currentBlock_ = finallyBB;
 
-        // Execute finally block statements
+        // Execute finally block statements (own lexical scope, like try/catch)
+        pushScope();
         for (auto& stmt : node->finallyBlock) {
             if (hasTerminator()) break;  // Stop if block already terminated
             lowerStatement(stmt.get());
         }
+        popScope();
 
         // Check for pending exception to rethrow
         if (currentBlock_->getTerminator() == nullptr) {
