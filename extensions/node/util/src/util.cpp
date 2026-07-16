@@ -1798,13 +1798,24 @@ void* ts_util_format_with_options(void* options, void* format, void* args) {
 // Returns: { values: object, positionals: string[] }
 // ============================================================================
 void* ts_util_parse_args(void* configPtr) {
+    // Object literals in the caller are FLAT objects, not TsMaps — the old
+    // TsMap-only checks silently ignored the whole config (and every nested
+    // option object), so short aliases/types never registered. Demote flat
+    // objects to TsMap views before reading.
+    auto asMap = [](void* p) -> TsMap* {
+        if (!p) return nullptr;
+        if (ts_is_unchecked<TsMap>(p)) return (TsMap*)p;
+        extern void* ts_flat_object_to_map(void* obj);
+        if (*(uint32_t*)p == 0x464C4154 /* FLAT */)
+            return (TsMap*)ts_flat_object_to_map(p);
+        return nullptr;
+    };
+
     // Unbox the config if provided
     TsMap* config = nullptr;
     if (configPtr) {
         void* rawPtr = ts_nanbox_safe_unbox(configPtr);
-        if (ts_is_unchecked<TsMap>(rawPtr)) {
-            config = (TsMap*)rawPtr;
-        }
+        config = asMap(rawPtr);
     }
 
     // Create the result object: { values: {}, positionals: [] }
@@ -1825,9 +1836,7 @@ void* ts_util_parse_args(void* configPtr) {
         optionsKey.ptr_val = TsString::Create("options");
         TsValue optionsVal = config->Get(optionsKey);
         if (optionsVal.type == ValueType::OBJECT_PTR && optionsVal.ptr_val) {
-            if (ts_is_unchecked<TsMap>(optionsVal.ptr_val)) {
-                optionsConfig = (TsMap*)optionsVal.ptr_val;
-            }
+            optionsConfig = asMap(optionsVal.ptr_val);
         }
 
         // config.strict
@@ -1897,15 +1906,27 @@ void* ts_util_parse_args(void* configPtr) {
                 lookupKey.ptr_val = keyStr;
                 TsValue optValue = optionsConfig->Get(lookupKey);
                 if (optValue.type == ValueType::OBJECT_PTR && optValue.ptr_val) {
-                    TsMap* optObj = ts_is_unchecked<TsMap>(optValue.ptr_val)
-                                        ? (TsMap*)optValue.ptr_val : nullptr;
+                    TsMap* optObj = asMap(optValue.ptr_val);
                     if (optObj) {
+                        // Map Get returns a TAGGED struct — read it directly.
+                        // (extractString(&tagged) decoded the struct's own
+                        // ADDRESS as a NaN-box: garbage, so type/short were
+                        // never registered and every short alias was dead.)
+                        auto taggedString = [](const TsValue& v) -> TsString* {
+                            if (v.type == ValueType::STRING_PTR && v.ptr_val)
+                                return (TsString*)v.ptr_val;
+                            if (v.type == ValueType::OBJECT_PTR && v.ptr_val &&
+                                ts_is_unchecked<TsString>(v.ptr_val))
+                                return (TsString*)v.ptr_val;
+                            return nullptr;
+                        };
+
                         // Get type
                         TsValue typeKey;
                         typeKey.type = ValueType::STRING_PTR;
                         typeKey.ptr_val = TsString::Create("type");
                         TsValue typeVal = optObj->Get(typeKey);
-                        TsString* typeStr = extractString(&typeVal);
+                        TsString* typeStr = taggedString(typeVal);
                         if (typeStr) {
                             optionTypes[longName] = typeStr->ToUtf8();
                         }
@@ -1915,7 +1936,7 @@ void* ts_util_parse_args(void* configPtr) {
                         shortKey.type = ValueType::STRING_PTR;
                         shortKey.ptr_val = TsString::Create("short");
                         TsValue shortVal = optObj->Get(shortKey);
-                        TsString* shortStr = extractString(&shortVal);
+                        TsString* shortStr = taggedString(shortVal);
                         if (shortStr) {
                             shortAliases[shortStr->ToUtf8()] = longName;
                         }
