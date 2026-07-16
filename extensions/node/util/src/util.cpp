@@ -501,7 +501,9 @@ bool isArrayBufferView(void* value) {
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
     TsObject* obj = (TsObject*)decoded.ptr_val;
-    return obj->magic == TsTypedArray::MAGIC || obj->magic == TsDataView::MAGIC;
+    // Node's Buffer is a Uint8Array subclass — an ArrayBufferView.
+    return obj->magic == TsTypedArray::MAGIC || obj->magic == TsDataView::MAGIC ||
+           obj->magic == TsBuffer::MAGIC;
 }
 
 bool isAsyncFunction(void* value) {
