@@ -23,6 +23,7 @@ TsURL* TsURL::Create(TsString* url, TsString* base) {
 }
 
 TsURL::TsURL(TsString* url, TsString* base) {
+    this->magic = MAGIC;  // BASE TsObject::magic (offset 16) — see TsURL.h note
     this->username = TsString::Create("");
     this->password = TsString::Create("");
     this->searchParams = nullptr;
@@ -211,6 +212,37 @@ void TsURL::UpdateHref() {
     href = TsString::Create(result.c_str());
 }
 
+// Dynamic property reads (url.pathname on an any-typed URL): the compiled
+// path uses the extension getters; the dynamic path dispatches HERE via
+// the magic16 whitelist in ts_object_get_property. UNDEFINED = unhandled
+// (falls through to the side-map for user-added properties).
+TsValue TsURL::GetPropertyVirtual(const char* key) {
+    auto str = [](TsString* v) {
+        TsValue tv;
+        tv.type = ValueType::STRING_PTR;
+        tv.ptr_val = v ? (void*)v : (void*)TsString::Create("");
+        return tv;
+    };
+    if (strcmp(key, "href") == 0) return str(GetHref());
+    if (strcmp(key, "origin") == 0) return str(GetOrigin());
+    if (strcmp(key, "protocol") == 0) return str(GetProtocol());
+    if (strcmp(key, "host") == 0) return str(GetHost());
+    if (strcmp(key, "hostname") == 0) return str(GetHostname());
+    if (strcmp(key, "port") == 0) return str(GetPort());
+    if (strcmp(key, "pathname") == 0) return str(GetPathname());
+    if (strcmp(key, "search") == 0) return str(GetSearch());
+    if (strcmp(key, "hash") == 0) return str(GetHash());
+    if (strcmp(key, "username") == 0) return str(GetUsername());
+    if (strcmp(key, "password") == 0) return str(GetPassword());
+    if (strcmp(key, "searchParams") == 0) {
+        TsValue tv;
+        tv.type = ValueType::OBJECT_PTR;
+        tv.ptr_val = GetSearchParams();
+        return tv;
+    }
+    return TsValue();  // UNDEFINED -> unhandled
+}
+
 TsString* TsURL::GetHref() { return href; }
 TsString* TsURL::GetProtocol() { return protocol; }
 TsString* TsURL::GetHost() { return host; }
@@ -276,6 +308,7 @@ TsURLSearchParams* TsURLSearchParams::Create(TsString* query) {
 }
 
 TsURLSearchParams::TsURLSearchParams(TsString* query) {
+    this->magic = MAGIC;  // BASE TsObject::magic (offset 16)
     entries = ts_array_create();
     if (query) Parse(query);
 }
@@ -453,7 +486,20 @@ void TsURLSearchParams::ForEach(void* callback, void* thisArg) {
 
 extern "C" {
     void* ts_url_create(void* url, void* base) {
-        TsURL* u = TsURL::Create((TsString*)url, (TsString*)base);
+        // Args may arrive RAW (typed string path) or NaN-BOXED (dynamic
+        // `new URL(...)` in untyped code) — the old direct cast parsed a
+        // boxed pointer as a TsString and produced an all-empty URL.
+        auto unboxStr = [](void* p) -> TsString* {
+            if (!p) return nullptr;
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)p);
+            if (!nanbox_is_ptr(nb)) return nullptr;
+            void* raw = nanbox_to_ptr(nb);
+            if (raw && ts_is_any_string(raw)) return ts_ensure_flat(raw);
+            return nullptr;
+        };
+        TsString* u1 = unboxStr(url);
+        TsString* b1 = unboxStr(base);
+        TsURL* u = TsURL::Create(u1 ? u1 : (TsString*)url, b1);
         return u;
     }
     void* ts_url_get_href(void* url) { return ((TsURL*)url)->GetHref(); }

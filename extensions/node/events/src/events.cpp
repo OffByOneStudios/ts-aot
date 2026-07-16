@@ -508,6 +508,13 @@ static TsMap* createEventEmitterConstructor() {
     addMethod(proto, "listeners", (void*)ee_listeners_native);
     addMethod(proto, "listenerCount", (void*)ee_listenerCount_native);
 
+    // Node's deprecated STATIC form: EventEmitter.listenerCount(emitter,
+    // name). The dynamic namespace path (events.EventEmitter.listenerCount)
+    // reads THIS map — only the compiled json lowering knew the static
+    // before, so the namespace form silently yielded 0. Same handler as the
+    // instance method: its argv[0] IS the emitter for the static call shape.
+    addMethod(ctor, "listenerCount", (void*)ee_listenerCount_native);
+
     // Set prototype property
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;

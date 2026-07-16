@@ -1649,6 +1649,7 @@ void* ts_create_arguments_from_params(
                 magic16 == 0x50444D54 ||  // TsPlainDateTime "PDMT"
                 magic16 == 0x494E5354 ||  // TsInstant "INST"
                 magic16 == 0x5A44544D ||  // TsZonedDateTime "ZDTM"
+                magic16 == 0x55524C4C ||  // TsURL::MAGIC "URLL"
                 magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
                 // PROMISES: own properties (the native-props side map where
                 // `p.then = fn` writes land) take precedence over the builtin
@@ -4653,6 +4654,21 @@ void* ts_create_arguments_from_params(
                     void* d = ts_symbol_get_description(rawObj);
                     return d ? ts_value_make_string((TsString*)d)
                              : ts_value_make_undefined();
+                }
+            }
+        }
+
+        // URL receiver on the DYNAMIC-key path: accessor reads dispatch
+        // through GetPropertyVirtual. The magic16 whitelist that serves the
+        // static-key path (ts_object_get_property) is never reached from
+        // here, so `new URL(u).pathname` in untyped code returned undefined
+        // for every accessor. UNDEFINED result = unhandled (side-map next).
+        if (*(uint32_t*)((char*)rawObj + 16) == 0x55524C4C /* TsURL "URLL" */) {
+            if (nanbox_is_string_ptr(keyNb)) {
+                const char* kc = ((TsString*)nanbox_to_ptr(keyNb))->ToUtf8();
+                if (kc) {
+                    TsValue r = ((TsObject*)rawObj)->GetPropertyVirtual(kc);
+                    if (r.type != ValueType::UNDEFINED) return nanbox_from_tagged(r);
                 }
             }
         }
