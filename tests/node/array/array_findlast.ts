@@ -27,13 +27,15 @@ function user_main(): number {
     }
 
     // Test 3: findLast - no match (typed arrays coerce undefined to 0)
-    // Note: With number[] type, undefined is coerced to 0 during unboxing
+    // Note: a no-match findLast is undefined in JS; unboxing into a
+    // number-typed binding follows ToNumber -> NaN (the old runtime
+    // coerced to 0, which this test previously encoded).
     const notFound = numbers.findLast((x: number) => x > 10);
-    if (notFound === 0) {
-        console.log("PASS: findLast returns 0 when not found (number coercion)");
+    if (Number.isNaN(notFound)) {
+        console.log("PASS: findLast unboxes no-match undefined to NaN");
         passed++;
     } else {
-        console.log("FAIL: findLast expected 0 (coerced), got " + notFound);
+        console.log("FAIL: findLast expected NaN (ToNumber(undefined)), got " + notFound);
         failed++;
     }
 
@@ -70,11 +72,11 @@ function user_main(): number {
     // Test 7: findLast on empty array (typed arrays coerce undefined to 0)
     const emptyArr: number[] = [];
     const emptyResult = emptyArr.findLast((x: number) => x > 0);
-    if (emptyResult === 0) {
-        console.log("PASS: findLast on empty array returns 0 (number coercion)");
+    if (Number.isNaN(emptyResult)) {
+        console.log("PASS: findLast on empty array unboxes undefined to NaN");
         passed++;
     } else {
-        console.log("FAIL: findLast on empty array expected 0 (coerced), got " + emptyResult);
+        console.log("FAIL: findLast on empty array expected NaN, got " + emptyResult);
         failed++;
     }
 

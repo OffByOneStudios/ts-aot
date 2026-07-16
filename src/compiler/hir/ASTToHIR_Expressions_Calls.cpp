@@ -549,6 +549,28 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 }
 
                 if (extReg.isClassKind(className)) {
+                    // Receiver is the CLASS itself via a module namespace
+                    // (events.EventEmitter.listenerCount(...)): prefer the
+                    // STATIC method — the instance lookup below would bind
+                    // the constructor object as `self` and silently return
+                    // wrong results (static listenerCount gave 0).
+                    if (auto* nsProp = dynamic_cast<ast::PropertyAccessExpression*>(
+                            propAccess->expression.get())) {
+                        auto* nsMod = dynamic_cast<ast::Identifier*>(nsProp->expression.get());
+                        if (nsMod && nsProp->name == className &&
+                            (extReg.isRegisteredModule(nsMod->name) ||
+                             extReg.isRegisteredObject(nsMod->name))) {
+                            const ext::MethodDefinition* nsStatic =
+                                extReg.findStaticMethod(className, propAccess->name);
+                            if (nsStatic && nsStatic->lowering) {
+                                std::string fnName =
+                                    nsStatic->hirName.value_or(nsStatic->call);
+                                lastValue_ = builder_.createCall(
+                                    fnName, args, extTypeRefToHIR(nsStatic->returns));
+                                return;
+                            }
+                        }
+                    }
                     const ext::MethodDefinition* extMethod = extReg.findMethod(className, propAccess->name);
                     if (extMethod && extMethod->lowering) {
                         std::string funcName = extMethod->hirName.value_or(extMethod->call);
@@ -917,6 +939,26 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
                         lastValue_ = builder_.createCall(runtimeFunc, args, resultType);
                         return;
+                    }
+
+                    // <module>.<Type>.<staticMethod>(...) — e.g.
+                    // stream.Readable.from(...), events.EventEmitter.
+                    // listenerCount(...). A TYPE's static methods register
+                    // under the type name, not as nested-object methods, so
+                    // the lookup above misses and the call fell to the
+                    // dynamic namespace path (undefined results).
+                    if ((registry.isRegisteredModule(moduleIdent->name) ||
+                         registry.isRegisteredObject(moduleIdent->name)) &&
+                        registry.isClassKind(innerPropAccess->name)) {
+                        const ext::MethodDefinition* staticDef =
+                            registry.findStaticMethod(innerPropAccess->name,
+                                                      propAccess->name);
+                        if (staticDef && staticDef->lowering) {
+                            std::string fnName = staticDef->hirName.value_or(staticDef->call);
+                            auto resultType = extTypeRefToHIR(staticDef->returns);
+                            lastValue_ = builder_.createCall(fnName, args, resultType);
+                            return;
+                        }
                     }
                 }
             }
