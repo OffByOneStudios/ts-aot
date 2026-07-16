@@ -59,6 +59,19 @@ public:
         fastModulePaths_ = std::move(paths);
     }
 
+    // Update/compound expressions on obj[key]: the base and key evaluate
+    // ONCE, and ToPropertyKey runs ONCE across the read/write pair
+    // (ES 13.4 / 13.15.2; test262 S11.4.5_A6_T3 family — a toString key
+    // hook must fire a single time). lowerElementRefOnce lowers both and
+    // pre-coerces an object-shaped key (primitives pass through
+    // ts_to_property_key_spec untouched; statically-primitive keys skip
+    // the call entirely), so the runtime's per-access coercion is a no-op.
+    struct ElemRef {
+        std::shared_ptr<HIRValue> obj;
+        std::shared_ptr<HIRValue> key;
+    };
+    ElemRef lowerElementRefOnce(ast::ElementAccessExpression* elem);
+
     // "use fast": NativeArray<T> element HIRType (with sized-slot
     // numericBits metadata) from the type-argument source string.
     static std::shared_ptr<HIRType> fastNativeElemType(const std::string& arg);

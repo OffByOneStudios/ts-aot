@@ -385,7 +385,28 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         }
     }
 
-    auto lhs = lowerExpression(node->left.get());
+    // Compound assignment on obj[key] (ES 13.15.2): the Reference — base,
+    // key, and its single ToPropertyKey — resolves ONCE, before GetValue and
+    // before the RHS; PutValue reuses it (S11.4.5_A6 sibling family: a
+    // toString key hook fires a single time). The store at the bottom of
+    // the compound branch reuses compoundElemObj/Key.
+    std::shared_ptr<HIRValue> compoundElemObj, compoundElemKey;
+    std::shared_ptr<HIRValue> lhs;
+    {
+        bool isCompoundOp =
+            (op == "+=" || op == "-=" || op == "*=" || op == "/=" ||
+             op == "%=" || op == "**=" || op == "&=" || op == "|=" ||
+             op == "^=" || op == "<<=" || op == ">>=" || op == ">>>=");
+        if (isCompoundOp) {
+            if (auto* elemL = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
+                auto ref = lowerElementRefOnce(elemL);
+                compoundElemObj = ref.obj;
+                compoundElemKey = ref.key;
+                lhs = builder_.createGetElem(compoundElemObj, compoundElemKey);
+            }
+        }
+    }
+    if (!lhs) lhs = lowerExpression(node->left.get());
     auto rhs = lowerExpression(node->right.get());
 
     // Strategy B Phase 4c: AST fallback removed.
@@ -1176,11 +1197,15 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             return;
         }
 
-        // Handle element access LHS (e.g., arr[i] += val)
+        // Handle element access LHS (e.g., arr[i] += val): reuse the base
+        // and (single-coerced) key resolved before the read (ES 13.15.2 —
+        // re-lowering here evaluated both twice and re-ran ToPropertyKey).
         auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get());
         if (elemAccess) {
-            auto arr = lowerExpression(elemAccess->expression.get());
-            auto idx = lowerExpression(elemAccess->argumentExpression.get());
+            auto arr = compoundElemObj ? compoundElemObj
+                                       : lowerExpression(elemAccess->expression.get());
+            auto idx = compoundElemKey ? compoundElemKey
+                                       : lowerExpression(elemAccess->argumentExpression.get());
             // Use createSetElem (same as the simple-assignment path in
             // visitAssignmentExpression) so the value is boxed correctly by
             // type. The previous manual `ts_array_set` + boxValueIfNeeded(result)

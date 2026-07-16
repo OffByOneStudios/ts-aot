@@ -1922,6 +1922,28 @@ void ASTToHIR::visitNonNullExpression(ast::NonNullExpression* node) {
     }
 }
 
+// Update/compound expressions on obj[key]: evaluate the base and key ONCE
+// and run ToPropertyKey ONCE for the read/write pair (ES 13.4 / 13.15.2;
+// test262 S11.4.4/S11.4.5_A6 — a toString key hook fires a single time).
+// Pre-coercing an object-shaped key means the runtime's per-access coercion
+// inside get/set becomes a no-op; statically-primitive keys skip the call.
+ASTToHIR::ElemRef ASTToHIR::lowerElementRefOnce(ast::ElementAccessExpression* elem) {
+    ElemRef r;
+    r.obj = lowerExpression(elem->expression.get());
+    r.key = lowerExpression(elem->argumentExpression.get());
+    if (r.key && r.key->type) {
+        auto k = r.key->type->kind;
+        bool mayBeObject = (k == HIRTypeKind::Any || k == HIRTypeKind::Object ||
+                            k == HIRTypeKind::Class || k == HIRTypeKind::Ptr);
+        if (mayBeObject) {
+            r.key = builder_.createCall("ts_to_property_key_spec",
+                                        {boxValueIfNeeded(r.key)},
+                                        HIRType::makeAny());
+        }
+    }
+    return r;
+}
+
 void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     setSourceLine(node);
     // `typeof <unresolvable identifier>` must yield "undefined", not throw
@@ -1944,7 +1966,21 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                                              HIRType::makeAny());
         }
     }
-    auto operand = lowerExpression(node->operand.get());
+    // ++/-- on obj[key]: evaluate base + key ONCE, ToPropertyKey ONCE
+    // (ES 13.4; test262 S11.4.4/S11.4.5_A6 — the read AND the write must
+    // reuse the same coerced key; re-lowering ran a toString key hook
+    // twice). The store path below reuses updElemObj/updElemKey.
+    std::shared_ptr<HIRValue> updElemObj, updElemKey;
+    std::shared_ptr<HIRValue> operand;
+    if (node->op == "++" || node->op == "--") {
+        if (auto* updElem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get())) {
+            auto ref = lowerElementRefOnce(updElem);
+            updElemObj = ref.obj;
+            updElemKey = ref.key;
+            operand = builder_.createGetElem(updElemObj, updElemKey);
+        }
+    }
+    if (!operand) operand = lowerExpression(node->operand.get());
     inTypeofOperand_ = savedTypeofFlag;
 
     const std::string& op = node->op;
@@ -2171,12 +2207,12 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 builder_.createSetPropStatic(obj, propName, result);
             }
         }
-        // Handle element access (e.g., obj[key]++, arr[i]++)
+        // Handle element access (e.g., obj[key]++, arr[i]++): reuse the
+        // base/key lowered ONCE at the top (single evaluation + single
+        // ToPropertyKey across the read/write pair).
         auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get());
-        if (elem) {
-            auto obj = lowerExpression(elem->expression.get());
-            auto key = lowerExpression(elem->argumentExpression.get());
-            builder_.createSetPropDynamic(obj, key, result);
+        if (elem && updElemObj && updElemKey) {
+            builder_.createSetPropDynamic(updElemObj, updElemKey, result);
         }
         lastValue_ = result;  // Prefix returns new value
     } else if (op == "void") {
@@ -2266,7 +2302,19 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                                              HIRType::makeAny());
         }
     }
-    auto operand = lowerExpression(node->operand.get());
+    // obj[key]++ / obj[key]--: base + key evaluate ONCE, ToPropertyKey ONCE
+    // (ES 13.4; mirrors the prefix path). The store reuses updElemObj/Key.
+    std::shared_ptr<HIRValue> updElemObj, updElemKey;
+    std::shared_ptr<HIRValue> operand;
+    if (node->op == "++" || node->op == "--") {
+        if (auto* updElem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get())) {
+            auto ref = lowerElementRefOnce(updElem);
+            updElemObj = ref.obj;
+            updElemKey = ref.key;
+            operand = builder_.createGetElem(updElemObj, updElemKey);
+        }
+    }
+    if (!operand) operand = lowerExpression(node->operand.get());
     auto oldValue = operand;
 
     const std::string& op = node->op;
@@ -2412,12 +2460,11 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                 builder_.createSetPropStatic(obj, propName, result);
             }
         }
-        // Handle element access (e.g., obj[key]++, arr[i]++)
+        // Handle element access (e.g., obj[key]++, arr[i]++): reuse the
+        // base/key lowered ONCE at the top.
         auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get());
-        if (elem) {
-            auto obj = lowerExpression(elem->expression.get());
-            auto key = lowerExpression(elem->argumentExpression.get());
-            builder_.createSetPropDynamic(obj, key, result);
+        if (elem && updElemObj && updElemKey) {
+            builder_.createSetPropDynamic(updElemObj, updElemKey, result);
         }
         // Postfix returns old value
         lastValue_ = oldValue;

@@ -1255,6 +1255,60 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
         return normal(acc);
     }
 
+    if (auto* tt = dynamic_cast<ast::TaggedTemplateExpression*>(e)) {
+        // Tagged template: tag(stringsArray, ...substitutions). Mirrors the
+        // compiled lowering (ASTToHIR::visitTaggedTemplateExpression),
+        // including its cooked-strings-as-.raw simplification. A FRESH
+        // template object per evaluation: new Function re-parses its body,
+        // so each function instance gets a distinct Parse Node and thus a
+        // distinct object (the tagged-template cache-identical-source
+        // family asserts non-identity across function instances).
+        if (!tt->tag || !tt->templateExpr) return normal(jsUndefined());
+        Cpl tagV = evalExpr(tt->tag.get(), env, thisV, strict);
+        if (isAbrupt(tagV)) return tagV;
+
+        std::vector<std::string> parts;
+        std::vector<TsValue*> subs;
+        if (auto* te = dynamic_cast<ast::TemplateExpression*>(tt->templateExpr.get())) {
+            parts.push_back(te->head);
+            for (auto& span : te->spans) {
+                if (span.expression) {
+                    Cpl sv = evalExpr(span.expression.get(), env, thisV, strict);
+                    if (isAbrupt(sv)) return sv;
+                    subs.push_back(sv.v);
+                }
+                parts.push_back(span.literal);
+            }
+        } else if (auto* sl = dynamic_cast<ast::StringLiteral*>(tt->templateExpr.get())) {
+            parts.push_back(sl->value);
+        }
+
+        TsArray* strings = TsArray::Create(parts.size());
+        TsArray* raw = TsArray::Create(parts.size());
+        for (auto& p : parts) {
+            TsValue* s = boxStr(p);
+            ts_array_push_any((void*)strings, s);
+            ts_array_push_any((void*)raw, s);
+        }
+        TsValue* stringsBoxed = boxObj(strings);
+        {
+            TsValue* ex = nullptr;
+            if (!guardSet(stringsBoxed, boxStr(std::string("raw")),
+                          boxObj(raw), &ex))
+                return thrown(ex);
+        }
+
+        std::vector<TsValue*> argv;
+        argv.reserve(subs.size() + 1);
+        argv.push_back(stringsBoxed);
+        for (auto* s : subs) argv.push_back(s);
+        TsValue* out = nullptr; TsValue* ex = nullptr;
+        if (!guardCall(tagV.v, jsUndefined(), (int)argv.size(), argv.data(),
+                       &out, &ex))
+            return thrown(ex);
+        return normal(out ? out : jsUndefined());
+    }
+
     if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(e)) {
         TsArray* a = TsArray::Create(arr->elements.size());
         for (auto& el : arr->elements) {
