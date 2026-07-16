@@ -31,10 +31,13 @@ void* ts_crypto_pbkdf2Sync(void* password, void* salt, int64_t iterations,
                            int64_t keylen, void* digest);
 void ts_crypto_pbkdf2(void* password, void* salt, int64_t iterations,
                       int64_t keylen, void* digest, void* callback);
+// Signatures match the ext.json lowerings: options is a BOXED value
+// (options object or undefined), parsed for N/cost, r/blockSize,
+// p/parallelization inside the implementation.
 void* ts_crypto_scryptSync(void* password, void* salt, int64_t keylen,
-                           int64_t N, int64_t r, int64_t p, int64_t maxmem);
+                           void* options);
 void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
-                      int64_t N, int64_t r, int64_t p, int64_t maxmem, void* callback);
+                      void* options_or_callback, void* callback);
 void* ts_crypto_hkdfSync(void* digestArg, void* ikmArg, void* saltArg, void* infoArg, int64_t keylen);
 
 // Utility functions

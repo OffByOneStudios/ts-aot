@@ -739,12 +739,24 @@ bool isAnyArrayBuffer(void* value) {
     return isArrayBuffer(value);
 }
 
+// `new Boolean/Number/String(...)` lowers to a TsMap carrying a hidden
+// internal-slot key (__BooleanData / __NumberData / __StringData — the
+// same keys TsMap key-enumeration filters out). The dedicated wrapper
+// classes' magic is kept as a secondary check.
+static bool mapHasInternalSlot(void* rawObj, const char* slotKey) {
+    if (!rawObj || *(uint32_t*)((char*)rawObj + 16) != 0x4D415053) return false;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned(slotKey);
+    return ((TsMap*)rawObj)->Has(k);
+}
+
 bool isBooleanObject(void* value) {
     if (!value) return false;
 
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
+    if (mapHasInternalSlot(decoded.ptr_val, "__BooleanData")) return true;
     TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsBooleanObject::MAGIC;
 }
@@ -755,6 +767,7 @@ bool isNumberObject(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
+    if (mapHasInternalSlot(decoded.ptr_val, "__NumberData")) return true;
     TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsNumberObject::MAGIC;
 }
@@ -765,6 +778,7 @@ bool isStringObject(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
+    if (mapHasInternalSlot(decoded.ptr_val, "__StringData")) return true;
     TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsStringObject::MAGIC;
 }

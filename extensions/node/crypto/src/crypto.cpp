@@ -590,9 +590,30 @@ void* ts_crypto_pbkdf2Sync(void* password, void* salt, int64_t iterations,
     return result;
 }
 
+// Read a numeric scrypt option (N/cost, r/blockSize, p/parallelization)
+// from a boxed options object; fallback when absent/non-numeric.
+static int64_t scrypt_option(void* options, const char* key, const char* alias,
+                             int64_t fallback) {
+    void* raw = options ? ts_nanbox_safe_unbox(options) : nullptr;
+    if (!raw) return fallback;
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    for (const char* k : { key, alias }) {
+        if (!k) continue;
+        TsValue* v = ts_object_get_property(raw, k);
+        if (!v) continue;
+        uint64_t nb = (uint64_t)(uintptr_t)v;
+        if (nanbox_is_int32(nb)) return (int64_t)nanbox_to_int32(nb);
+        if (nanbox_is_double(nb)) return (int64_t)nanbox_to_double(nb);
+    }
+    return fallback;
+}
+
 // crypto.scryptSync(password, salt, keylen, options?) -> Buffer
+// The ext.json lowering passes options as ONE boxed arg — the old
+// (int64 N, r, p) signature read the boxed options pointer as N and
+// garbage registers as r/p, so EVP_PBE_scrypt always failed -> null.
 void* ts_crypto_scryptSync(void* password, void* salt, int64_t keylen,
-                           int64_t N, int64_t r, int64_t p) {
+                           void* options) {
     const unsigned char* passData = nullptr;
     size_t passLen = 0;
     const unsigned char* saltData = nullptr;
@@ -603,7 +624,9 @@ void* ts_crypto_scryptSync(void* password, void* salt, int64_t keylen,
 
     if (!passData || !saltData) return nullptr;
 
-    // Default scrypt parameters
+    int64_t N = scrypt_option(options, "N", "cost", 16384);
+    int64_t r = scrypt_option(options, "r", "blockSize", 8);
+    int64_t p = scrypt_option(options, "p", "parallelization", 1);
     if (N <= 0) N = 16384;  // 2^14
     if (r <= 0) r = 8;
     if (p <= 0) p = 1;
@@ -822,10 +845,13 @@ void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
         return;
     }
 
-    // Default scrypt parameters - TODO: parse from options_or_callback if it's an options object
-    int64_t N = 16384;  // 2^14
-    int64_t r = 8;
-    int64_t p = 1;
+    // Parse N/r/p from the options object when the 5-arg form was used.
+    int64_t N = scrypt_option(options_or_callback, "N", "cost", 16384);
+    int64_t r = scrypt_option(options_or_callback, "r", "blockSize", 8);
+    int64_t p = scrypt_option(options_or_callback, "p", "parallelization", 1);
+    if (N <= 0) N = 16384;
+    if (r <= 0) r = 8;
+    if (p <= 0) p = 1;
 
     // Copy data for thread safety
     ScryptWorkData* data = (ScryptWorkData*)ts_alloc(sizeof(ScryptWorkData));
