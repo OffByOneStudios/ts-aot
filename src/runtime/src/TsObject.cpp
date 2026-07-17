@@ -4558,6 +4558,22 @@ void* ts_create_arguments_from_params(
         return key;
     }
 
+    // ECMA-262 6.2.5.5 GetValue step 3.a: `Let baseObj be ? ToObject(V.[[Base]])`
+    // runs BEFORE step 3.c's ToPropertyKey. So for `base[prop]` with base null,
+    // the TypeError wins over any throw from prop's toString hook.
+    // ts_object_get_dynamic_checked below bakes that order in, but the compound
+    // assignment lowering must resolve the Reference ONCE (a single ToPropertyKey
+    // shared by the load and the store), so it needs the base check as a separate
+    // step it can place between evaluating the key EXPRESSION and coercing it.
+    // Frame is std::string-free on purpose: a throwing key hook longjmps out.
+    void ts_require_object_coercible(TsValue* obj) {
+        uint64_t nb = obj ? (uint64_t)(uintptr_t)obj : 0;
+        if (!obj || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot read properties of null or undefined"));
+        }
+    }
+
     TsValue* ts_object_get_dynamic_checked(TsValue* obj, TsValue* key) {
         uint64_t nbB = obj ? (uint64_t)(uintptr_t)obj : 0;
         if (!obj || nanbox_is_null(nbB) || nanbox_is_undefined(nbB)) {
