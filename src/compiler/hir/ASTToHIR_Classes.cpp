@@ -137,11 +137,29 @@ std::string ASTToHIR::computeClassMethodFuncName(const std::string& className,
     } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
         return className + "_constructor";
     } else if (methodDef->isGetter) {
+        // The SYMBOL must match the Monomorphizer's accessor spec name
+        // (`<Class>_get_<name>` / `<Class>_static_get_<name>`, Monomorphizer.cpp
+        // ~2474/2492). Methods already converge on one symbol, so the spec pass
+        // REPLACES the first-pass HIRFunction and its real body wins. Accessors
+        // used to diverge (`<Class>___getter_<name>`), leaving TWO functions: the
+        // vtable got the good one, but the __getter_ closure slot — which the
+        // runtime property-get walk consults first — wrapped the first-pass body,
+        // where module-level identifiers fold to a constant undefined. Net effect:
+        // every class accessor read module scope as undefined.
+        // outMethodKey (the storage key) stays __getter_/__setter_ — only the
+        // symbol changes.
+        // STATIC accessors keep the legacy symbol: converging them on the
+        // Monomorphizer's `_static_get_` name regressed 494 class tests
+        // (statics take no `this` param, so the spec function that then
+        // replaces this one has a different signature and static accessor
+        // dispatch breaks — e.g. `static get method(){ return this.#method; }`
+        // stopped invoking, leaving callCount 0). Static accessors don't
+        // exhibit the module-scope bug in practice, so leave them alone.
         outMethodKey = "__getter_" + methodDef->name;
-        return className + "___getter_" + methodDef->name;
+        return className + (methodDef->isStatic ? "___getter_" : "_get_") + methodDef->name;
     } else if (methodDef->isSetter) {
         outMethodKey = "__setter_" + methodDef->name;
-        return className + "___setter_" + methodDef->name;
+        return className + (methodDef->isStatic ? "___setter_" : "_set_") + methodDef->name;
     } else if (methodDef->isStatic) {
         return className + "_static_" + methodDef->name;
     } else {
