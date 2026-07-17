@@ -3801,6 +3801,22 @@ void* ts_create_arguments_from_params(
         abort();  // unreachable — ts_throw longjmps
     }
 
+    // ECMA-262 13.15.3 ApplyStringOrNumericBinaryOperator steps 3-4 (every
+    // operator EXCEPT `+`): `lnum = ? ToNumeric(lval)` completes -- including the
+    // TypeError ToNumber raises for a Symbol -- BEFORE `rnum = ? ToNumeric(rval)`
+    // even begins. Running ToPrimitive on BOTH operands first let the RHS valueOf
+    // hook fire before the LHS conversion threw (test262 */order-of-evaluation.js
+    // "?ToNumeric(lhs) throws": expected trace "123" + TypeError, got the RHS
+    // hook's Test262Error).
+    // Call AFTER ToPrimitive(a) and BEFORE touching b. BigInt passes through
+    // ToNumeric untouched; the BigInt/other mix TypeError stays with the
+    // per-operator check, matching the spec step-5 ordering.
+    // NOTE: do NOT add this to the relational operators (ts_value_lt/gt/lte/gte).
+    // ES 7.2.13 IsLessThan legitimately ToPrimitives BOTH operands first.
+    static void complete_to_numeric(TsValue* prim) {
+        if (!try_as_bigint(nanbox_from_tsvalue_ptr(prim))) (void)ts_to_number(prim);
+    }
+
     TsValue* ts_value_add(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         // ES5.1 §11.6.1: ToPrimitive both operands with hint "default"
@@ -3860,6 +3876,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_value_sub(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);  // hint: number
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
@@ -3881,6 +3898,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_value_mul(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
@@ -3900,6 +3918,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_value_div(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         {
             TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
@@ -3917,6 +3936,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_value_mod(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         {
             TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
@@ -3955,6 +3975,7 @@ void* ts_create_arguments_from_params(
         if (!a) a = ts_value_make_undefined();
         if (!b) b = ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
         TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
@@ -3979,6 +4000,7 @@ void* ts_create_arguments_from_params(
         if (!a) a = ts_value_make_undefined();
         if (!b) b = ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
         TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
@@ -4010,6 +4032,7 @@ void* ts_create_arguments_from_params(
         if (!a) a = ts_value_make_undefined();
         if (!b) b = ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
+        complete_to_numeric(a);
         b = ts_to_primitive(b, 1);
         TsBigInt* abi = try_as_bigint(nanbox_from_tsvalue_ptr(a));
         TsBigInt* bbi = try_as_bigint(nanbox_from_tsvalue_ptr(b));
