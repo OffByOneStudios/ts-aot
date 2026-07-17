@@ -957,8 +957,54 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             // lowerLoadFunction stub pattern at HIRToLLVM.cpp:7395.
             bool isRuntimeSymbol = funcName.size() >= 3 && funcName[0] == 't' &&
                                    funcName[1] == 's' && funcName[2] == '_';
+
+            // A bare `ArrayBuffer(x)` (no `new`) lowers to a call of the builtin
+            // ctor global `ArrayBuffer_any`, which the runtime defines as a
+            // require-`new` guard that throws TypeError. These names are NOT
+            // ts_-prefixed and return a GCPtr, so without this guard they fall
+            // into the WeakAny varargs-stub path below. That is silently WRONG
+            // under --shared-runtime: a `weak` local definition is not overridden
+            // by a dllimport symbol (archive members load lazily; the weak def
+            // already "resolves" the reference so the import thunk is never
+            // pulled), so the stub's `return undefined` shadows the DLL's real
+            // throwing guard and `ArrayBuffer()` silently returns undefined
+            // instead of throwing. (Static links happen to work because
+            // TsGlobals.obj is pulled in for other reasons and its STRONG
+            // definition overrides the weak one.) Emitting an External variadic
+            // DECLARATION instead forces the linker to resolve the real symbol
+            // in BOTH modes. Narrowed to the 10 require-`new` ctors whose full
+            // arity set (base + _any..._any_any_any_any) is confirmed exported by
+            // tsruntime_shared.dll -- forcing External for a name the DLL does
+            // not export (e.g. Date_any, Error_any) would break the link, so this
+            // set MUST stay in sync with TS_CTOR_REQUIRES_NEW_STUBS in
+            // TsGlobals.cpp. See memory shared-runtime-ctor-stub-divergence.
+            bool isRequireNewCtorVariant = false;
+            {
+                static const std::unordered_set<std::string> kRequireNewCtors = {
+                    "ArrayBuffer", "DataView", "FinalizationRegistry", "Map",
+                    "Promise", "Proxy", "Set", "WeakMap", "WeakRef", "WeakSet"};
+                std::string base = funcName;
+                int anyGroups = 0;
+                const std::string kAny = "_any";
+                while (base.size() > kAny.size() &&
+                       base.compare(base.size() - kAny.size(), kAny.size(), kAny) == 0) {
+                    base.erase(base.size() - kAny.size());
+                    if (++anyGroups > 4) break;  // macro only defines arities 0-4
+                }
+                if (anyGroups <= 4 && kRequireNewCtors.count(base)) {
+                    isRequireNewCtorVariant = true;
+                }
+            }
+
             llvm::FunctionType* ft;
-            if (!isRuntimeSymbol && retType == getGCPtrTy()) {
+            if (isRequireNewCtorVariant) {
+                // External variadic declaration -> resolves to the real runtime
+                // guard (DLL export or static lib), which throws the require-`new`
+                // TypeError. No weak body, so nothing to shadow it.
+                ft = llvm::FunctionType::get(retType, {}, /*isVarArg=*/true);
+                fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage,
+                                            funcName, module_.get());
+            } else if (!isRuntimeSymbol && retType == getGCPtrTy()) {
                 // **Varargs stub**: harness JS functions (e.g. `assertThrowsInstanceOf`
                 // from test262 sm shell) are called with DIFFERENT arities at
                 // different sites (2 args at some calls, 3 at others). Declaring
