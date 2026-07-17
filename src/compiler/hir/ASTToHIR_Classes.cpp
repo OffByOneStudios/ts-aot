@@ -424,11 +424,28 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             std::vector<CClsDestructuredParam> ccDestructuredParams;
 
             // Add explicit parameters
+            size_t mdUserIdx = 0;
             for (auto& param : methodDef->parameters) {
                 // TypeScript `this` parameter is type-only; the implicit
                 // `this` formal is already pushed above. Keeping it would
                 // shift every real parameter by one slot at runtime.
                 if (param->isThisParameter) continue;
+                // ECMA-262 10.2.5 fn.length: index of the first non-simple
+                // (default/rest/destructured) user param. Class-EXPRESSION
+                // methods use THIS inline HIRFunction (the Monomorphizer does
+                // not re-specialize anonymous class members), so without this
+                // firstNonSimpleParamIndex stays SIZE_MAX and .length counts
+                // default params (`method(a,b=1)` -> 2 instead of 1). Index is
+                // in user params (this/__closure__/__arg excluded), matching
+                // the arity loop in HIRToLLVM_Closures.cpp.
+                if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+                    bool mdIsDestr =
+                        dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                        dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+                    if (param->initializer || param->isRest || mdIsDestr)
+                        func->firstNonSimpleParamIndex = mdUserIdx;
+                }
+                mdUserIdx++;
                 auto paramType = param->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(param->type);
@@ -1333,11 +1350,28 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             std::vector<CClsDestructuredParam> ccDestructuredParams;
 
             // Add explicit parameters
+            size_t mdUserIdx = 0;
             for (auto& param : methodDef->parameters) {
                 // TypeScript `this` parameter is type-only; the implicit
                 // `this` formal is already pushed above. Keeping it would
                 // shift every real parameter by one slot at runtime.
                 if (param->isThisParameter) continue;
+                // ECMA-262 10.2.5 fn.length: index of the first non-simple
+                // (default/rest/destructured) user param. Class-EXPRESSION
+                // methods use THIS inline HIRFunction (the Monomorphizer does
+                // not re-specialize anonymous class members), so without this
+                // firstNonSimpleParamIndex stays SIZE_MAX and .length counts
+                // default params (`method(a,b=1)` -> 2 instead of 1). Index is
+                // in user params (this/__closure__/__arg excluded), matching
+                // the arity loop in HIRToLLVM_Closures.cpp.
+                if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+                    bool mdIsDestr =
+                        dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                        dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+                    if (param->initializer || param->isRest || mdIsDestr)
+                        func->firstNonSimpleParamIndex = mdUserIdx;
+                }
+                mdUserIdx++;
                 auto paramType = param->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(param->type);
