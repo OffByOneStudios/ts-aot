@@ -1701,6 +1701,27 @@ void ASTToHIR::assignDestructureName(const std::string& name,
         info->elemType = value->type;
         info->isAlloca = true;
     } else {
+        // ES 6.2.5.6 PutValue: STRICT destructuring-assignment to an
+        // unresolvable Reference throws ReferenceError (mirrors plain
+        // assignment). The declaredModuleVar guard is load-bearing: class
+        // bodies are strict, so gating on strictCode_ alone would hijack
+        // `callCount = ...` class-method writes (see the plain-assignment
+        // site ~1419; sweep #32 = -3,300). Non-strict creates an implicit
+        // global via defineVariable as before.
+        bool dstrDeclaredModuleVar =
+            module_->globals.count(modVarName(name)) != 0 ||
+            moduleToplevelDeclaredNames_.count(name) != 0;
+        if (!dstrDeclaredModuleVar) {
+            auto mit = moduleGlobalVarsByModule_.find(name);
+            dstrDeclaredModuleVar = mit != moduleGlobalVarsByModule_.end() &&
+                                    mit->second.count(currentModulePath_) != 0;
+        }
+        if (strictCode_ && !dstrDeclaredModuleVar) {
+            auto nameStr = builder_.createConstString(name);
+            builder_.createCall("ts_strict_unresolved_assign",
+                {nameStr, boxValueIfNeeded(value)}, HIRType::makeVoid());
+            return;
+        }
         defineVariable(name, value);
     }
     if (isModuleGlobalVar(name)) {
