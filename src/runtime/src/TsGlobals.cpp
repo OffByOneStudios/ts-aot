@@ -234,6 +234,25 @@ static void setProtoStringTag(TsMap* proto, const char* tag) {
 }
 
 // Native wrappers for functions that take 2+ args and don't have _native variants
+static void setProtoConstructor(TsMap* ctor, void* wrappedCtor) {
+    // ECMA-262: <X>.prototype.constructor is an OWN property of <X>.prototype
+    // === <X>, { [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }.
+    // Without it the read walks the proto chain to Object.prototype.constructor and
+    // reports Object (test262 built-ins/*/prototype/constructor.js).
+    // Takes the ctor and fetches .prototype so sites with no local `proto` work too.
+    // wrappedCtor must be the wrapAsCallable() result -- the identity user code sees.
+    if (!ctor || !wrappedCtor) return;
+    TsValue pk; pk.type = ValueType::STRING_PTR;
+    pk.ptr_val = TsString::GetInterned("prototype");
+    TsValue pv = ctor->Get(pk);
+    if (pv.type == ValueType::UNDEFINED || !pv.ptr_val) return;
+    TsMap* proto = (TsMap*)pv.ptr_val;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned("constructor");
+    TsValue v; v.type = ValueType::FUNCTION_PTR; v.ptr_val = wrappedCtor;
+    proto->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+}
+
 static TsValue* ts_object_assign_native(void* ctx, int argc, TsValue** argv) {
     if (argc < 2) return argc > 0 ? argv[0] : ts_value_make_undefined();
     return ts_object_assign(argv[0], argv[1]);
@@ -2699,6 +2718,7 @@ void* ts_get_global_Promise() {
         }
         addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Promise", 1);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -2912,6 +2932,7 @@ void* ts_get_global_Symbol() {
         }
 
         cached = wrapAsCallable(ctor, "Symbol", 0);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -3092,6 +3113,7 @@ void* ts_get_global_Map() {
         setProtoStringTag(proto, "Map");
         addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Map", 0);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -3200,6 +3222,7 @@ void* ts_get_global_Set() {
         setProtoStringTag(proto, "Set");
         addAccessorGetter(ctor, "[Symbol.species]", (void*)species_this_getter);
         cached = wrapAsCallable(ctor, "Set", 0);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -3253,6 +3276,7 @@ void* ts_get_global_WeakMap() {
         }, 2);
         setProtoStringTag(proto, "WeakMap");
         cached = wrapAsCallable(ctor, "WeakMap", 0);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -3286,6 +3310,7 @@ void* ts_get_global_WeakSet() {
         });
         setProtoStringTag(proto, "WeakSet");
         cached = wrapAsCallable(ctor, "WeakSet", 0);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -4759,6 +4784,7 @@ void* ts_get_global_DataView() {
             setProtoStringTag(dvProto, "DataView");
         }
         cached = wrapAsCallable(ctor, "DataView", 1);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -4942,6 +4968,7 @@ void* ts_get_global_BigInt() {
             return (TsValue*)out;
         }, 2);
         cached = wrapAsCallable(ctor, "BigInt", 1);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -7868,6 +7895,7 @@ void* ts_get_global_WeakRef() {
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("WeakRef");
         cached = wrapAsCallable(ctor, "WeakRef", 1);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -7878,6 +7906,7 @@ void* ts_get_global_FinalizationRegistry() {
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("FinalizationRegistry");
         cached = wrapAsCallable(ctor, "FinalizationRegistry", 1);
+        setProtoConstructor(ctor, cached);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
