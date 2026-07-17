@@ -1936,6 +1936,16 @@ ASTToHIR::ElemRef ASTToHIR::lowerElementRefOnce(ast::ElementAccessExpression* el
         bool mayBeObject = (k == HIRTypeKind::Any || k == HIRTypeKind::Object ||
                             k == HIRTypeKind::Class || k == HIRTypeKind::Ptr);
         if (mayBeObject) {
+            // ES 6.2.5.5 GetValue: ToObject(base) (3.a) throws BEFORE
+            // ToPropertyKey (3.c). Hoisting the coercion above this check let a
+            // nullish base run the key's toString hook first, so `base[prop] *= x`
+            // surfaced the hook's throw instead of the required TypeError
+            // (test262 S11.13.2_A7 family). The key EXPRESSION is already
+            // evaluated above, which is correct and must stay before the check
+            // (S11.13.2_A7_T1 first assert: `base[prop()]` throws from prop()).
+            builder_.createCall("ts_require_object_coercible",
+                                {boxValueIfNeeded(r.obj)},
+                                HIRType::makeVoid());
             r.key = builder_.createCall("ts_to_property_key_spec",
                                         {boxValueIfNeeded(r.key)},
                                         HIRType::makeAny());
