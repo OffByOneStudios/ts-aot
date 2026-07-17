@@ -3006,18 +3006,42 @@ void ASTToHIR::lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
 void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
                                     std::shared_ptr<HIRValue> sourceValue,
                                     bool isObjectPattern) {
-    // Determine the property name to extract
-    std::string propName;
-    if (!binding->propertyName.empty()) {
-        // { propName: varName } - use explicit property name
-        propName = binding->propertyName;
-    } else if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
-        // { varName } - shorthand, property name is same as variable name
-        propName = ident->name;
+    // Determine the property name to extract.
+    // ECMA-262 13.3.3.5 BindingProperty : PropertyName : BindingElement
+    //   1. Let P be the result of evaluating PropertyName.
+    //   2. ReturnIfAbrupt(P).
+    // The parser records a ComputedPropertyName (Parser.cpp ~1630) but this
+    // lowering ignored it and fell through to the BINDING's own name, so
+    // `const { [k()]: x } = o` never evaluated k() and read property "x"
+    // instead. That silently mis-bound rather than merely mis-ordering a throw:
+    // `const { [key()]: v } = { a: 42 }` left v undefined with key() uncalled.
+    // (test262 */dstr/obj-ptrn-prop-eval-err.js across every binding form.)
+    // The ASSIGNMENT form (`({ [k()]: x } = o)`) lowers elsewhere and was correct.
+    std::shared_ptr<HIRValue> propNameValue;
+    if (binding->computedPropertyName) {
+        if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(
+                binding->computedPropertyName.get())) {
+            if (cpn->expression) {
+                auto keyVal = lowerExpression(cpn->expression.get());
+                propNameValue = builder_.createCall("ts_to_property_key_spec",
+                                                    {boxValueIfNeeded(keyVal)},
+                                                    HIRType::makeAny());
+            }
+        }
+    }
+    if (!propNameValue) {
+        std::string propName;
+        if (!binding->propertyName.empty()) {
+            // { propName: varName } - use explicit property name
+            propName = binding->propertyName;
+        } else if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+            // { varName } - shorthand, property name is same as variable name
+            propName = ident->name;
+        }
+        propNameValue = builder_.createConstString(propName);
     }
 
     // Get the property value from source object
-    auto propNameValue = builder_.createConstString(propName);
     auto extractedValue = builder_.createGetPropDynamic(sourceValue, propNameValue);
 
     // Handle default value if present
