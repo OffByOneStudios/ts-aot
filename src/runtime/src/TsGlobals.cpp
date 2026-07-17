@@ -3155,10 +3155,18 @@ void* ts_get_global_Set() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_values_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
         }, 0);
-        addMethod(proto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (!ctx) ctx = ts_get_call_this();
-            return ts_set_values_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
-        }, 0);
+        // ES 24.2.4: Set.prototype.keys is the SAME function object as
+        // Set.prototype.values (%Set.prototype.values%), NOT a second function
+        // with identical behavior. Alias it so `Set.prototype.keys === values`.
+        {
+            TsValue vk; vk.type = ValueType::STRING_PTR;
+            vk.ptr_val = TsString::GetInterned("values");
+            TsValue valuesFn = proto->Get(vk);
+            TsValue kk; kk.type = ValueType::STRING_PTR;
+            kk.ptr_val = TsString::GetInterned("keys");
+            proto->SetWithAttrs(kk, valuesFn,
+                TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        }
         addMethod(proto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_entries_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
