@@ -1861,6 +1861,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv);
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr);  // fwd (defined below)
+    static TsValue* ts_function_inherited_property(void* selfRaw, const char* keyUtf8);  // fwd
     // Walk a builtin instance's prototype for keyStr. If the prototype property
     // is an accessor, invoke its getter with the ORIGINAL receiver (obj) — a
     // plain ts_object_get_property(proto, key) would invoke it with this=proto,
@@ -3205,6 +3206,12 @@ void* ts_create_arguments_from_params(
                 return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
 
+            // Inherited from Function.prototype (user-augmented fields). Mirrors
+            // the boxed get_dynamic path so ts_object_get_property(fn, key) and
+            // `fn.key` agree — required by ToPropertyDescriptor over Function
+            // descriptor objects (Object.defineProperty(o,p,funObj)).
+            if (TsValue* inh = ts_function_inherited_property(func, keyStr))
+                return inh;
             return ts_value_make_undefined();
         }
 
@@ -3358,6 +3365,12 @@ void* ts_create_arguments_from_params(
                         return ts_object_get_property(baseRaw, keyStr);
                 }
             }
+            // Inherited from Function.prototype (user-augmented fields). Mirrors
+            // the boxed get_dynamic path so ts_object_get_property(fn, key) and
+            // `fn.key` agree — required by ToPropertyDescriptor over Function
+            // descriptor objects (Object.defineProperty(o,p,funObj)).
+            if (TsValue* inh = ts_function_inherited_property(closure, keyStr))
+                return inh;
             return ts_value_make_undefined();
         }
 
@@ -4442,6 +4455,36 @@ void* ts_create_arguments_from_params(
         TsValue* inh = ts_object_get_property(fproto, keyUtf8);
         if (inh && !ts_value_is_undefined(inh)) return inh;
         return nullptr;
+    }
+
+    // ECMA-262 OrdinaryHasProperty for callables: after own props and the
+    // special-cased builtins, a function inherits from Function.prototype. The
+    // `in` operator (ts_object_has_prop) previously stopped at the function's
+    // own props, so `'x' in fn` was false even when `Function.prototype.x` was
+    // set (and Get already returned it) — a has/get divergence that broke
+    // ToPropertyDescriptor over Function-object descriptors (the descriptor
+    // fields value/get/set/writable/enumerable/configurable inherited from
+    // Function.prototype were never read). Mirrors ts_function_inherited_property
+    // but uses HasProperty so a present-but-undefined inherited field counts.
+    bool ts_object_has_property(void* objArg, void* keyArg);  // C linkage (in extern "C" block)
+    static bool ts_function_has_inherited_property(void* selfRaw, TsValue* key) {
+        extern void* ts_get_global_Function();
+        void* fc = ts_get_global_Function();
+        if (!fc) return false;
+        void* fcRaw = ts_value_get_object((TsValue*)fc);
+        if (!fcRaw) fcRaw = fc;
+        if (!fcRaw || (uintptr_t)fcRaw < 0x1000) return false;
+        if (*(uint32_t*)((char*)fcRaw + 16) != 0x46554E43 /* TsFunction FUNC */)
+            return false;
+        TsFunction* fctor = (TsFunction*)fcRaw;
+        if (!fctor->properties) return false;
+        TsValue pk; pk.type = ValueType::STRING_PTR;
+        pk.ptr_val = TsString::GetInterned("prototype");
+        TsValue pv = fctor->properties->Get(pk);
+        if (pv.type != ValueType::OBJECT_PTR || !pv.ptr_val) return false;
+        void* fproto = pv.ptr_val;
+        if (fproto == selfRaw) return false;  // avoid self-recursion
+        return ts_object_has_property(fproto, (void*)key);
     }
 
     // Private member READ with brand check (ECMA-262): reading `obj.#x` from an
@@ -7008,6 +7051,8 @@ void* ts_create_arguments_from_params(
                           strcmp(k, "bind") == 0 || strcmp(k, "call") == 0 ||
                           strcmp(k, "apply") == 0)) return true;
             }
+            // Inherited from Function.prototype (e.g. user-set fields).
+            if (ts_function_has_inherited_property(rawObj, key)) return true;
             return false;
         }
         // TsClosure — check its properties map (user functions are closures;
@@ -7028,6 +7073,8 @@ void* ts_create_arguments_from_params(
                 // getters, setters (is_constructor=false) have none; generators do.
                 if (k && strcmp(k, "prototype") == 0 && cl->is_constructor) return true;
             }
+            // Inherited from Function.prototype (e.g. user-set fields).
+            if (ts_function_has_inherited_property(rawObj, key)) return true;
             return false;
         }
         if (magic16 == 0x42494749 || magic16 == 0x53594D42) return false; // BigInt, Symbol
