@@ -1316,6 +1316,16 @@ extern "C" {
         }
 
         if (magic != 0x4D415053) { // TsMap::MAGIC
+            // A TypedArray (integer-indexed exotic native) records its explicit
+            // [[Prototype]] in the __proto__ side-slot so Object.getPrototypeOf
+            // honors it (identity-preserving raw pointer). Reflect.construct(TA,
+            // args, newTarget) relies on this to use newTarget.prototype per
+            // ES 10.4.5.1 GetPrototypeFromConstructor; without it getPrototypeOf
+            // always returned the brand default (%TypedArray% per-class proto).
+            if (magic == 0x54415252 && proto && !ts_value_is_nullish(proto)) {
+                extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+                ts_native_object_set_proto(objRaw, proto);
+            }
             // Generic TsObject subclass (native C++ objects like TsServerResponse):
             // set prototype pointer on the side-map instead of copying properties.
             if (!proto || ts_value_is_nullish(proto)) {
@@ -4347,55 +4357,133 @@ extern "C" {
         return false;
     }
 
-    // Object.fromEntries(iterable) - create object from key-value pairs
+    // Object.fromEntries(iterable) — ECMA-262 20.1.2.7 + AddEntriesFromIterable
+    // (24.1.1.2) with adder = CreateDataPropertyOnObject. Drives the iterator
+    // protocol precisely: GetIterator; per entry IteratorStep (next + done),
+    // IteratorValue, entry-must-be-Object (else TypeError + IteratorClose),
+    // Get "0", Get "1", ToPropertyKey, CreateDataProperty. The spec's ? vs
+    // IfAbruptCloseIterator distinction is load-bearing: a throw from
+    // next()/Get-"done"/Get-"value" propagates WITHOUT closing, while a throw
+    // from the entry object-check, Get "0"/"1", or the adder (ToPropertyKey /
+    // define) closes the iterator (swallowing return()'s own failure) and
+    // rethrows the ORIGINAL error. Rooting note: `result` is not registered as
+    // an explicit GC root across the user-code calls below — matching the
+    // neighbouring ts_object_groupBy — because a stack-local root would dangle
+    // when a propagating throw longjmps past this frame; fromEntries inputs are
+    // small so mid-loop promotion of `result` is not a practical concern.
     TsValue* ts_object_from_entries(TsValue* entries) {
+        extern TsValue* ts_iterator_get(TsValue* iterable);
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+        extern bool ts_is_callable(void* v);
+        extern void* ts_push_exception_handler();
+        extern void ts_pop_exception_handler();
+        extern TsValue* ts_get_exception();
+        extern void ts_set_exception(TsValue* e);
+        extern void ts_iterator_close(TsValue* iter);
+        extern TsValue* ts_to_property_key_spec(TsValue* key);
+        extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+        extern void ts_object_set_property(void* obj, void* key, void* value);
+
         TsMap* result = TsMap::Create();
-        if (!entries) return ts_value_make_object(result);
-        
-        void* rawPtr = ts_value_get_object(entries);
-        if (!rawPtr) rawPtr = entries;
+        TsValue* resultBoxed = ts_value_make_object(result);
 
-        // RequireObjectCoercible + GetIterator (Object.fromEntries step 1-3): a
-        // primitive (null/undefined/number/boolean) is not iterable -> TypeError.
-        // Without this guard the magic read below dereferenced a NaN-boxed primitive
-        // (Object.fromEntries(null) -> access violation).
-        uintptr_t pp = (uintptr_t)rawPtr;
-        if (pp < 0x1000 || pp > 0x00007FFFFFFFFFFFULL) {
+        // Steps 1-3: RequireObjectCoercible + GetIterator. ts_iterator_get
+        // throws a TypeError for non-iterable primitives (undefined/null/
+        // number/boolean/symbol/bigint). A missing argument (Object.fromEntries())
+        // arrives as a null pointer, for which ts_iterator_get returns null —
+        // surface that as the same TypeError.
+        TsValue* iterator = entries ? ts_iterator_get(entries) : nullptr;
+        if (!iterator) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                "Object.fromEntries requires an iterable of [key, value] entries"));
-            return ts_value_make_undefined();
+                "Object.fromEntries requires an iterable argument"));
+            return ts_value_make_undefined();  // unreachable (ts_throw longjmps)
         }
 
-        // Check if it's an array
-        uint32_t magic = *(uint32_t*)rawPtr;
-        if (magic != 0x41525259) { // TsArray::MAGIC
-            return ts_value_make_object(result);
+        // IteratorStep invokes the iterator's own next(); an uncallable `next`
+        // is a TypeError and the iterator is NOT closed (the failure is inside
+        // IteratorNext, before any entry is processed).
+        TsValue* nextFn = ts_object_get_property((void*)iterator, "next");
+        if (!nextFn || !ts_is_callable(nextFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.fromEntries: iterator.next is not callable"));
+            return ts_value_make_undefined();  // unreachable
         }
-        
-        TsArray* arr = (TsArray*)rawPtr;
-        int64_t len = arr->Length();
-        
-        for (int64_t i = 0; i < len; i++) {
-            void* entry = (void*)arr->Get(i);
-            if (!entry) continue;
-            
-            // Unbox entry if needed
-            void* entryRaw = ts_nanbox_safe_unbox(entry);
-            
-            uint32_t entryMagic = *(uint32_t*)entryRaw;
-            if (entryMagic != 0x41525259) continue;
-            
-            TsArray* pair = (TsArray*)entryRaw;
-            if (pair->Length() < 2) continue;
-            
-            TsValue* key = (TsValue*)pair->Get(0);
-            TsValue* val = (TsValue*)pair->Get(1);
-            if (key && val) {
-                result->Set(nanbox_to_tagged(key), nanbox_to_tagged(val));
+
+        for (int64_t guard = 0; guard < (1 << 24); guard++) {
+            // 4.a IteratorStep -> IteratorNext: a throw from next() propagates
+            // (no close); a non-object result is a TypeError (no close).
+            TsValue* res = ts_function_call_with_this(nextFn, iterator, 0, nullptr);
+            uint64_t rnb = res ? (uint64_t)(uintptr_t)res : 0;
+            if (!res || !nanbox_is_ptr(rnb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Object.fromEntries: iterator result is not an object"));
+                return ts_value_make_undefined();  // unreachable
             }
+            // IteratorComplete: Get "done" throw propagates (no close).
+            TsValue* doneV = ts_object_get_property((void*)res, "done");
+            if (doneV && ts_value_to_bool(doneV)) break;
+            // 4.c IteratorValue: Get "value" throw propagates (no close).
+            TsValue* entry = ts_object_get_property((void*)res, "value");
+
+            // Steps 4.d-4.i run under IfAbruptCloseIterator: any throw closes
+            // the iterator (nested handler swallows return()'s own failure) and
+            // rethrows the original error.
+            void* hbuf = ts_push_exception_handler();
+            jmp_buf* env = (jmp_buf*)hbuf;
+            if (setjmp(*env) != 0) {
+                TsValue* exc = ts_get_exception();
+                ts_set_exception(nullptr);
+                void* hbuf2 = ts_push_exception_handler();
+                jmp_buf* env2 = (jmp_buf*)hbuf2;
+                if (setjmp(*env2) == 0) {
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
+                    ts_iterator_close(iterator);
+                    ts_pop_exception_handler();
+                } else {
+                    ts_set_exception(nullptr);  // swallow close error
+                }
+                ts_throw(exc ? exc : ts_value_make_undefined());
+                return ts_value_make_undefined();  // unreachable
+            }
+#ifdef _WIN64
+            ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+            // 4.d entry must be an Object. A primitive string/symbol/bigint or
+            // null/undefined is not -> TypeError (closes the iterator).
+            uint64_t enb = entry ? (uint64_t)(uintptr_t)entry : 0;
+            bool entryObj = entry && nanbox_is_ptr(enb);
+            if (entryObj) {
+                void* ep = nanbox_to_ptr(enb);
+                uint32_t em = (ep && (uintptr_t)ep > 0x1000) ? *(uint32_t*)ep : 0;
+                if (em == 0x53545247 /*STRG*/ || em == 0x434F4E53 /*CONS*/ ||
+                    em == 0x53594D42 /*SYMB*/ || em == 0x42494749 /*BIGI*/)
+                    entryObj = false;
+            }
+            if (!entryObj) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Object.fromEntries entry is not an object"));
+            }
+            // 4.e/4.g Get "0" then Get "1" via the general computed getter (so
+            // boxed-String index reads and accessor getters both work; a getter
+            // throw closes). 4.i adder = CreateDataPropertyOnObject:
+            // ToPropertyKey(k) (a throwing toString closes) then a data-property
+            // set through the canonical property machinery — canonicalises
+            // symbol/index keys so result[key] round-trips, and does not fire an
+            // inherited Object.prototype setter (per uses-define-semantics).
+            TsValue* k = ts_object_get_dynamic(entry,
+                ts_value_make_string(TsString::GetInterned("0")));
+            TsValue* v = ts_object_get_dynamic(entry,
+                ts_value_make_string(TsString::GetInterned("1")));
+            TsValue* pk = ts_to_property_key_spec(k ? k : ts_value_make_undefined());
+            ts_object_set_property((void*)resultBoxed, (void*)pk,
+                (void*)(v ? v : ts_value_make_undefined()));
+            ts_pop_exception_handler();
         }
-        
-        return ts_value_make_object(result);
+
+        return resultBoxed;
     }
 
     // ES2024 Object.groupBy(iterable, callbackFn)

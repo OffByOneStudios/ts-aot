@@ -2519,6 +2519,23 @@ void* ts_create_arguments_from_params(
                     }
                 }
             }
+            // A custom [[Prototype]] set via Object.setPrototypeOf (or
+            // Reflect.construct with a newTarget whose .prototype is an object)
+            // shadows the brand constructor: resolve `.constructor` through that
+            // chain (ES OrdinaryGet on the integer-indexed exotic). Use the
+            // dynamic member-get (same entry the `.` operator lowers to) so the
+            // proto's own prototype chain — e.g. {} -> Object.prototype — is
+            // walked identically; the raw ts_object_get_property helper does not.
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_native_object_get_proto(void* o);
+                extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+                void* customProto = ts_native_object_get_proto((void*)ta);
+                if (customProto) {
+                    TsValue* recv = ts_value_make_object(customProto);
+                    TsValue* keyv = ts_value_make_string(TsString::GetInterned("constructor"));
+                    return ts_object_get_dynamic(recv, keyv);
+                }
+            }
             if (strcmp(keyStr, "constructor") == 0) {
                 extern void* ts_get_global_Int8Array();
                 extern void* ts_get_global_Uint8Array();
