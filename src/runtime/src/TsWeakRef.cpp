@@ -48,6 +48,7 @@ TsFinalizationRegistry* TsFinalizationRegistry::Create(void* cleanupCallback) {
 
 extern "C" bool ts_can_be_held_weakly(TsValue* key);  // defined in TsMap.cpp
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
+extern "C" void* ts_get_call_this();  // defined in TsObject.cpp
 
 extern "C" {
 
@@ -96,6 +97,49 @@ void ts_finalization_registry_register(void* registry, void* target, void* heldV
 bool ts_finalization_registry_unregister(void* registry, void* unregisterToken) {
     if (!registry || !unregisterToken) return false;
     return ts_gc_unregister_finalizer(unregisterToken);
+}
+
+// ---- Prototype-method natives (ES 26.1.3.2 deref, 26.2.3.1 register,
+// 26.2.3.2 unregister). Receiver-dispatched via ts_get_call_this so they also
+// work when pulled off the prototype and .call()ed. Native ABI:
+// TsValue*(void* ctx, int argc, TsValue** argv). ts_make_named_native_function
+// builds them as NON-constructors (built-ins/*/not-a-constructor.js).
+static void* weakref_recv(uint32_t magic16, const char* msg) {
+    void* self = ts_get_call_this();
+    void* raw = self ? ts_nanbox_safe_unbox(self) : nullptr;
+    if (raw && (uintptr_t)raw >= 4096 &&
+        (uintptr_t)raw < 0x0000800000000000ULL &&
+        *(uint32_t*)((char*)raw + 16) == magic16) {
+        return raw;
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    return nullptr;  // unreachable
+}
+
+TsValue* ts_weakref_deref_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx; (void)argc; (void)argv;
+    void* ref = weakref_recv(TsWeakRef::MAGIC,
+        "WeakRef.prototype.deref called on incompatible receiver");
+    return (TsValue*)ts_weakref_deref(ref);
+}
+
+TsValue* ts_fr_register_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx;
+    void* reg = weakref_recv(TsFinalizationRegistry::MAGIC,
+        "FinalizationRegistry.prototype.register called on incompatible receiver");
+    void* target = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+    void* held   = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+    void* token  = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
+    ts_finalization_registry_register(reg, target, held, token);
+    return (TsValue*)ts_value_make_undefined();
+}
+
+TsValue* ts_fr_unregister_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx;
+    void* reg = weakref_recv(TsFinalizationRegistry::MAGIC,
+        "FinalizationRegistry.prototype.unregister called on incompatible receiver");
+    void* token = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+    return (TsValue*)ts_value_make_bool(ts_finalization_registry_unregister(reg, token));
 }
 
 } // extern "C"
