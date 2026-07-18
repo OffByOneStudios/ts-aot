@@ -10,11 +10,38 @@
 #include "TsObject.h"
 #include "TsTyped.h"
 #include "GC.h"
+#include <csetjmp>
 // Type tags (TsFunction/TsClosure/TsArray) are enrolled in their headers.
 
 extern "C" {
     void ts_throw(TsValue* err);
     void* ts_error_create_typed(const char* type, const char* message);
+    TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor);
+    void* ts_push_exception_handler();
+    void ts_pop_exception_handler();
+}
+
+// Reflect.defineProperty on an ORDINARY object must run the full
+// [[DefineOwnProperty]] machinery (ToPropertyDescriptor coercions/validation,
+// accessor storage, ValidateAndApply invariants) but SURFACE a boolean rather
+// than throwing (ES 28.1.3). ts_object_defineProperty is the single source of
+// truth for that machinery; it throws on refusal, so wrap it in an exception
+// handler and translate a throw into `false`. POD-only frame (no non-POD
+// locals) so the longjmp out of the throwing callee is safe on MSVC.
+static int reflect_define_ordinary(void* targetArg, void* propArg, void* descArg) {
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        ts_object_defineProperty((TsValue*)targetArg, (TsValue*)propArg,
+                                 (TsValue*)descArg);
+        ts_pop_exception_handler();
+        return 1;
+    }
+    // Threw (ToPropertyDescriptor error or a ValidateAndApply refusal): the
+    // throw path already popped the handler; clear the pending exception and
+    // report failure to the Reflect caller.
+    ts_set_exception((TsValue*)nullptr);
+    return 0;
 }
 
 // Reflect provides static methods for interceptable JavaScript operations
@@ -347,48 +374,18 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
 }
 
 extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg) {
-    void* target = reflect_require_object(targetArg,
+    reflect_require_object(targetArg,
         "Reflect.getOwnPropertyDescriptor called on non-object");
     if (TsProxy* px = reflect_as_proxy(targetArg))
         return px->getOwnPropertyDescriptorTrap((TsValue*)propArg);
 
-    // Convert flat objects for interop
-    if (is_flat_object(target)) {
-        target = ts_flat_object_to_map(target);
-    }
-
-    TsMap* obj = ts_cast<TsMap>(target);
-    if (!obj) return ts_value_make_undefined();
-
-    TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
-    TsString* key = nullptr;
-
-    if (propVal.type == ValueType::STRING_PTR) {
-        key = (TsString*)propVal.ptr_val;
-    } else {
-        return ts_value_make_undefined();
-    }
-
-    TsValue val = obj->Get(key);
-    if (val.type == ValueType::UNDEFINED) {
-        return ts_value_make_undefined();
-    }
-
-    // Create descriptor object
-    TsMap* descriptor = TsMap::Create();
-
-    // Data descriptor
-    descriptor->Set(TsString::Create("value"), val);
-
-    TsValue trueVal;
-    trueVal.type = ValueType::BOOLEAN;
-    trueVal.i_val = 1;
-
-    descriptor->Set(TsString::Create("writable"), trueVal);
-    descriptor->Set(TsString::Create("enumerable"), trueVal);
-    descriptor->Set(TsString::Create("configurable"), trueVal);
-
-    return ts_value_make_object(descriptor);
+    // Delegate to the full [[GetOwnProperty]] engine so function/array/native
+    // receivers, accessor descriptors, symbol keys, and the ACTUAL property
+    // attributes (writable/enumerable/configurable) are reported correctly.
+    // (The prior shallow reimplementation cast the target to TsMap — returning
+    // undefined for every function/array receiver — and hardcoded all three
+    // attribute flags to true; Reflect.gOPD(fn, k) round-tripped nothing.)
+    return ts_object_getOwnPropertyDescriptor((TsValue*)targetArg, (TsValue*)propArg);
 }
 
 extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, void* descriptorArg) {
@@ -419,37 +416,14 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
                                            (TsValue*)descriptorArg);
     }
 
-    if (is_flat_object(target)) {
-        target = ts_flat_object_to_map(target);
-    }
-
-    TsMap* obj = ts_cast<TsMap>(target);
-    if (!obj) return 0;
-
-    void* descRaw = ts_nanbox_safe_unbox(descriptorArg);
-    if (descRaw && is_flat_object(descRaw)) {
-        descRaw = ts_flat_object_to_map(descRaw);
-    }
-    TsMap* descriptor = ts_cast<TsMap>(descRaw);
-    if (!descriptor) return 0;
-
-    TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
-    TsString* key = nullptr;
-
-    if (propVal.type == ValueType::STRING_PTR) {
-        key = (TsString*)propVal.ptr_val;
-    } else {
-        return 0;
-    }
-
-    // Get value from descriptor
-    TsValue valueDescVal = descriptor->Get(TsString::Create("value"));
-    if (valueDescVal.type != ValueType::UNDEFINED) {
-        obj->Set(key, valueDescVal);
-        return 1;
-    }
-
-    return 0;
+    // Ordinary object [[DefineOwnProperty]]: delegate to the full engine
+    // (ts_object_defineProperty) so descriptor coercions, accessor storage,
+    // symbol keys, and the ValidateAndApply invariants all behave exactly as
+    // Object.defineProperty — but return the boolean result instead of
+    // throwing on refusal. (The shallow prior implementation only handled a
+    // bare `value` field on TsMaps, so accessor/symbol/config descriptors and
+    // the freeze/seal refusal-boolean were all wrong.)
+    return reflect_define_ordinary(targetArg, propArg, descriptorArg);
 }
 
 extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {

@@ -32,6 +32,22 @@ TsValueEqual TsHashTable::equal_;
 void* TsMap_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 
+// Internal implementation keys (accessor halves "__getter_"/"__setter_", and
+// hidden "\x01"-prefixed private/brand slots) are NOT spec-visible own
+// properties. The [[Extensible]] guard restricts adding NEW *own properties*;
+// it must not block storing these bookkeeping keys — e.g. converting a
+// configurable data property to an accessor on a preventExtensions()'d object
+// is a legal redefine (Object.defineProperty validates it), but it needs to add
+// a "__getter_"/"__setter_" slot. (A genuinely new PUBLIC property on a
+// non-extensible object is rejected earlier by ts_object_defineProperty.)
+static inline bool ts_key_is_internal_slot(const TsValue& key) {
+    if (key.type != ValueType::STRING_PTR || !key.ptr_val) return false;
+    const char* k = ((TsString*)key.ptr_val)->ToUtf8();
+    if (!k) return false;
+    if (k[0] == '\x01') return true;
+    return strncmp(k, "__getter_", 9) == 0 || strncmp(k, "__setter_", 9) == 0;
+}
+
 // === Off-by-8 receiver tripwire (permanent, zero-cost when cold) ===
 // The ±8-misaligned-receiver condition that TsMap::self() corrects is believed
 // VESTIGIAL: no current codegen or GC path produces it (compiler IR-verified
@@ -127,7 +143,7 @@ void TsMap::Set(TsValue key, TsValue value) {
 
     if (sealed || !extensible) {
         auto* ht = (TsHashTable*)impl;
-        if (!ht->Has(key)) return;  // Don't add new properties
+        if (!ht->Has(key) && !ts_key_is_internal_slot(key)) return;  // Don't add new properties
     }
 
     ((TsHashTable*)impl)->Set(key, value);
@@ -153,7 +169,7 @@ void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
     if (frozen) return;
     if (sealed || !extensible) {
         auto* ht = (TsHashTable*)impl;
-        if (!ht->Has(key)) return;
+        if (!ht->Has(key) && !ts_key_is_internal_slot(key)) return;
     }
     ((TsHashTable*)impl)->SetWithAttrs(key, value, attrs);
     if (value.type == ValueType::OBJECT_PTR || value.type == ValueType::STRING_PTR ||

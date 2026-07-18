@@ -2384,12 +2384,40 @@ extern "C" {
         }
         return ts_value_make_string(d->ToISOString());
     }
+    // ECMA-262 21.4.4.38 Date.prototype.toJSON(key). Generic: works on ANY
+    // receiver (no Date brand check).
+    //   1. O = ? ToObject(this value).
+    //   2. tv = ? ToPrimitive(O, Number).
+    //   3. If tv is a Number and not finite, return null.
+    //   4. Return ? Invoke(O, "toISOString").
     TsValue* ts_date_toJSON_native(void* ctx, int argc, TsValue** argv) {
-        TsDate* d = requireDateOrThrow(ctx, "toJSON");
-        if (!d) return ts_value_make_undefined();
-        // Per spec, toJSON returns null for invalid Date.
-        if (!d->IsValid()) return ts_value_make_null();
-        return ts_value_make_string(d->ToJSON());
+        extern TsValue* ts_to_primitive(TsValue* val, int hint);
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+        uint64_t cnb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        // ToObject throws for null/undefined.
+        if (!ctx || nanbox_is_null(cnb) || nanbox_is_undefined(cnb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Date.prototype.toJSON called on null or undefined"));
+            return ts_value_make_undefined();
+        }
+        // ToPrimitive(O, Number). For a Date this yields the time value (NaN for
+        // an Invalid Date); the non-finite check below then returns null.
+        TsValue* tv = ts_to_primitive((TsValue*)ctx, 1 /* number hint */);
+        uint64_t tnb = nanbox_from_tsvalue_ptr(tv);
+        if (nanbox_is_double(tnb) && !std::isfinite(nanbox_to_double(tnb))) {
+            return ts_value_make_null();
+        }
+        // Invoke(O, "toISOString"): GetV then Call. Non-callable -> TypeError.
+        void* rawO = nanbox_is_ptr(cnb) ? nanbox_to_ptr(cnb) : (void*)ctx;
+        TsValue* method = rawO ? ts_object_get_property(rawO, "toISOString")
+                               : nullptr;
+        if (!method || !ts_value_is_callable(method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "toISOString is not a function"));
+            return ts_value_make_undefined();
+        }
+        return ts_call_with_this_0(method, (TsValue*)ctx);
     }
     TsValue* ts_date_toString_native(void* ctx, int argc, TsValue** argv) {
         TsDate* d = requireDateOrThrow(ctx, "toString");
@@ -2409,31 +2437,83 @@ extern "C" {
         if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
         return ts_value_make_string(d->ToTimeString());
     }
-    // ECMA-262 21.4.4.45 Date.prototype[@@toPrimitive](hint): "string"/"default"
-    // -> OrdinaryToPrimitive(string) (toString); "number" -> valueOf; any other
-    // hint is a TypeError. Calls the Date string/number natives directly so it
-    // does not recurse through ts_to_primitive (which consults @@toPrimitive).
-    TsValue* ts_date_symbolToPrimitive_native(void* ctx, int argc, TsValue** argv) {
-        // POD frame (SMELL-002): requireDateOrThrow and the invalid-hint
-        // path both longjmp; a std::string local here put this frame in the
-        // longjmp-through-unconstructed-non-POD crash class (0xc0000374).
-        TsDate* d = requireDateOrThrow(ctx, "[Symbol.toPrimitive]");
-        if (!d) return ts_value_make_undefined();
-        const char* hint = "";
-        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
-            void* hs = ts_value_get_string(argv[0]);
-            if (hs) {
-                const char* h = ((TsString*)hs)->ToUtf8();
-                if (h) hint = h;
+    // ECMA-262 7.1.1.1 OrdinaryToPrimitive(O, hint). rawObj is the receiver's
+    // raw pointer; boxedThis is the boxed receiver passed as `this`. Consults
+    // Get(O, "toString")/Get(O, "valueOf") (invoking user-defined methods), and
+    // does NOT consult @@toPrimitive (so it cannot recurse for a Date).
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    static inline bool tp_is_primitive(TsValue* r) {
+        if (!r) return false;
+        uint64_t nb = nanbox_from_tsvalue_ptr(r);
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb))
+            return true;
+        if (nanbox_is_ptr(nb)) {
+            if (nanbox_is_string_ptr(nb)) return true;
+            void* rp = nanbox_to_ptr(nb);
+            if (rp && (*(uint32_t*)rp == 0x42494749 || *(uint32_t*)rp == 0x53594D42))
+                return true;  // BigInt / Symbol are primitives
+        }
+        return false;
+    }
+    static TsValue* dateOrdinaryToPrimitive(void* rawObj, TsValue* boxedThis,
+                                            bool numberFirst) {
+        extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+        const char* names[2] = { numberFirst ? "valueOf" : "toString",
+                                 numberFirst ? "toString" : "valueOf" };
+        for (int i = 0; i < 2; ++i) {
+            TsValue* method = ts_object_get_property(rawObj, names[i]);
+            if (method && ts_value_is_callable(method)) {
+                TsValue* result = ts_call_with_this_0(method, boxedThis);
+                if (tp_is_primitive(result)) return result;
             }
         }
-        if (strcmp(hint, "string") == 0 || strcmp(hint, "default") == 0)
-            return ts_date_toString_native(ctx, 0, nullptr);
-        if (strcmp(hint, "number") == 0)
-            return ts_date_valueOf_native(ctx, 0, nullptr);
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
-            "invalid hint passed to Date.prototype[Symbol.toPrimitive]"));
+            "Cannot convert object to primitive value"));
         return ts_value_make_undefined();
+    }
+    // ECMA-262 21.4.4.45 Date.prototype[@@toPrimitive](hint). Per spec this is
+    // generic: it accepts ANY object receiver (step 2 only checks Type(O) is
+    // Object, NOT a [[DateValue]] brand), determines tryFirst from the hint, and
+    // runs OrdinaryToPrimitive(O, tryFirst). "string"/"default" -> string,
+    // "number" -> number, anything else -> TypeError.
+    TsValue* ts_date_symbolToPrimitive_native(void* ctx, int argc, TsValue** argv) {
+        // POD frame only (SMELL-002): every local below is trivially
+        // destructible so the ts_throw longjmps stay crash-safe.
+        uint64_t cnb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        bool isObject = nanbox_is_ptr(cnb) && !nanbox_is_string_ptr(cnb);
+        if (isObject) {
+            void* cp = nanbox_to_ptr(cnb);
+            // BigInt / Symbol pointers are primitives, not objects.
+            if (cp && (*(uint32_t*)cp == 0x42494749 || *(uint32_t*)cp == 0x53594D42))
+                isObject = false;
+        }
+        if (!isObject) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Date.prototype[Symbol.toPrimitive] called on non-object"));
+            return ts_value_make_undefined();
+        }
+        // The hint must be exactly the primitive string "string"/"number"/
+        // "default"; a String object or any other value is a TypeError.
+        int tryFirst = -1;  // 0 = string, 1 = number
+        if (argc >= 1 && argv && argv[0]) {
+            uint64_t hnb = nanbox_from_tsvalue_ptr(argv[0]);
+            if (nanbox_is_string_ptr(hnb)) {
+                void* hs = nanbox_to_ptr(hnb);
+                const char* h = hs ? ((TsString*)hs)->ToUtf8() : "";
+                if (h && (strcmp(h, "string") == 0 || strcmp(h, "default") == 0))
+                    tryFirst = 0;
+                else if (h && strcmp(h, "number") == 0)
+                    tryFirst = 1;
+            }
+        }
+        if (tryFirst < 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "invalid hint passed to Date.prototype[Symbol.toPrimitive]"));
+            return ts_value_make_undefined();
+        }
+        return dateOrdinaryToPrimitive(nanbox_to_ptr(cnb), (TsValue*)ctx,
+                                       /*numberFirst*/ tryFirst == 1);
     }
     TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
         TsDate* d = requireDateOrThrow(ctx, "valueOf");
@@ -2647,7 +2727,9 @@ extern "C" {
     // Register a native on a TsMap with correct .name / .length metadata
     // and ATTR_CONFIGURABLE|ATTR_WRITABLE (method default).
     static void dateRegisterMethod(TsMap* proto, const char* name,
-                                   void* nativeFn, int arity) {
+                                   void* nativeFn, int arity,
+                                   unsigned protoAttrs = TsHashTable::ATTR_WRITABLE |
+                                                         TsHashTable::ATTR_CONFIGURABLE) {
         TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
         TsFunction* func = (TsFunction*)fn;
         func->name = TsString::Create(name);
@@ -2672,8 +2754,7 @@ extern "C" {
         TsValue val;
         val.type = ValueType::FUNCTION_PTR;
         val.ptr_val = fn;
-        proto->SetWithAttrs(key, val,
-                            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        proto->SetWithAttrs(key, val, protoAttrs);
     }
 
     // Populate a freshly-created TsMap with all Date.prototype methods.
@@ -2754,7 +2835,9 @@ extern "C" {
         dateRegisterMethod(proto, "toString", (void*)ts_date_toString_native, 0);
         dateRegisterMethod(proto, "toDateString", (void*)ts_date_toDateString_native, 0);
         dateRegisterMethod(proto, "toTimeString", (void*)ts_date_toTimeString_native, 0);
-        dateRegisterMethod(proto, "[Symbol.toPrimitive]", (void*)ts_date_symbolToPrimitive_native, 1);
+        // @@toPrimitive is { writable:false, enumerable:false, configurable:true }.
+        dateRegisterMethod(proto, "[Symbol.toPrimitive]", (void*)ts_date_symbolToPrimitive_native, 1,
+                           TsHashTable::ATTR_CONFIGURABLE);
         dateRegisterMethod(proto, "valueOf", (void*)ts_date_valueOf_native, 0);
         // annexB
         dateRegisterMethod(proto, "toUTCString", (void*)ts_date_toUTCString_native, 0);
