@@ -876,6 +876,29 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
             }
         }
 
+        // ECMA-262 §14.3.2 / §15.3.4: hoist every `var` declaration in the arrow
+        // body (including those nested in if/else/loops/try/switch) to the
+        // function environment, pre-initialized to undefined. Arrow functions
+        // LACKED this block (only function declarations/expressions had it), so a
+        // `var v` read BEFORE its declaration line resolved to an outer/global
+        // binding (or threw ReferenceError) instead of the hoisted local
+        // undefined — exposed by Symbol.unscopables-with tests, but affecting any
+        // arrow that reads a var before its declaration. Mirrors the block in
+        // visitFunctionDeclaration (ASTToHIR.cpp).
+        {
+            std::vector<std::string> hoistedVars;
+            std::vector<std::string> hoistedFns;
+            for (auto& stmt : blockStmt->statements) {
+                collectHoistedVarNames(stmt.get(), hoistedVars, &hoistedFns);
+            }
+            for (auto& name : hoistedVars) {
+                if (lookupVariableInfoInCurrentFunction(name)) continue;
+                auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
+                builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+                defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+            }
+        }
+
         // FIRST PASS: Process FunctionDeclarations to create closures (hoisting)
         for (auto& stmt : blockStmt->statements) {
             if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
