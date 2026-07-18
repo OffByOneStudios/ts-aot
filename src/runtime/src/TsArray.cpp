@@ -3494,9 +3494,24 @@ extern "C" {
             // Note: an [[IsHTMLDDA]] value in this slot is handled here per
             // GetMethod's strict undefined check (it's neither === undefined
             // nor === null), so we proceed to call it.
+            TsValue* methodVal = nullptr;
             if (iterMethod.type == ValueType::FUNCTION_PTR ||
                 iterMethod.type == ValueType::OBJECT_PTR) {
-                TsValue* methodVal = nanbox_from_tagged(iterMethod);
+                methodVal = nanbox_from_tagged(iterMethod);
+            } else if (iterMethod.type == ValueType::UNDEFINED) {
+                // @@iterator is not an OWN property. GetMethod walks the whole
+                // prototype chain, but TsMap::Get only reads own slots, so an
+                // INHERITED @@iterator was missed and the object fell through to
+                // the array-like/length path and came out []. This hit every
+                // iterator-helper result (map/filter/take/drop/flatMap) and
+                // `class X extends Iterator` instance, whose @@iterator lives on
+                // %IteratorPrototype%. ts_object_get_property walks the chain and
+                // fires inherited getters.
+                extern TsValue* ts_object_get_property(void* o, const char* k);
+                TsValue* m = ts_object_get_property((void*)rawPtr, "[Symbol.iterator]");
+                if (m && ts_is_callable(m)) methodVal = m;
+            }
+            if (methodVal) {
                 // Verify it's actually callable (function/closure/proxy).
                 bool isCallable = ts_is_callable(methodVal);  // canonical IsCallable
                 if (isCallable) {

@@ -10,6 +10,7 @@
 #include "TsProxy.h"
 #include "TsClosure.h"
 #include "TsFlatObject.h"
+#include "TsBoxedPrimitives.h"
 #include "TsTyped.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
@@ -17,6 +18,8 @@
 #include <cstring>
 
 #include <set>
+#include <vector>
+#include <sstream>
 #include <stdexcept>
 #include <cmath>
 
@@ -365,6 +368,249 @@ static nlohmann::ordered_json ts_to_json(void* p) {
     return ts_to_json_internal(p, visited);
 }
 
+extern TsString* ts_ensure_flat(void* ptr);
+
+// ECMA-262 25.5.2: format a Number value as a JSON property-list key string
+// (used for array-replacer entries and Number wrappers). Integers get no
+// fractional part; other finite numbers use the shortest round-trip form.
+static std::string json_number_key(double d) {
+    // Number::toString, not the JSON number grammar: NaN/Infinity stringify to
+    // their names (these are legal PropertyList keys, e.g. an object with a
+    // "NaN" property).
+    if (std::isnan(d)) return "NaN";
+    if (std::isinf(d)) return d < 0 ? "-Infinity" : "Infinity";
+    double intPart;
+    if (std::modf(d, &intPart) == 0.0 &&
+        d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+        return std::to_string((int64_t)d);
+    }
+    std::ostringstream oss;
+    oss << d;
+    return oss.str();
+}
+
+// If `raw` (a heap object pointer) is a Number or String wrapper object
+// (`new Number(x)` / `new String(x)`, stored as an object with a hidden
+// __NumberData / __StringData own slot), return its primitive: kind 1 fills
+// *num, kind 2 fills *str. Returns 0 for any other object. Only own-slot data
+// reads are performed, so no user getters/valueOf are invoked.
+static int json_wrapper_num_or_str(void* raw, double* num, TsString** str) {
+    if (!raw || (uintptr_t)raw <= 0x1000) return 0;
+    {
+        TsValue* v = ts_object_get_property(raw, "__NumberData");
+        if (v) {
+            uint64_t vb = nanbox_from_tsvalue_ptr(v);
+            if (nanbox_is_int32(vb)) { *num = (double)nanbox_to_int32(vb); return 1; }
+            if (nanbox_is_double(vb)) { *num = nanbox_to_double(vb); return 1; }
+        }
+    }
+    {
+        TsValue* v = ts_object_get_property(raw, "__StringData");
+        if (v) {
+            uint64_t vb = nanbox_from_tsvalue_ptr(v);
+            if (nanbox_is_ptr(vb)) {
+                void* sp = nanbox_to_ptr(vb);
+                if (sp && (uintptr_t)sp > 0x1000 &&
+                    *(uint32_t*)sp == TsString::MAGIC) { *str = (TsString*)sp; return 2; }
+            }
+        }
+    }
+    return 0;
+}
+
+// ECMA-262 25.5.2 step 5: compute the `gap` string from the `space` argument.
+//   Number  -> min(10, ToInteger(space)) SPACE code units (empty if < 1)
+//   String  -> first min(10, length) code units of the string
+//   other   -> empty (ignored)
+// Handles nanbox int/double primitives, TsString / cons-string pointers, and
+// Number/String wrapper objects (new Number(x) / new String(x)).
+static std::string json_compute_gap(void* space) {
+    if (!space) return "";
+    uint64_t nb = (uint64_t)(uintptr_t)space;
+
+    double num = 0.0;
+    bool isNum = false;
+    TsString* str = nullptr;
+
+    if (nanbox_is_int32(nb)) { num = (double)nanbox_to_int32(nb); isNum = true; }
+    else if (nanbox_is_double(nb)) { num = nanbox_to_double(nb); isNum = true; }
+    else if (nanbox_is_bool(nb) || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+        return "";
+    } else if (nanbox_is_ptr(nb)) {
+        void* p = nanbox_to_ptr(nb);
+        if (!p) return "";
+        uint32_t magic0 = *(uint32_t*)p;
+        uint32_t magic16 = ((uintptr_t)p > 0x1000) ? *(uint32_t*)((char*)p + 16) : 0;
+        if (magic0 == TsString::MAGIC) {
+            str = (TsString*)p;
+        } else if (magic0 == 0x434F4E53) {  // TsConsString
+            str = ts_ensure_flat(p);
+        } else if (magic16 == TsNumberObject::MAGIC) {
+            num = ((TsNumberObject*)p)->value; isNum = true;
+        } else if (magic16 == TsStringObject::MAGIC) {
+            str = ((TsStringObject*)p)->value;
+        } else {
+            // new Number(x) / new String(x) wrapper objects (hidden data slot)
+            double wn = 0.0; TsString* ws = nullptr;
+            int wk = json_wrapper_num_or_str(p, &wn, &ws);
+            if (wk == 1) { num = wn; isNum = true; }
+            else if (wk == 2) { str = ws; }
+            else return "";  // any other object type: ignored
+        }
+    } else {
+        return "";
+    }
+
+    if (isNum) {
+        if (std::isnan(num)) num = 0.0;
+        long n = (long)num;  // ToInteger truncates toward zero
+        if (n < 1) return "";
+        if (n > 10) n = 10;
+        return std::string((size_t)n, ' ');
+    }
+    if (str) {
+        int64_t len = str->Length();
+        if (len <= 0) return "";
+        if (len > 10) {
+            TsString* trimmed = str->Substring(0, 10);
+            if (trimmed) return std::string(trimmed->ToUtf8());
+        }
+        return std::string(str->ToUtf8());
+    }
+    return "";
+}
+
+// Custom pretty-printer over a fully-materialized nlohmann tree, using an
+// arbitrary `gap` string for indentation (nlohmann::dump only supports a
+// single repeated fill CHARACTER, so it cannot emit e.g. "\t" or "--"). For a
+// numeric space the gap is N spaces, producing output byte-identical to
+// nlohmann::dump(N). Scalars delegate to nlohmann so number/string escaping
+// stays consistent with the compact path.
+static void json_pp(const nlohmann::ordered_json& j, const std::string& gap,
+                    const std::string& curIndent, std::string& out) {
+    if (j.is_object()) {
+        if (j.empty()) { out += "{}"; return; }
+        std::string childIndent = curIndent + gap;
+        out += "{\n";
+        bool first = true;
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (!first) out += ",\n";
+            first = false;
+            out += childIndent;
+            out += nlohmann::ordered_json(it.key()).dump();
+            out += ": ";
+            json_pp(it.value(), gap, childIndent, out);
+        }
+        out += "\n";
+        out += curIndent;
+        out += "}";
+    } else if (j.is_array()) {
+        if (j.empty()) { out += "[]"; return; }
+        std::string childIndent = curIndent + gap;
+        out += "[\n";
+        bool first = true;
+        for (const auto& e : j) {
+            if (!first) out += ",\n";
+            first = false;
+            out += childIndent;
+            json_pp(e, gap, childIndent, out);
+        }
+        out += "\n";
+        out += curIndent;
+        out += "]";
+    } else {
+        out += j.dump();
+    }
+}
+
+// ECMA-262 25.5.2 step 4: build the PropertyList from an array replacer.
+// Returns true if `replacer` is an Array (so key filtering applies), filling
+// `keys` with the ordered, de-duplicated string keys. Only String and Number
+// elements (and their wrapper objects) contribute a key, per spec.
+static bool json_build_property_list(void* replacer, std::vector<std::string>& keys) {
+    if (!replacer) return false;
+    uint64_t nb = (uint64_t)(uintptr_t)replacer;
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p || (uintptr_t)p <= 0x1000) return false;
+    // ECMA-262 25.5.2 step 4.b: IsArray(replacer) on a revoked Proxy throws a
+    // TypeError. Signal via the C++ exception the top-level catch converts.
+    if (*(uint32_t*)((char*)p + 16) == 0x4D415053) {  // TsMap (Proxy subclass)
+        if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)p)) {
+            if (px->revoked) throw JsonRevokedProxyError{};
+        }
+    }
+    if (*(uint32_t*)p != TsArray::MAGIC) return false;
+
+    TsArray* arr = (TsArray*)p;
+    std::set<std::string> seen;
+    int64_t len = arr->Length();
+    for (int64_t i = 0; i < len; ++i) {
+        uint64_t e = (uint64_t)arr->Get(i);
+        std::string key;
+        bool have = false;
+        if (nanbox_is_int32(e)) { key = std::to_string(nanbox_to_int32(e)); have = true; }
+        else if (nanbox_is_double(e)) { key = json_number_key(nanbox_to_double(e)); have = true; }
+        else if (nanbox_is_ptr(e)) {
+            void* ep = nanbox_to_ptr(e);
+            if (ep && (uintptr_t)ep > 0x1000) {
+                uint32_t m0 = *(uint32_t*)ep;
+                uint32_t m16 = *(uint32_t*)((char*)ep + 16);
+                if (m0 == TsString::MAGIC) { key = ((TsString*)ep)->ToUtf8(); have = true; }
+                else if (m0 == 0x434F4E53) {
+                    TsString* f = ts_ensure_flat(ep);
+                    if (f) { key = f->ToUtf8(); have = true; }
+                } else if (m16 == TsStringObject::MAGIC) {
+                    TsString* v = ((TsStringObject*)ep)->value;
+                    if (v) { key = v->ToUtf8(); have = true; }
+                } else if (m16 == TsNumberObject::MAGIC) {
+                    key = json_number_key(((TsNumberObject*)ep)->value); have = true;
+                } else {
+                    // new Number(x) / new String(x) wrapper objects carry a
+                    // hidden __NumberData / __StringData own slot. Only probe
+                    // flat objects and (non-Proxy) TsMap-backed objects — a
+                    // dynamic_cast is only well-defined on the polymorphic
+                    // TsMap family, and Proxies must not have a get trap tripped.
+                    bool isMapLike = (m16 == 0x4D415053);
+                    bool isFlat = (m0 == FLAT_MAGIC);
+                    bool isProxy = isMapLike &&
+                        (dynamic_cast<TsProxy*>((TsObject*)ep) != nullptr);
+                    if ((isFlat || isMapLike) && !isProxy) {
+                        double wn = 0.0; TsString* ws = nullptr;
+                        int wk = json_wrapper_num_or_str(ep, &wn, &ws);
+                        if (wk == 1) { key = json_number_key(wn); have = true; }
+                        else if (wk == 2 && ws) { key = ws->ToUtf8(); have = true; }
+                    }
+                }
+            }
+        }
+        if (have && seen.insert(key).second) keys.push_back(key);
+    }
+    return true;
+}
+
+// Recursively restrict every object in the tree to the PropertyList `keys`,
+// emitting members in list order (ECMA-262 25.5.2 SerializeJSONObject with a
+// PropertyList). Applies at every nesting level, including objects inside
+// arrays.
+static nlohmann::ordered_json json_apply_property_list(
+        const nlohmann::ordered_json& j, const std::vector<std::string>& keys) {
+    if (j.is_object()) {
+        nlohmann::ordered_json out = nlohmann::ordered_json::object();
+        for (const std::string& k : keys) {
+            auto it = j.find(k);
+            if (it != j.end()) out[k] = json_apply_property_list(it.value(), keys);
+        }
+        return out;
+    }
+    if (j.is_array()) {
+        nlohmann::ordered_json out = nlohmann::ordered_json::array();
+        for (const auto& e : j) out.push_back(json_apply_property_list(e, keys));
+        return out;
+    }
+    return j;
+}
+
 // JS exception machinery (defined elsewhere in the runtime). Declared at file
 // scope per runtime-safety rules (block-scope extern "C" is illegal).
 extern "C" void ts_throw(TsValue* err);
@@ -413,33 +659,27 @@ extern "C" {
         try {
             nlohmann::ordered_json j = ts_to_json(obj);
 
-            int indent = -1;
-            if (space) {
-                nlohmann::ordered_json s = ts_to_json(space);
-                if (s.is_number()) {
-                    indent = s.get<int>();
-                } else if (s.is_string()) {
-                    indent = (int)s.get<std::string>().length();
-                }
-            }
-
+            // ECMA-262 25.5.2 step 4: an Array replacer is a PropertyList that
+            // filters/orders object keys at EVERY nesting level (not just the
+            // top). A function replacer is not yet supported and is ignored.
             if (replacer) {
-                nlohmann::ordered_json r = ts_to_json(replacer);
-                if (r.is_array() && j.is_object()) {
-                    nlohmann::ordered_json filtered = nlohmann::ordered_json::object();
-                    for (auto& key : r) {
-                        if (key.is_string()) {
-                            std::string k = key.get<std::string>();
-                            if (j.contains(k)) {
-                                filtered[k] = j[k];
-                            }
-                        }
-                    }
-                    j = filtered;
+                std::vector<std::string> keys;
+                if (json_build_property_list(replacer, keys)) {
+                    j = json_apply_property_list(j, keys);
                 }
             }
 
-            std::string s = (indent >= 0) ? j.dump(indent) : j.dump();
+            // ECMA-262 25.5.2 step 5-6: derive the indentation gap from `space`
+            // (number clamped to 0..10 spaces; string truncated to 10 code
+            // units). Empty gap => compact output.
+            std::string gap = json_compute_gap(space);
+
+            std::string s;
+            if (!gap.empty()) {
+                json_pp(j, gap, "", s);
+            } else {
+                s = j.dump();
+            }
             return TsString::Create(s.c_str());
         } catch (const JsonAbruptCompletion& a) {
             // C++ unwinding cleaned the recursion frames; re-throw the

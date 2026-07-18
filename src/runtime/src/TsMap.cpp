@@ -1460,6 +1460,29 @@ static TsValue* iterhelper_call_or_close(TsValue* fn, TsValue* v, int64_t i,
     return r;
 }
 
+// Generic N-argument variant of the abrupt-close pattern: call fn(this, args)
+// and, on a throw, IteratorClose(iter) (swallowing close failures — the
+// original error wins) then rethrow. Used by reduce, whose reducer takes
+// (accumulator, value, index) and must close the underlying on abrupt.
+static TsValue* ih_callN_or_close(TsValue* fn, TsValue* thisV, int argc,
+                                  TsValue** args, TsValue* iter) {
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ih_close(iter);
+        ts_throw(exc ? exc : ts_value_make_undefined());
+        return nullptr;  // unreachable
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    TsValue* r = ts_function_call_with_this(fn, thisV, argc, args);
+    ts_pop_exception_handler();
+    return r;
+}
+
 static TsValue* iter_toArray_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
     TsArray* out = (TsArray*)ts_array_create();
@@ -1592,7 +1615,8 @@ static TsValue* iter_reduce_native(void* ctx, int argc, TsValue** argv) {
         if (!res || ih_res_done(res)) break;
         TsValue* v = ih_res_value(res);
         TsValue* a[3] = { acc, v, ts_value_make_double((double)i++) };
-        acc = ts_function_call_with_this(fn, ts_value_make_undefined(), 3, a);
+        // Abrupt reducer -> IteratorClose(underlying) + rethrow (reducer-throws).
+        acc = ih_callN_or_close(fn, ts_value_make_undefined(), 3, a, it);
     }
     return acc;
 }
@@ -1715,18 +1739,42 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
             }
             TsValue* res = ih_iter_next(src, srcNext);
             if (!res || ih_res_done(res)) { setDone(); return ih_make_result(nullptr, true); }
-            TsValue* mapped = iterhelper_call(fn, ih_res_value(res), (int64_t)cnt); setCnt(++cnt);
-            void* mraw = ts_value_get_object(mapped); if (!mraw) mraw = mapped;
-            TsValue* itf = ts_object_get_property(mraw, "[Symbol.iterator]");
-            if (itf && ts_is_callable((void*)itf)) {
-                TsValue* inner = ts_function_call_with_this(itf, mapped, 0, nullptr);
-                ih_set(it, "__ihinner", nanbox_to_tagged(inner));
-                ih_set(it, "__ihinnext", nanbox_to_tagged(ih_get_next(inner)));  // cache inner next once
-            } else {
+            // Abrupt mapper -> IteratorClose(underlying source) + rethrow
+            // (mapper-throws). setDone first so a catch-then-next sees exhaustion.
+            setDone();
+            TsValue* mapped = iterhelper_call_or_close(fn, ih_res_value(res), (int64_t)cnt, src);
+            { TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 0; ih_set(it, "__ihdone", d); }
+            setCnt(++cnt);
+            // GetIteratorFlattenable(mapped, reject-primitives): flatMap does NOT
+            // flatten primitives (unlike Iterator.from). A primitive string maps
+            // to a TypeError; only Objects flatten. new String()/new Number() are
+            // objects and DO flatten via their @@iterator.
+            if (!ts_value_is_object(mapped)) {
+                setDone();
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "flatMap callback did not return an iterable"));
+                    "flatMap mapper returned a non-object (primitives are not flattened)"));
                 return ih_make_result(nullptr, true);
             }
+            void* mraw = ts_value_get_object(mapped); if (!mraw) mraw = mapped;
+            TsValue* itf = ts_object_get_property(mraw, "[Symbol.iterator]");
+            uint64_t itfNB = itf ? (uint64_t)(uintptr_t)itf : 0;
+            bool itfNullish = !itf || nanbox_is_undefined(itfNB) || nanbox_is_null(itfNB);
+            TsValue* inner = nullptr;
+            if (itfNullish) {
+                // GetMethod returned undefined: treat mapped itself as the
+                // iterator (it must expose `next`) -- iterable-to-iterator-fallback.
+                inner = mapped;
+            } else if (ts_is_callable((void*)itf)) {
+                inner = ts_function_call_with_this(itf, mapped, 0, nullptr);
+            } else {
+                // @@iterator present but not callable (e.g. a number) -> TypeError.
+                setDone();
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "flatMap mapper result @@iterator is not callable"));
+                return ih_make_result(nullptr, true);
+            }
+            ih_set(it, "__ihinner", nanbox_to_tagged(inner));
+            ih_set(it, "__ihinnext", nanbox_to_tagged(ih_get_next(inner)));  // cache inner next once
         }
     }
     if (kind == 5) { // wrap (Iterator.from) — delegate to the underlying iterator
@@ -1765,8 +1813,19 @@ static TsValue* iter_helper_proto_return(void* ctx, int argc, TsValue** argv) {
     TsMap* it = (TsMap*)raw;
     if (!ih_get(it, "__ihdone").i_val) {
         TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 1; ih_set(it, "__ihdone", d);
+        // %IteratorHelperPrototype%.return performs IteratorClose with a NORMAL
+        // completion, so errors from reading/calling the underlying `return`
+        // method PROPAGATE (ih_close swallows them — that's for the abrupt path).
+        // For flatMap, an active inner iterator (the current mapper result) is
+        // ALSO an underlying iterator and must be closed and forwarded first
+        // (return-is-forwarded-to-mapper-result). Its `return` throwing wins.
+        TsValue innerT = ih_get(it, "__ihinner");
+        if (innerT.type != ValueType::UNDEFINED) {
+            ih_set(it, "__ihinner", TsValue());
+            ih_close_propagate(nanbox_from_tagged(innerT));
+        }
         TsValue srcT = ih_get(it, "__ihs");
-        if (srcT.type != ValueType::UNDEFINED) ih_close(nanbox_from_tagged(srcT));
+        if (srcT.type != ValueType::UNDEFINED) ih_close_propagate(nanbox_from_tagged(srcT));
     }
     return ih_make_result(nullptr, true);
 }
@@ -1813,18 +1872,48 @@ static TsValue* iter_filter_native(void* ctx, int argc, TsValue** argv) {
     }
     return make_iter_helper(1, it, fn, 0);
 }
+// ToNumber(v) with IfAbruptCloseIterator: take/drop validate their limit against
+// the ALREADY-obtained iterator, so a throwing conversion (e.g. a throwing
+// valueOf) must IteratorClose the underlying iterator and rethrow.
+static double ih_tonumber_or_close(TsValue* v, TsValue* iter) {
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ih_close(iter);
+        ts_throw(exc ? exc : ts_value_make_undefined());
+        return 0;  // unreachable
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    double n = ts_to_number(v);
+    ts_pop_exception_handler();
+    return n;
+}
+// ToIntegerOrInfinity truncates toward zero (so -0.5 -> 0, NOT a RangeError).
+static inline double ih_to_integer_or_inf(double n) {
+    if (n != n) return 0;                 // NaN -> 0 (callers check NaN first)
+    if (n == 0 || std::isinf(n)) return n;
+    return (n < 0) ? std::ceil(n) : std::floor(n);
+}
 static TsValue* iter_take_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
-    double n = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : (double)(0.0/1.0*0.0/1.0);
-    if (n != n) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is NaN")); return ts_value_make_undefined(); }
-    if (n < 0) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is negative")); return ts_value_make_undefined(); }
+    TsValue* limit = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
+    double n = ih_tonumber_or_close(limit, it);   // ToNumber; throwing valueOf -> close + rethrow
+    if (n != n) { ih_close(it); ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is NaN")); return ts_value_make_undefined(); }
+    n = ih_to_integer_or_inf(n);
+    if (n < 0) { ih_close(it); ts_throw((TsValue*)ts_error_create_typed("RangeError", "take limit is negative")); return ts_value_make_undefined(); }
     return make_iter_helper(2, it, nullptr, n);
 }
 static TsValue* iter_drop_native(void* ctx, int argc, TsValue** argv) {
     TsValue* it = iterhelper_require_this(); if (!it) return ts_value_make_undefined();
-    double n = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : (double)(0.0/1.0*0.0/1.0);
-    if (n != n) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is NaN")); return ts_value_make_undefined(); }
-    if (n < 0) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is negative")); return ts_value_make_undefined(); }
+    TsValue* limit = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
+    double n = ih_tonumber_or_close(limit, it);
+    if (n != n) { ih_close(it); ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is NaN")); return ts_value_make_undefined(); }
+    n = ih_to_integer_or_inf(n);
+    if (n < 0) { ih_close(it); ts_throw((TsValue*)ts_error_create_typed("RangeError", "drop limit is negative")); return ts_value_make_undefined(); }
     return make_iter_helper(3, it, nullptr, n);
 }
 static TsValue* iter_flatMap_native(void* ctx, int argc, TsValue** argv) {
