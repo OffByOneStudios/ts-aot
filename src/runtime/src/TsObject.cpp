@@ -733,6 +733,17 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
             return true;
         }
         pm = pm->GetPrototype();
+        if (pm && g_ts_proxy_vtable && *(void**)pm == g_ts_proxy_vtable) {
+            // ES 10.1.7 OrdinaryGet: a Proxy in the [[Prototype]] chain must
+            // forward [[Get]] through its own trap dispatch with the ORIGINAL
+            // receiver — not be read as a plain (empty) object, which silently
+            // yielded undefined for every inherited property.
+            TsProxy* proxy = static_cast<TsProxy*>((TsObject*)pm);
+            void* recv = thisArg ? ts_value_get_object(thisArg) : nullptr;
+            if (!recv) recv = (void*)thisArg;
+            *out = proxy->get(ts_value_make_string(TsString::Create(key)), recv);
+            return true;
+        }
         if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto*/) {
             // ARRAY as [[Prototype]]: delegate to the array's lookup with
             // methods rebound to the original receiver (thisArg).
@@ -5479,6 +5490,14 @@ void* ts_create_arguments_from_params(
                 break;  // Found the property
             }
             currentMap = currentMap->GetPrototype();
+            if (currentMap && g_ts_proxy_vtable && *(void**)currentMap == g_ts_proxy_vtable) {
+                // ES 10.1.7 OrdinaryGet: a Proxy in the [[Prototype]] chain must
+                // forward [[Get]] through its own trap dispatch with the ORIGINAL
+                // receiver — reading it as a plain (empty) map silently yielded
+                // undefined for every inherited property (Object.create(proxy)).
+                TsProxy* proxy = static_cast<TsProxy*>((TsObject*)currentMap);
+                return proxy->get(key, rawObj);
+            }
             if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
                 // ARRAY as [[Prototype]]: delegate with method rebinding.
                 const char* dk = nullptr;
@@ -6908,6 +6927,12 @@ void* ts_create_arguments_from_params(
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
+                if (currentMap && g_ts_proxy_vtable && *(void**)currentMap == g_ts_proxy_vtable) {
+                    // ES 10.1.7 OrdinaryHasProperty: a Proxy in the [[Prototype]]
+                    // chain forwards [[HasProperty]] through its own trap dispatch.
+                    TsProxy* proxy = static_cast<TsProxy*>((TsObject*)currentMap);
+                    return proxy->has(key);
+                }
                 if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
                     // ARRAY as [[Prototype]]: delegate.
                     return ts_object_has_property((void*)currentMap,
