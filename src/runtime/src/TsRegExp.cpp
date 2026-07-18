@@ -28,6 +28,7 @@ extern "C" void* ts_alloc(size_t size);
 // scope per runtime-safety rules (block-scope extern "C" is illegal).
 extern "C" void ts_throw(TsValue* err);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
+extern "C" void ts_object_set_property_strict(void* obj, void* key, void* value);
 
 // --- Annex B legacy RegExp statics (tc39 proposal-regexp-legacy-features) ---
 // RegExp.input/$_ , lastMatch/$& , lastParen/$+ , leftContext/$` ,
@@ -985,7 +986,7 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
     // matcher and reset all flag-derived state before rebuilding.
     delete matcher; matcher = nullptr;
     ignoreCase = false; multiline = false; global = false; sticky = false; hasIndices = false;
-    lastIndex = 0;
+    lastIndex = 0; lastIndexValue = nullptr;
 
     // Store original pattern for GetSource() and parseNamedGroups()
     patternStr = icu::UnicodeString::fromUTF8(pattern);
@@ -1047,8 +1048,31 @@ TsRegExp::~TsRegExp() {
 }
 
 TsString* TsRegExp::GetSource() const {
+    // ES 22.2.3.2.5 EscapeRegExpPattern: `source` returns a string S such that
+    // `/S/F` re-parses to an equivalent literal. Empty pattern -> "(?:)"; a
+    // literal solidus is escaped as "\/"; LineTerminators are escaped. Existing
+    // backslash-escape sequences are preserved verbatim (their next unit too).
+    if (patternStr.isEmpty()) return TsString::Create("(?:)");
+    icu::UnicodeString out;
+    int len = patternStr.length();
+    for (int i = 0; i < len; ++i) {
+        UChar c = patternStr.charAt(i);
+        if (c == u'\\' && i + 1 < len) {
+            out.append(c);
+            out.append(patternStr.charAt(++i));
+            continue;
+        }
+        switch (c) {
+            case u'/':   out.append(u'\\'); out.append(u'/'); break;
+            case 0x000A: out.append(u'\\'); out.append(u'n'); break;  // LF
+            case 0x000D: out.append(u'\\'); out.append(u'r'); break;  // CR
+            case 0x2028: out.append(u"\\u2028"); break;               // LINE SEPARATOR
+            case 0x2029: out.append(u"\\u2029"); break;               // PARAGRAPH SEPARATOR
+            default:     out.append(c); break;
+        }
+    }
     std::string utf8;
-    patternStr.toUTF8String(utf8);
+    out.toUTF8String(utf8);
     return TsString::Create(utf8.c_str());
 }
 
@@ -1076,8 +1100,24 @@ static void regexp_require_lastindex_writable(void* re) {
     }
 }
 
+// ES 22.2.7.2 RegExpBuiltinExec step 4: ToLength(Get(R, "lastIndex")). When the
+// property holds an arbitrary user value (object/string/etc.), coerce it
+// observably (a user valueOf/toString runs and may ts_throw). Called at method
+// entry, before any non-POD locals — a longjmp here is safe.
+extern "C" double ts_to_number(TsValue* v);
+int64_t TsRegExp::ReadObservableLastIndex() {
+    if (!lastIndexValue) return lastIndex;
+    double n = ts_to_number((TsValue*)lastIndexValue);  // valueOf/toString — may throw
+    if (n != n || n <= 0) return 0;                     // NaN / non-positive -> 0
+    if (n > 9007199254740991.0) return 9007199254740991LL;  // clamp to 2^53-1
+    return (int64_t)n;  // ToIntegerOrInfinity truncates toward zero (n > 0 here)
+}
+
 bool TsRegExp::Test(TsString* str) {
     if (!matcher) return false;
+    // Observable Get(R,"lastIndex")+ToLength BEFORE the writability check and any
+    // non-POD locals (a throwing valueOf must unwind a clean frame).
+    lastIndex = ReadObservableLastIndex();
     if (global || sticky) regexp_require_lastindex_writable(this);
 
     UErrorCode status = U_ZERO_ERROR;
@@ -1089,24 +1129,32 @@ bool TsRegExp::Test(TsString* str) {
     matcher->reset(input);
 
     if (global || sticky) {
+        // ES 22.2.7.2 step 8.a: lastIndex past the end -> no match, reset to 0.
+        if (lastIndex > input.length()) { lastIndex = 0; lastIndexValue = nullptr; return false; }
         matcher->region(lastIndex, input.length(), status);
     }
 
     bool found = matcher->find();
-    
-    if (global || sticky) {
-        if (found) {
-            lastIndex = matcher->end(status);
-        } else {
-            lastIndex = 0;
-        }
+    // Sticky: the match must START exactly at lastIndex (region find() otherwise
+    // reports the first match anywhere in [lastIndex, len)). Mirror Exec().
+    if (sticky && found && matcher->start(status) != lastIndex) {
+        found = false;
     }
-    
+
+    if (global || sticky) {
+        // Set(R,"lastIndex", <int>): the property now reads as this integer.
+        lastIndex = found ? matcher->end(status) : 0;
+        lastIndexValue = nullptr;
+    }
+
     return found;
 }
 
 void* TsRegExp::Exec(TsString* str) {
     if (!matcher) return nullptr;
+    // ES 22.2.7.2 step 4: observable ToLength(Get(R,"lastIndex")). Runs a user
+    // valueOf exactly once (may throw) before any non-POD local exists.
+    lastIndex = ReadObservableLastIndex();
     if (global || sticky) regexp_require_lastindex_writable(this);
 
     UErrorCode status = U_ZERO_ERROR;
@@ -1117,12 +1165,15 @@ void* TsRegExp::Exec(TsString* str) {
     matcher->reset(input);
 
     if (global || sticky) {
+        // ES 22.2.7.2 step 8.a: lastIndex past the end -> no match, reset to 0.
+        if (lastIndex > input.length()) { lastIndex = 0; lastIndexValue = nullptr; return nullptr; }
         matcher->region(lastIndex, input.length(), status);
     }
 
     if (matcher->find()) {
         if (sticky && matcher->start(status) != lastIndex) {
             lastIndex = 0;
+            lastIndexValue = nullptr;
             return nullptr;
         }
 
@@ -1147,47 +1198,47 @@ void* TsRegExp::Exec(TsString* str) {
         // every successful builtin match. Dedicated no-throw frame.
         legacy_statics_update(str, input, matcher, status);
 
-        // Create the match array wrapper with index and input
-        TsRegExpMatchArray* result = TsRegExpMatchArray::Create(matches, matchIndex, str);
+        // ES 22.2.7.2 RegExpBuiltinExec: the result is a genuine Array exotic
+        // object (so `instanceof Array`, `.toString()`, `.map`, iteration, ...
+        // all work) with `index`/`input`/(`groups`)/(`indices`) as own data
+        // properties (CreateDataProperty, after the numbered elements).
+        auto setNamed = [&](const char* name, void* boxedVal) {
+            ts_object_set_property_strict(
+                (void*)matches,
+                (void*)ts_value_make_string(TsString::Create(name)),
+                boxedVal);
+        };
+        setNamed("index", (void*)ts_value_make_int(matchIndex));
+        setNamed("input", (void*)ts_value_make_string(str));
 
-        // If d flag (hasIndices) is set, build the indices array
+        // If d flag (hasIndices) is set, build the indices array.
         if (hasIndices) {
             TsArray* indices = TsArray::Create();
-
             for (int32_t i = 0; i <= count; ++i) {
                 int32_t start = matcher->start(i, status);
                 int32_t end = matcher->end(i, status);
-
                 if (start == -1) {
-                    // Group did not participate in match
                     indices->Push((int64_t)ts_value_make_undefined());
                 } else {
-                    // Create [start, end] pair as a 2-element array
                     TsArray* pair = TsArray::Create(2);
                     pair->Push((int64_t)ts_value_make_int(start));
                     pair->Push((int64_t)ts_value_make_int(end));
                     indices->Push((int64_t)ts_value_make_object(pair));
                 }
             }
-
-            result->SetIndices(indices);
+            setNamed("indices", (void*)ts_value_make_object(indices));
         }
 
-        // Build groups object if pattern has named capture groups
+        // Build groups object if pattern has named capture groups.
         if (!namedGroups.empty()) {
             TsMap* groups = TsMap::Create();
-
             for (const auto& [name, groupNum] : namedGroups) {
                 TsString* nameStr = TsString::Create(name.c_str());
                 int32_t groupStart = matcher->start(groupNum, status);
-
-                // Create key as proper TsValue with STRING_PTR type
                 TsValue keyVal;
                 keyVal.type = ValueType::STRING_PTR;
                 keyVal.ptr_val = nameStr;
-
                 if (groupStart == -1) {
-                    // Group did not participate in match
                     TsValue undefinedVal;
                     undefinedVal.type = ValueType::UNDEFINED;
                     undefinedVal.ptr_val = nullptr;
@@ -1196,19 +1247,20 @@ void* TsRegExp::Exec(TsString* str) {
                     icu::UnicodeString groupValue = matcher->group(groupNum, status);
                     std::string utf8;
                     groupValue.toUTF8String(utf8);
-
                     TsValue stringVal;
                     stringVal.type = ValueType::STRING_PTR;
                     stringVal.ptr_val = TsString::Create(utf8.c_str());
                     groups->Set(keyVal, stringVal);
                 }
             }
-
-            result->SetGroups(groups);
+            setNamed("groups", (void*)ts_value_make_object(groups));
         }
+        TsArray* result = matches;
 
         if (global || sticky) {
+            // Set(R,"lastIndex", e): the property reads as this integer now.
             lastIndex = matcher->end(status);
+            lastIndexValue = nullptr;
         }
 
         return result;
@@ -1216,6 +1268,7 @@ void* TsRegExp::Exec(TsString* str) {
 
     if (global || sticky) {
         lastIndex = 0;
+        lastIndexValue = nullptr;
     }
 
     return nullptr;
@@ -1327,7 +1380,10 @@ extern "C" {
             if (base && ts_is_any_string(base)) {
                 s = ts_ensure_flat(base);
             } else {
-                s = (TsString*)ts_string_from_value((TsValue*)str);
+                // ES 22.2.6.15 step 3: S = ToString(argument) — an object must
+                // invoke toString/valueOf (and propagate a throwing coercion).
+                extern void* ts_to_string_spec(TsValue* val);
+                s = (TsString*)ts_to_string_spec((TsValue*)str);
             }
         } else {
             // Number, bool, or other NaN-boxed value -- convert to string
@@ -1350,7 +1406,12 @@ extern "C" {
             if (base && ts_is_any_string(base)) {
                 s = ts_ensure_flat(base);
             } else {
-                s = (TsString*)ts_string_from_value((TsValue*)str);
+                // ES 22.2.7.2 step 3: S = ToString(argument). An object argument
+                // must invoke its toString/valueOf (ToPrimitive) — ts_to_string_spec
+                // does the full ToString and propagates a throwing coercion;
+                // ts_string_from_value stops at "[object Object]".
+                extern void* ts_to_string_spec(TsValue* val);
+                s = (TsString*)ts_to_string_spec((TsValue*)str);
             }
         } else {
             s = (TsString*)ts_string_from_value((TsValue*)str);

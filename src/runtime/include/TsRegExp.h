@@ -62,7 +62,26 @@ public:
     void* Exec(TsString* str); // Returns TsArray of matches or null
 
     int64_t GetLastIndex() const { return lastIndex; }
-    void SetLastIndex(int64_t index) { lastIndex = index; }
+    // Set(R,"lastIndex", <integer>): stores the internal integer and clears any
+    // arbitrary user value (the property now reads back as this integer).
+    void SetLastIndex(int64_t index) { lastIndex = index; lastIndexValue = nullptr; }
+
+    // ES 22.2.7.2 RegExpBuiltinExec: "lastIndex" is an ordinary writable data
+    // property that can hold ANY value (e.g. `re.lastIndex = {valueOf(){...}}`).
+    // The property getter/setter (TsObject.cpp) round-trip this raw boxed value;
+    // null means "the property value is the integer field above". Object values
+    // are stored as their raw pointer (NaN-box identity) so the conservative
+    // field scan of this GC object keeps them alive, exactly like `ownProps`.
+    void* GetLastIndexValue() const { return lastIndexValue; }
+    void SetLastIndexValueRaw(void* boxed) { lastIndexValue = boxed; }
+    // Set the internal search index WITHOUT clearing the raw property value
+    // (RegExpBuiltinExec step 4 reads lastIndex for the search but must not
+    // overwrite the property for a non-global, non-sticky regexp).
+    void SetSearchIndex(int64_t index) { lastIndex = index; }
+    // ES 22.2.7.2 step 4: ToLength(Get(R,"lastIndex")). Reads the raw property
+    // value observably (a user valueOf runs, and may throw) and returns the
+    // clamped integer; falls through to the integer field when no raw value.
+    int64_t ReadObservableLastIndex();
 
     TsString* GetSource() const;
     TsString* GetFlags() const;
@@ -106,6 +125,9 @@ private:
     icu::UnicodeString* subjectStr = nullptr;
     std::string flagsStr;
     int64_t lastIndex = 0;
+    // Raw boxed value of the "lastIndex" property when set to something other
+    // than a plain integer (null == "use lastIndex above"). See the accessors.
+    void* lastIndexValue = nullptr;
     bool global = false;
     bool sticky = false;
     bool ignoreCase = false;

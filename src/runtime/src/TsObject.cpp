@@ -2152,6 +2152,38 @@ void* ts_create_arguments_from_params(
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
         if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
             TsRegExp* re = (TsRegExp*)obj;
+            // OrdinaryGet: an OWN property SHADOWS every builtin accessor/method
+            // below. A plain assignment (`re.exec = fn`) lands in re->GetOwnProps();
+            // defineProperty lands in the g_native_object_props side-map. Consult
+            // both FIRST, honoring accessor descriptors -- so an overridden
+            // `global`/`unicode`/`flags`/`source`/... is observed via Get (the
+            // @@match/@@replace coerce-global/get-unicode-error/flags-tostring
+            // tests) and its abrupt getter propagates. `lastIndex` is not stored
+            // here (it lives in the field), so its fast path below still wins.
+            {
+                char rgbuf[280];
+                TsValue rgk; rgk.type = ValueType::STRING_PTR; rgk.ptr_val = nullptr;
+                if (strlen(keyStr) < 250) {
+                    snprintf(rgbuf, sizeof(rgbuf), "__getter_%s", keyStr);
+                    rgk.ptr_val = TsString::GetInterned(rgbuf);
+                }
+                TsMap* stores[2] = { (TsMap*)re->GetOwnProps(), getNativeProps(obj) };
+                for (TsMap* props : stores) {
+                    if (!props) continue;
+                    if (rgk.ptr_val && props->Has(rgk)) {
+                        TsValue gv = props->Get(rgk);
+                        if (gv.ptr_val)
+                            return ts_function_call_with_this(
+                                nanbox_from_tagged(gv),
+                                ts_value_make_object(obj), 0, nullptr);
+                        return ts_value_make_undefined();  // set-only accessor
+                    }
+                    TsValue kk; kk.type = ValueType::STRING_PTR;
+                    kk.ptr_val = TsString::GetInterned(keyStr);
+                    TsValue vv = props->Get(kk);
+                    if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+                }
+            }
             if (strcmp(keyStr, "constructor") == 0) {
                 extern void* ts_get_global_RegExp();
                 void* ctor = ts_get_global_RegExp();
@@ -2162,7 +2194,24 @@ void* ts_create_arguments_from_params(
                 return ts_value_make_string(re->GetSource());
             }
             if (strcmp(keyStr, "flags") == 0) {
-                return ts_value_make_string(re->GetFlags());
+                // ES 22.2.6.4 `get flags` is GENERIC: assemble the string from
+                // ToBoolean(Get(R, <flag>)) in spec order (d,g,i,m,s,u,v,y) so an
+                // overridden global/unicode/... shows through (and its abrupt
+                // getter propagates). A plain regex reads its own internal-slot
+                // booleans below, yielding the same normalized string.
+                static const struct { const char* prop; char ch; } kFlagProps[] = {
+                    { "hasIndices", 'd' }, { "global", 'g' },
+                    { "ignoreCase", 'i' }, { "multiline", 'm' },
+                    { "dotAll", 's' },     { "unicode", 'u' },
+                    { "unicodeSets", 'v' }, { "sticky", 'y' },
+                };
+                char fbuf[9]; int fn = 0;
+                for (const auto& f : kFlagProps) {
+                    TsValue* v = ts_object_get_property(obj, f.prop);
+                    if (v && ts_value_to_bool(v)) fbuf[fn++] = f.ch;
+                }
+                fbuf[fn] = 0;
+                return ts_value_make_string(TsString::Create(fbuf));
             }
             if (strcmp(keyStr, "global") == 0) {
                 return ts_value_make_bool(re->IsGlobal());
@@ -2189,6 +2238,11 @@ void* ts_create_arguments_from_params(
                 return ts_value_make_bool(re->IsUnicodeSets());
             }
             if (strcmp(keyStr, "lastIndex") == 0) {
+                // "lastIndex" is a writable data property that can hold ANY value
+                // (ES 22.2.7.2). Return the raw value when one was stored, else the
+                // integer field (the common numeric fast path).
+                if (re->GetLastIndexValue())
+                    return nanbox_to_tsvalue_ptr((uint64_t)(uintptr_t)re->GetLastIndexValue());
                 return ts_value_make_int(re->GetLastIndex());
             }
             // User-set own properties (e.g. an `exec` override per ECMA-262
@@ -5846,16 +5900,70 @@ void* ts_create_arguments_from_params(
                 if (kp && ts_is_any_string(kp)) {
                     const char* ks = ts_ensure_flat(kp)->ToUtf8();
                     if (ks && strcmp(ks, "lastIndex") == 0) {
-                        RegExp_set_lastIndex(rawObj, ts_value_get_int(value));
+                        // ES 22.2.7.2: "lastIndex" is a plain writable data
+                        // property that stores ANY value verbatim (no coercion on
+                        // Set). Keep the raw value; coercion to an integer happens
+                        // observably at exec time (ToLength). Sync the integer
+                        // field for the numeric fast path so typed reads/exec
+                        // (which use the int directly) see it without a callback.
+                        TsRegExp* re2 = (TsRegExp*)rawObj;
+                        uint64_t vnb = nanbox_from_tsvalue_ptr(value);
+                        re2->SetLastIndexValueRaw((void*)value);
+                        if (nanbox_is_number(vnb)) {
+                            double d = nanbox_to_number(vnb);
+                            int64_t iv = (d != d || d < 0) ? 0
+                                : (d > 9007199254740991.0 ? 9007199254740991LL
+                                                          : (int64_t)d);
+                            re2->SetSearchIndex(iv);
+                        }
                         return;
+                    }
+                }
+            }
+            // source/flags/global/ignoreCase/multiline/dotAll/unicode/
+            // unicodeSets/sticky/hasIndices are read-only ACCESSOR properties on
+            // RegExp.prototype (no [[Set]]). A plain assignment is a no-op in
+            // sloppy mode (TypeError in strict) UNLESS defineProperty already
+            // installed an OWN property. Without this, `re.global = x` created a
+            // stray own prop that the (now override-honoring) get path surfaced,
+            // breaking verifyNotWritable (global/ignoreCase/multiline _A10).
+            {
+                uint64_t kNb2 = nanbox_from_tsvalue_ptr(key);
+                if (nanbox_is_ptr(kNb2)) {
+                    void* kp2 = nanbox_to_ptr(kNb2);
+                    if (kp2 && ts_is_any_string(kp2)) {
+                        const char* ks2 = ts_ensure_flat(kp2)->ToUtf8();
+                        static const char* kAccessorOnly[] = {
+                            "source", "flags", "global", "ignoreCase", "multiline",
+                            "dotAll", "unicode", "unicodeSets", "sticky", "hasIndices" };
+                        bool isAccessorOnly = false;
+                        for (const char* a : kAccessorOnly)
+                            if (ks2 && strcmp(ks2, a) == 0) { isAccessorOnly = true; break; }
+                        if (isAccessorOnly) {
+                            TsRegExp* reC = (TsRegExp*)rawObj;
+                            TsMap* own = (TsMap*)reC->GetOwnProps();
+                            TsMap* side = getNativeProps(rawObj);
+                            TsValue kk2; kk2.type = ValueType::STRING_PTR;
+                            kk2.ptr_val = TsString::GetInterned(ks2);
+                            char gbuf[64]; snprintf(gbuf, sizeof(gbuf), "__getter_%s", ks2);
+                            TsValue gk2; gk2.type = ValueType::STRING_PTR;
+                            gk2.ptr_val = TsString::GetInterned(gbuf);
+                            bool hasOwn = (own && (own->Has(kk2) || own->Has(gk2))) ||
+                                          (side && (side->Has(kk2) || side->Has(gk2)));
+                            if (!hasOwn) {
+                                if (strictW)
+                                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                        "Cannot assign to read only property of RegExp"));
+                                return;  // sloppy no-op: inherited accessor, no setter
+                            }
+                        }
                     }
                 }
             }
             // Any other own property (e.g. `re.exec = fn` override per ECMA-262
             // 22.2.7.1 RegExpExec, or arbitrary `re.foo = x`) goes into the lazy
             // own-props side map; the REGX get path consults it before the
-            // builtin methods. The data getters (source/flags/global/...) stay
-            // authoritative and are not shadowable.
+            // builtin methods.
             TsRegExp* re = (TsRegExp*)rawObj;
             TsMap* props = (TsMap*)re->GetOwnProps();
             if (!props) { props = TsMap::Create(); re->SetOwnProps(props); }
@@ -7297,10 +7405,19 @@ void* ts_create_arguments_from_params(
             // all treat slots holding DELETED as absent.
             uint32_t shapeId = flat_object_shape_id(rawMap);
             ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            // Object.seal/freeze on a flat object makes its existing own
+            // properties non-configurable — [[Delete]] must return false so
+            // verifyProperty's delete-probe cannot remove them (15.2.3.9-2-a
+            // plain-object freeze family). Both frozen and sealed imply
+            // non-configurable; only the shape-slot props are guarded here (the
+            // overflow map below already honors per-entry configurable attrs).
+            bool flatLocked = flat_object_is_frozen(rawMap) ||
+                              flat_object_is_sealed(rawMap);
             if (desc) {
                 for (uint32_t i = 0; i < desc->numSlots; i++) {
                     if (strcmp(desc->propNames[i], keyCStr) == 0) {
                         uint64_t* slotPtr = (uint64_t*)((char*)rawMap + 16 + i * 8);
+                        if (*slotPtr != NANBOX_DELETED && flatLocked) return 0;
                         *slotPtr = NANBOX_DELETED;
                         return 1;
                     }
@@ -7479,6 +7596,15 @@ void* ts_create_arguments_from_params(
                 long didx = strtol(dkc, &dend, 10);
                 if (dend != dkc && *dend == '\0' && didx >= 0 &&
                     didx < arr->Length()) {
+                    // Object.seal/freeze records only an object-wide integrity
+                    // level (no per-index __arr_attrs). A sealed or frozen
+                    // array/`arguments` object makes every existing own index
+                    // non-configurable, so [[Delete]] returns false — without
+                    // this, verifyProperty's delete-probe wrongly removed the
+                    // element and reported it configurable (15.2.3.9-2-a array/
+                    // arguments freeze family).
+                    if (!arr->IsHole((size_t)didx) && ts_integrity_get(arr) >= 2)
+                        return 0;
                     // Per-index configurability: an index defined via
                     // Object.defineProperty with the configurable bit (0x04)
                     // clear cannot be deleted ([[Delete]] returns false; strict
@@ -8413,6 +8539,14 @@ void* ts_create_arguments_from_params(
         if (!ctx) return ts_value_make_undefined();
         TsValue* P  = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
         TsValue* fn = (argc >= 2 && argv && argv[1]) ? argv[1] : ts_value_make_undefined();
+        // ECMA-262 B.2.2.2/B.2.2.3 step 1: If IsCallable(getter/setter) is false,
+        // throw a TypeError — BEFORE ToPropertyKey(P), so a non-callable
+        // getter/setter never runs the key's toString (getter/setter-non-callable).
+        if (!ts_value_is_callable(fn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.prototype.__define*__: accessor must be callable"));
+            return ts_value_make_undefined();  // unreachable
+        }
         // Build descriptor { [which]: fn, enumerable: true, configurable: true }.
         TsMap* desc = TsMap::Create();
         TsValue* descBoxed = ts_value_make_object(desc);
@@ -8463,14 +8597,34 @@ void* ts_create_arguments_from_params(
     }
 
     TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv) {
-        if (argc < 1 || !argv[0]) {
-            return ts_value_make_bool(false);
-        }
+        // ECMA-262 20.1.3.2: step 1 ToPropertyKey(V) runs BEFORE step 2
+        // ToObject(this). Run it FIRST in this std::string-free preamble so a
+        // key object whose toString/valueOf/@@toPrimitive throws (hint String)
+        // propagates before the this-value coercion (topropertykey_before_toobject),
+        // and so a wrapper key that yields a Symbol becomes a symbol key
+        // (symbol_property_toString/toPrimitive/valueOf) rather than throwing
+        // "Cannot convert a Symbol value to a string". The inline numeric/bool/
+        // null coercion below still normalizes primitive keys to strings.
+        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
 
         // 'this' is passed as context for method calls.
         // When called via .call(thisArg), check ts_get_call_this() as fallback.
         if (!ctx) ctx = ts_get_call_this();
+
+        // Step 2 ToObject(this value): null/undefined throw a TypeError
+        // (hasOwnProperty.call(null/undefined, k) — S15.2.4.5_A12/A13).
+        if (ctx) {
+            uint64_t howCtxNb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(howCtxNb) || nanbox_is_undefined(howCtxNb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_bool(false);  // unreachable
+            }
+        }
         if (!ctx) {
+            return ts_value_make_bool(false);
+        }
+        if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false);
         }
 
@@ -8954,6 +9108,13 @@ void* ts_create_arguments_from_params(
 
     // Object.prototype.propertyIsEnumerable(propName) - checks if property is enumerable
     TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
+        // ECMA-262 20.1.3.4 step 1 ToPropertyKey(V) runs BEFORE step 2
+        // ToObject(this). Coerce the key first (hint String) so a wrapper key
+        // whose toString yields a Symbol becomes a symbol key rather than
+        // throwing "Cannot convert a Symbol value to a string", and so a
+        // throwing key hook propagates in the correct order
+        // (symbol_property_toString/toPrimitive/valueOf).
+        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
         if (!ctx) ctx = ts_get_call_this();
         // Step 2 ToObject(this value) -> TypeError on null/undefined.
         if (ctx) {
