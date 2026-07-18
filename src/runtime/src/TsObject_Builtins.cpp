@@ -2241,17 +2241,31 @@ extern "C" {
         return false;  // unreachable
     }
 
+    // ToIntegerOrInfinity for the radix/fractionDigits/precision argument:
+    // routes through ToNumber (invoking a user valueOf, throwing TypeError on a
+    // Symbol/BigInt), truncates toward zero, saturates +/-Infinity to INT64_MAX/
+    // MIN. Shared with the Number.prototype lambdas in TsGlobals.cpp.
+    extern "C" int64_t ts_to_index_integer(TsValue* v);
+
     // Native wrapper for number.toString() - ctx is a NaN-boxed number value
     TsValue* ts_number_toString_native(void* ctx, int argc, TsValue** argv) {
         double value = numberThisValueOrThrow(ctx, "toString");
-        int64_t radix = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 10;
+        // ECMA-262 21.1.3.6: radix undefined -> 10; else ToIntegerOrInfinity(radix)
+        // (invokes valueOf, so a poisoned argument throws before the range check).
+        int64_t radix = 10;
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+            radix = ts_to_index_integer(argv[0]);
+        }
         return ts_value_make_string((TsString*)ts_number_to_string(value, radix));
     }
 
     TsValue* ts_number_toFixed_native(void* ctx, int argc, TsValue** argv) {
         double value = numberThisValueOrThrow(ctx, "toFixed");
-        int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.3: RangeError
+        // ECMA-262 21.1.3.3: f = ToIntegerOrInfinity(fractionDigits) (step 2),
+        // RangeError for f<0 or f>100 (steps 4-5) BEFORE the NaN/large-value
+        // handling (steps 6-7, in ts_number_to_fixed).
+        int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
+        if (digits < 0 || digits > 100) {
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "toFixed() digits argument must be between 0 and 100"));
             return ts_value_make_undefined();
@@ -2265,39 +2279,37 @@ extern "C" {
     }
     TsValue* ts_number_toPrecision_native(void* ctx, int argc, TsValue** argv) {
         double value = numberThisValueOrThrow(ctx, "toPrecision");
-        if (argc < 1 || !argv || !argv[0]) {
+        // ECMA-262 21.1.3.5: undefined precision -> ToString (step 2) BEFORE
+        // ToIntegerOrInfinity (step 3), which precedes the non-finite check
+        // (step 4) and finally the RangeError (step 5).
+        if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
             return ts_value_make_string((TsString*)ts_number_to_string(value, 10));
         }
-        int64_t precision = ts_value_get_int(argv[0]);
-        // ECMA-262 21.1.3.5 steps 4/6: a non-finite x returns "NaN"/"Infinity"
-        // BEFORE the precision RangeError (step 7), and snprintf's "nan"/"inf"
-        // are not the JS spellings.
+        int64_t precision = ts_to_index_integer(argv[0]);
         if (std::isnan(value)) return ts_value_make_string(TsString::Create("NaN"));
         if (std::isinf(value)) return ts_value_make_string(TsString::Create(value < 0 ? "-Infinity" : "Infinity"));
-        if (precision < 1 || precision > 100) {  // ECMA-262 21.1.3.5: RangeError
+        if (precision < 1 || precision > 100) {
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "toPrecision() argument must be between 1 and 100"));
             return ts_value_make_undefined();
         }
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%.*g", (int)precision, value);
-        return ts_value_make_string(TsString::Create(buf));
+        return ts_value_make_string((TsString*)ts_number_to_precision(value, precision));
     }
     TsValue* ts_number_toExponential_native(void* ctx, int argc, TsValue** argv) {
         double value = numberThisValueOrThrow(ctx, "toExponential");
-        int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 6;
-        // ECMA-262 21.1.3.2 step 4: a non-finite x returns "NaN"/"Infinity" BEFORE
-        // the fractionDigits RangeError (step 5); snprintf emits "nan"/"inf".
+        // ECMA-262 21.1.3.2: f = ToIntegerOrInfinity(fractionDigits) (step 2, may
+        // throw) is evaluated BEFORE the non-finite short-circuit (step 3), which
+        // precedes the RangeError (step 8). fractionDigits undefined -> shortest.
+        bool fdUndef = !(argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0]));
+        int64_t digits = fdUndef ? -1 : ts_to_index_integer(argv[0]);
         if (std::isnan(value)) return ts_value_make_string(TsString::Create("NaN"));
         if (std::isinf(value)) return ts_value_make_string(TsString::Create(value < 0 ? "-Infinity" : "Infinity"));
-        if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.2: RangeError
+        if (!fdUndef && (digits < 0 || digits > 100)) {
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "toExponential() argument must be between 0 and 100"));
             return ts_value_make_undefined();
         }
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%.*e", (int)digits, value);
-        return ts_value_make_string(TsString::Create(buf));
+        return ts_value_make_string((TsString*)ts_number_to_exponential(value, digits));
     }
 
     // Native wrappers for boolean methods

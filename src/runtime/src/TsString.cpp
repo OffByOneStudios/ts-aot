@@ -1338,13 +1338,98 @@ extern "C" {
     void* ts_double_to_fixed(double value, int64_t fractionDigits) {
         if (fractionDigits < 0) fractionDigits = 0;
         if (fractionDigits > 100) fractionDigits = 100;
-        char buf[128];
+        // Normalize -0 to +0: ECMA-262 toFixed uses x<0 for the sign, and -0<0
+        // is false, so -0 must print without a minus sign.
+        if (value == 0.0) value = std::fabs(value);
+        char buf[256];
         std::snprintf(buf, sizeof(buf), "%.*f", (int)fractionDigits, value);
         return TsString::Create(buf);
     }
 
     void* ts_number_to_fixed(double value, int64_t fractionDigits) {
+        // ECMA-262 21.1.3.3 steps 6-7: a non-finite value or one whose magnitude
+        // is >= 1e21 is formatted via ToString(x) (Number::toString) rather than
+        // fixed-point notation (snprintf "%f" would emit "nan"/"inf" or a long
+        // exact-digit expansion instead of "1e+21").
+        if (!std::isfinite(value) || std::fabs(value) >= 1e21) {
+            return ts_number_to_string(value, 10);
+        }
         return ts_double_to_fixed(value, fractionDigits);
+    }
+
+    // Rewrite a printf "%e"-style exponent to the JavaScript spelling: keep the
+    // sign, strip leading zeros, keep at least one digit. "1.23e+02" -> "1.23e+2".
+    static std::string js_exp_fixup(const char* buf) {
+        std::string s(buf);
+        size_t epos = s.find('e');
+        if (epos == std::string::npos) return s;
+        char sign = (epos + 1 < s.size() && (s[epos + 1] == '+' || s[epos + 1] == '-'))
+                        ? s[epos + 1] : '+';
+        size_t dstart = epos + 1;
+        if (dstart < s.size() && (s[dstart] == '+' || s[dstart] == '-')) dstart++;
+        size_t p = dstart;
+        while (p + 1 < s.size() && s[p] == '0') p++;  // strip leading zeros, keep >=1
+        return s.substr(0, epos) + "e" + std::string(1, sign) + s.substr(p);
+    }
+
+    void* ts_number_to_exponential(double value, int64_t fractionDigits) {
+        // Precondition: value is finite; if fractionDigits >= 0 it is in [0,100].
+        // fractionDigits < 0 signals "undefined" -> shortest representation.
+        if (value == 0.0) value = 0.0 + 0.0;  // normalize -0 -> +0 (no sign per spec)
+        char buf[512];
+        if (fractionDigits < 0) {
+            // ECMA-262 21.1.3.2: choose the fewest fraction digits that round-trip.
+            int chosen = 17;
+            for (int prec = 0; prec <= 17; prec++) {
+                std::snprintf(buf, sizeof(buf), "%.*e", prec, value);
+                if (std::strtod(buf, nullptr) == value) { chosen = prec; break; }
+            }
+            std::snprintf(buf, sizeof(buf), "%.*e", chosen, value);
+        } else {
+            std::snprintf(buf, sizeof(buf), "%.*e", (int)fractionDigits, value);
+        }
+        std::string out = js_exp_fixup(buf);
+        return TsString::Create(out.c_str());
+    }
+
+    void* ts_number_to_precision(double value, int64_t precision) {
+        // Precondition: value is finite; precision in [1,100]. Implements
+        // ECMA-262 21.1.3.5 steps 6-12 by extracting `precision` significant
+        // digits (correctly rounded) from a "%e" render, then choosing fixed vs
+        // exponential layout.
+        int p = (int)precision;
+        bool neg = std::signbit(value) && value != 0.0;
+        double av = std::fabs(value);  // fabs(-0) = +0: -0 prints without a sign
+        char buf[512];
+        std::snprintf(buf, sizeof(buf), "%.*e", p - 1, av);
+        std::string s(buf);
+        size_t epos = s.find('e');
+        int e = (epos != std::string::npos) ? std::atoi(s.c_str() + epos + 1) : 0;
+        std::string digits;  // exactly p significant digits, dot removed
+        for (size_t i = 0; i < epos && i < s.size(); i++)
+            if (s[i] != '.') digits.push_back(s[i]);
+        while ((int)digits.size() < p) digits.push_back('0');
+
+        std::string out;
+        if (e < -6 || e >= p) {
+            // Exponential: d[.ddd]e{sign}{exp}
+            out.push_back(digits[0]);
+            if (p > 1) { out.push_back('.'); out.append(digits.substr(1)); }
+            out.push_back('e');
+            out.push_back(e >= 0 ? '+' : '-');
+            out.append(std::to_string(e >= 0 ? e : -e));
+        } else if (e >= 0) {
+            // Fixed, integer part is e+1 digits.
+            out.append(digits.substr(0, e + 1));
+            if (p > e + 1) { out.push_back('.'); out.append(digits.substr(e + 1)); }
+        } else {
+            // Fixed, magnitude < 1: "0." + (-e-1) zeros + all digits.
+            out.append("0.");
+            out.append(std::string(-e - 1, '0'));
+            out.append(digits);
+        }
+        if (neg) out.insert(out.begin(), '-');
+        return TsString::Create(out.c_str());
     }
 
     void* ts_string_create(const char* str) {

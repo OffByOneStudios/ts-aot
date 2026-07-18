@@ -1733,6 +1733,10 @@ static double ts_number_value_or_throw(void* ctx, const char* method) {
 }
 
 extern "C" void* ts_number_to_string(double value, int64_t radix);
+// ToIntegerOrInfinity for a Number.prototype radix/fractionDigits/precision arg:
+// ToNumber (invokes valueOf, throws on Symbol/BigInt), truncates toward zero,
+// saturates +/-Infinity. Defined in Primitives.cpp with C linkage.
+extern "C" int64_t ts_to_index_integer(TsValue* v);
 
 // Number.prototype, captured for numberFn's new-vs-call disambiguation
 // (see g_string_wrapper_proto / stringFn).
@@ -1794,12 +1798,15 @@ void* ts_get_global_Number() {
         proto->Set(ndKey, ndZero);
 
         // Number.prototype methods that read [[NumberData]] from receiver.
+        // ToIntegerOrInfinity for the radix/fractionDigits/precision argument:
+        // routes through ToNumber (invoking valueOf, throwing on Symbol/BigInt),
+        // truncates toward zero, saturates +/-Infinity to INT64_MAX/MIN.
         auto numProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toString");
             int64_t radix = 10;  // ECMA-262 21.1.3.6: radix undefined -> 10
             if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
-                radix = ts_value_get_int(argv[0]);  // ToIntegerOrInfinity (truncates)
+                radix = ts_to_index_integer(argv[0]);  // ToIntegerOrInfinity (may throw)
             }
             // radix must be an integer in [2, 36], else RangeError.
             if (radix < 2 || radix > 36) {
@@ -1815,57 +1822,55 @@ void* ts_get_global_Number() {
         };
         addMethod(proto, "toString", (void*)+numProtoToString, 1);
         addMethod(proto, "valueOf",  (void*)+numProtoValueOf,  0);
-        // Number.prototype.toFixed/toExponential/toPrecision/toLocaleString —
-        // minimal impls; tests for name/length pass once registered.
         addMethod(proto, "toFixed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toFixed");
-            int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 0;
-            if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.3: RangeError
+            // ECMA-262 21.1.3.3: f = ToIntegerOrInfinity(fractionDigits) (step 2),
+            // RangeError for f<0 or f>100 (steps 4-5) BEFORE the NaN/large-value
+            // handling (steps 6-7, done in ts_number_to_fixed).
+            int64_t f = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
+            if (f < 0 || f > 100) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "toFixed() digits argument must be between 0 and 100"));
                 return ts_value_make_undefined();
             }
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "%.*f", digits, d);
-            return ts_value_make_string(TsString::Create(buf));
+            return ts_value_make_string((TsString*)ts_number_to_fixed(d, f));
         }, 1);
         addMethod(proto, "toExponential", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toExponential");
-            int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 6;
-            // ECMA-262 21.1.3.2 step 4: non-finite returns "NaN"/"Infinity" before
-            // the RangeError (step 5); snprintf would emit "nan"/"inf".
+            // ECMA-262 21.1.3.2: f = ToIntegerOrInfinity(fractionDigits) (step 2,
+            // may throw) is evaluated BEFORE the non-finite short-circuit (step 3),
+            // which itself precedes the RangeError (step 8).
+            bool fdUndef = !(argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0]));
+            int64_t f = fdUndef ? -1 : ts_to_index_integer(argv[0]);
             if (std::isnan(d)) return ts_value_make_string(TsString::Create("NaN"));
             if (std::isinf(d)) return ts_value_make_string(TsString::Create(d < 0 ? "-Infinity" : "Infinity"));
-            if (digits < 0 || digits > 100) {  // ECMA-262 21.1.3.2: RangeError
+            if (!fdUndef && (f < 0 || f > 100)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "toExponential() argument must be between 0 and 100"));
                 return ts_value_make_undefined();
             }
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "%.*e", digits, d);
-            return ts_value_make_string(TsString::Create(buf));
+            return ts_value_make_string((TsString*)ts_number_to_exponential(d, f));
         }, 1);
         addMethod(proto, "toPrecision", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             double d = ts_number_value_or_throw(ctx, "toPrecision");
+            // ECMA-262 21.1.3.5: undefined precision -> ToString (step 2) BEFORE
+            // ToIntegerOrInfinity (step 3), which precedes the non-finite check
+            // (step 4) and finally the RangeError (step 5).
             if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
                 return ts_value_make_string((TsString*)ts_number_to_string(d, 10));
             }
-            int digits = (int)ts_value_get_int(argv[0]);
-            // ECMA-262 21.1.3.5 steps 4/6: non-finite returns "NaN"/"Infinity"
-            // before the RangeError (step 7).
+            int64_t p = ts_to_index_integer(argv[0]);
             if (std::isnan(d)) return ts_value_make_string(TsString::Create("NaN"));
             if (std::isinf(d)) return ts_value_make_string(TsString::Create(d < 0 ? "-Infinity" : "Infinity"));
-            if (digits < 1 || digits > 100) {  // ECMA-262 21.1.3.5: RangeError
+            if (p < 1 || p > 100) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "toPrecision() argument must be between 1 and 100"));
                 return ts_value_make_undefined();
             }
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "%.*g", digits, d);
-            return ts_value_make_string(TsString::Create(buf));
+            return ts_value_make_string((TsString*)ts_number_to_precision(d, p));
         }, 1);
         addMethod(proto, "toLocaleString", (void*)+numProtoToString, 0);
 
