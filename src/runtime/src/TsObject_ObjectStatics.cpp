@@ -403,7 +403,16 @@ extern "C" {
     // through this frame.
     static TsValue* enum_own_values_entries(TsValue* obj, void* rawPtr,
                                             bool wantEntries) {
-        TsValue* keysV = ts_object_keys(obj);
+        // ES 7.3.23 EnumerableOwnProperties: snapshot the FULL own-string-key
+        // list ONCE ([[OwnPropertyKeys]] — via getOwnPropertyNames, spec order),
+        // then for each key re-run [[GetOwnProperty]] AT ITERATION TIME and skip
+        // it unless it still exists AND is enumerable, before Get(O, key). This
+        // makes a getter that deletes / defines-non-enumerable a LATER key
+        // observable, and keys added mid-iteration (absent from the snapshot)
+        // are excluded (values/entries getter-* + order-after-define-property).
+        extern TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
+        extern TsValue* ts_object_getOwnPropertyDescriptor(TsValue*, TsValue*);
+        TsValue* keysV = ts_object_getOwnPropertyNames(obj);
         void* kraw = keysV ? ts_value_get_object(keysV) : nullptr;
         if (!kraw || *(uint32_t*)kraw != 0x41525259)
             return ts_value_make_array(TsArray::Create(0));
@@ -416,6 +425,15 @@ extern "C" {
             if (!ks) continue;
             const char* kc = ((TsString*)ks)->ToUtf8();
             if (!kc) continue;
+            // Live [[GetOwnProperty]] enumerability check (does NOT invoke a
+            // getter — gOPD reports the accessor descriptor; the getter runs
+            // only in the Get below, exactly once, matching the spec order).
+            TsValue* desc = ts_object_getOwnPropertyDescriptor(obj, kb);
+            if (!desc || ts_value_is_undefined(desc)) continue;
+            void* dRaw = ts_value_get_object(desc);
+            if (!dRaw) continue;
+            TsValue* enumV = ts_object_get_property(dRaw, "enumerable");
+            if (!enumV || !ts_value_to_bool(enumV)) continue;
             TsValue* v = ts_object_get_property(rawPtr, kc);  // may longjmp
             if (!v) v = ts_value_make_undefined();
             if (wantEntries) {
@@ -840,17 +858,6 @@ extern "C" {
             return ts_value_make_undefined();
         }
 
-        // Unbox obj if needed. For NaN-boxed primitives (numbers/strings/
-        // booleans) ts_value_get_object returns nullptr; per spec we should
-        // ToObject-box and return the wrapper prototype, but absent that
-        // path we return null to avoid faulting on the magic check below.
-        void* objRaw = ts_value_get_object(obj);
-        if (!objRaw) {
-            uint64_t nb = nanbox_from_tsvalue_ptr(obj);
-            if (!nanbox_is_ptr(nb)) return ts_value_make_null();
-            objRaw = obj;
-        }
-
         // Helper: walk to ConstructorGlobal.prototype and return its TsMap*.
         // ctorGetter is the runtime accessor (e.g. ts_get_global_Array).
         auto getCtorPrototype = [](void* ctor) -> TsValue* {
@@ -871,6 +878,36 @@ extern "C" {
             }
             return ts_value_make_null();
         };
+
+        // Unbox obj. For NaN-boxed primitives ts_value_get_object returns null
+        // (except strings, which keep their pointer). ES 19.1.2.12 ToObject(O):
+        // a primitive yields its wrapper, whose [[Prototype]] is the matching
+        // Ctor.prototype (Object.getPrototypeOf(0) === Number.prototype, etc.)
+        // — this previously returned null / the primitive itself
+        // (getPrototypeOf 15.2.3.2-1/-1-3/-1-4).
+        void* objRaw = ts_value_get_object(obj);
+        if (!objRaw) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+            if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
+                extern void* ts_get_global_Number();
+                return getCtorPrototype(ts_get_global_Number());
+            }
+            if (nanbox_is_bool(nb)) {
+                extern void* ts_get_global_Boolean();
+                return getCtorPrototype(ts_get_global_Boolean());
+            }
+            if (!nanbox_is_ptr(nb)) return ts_value_make_null();
+            objRaw = obj;
+        }
+        // A primitive string keeps its pointer (STRG) — its wrapper's
+        // [[Prototype]] is String.prototype.
+        if ((uintptr_t)objRaw > 0x1000) {
+            uint32_t sm0 = *(uint32_t*)objRaw;
+            if (sm0 == 0x53545247 /*STRG*/ || sm0 == 0x434F4E53 /*CONS*/) {
+                extern void* ts_get_global_String();
+                return getCtorPrototype(ts_get_global_String());
+            }
+        }
 
         // Check offset 0 magic first — TsArray/TsRegExp/TsDate don't have
         // the TsObject prefix so their magic lives at offset 0.
@@ -1567,7 +1604,37 @@ extern "C" {
             map->Seal();
             map->PreventExtensions();
         } else {
+            // Exotic object (function/Date/RegExp/array/arguments): record the
+            // integrity level, then clear [[Configurable]] on every own property
+            // held in a side store so gOPD reports it (SetIntegrityLevel "sealed"
+            // step — object-seal-p-is-own-property-of-a-*-object family). Mirrors
+            // ts_object_freeze's store handling but leaves [[Writable]] intact.
             integrity_set(rawPtr, 2);
+            auto sealStoreAttrs = [](TsMap* store) {
+                if (!store) return;
+                void* keysPtr = store->GetKeys();
+                if (!keysPtr) return;
+                TsArray* keys = (TsArray*)keysPtr;
+                int64_t len = keys->Length();
+                for (int64_t i = 0; i < len; i++) {
+                    TsValue keyVal = nanbox_to_tagged(
+                        (TsValue*)(uintptr_t)keys->Get(i));
+                    if (keyVal.type != ValueType::STRING_PTR) continue;
+                    uint8_t a = store->GetPropertyAttrs(keyVal);
+                    a &= ~(uint8_t)TsHashTable::ATTR_CONFIGURABLE;
+                    store->SetPropertyAttrs(keyVal, a);
+                }
+            };
+            uint32_t xm16 = ((uintptr_t)rawPtr > 0x1000)
+                ? *(uint32_t*)((char*)rawPtr + 16) : 0;
+            if (xm16 == TsFunction::MAGIC)
+                sealStoreAttrs(((TsFunction*)rawPtr)->properties);
+            else if (xm16 == 0x434C5352 /*CLSR*/)
+                sealStoreAttrs(((TsClosure*)rawPtr)->properties);
+            else
+                sealStoreAttrs(getNativeProps(rawPtr));
+            if (*(uint32_t*)rawPtr == 0x41525259 /*ARRY*/)
+                sealStoreAttrs(((TsArray*)rawPtr)->properties);
         }
 
         return obj;  // Return the same object (sealed)
@@ -2119,6 +2186,7 @@ extern "C" {
         arr->properties->Set(k, v);
     }
 
+    extern "C" TsValue* ts_to_property_key_spec(TsValue* key);  // TsObject.cpp
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // #66: defineProperty on %Object.prototype% flips the dirty bit.
         if (g_object_proto_map && obj) {
@@ -2174,12 +2242,20 @@ extern "C" {
                 }
             }
         }
-        descriptor = ts_descriptor_normalize(descriptor);
         if (!prop) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Object.defineProperty: property key required"));
             return ts_value_make_undefined();
         }
+        // ECMA-262 20.1.2.4 step 2: key = ToPropertyKey(P), BEFORE
+        // ToPropertyDescriptor. A key OBJECT is coerced via ToPrimitive (its
+        // toString/valueOf/@@toPrimitive runs) to a string or symbol — without
+        // this, defineProperty(obj, {toString(){return "abc"}}, ...) stored under
+        // the object identity, so hasOwnProperty("abc") was false and the key's
+        // toString was never called (15.2.3.6-2-45/-2-46/-2-48). Numbers/bools/
+        // null coerce to their string form; strings and symbols pass through.
+        prop = ts_to_property_key_spec(prop);
+        descriptor = ts_descriptor_normalize(descriptor);
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
@@ -3736,9 +3812,95 @@ extern "C" {
             if (ks) prop = ts_value_make_string(ks);
         }
 
+        // String exotic object (a primitive string OR a `new String()` wrapper):
+        // ES 10.4.3 — each in-range index is a data property {value: char,
+        // writable:false, enumerable:true, configurable:false} and "length" is
+        // {value:len, writable:false, enumerable:false, configurable:false},
+        // synthesized (not real map entries). Without this gOPD('foo','0') and
+        // gOPD(new String('abc'),'length') returned undefined (primitive-string,
+        // 15.2.3.3-3-14/-4-192). A non-index/length key falls through so a
+        // wrapper's own custom property still resolves via the map path below.
+        if ((uintptr_t)rawPtr > 0x1000) {
+            TsString* sdata = nullptr;
+            uint32_t m0s = *(uint32_t*)rawPtr;
+            if (m0s == 0x53545247 /*STRG*/ || m0s == 0x434F4E53 /*CONS*/) {
+                sdata = (TsString*)rawPtr;
+            } else if (*(uint32_t*)((char*)rawPtr + 16) == 0x4D415053 /*MAPS*/) {
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sv = ((TsMap*)rawPtr)->Get(sk);
+                if (sv.type == ValueType::STRING_PTR && sv.ptr_val)
+                    sdata = (TsString*)sv.ptr_val;
+            }
+            if (sdata) {
+                const char* kc = nullptr;
+                uint64_t pkNb = nanbox_from_tsvalue_ptr(prop);
+                if (nanbox_is_ptr(pkNb)) {
+                    void* pp = nanbox_to_ptr(pkNb);
+                    if (pp) {
+                        uint32_t pm = *(uint32_t*)pp;
+                        if (pm == 0x53545247 || pm == 0x434F4E53)
+                            kc = ts_ensure_flat((TsString*)pp)->ToUtf8();
+                    }
+                }
+                if (kc) {
+                    auto buildStrDesc = [](TsValue val, bool w, bool e,
+                                           bool c) -> TsValue* {
+                        TsMap* d = TsMap::Create();
+                        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+                        d->Set(vk, val);
+                        TsValue wk; wk.type = ValueType::STRING_PTR; wk.ptr_val = TsString::GetInterned("writable");
+                        TsValue wv; wv.type = ValueType::BOOLEAN; wv.i_val = w ? 1 : 0; d->Set(wk, wv);
+                        TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("enumerable");
+                        TsValue ev; ev.type = ValueType::BOOLEAN; ev.i_val = e ? 1 : 0; d->Set(ek, ev);
+                        TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("configurable");
+                        TsValue cv; cv.type = ValueType::BOOLEAN; cv.i_val = c ? 1 : 0; d->Set(ck, cv);
+                        return ts_value_make_object(d);
+                    };
+                    int64_t slen = sdata->Length();
+                    if (strcmp(kc, "length") == 0) {
+                        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = slen;
+                        return buildStrDesc(lv, false, false, false);
+                    }
+                    int64_t sidx;
+                    if (parse_canonical_array_index(kc, &sidx) &&
+                        sidx >= 0 && sidx < slen) {
+                        extern void* ts_string_charAt(void* str, int64_t index);
+                        TsValue cvv; cvv.type = ValueType::STRING_PTR;
+                        cvv.ptr_val = ts_string_charAt(sdata, sidx);
+                        return buildStrDesc(cvv, false, true, false);
+                    }
+                }
+            }
+        }
+
         // Convert flat object to TsMap
         if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
+            // Object.freeze/seal on a flat object is recorded as a shape flag,
+            // NOT in the per-property attrs; ts_flat_object_to_map rebuilds a
+            // fresh TsMap whose entries default to writable+enumerable+
+            // configurable. Propagate the integrity level so gOPD reports the
+            // frozen/sealed attributes (15.2.3.9-2-a plain-object freeze family).
+            bool flatFrozen = flat_object_is_frozen(rawPtr);
+            bool flatSealed = flat_object_is_sealed(rawPtr) || flatFrozen;
+            void* mapConv = ts_flat_object_to_map(rawPtr);
+            if (mapConv && (flatFrozen || flatSealed)) {
+                TsMap* fm = (TsMap*)mapConv;
+                if (void* fkeysPtr = fm->GetKeys()) {
+                    TsArray* fkeys = (TsArray*)fkeysPtr;
+                    int64_t fn = fkeys->Length();
+                    for (int64_t i = 0; i < fn; i++) {
+                        TsValue kv = nanbox_to_tagged(
+                            (TsValue*)(uintptr_t)fkeys->Get(i));
+                        if (kv.type != ValueType::STRING_PTR) continue;
+                        uint8_t a = fm->GetPropertyAttrs(kv);
+                        a &= ~(uint8_t)TsHashTable::ATTR_CONFIGURABLE;  // sealed
+                        if (flatFrozen) a &= ~(uint8_t)TsHashTable::ATTR_WRITABLE;
+                        fm->SetPropertyAttrs(kv, a);
+                    }
+                }
+            }
+            rawPtr = mapConv;
         }
 
         // Check if it's a TsMap (or extract properties map from function/closure)
@@ -3871,6 +4033,14 @@ extern "C" {
                         // default of writable+enumerable+configurable.
                         uint8_t a = 0x07;
                         array_index_attrs_get(arr, (size_t)idx, &a);
+                        // Object.freeze/seal on an array or `arguments` object
+                        // records only the object-wide integrity level (no per-index
+                        // __arr_attrs). SetIntegrityLevel makes each own index
+                        // non-configurable (sealed) and, when frozen, non-writable —
+                        // gOPD must report that (15.2.3.9-2-a arguments/array family).
+                        uint8_t ilvl = ts_integrity_get(rawPtr);
+                        if (ilvl >= 2) a &= ~(uint8_t)0x04;  // sealed  -> non-configurable
+                        if (ilvl >= 3) a &= ~(uint8_t)0x02;  // frozen  -> non-writable
                         return buildDataDesc(v, (a & 0x02) != 0, (a & 0x01) != 0, (a & 0x04) != 0);
                     }
                 }
@@ -4152,6 +4322,29 @@ extern "C" {
                 "Cannot convert undefined or null to object"));
             return target;  // unreachable
         }
+        // Step 1 (cont.): a PRIMITIVE target boxes into its wrapper object — the
+        // wrapper is what assign RETURNS and what sources copy onto
+        // (Object.assign(true|1|"a", src) -> Boolean/Number/String wrapper).
+        // The compiler threads assign's return as the next call's target, so
+        // multi-source primitive targets box exactly once. Symbol/BigInt have no
+        // wrapper path here and fall through unchanged; object targets are
+        // already pointers (no-op).
+        {
+            extern void* ts_get_global_String();
+            extern void* ts_get_global_Number();
+            extern void* ts_get_global_Boolean();
+            extern TsValue* ts_new_from_constructor_impl(TsValue*, int, TsValue**);
+            if (nanbox_is_string_ptr(tnb)) {
+                target = ts_new_from_constructor_impl(
+                    (TsValue*)ts_get_global_String(), 1, &target);
+            } else if (nanbox_is_int32(tnb) || nanbox_is_double(tnb)) {
+                target = ts_new_from_constructor_impl(
+                    (TsValue*)ts_get_global_Number(), 1, &target);
+            } else if (nanbox_is_bool(tnb)) {
+                target = ts_new_from_constructor_impl(
+                    (TsValue*)ts_get_global_Boolean(), 1, &target);
+            }
+        }
         // Step 2: For each source, if null/undefined, skip silently.
         uint64_t snb = nanbox_from_tsvalue_ptr(source);
         if (nanbox_is_null(snb) || nanbox_is_undefined(snb)) {
@@ -4184,6 +4377,31 @@ extern "C" {
         // Check for flat target object
         uint32_t targetMagic0 = *(uint32_t*)targetRaw;
         bool targetIsFlat = (targetMagic0 == 0x464C4154); // FLAT_MAGIC
+
+        // String source (primitive): CopyDataProperties enumerates its own
+        // ENUMERABLE keys — the index chars 0..len-1 (String exotic "length" is
+        // non-enumerable). Object.assign(target, "123") -> target[0..2]='1','2','3'
+        // (Source-String, Override). A `new String()` wrapper is a TsMap with
+        // __StringData and copies via the map path below.
+        if (sourceMagic0 == 0x53545247 /*STRG*/ || sourceMagic0 == 0x434F4E53 /*CONS*/) {
+            extern void* ts_string_charAt(void* str, int64_t index);
+            TsString* s = (TsString*)sourceRaw;
+            int64_t slen = s->Length();
+            uint32_t tMagic16 = *(uint32_t*)((char*)targetRaw + 16);
+            for (int64_t i = 0; i < slen; i++) {
+                TsValue* ch = ts_value_make_string(ts_string_charAt(s, i));
+                char ibuf[24];
+                snprintf(ibuf, sizeof(ibuf), "%lld", (long long)i);
+                if (targetIsFlat) {
+                    assign_set_flat_or_throw(targetRaw, ibuf, ch);
+                } else if (tMagic16 == 0x4D415053) {
+                    TsValue rk; rk.type = ValueType::STRING_PTR;
+                    rk.ptr_val = TsString::GetInterned(ibuf);
+                    assign_set_map_or_throw(targetRaw, rk, nanbox_to_tagged(ch));
+                }
+            }
+            return target;
+        }
 
         if (sourceIsFlat) {
             // Copy from flat source: enumerate the FILTERED own-key list
@@ -4282,6 +4500,12 @@ extern "C" {
                     continue;
                 }
             }
+            // ES CopyDataProperties (Object.assign / object spread) copies only
+            // ENUMERABLE own keys — skip a non-enumerable data property
+            // (source-non-enum). Normal assignment defaults to ATTR_DEFAULT
+            // (enumerable set); only Object.defineProperty clears the bit.
+            if ((sourceMap->GetPropertyAttrs(nanbox_to_tagged(key)) & 0x01) == 0)
+                continue;
             if (targetIsFlat) {
                 TsString* keyStr = (TsString*)ts_nanbox_safe_unbox(key);
                 if (keyStr) {
@@ -4296,7 +4520,7 @@ extern "C" {
 
         return target;
     }
-    
+
     // Object.hasOwn(obj, prop) - check if object has own property
     bool ts_object_has_own(TsValue* obj, TsValue* prop) {
         if (!obj || !prop) return false;
@@ -4311,50 +4535,21 @@ extern "C" {
                 "Cannot convert undefined or null to object"));
             return false;  // unreachable
         }
-        if (!nanbox_is_ptr(nb_h)) return false;
 
-        void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
-
-        // Symbol key: the string/TsMap fast paths below would ToUtf8 / STRING_PTR-hash
-        // the symbol (-> crash for a description-less symbol, and never matches the
-        // symbol-keyed storage, which lives in a side-map). Route through
-        // getOwnPropertyDescriptor, which resolves symbol-keyed own properties
-        // correctly (the same path the Object.hasOwn native wrapper and
-        // Object.prototype.hasOwnProperty use).
-        {
-            void* propRawSym = ts_nanbox_safe_unbox(prop);
-            if (propRawSym && *(uint32_t*)propRawSym == 0x53594D42 /* TsSymbol "SYMB" */) {
-                extern TsValue* ts_object_getOwnPropertyDescriptor(TsValue*, TsValue*);
-                TsValue* desc = ts_object_getOwnPropertyDescriptor(obj, prop);
-                return desc != nullptr && !ts_value_is_undefined(desc);
-            }
-        }
-
-        // Check for flat object first
-        uint32_t magic0 = *(uint32_t*)rawPtr;
-        if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            void* propRaw = ts_nanbox_safe_unbox(prop);
-            if (!propRaw) return false;
-            TsString* keyStr = (TsString*)propRaw;
-            const char* k = keyStr->ToUtf8();
-            if (!k) return false;
-            return ts_flat_object_has_property(rawPtr, k);
-        }
-
-        // Validated, offset-derived TsMap tag check (ts_cast<T>, TsTyped.h).
-        if (TsMap* map = ts_cast_unchecked<TsMap>(rawPtr)) {
-
-            // Get the property name as a string
-            void* propRaw = ts_nanbox_safe_unbox(prop);
-
-            TsValue propVal;
-            propVal.type = ValueType::STRING_PTR;
-            propVal.ptr_val = propRaw;
-            return ts_map_has_v(map, propVal);
-        }
-
-        return false;
+        // Step 2-3: HasOwnProperty(ToObject(O), ToPropertyKey(P)) via
+        // [[GetOwnProperty]]. Delegate to getOwnPropertyDescriptor — it is the
+        // single source that resolves EVERY own-property kind uniformly:
+        // string-keyed ACCESSORS (get/set stored under __getter_/__setter_,
+        // which the old fast-path map/flat Has() missed -> hasown_own_getter),
+        // SYMBOL keys (side-map storage; a description-less symbol crashed the
+        // fast paths -> symbol_property_valueOf AV), a Proxy's gOPD trap, and a
+        // key object whose ToPropertyKey (toString/valueOf/@@toPrimitive) yields
+        // a symbol. gOPD performs ToPropertyKey itself, so no manual coercion is
+        // needed here (its frame is std::string-free; a throwing key hook
+        // longjmps cleanly).
+        extern TsValue* ts_object_getOwnPropertyDescriptor(TsValue*, TsValue*);
+        TsValue* desc = ts_object_getOwnPropertyDescriptor(obj, prop);
+        return desc != nullptr && !ts_value_is_undefined(desc);
     }
 
     // Object.fromEntries(iterable) — ECMA-262 20.1.2.7 + AddEntriesFromIterable

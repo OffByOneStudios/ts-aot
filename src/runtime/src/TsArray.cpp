@@ -2170,10 +2170,19 @@ extern "C" {
     // while preserving +/-Infinity. The search VALUE is left as the raw bit
     // pattern (its own comparison path handles coercion).
     int64_t ts_array_indexOf_from_coerced(void* arr, int64_t value, TsValue* fromIndex) {
+        // ES 23.1.3.14 steps 2-3: `len` is read and the len==0 short-circuit
+        // (return -1) happens BEFORE ToIntegerOrInfinity(fromIndex). A throwing
+        // valueOf on fromIndex must NOT fire for an empty array.
+        if (arr && *(uint32_t*)arr == 0x41525259 /*ARRY*/ &&
+            ((TsArray*)arr)->Length() == 0) return -1;
         double fi = ts_to_index_number_or(fromIndex, 0.0);  // may throw
         return ts_array_indexOf_from(arr, value, fi);
     }
     int64_t ts_array_lastIndexOf_from_coerced(void* arr, int64_t value, TsValue* fromIndex) {
+        // ES 23.1.3.19 steps 2-3: len==0 short-circuit precedes
+        // ToIntegerOrInfinity(fromIndex).
+        if (arr && *(uint32_t*)arr == 0x41525259 /*ARRY*/ &&
+            ((TsArray*)arr)->Length() == 0) return -1;
         double fi = ts_to_index_number_or(fromIndex, 0.0);  // may throw
         return ts_array_lastIndexOf_from(arr, value, fi);
     }
@@ -2419,16 +2428,63 @@ extern "C" {
             TsValue* res = ts_array_toReversed_native(arr, 0, nullptr);
             return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
         }
-        return ((TsArray*)rawArr)->ToReversed();
+        TsArray* src = (TsArray*)rawArr;
+        // ES 23.1.3.33: the result is a DENSE array whose elements come from
+        // ? Get(O, from) — so holes resolve through Array.prototype and the
+        // output is never sparse. `len` is cached once, so a getter that
+        // grows/shrinks the source mid-iteration cannot change the result
+        // length. Only take this spec path when the source is exotic (index
+        // accessors / inherited-hole reads / array-like temp); a plain packed
+        // array keeps the fast buffer copy below.
+        if (ts_array_needs_spec_search(src)) {
+            int64_t len = (int64_t)src->Length();
+            TsArray* result = TsArray::Create(len > 0 ? (size_t)len : 0);
+            for (int64_t k = 0; k < len; ++k) {
+                TsValue* v = ts_array_get_property_at_idx(src, len - 1 - k);
+                ts_array_push(result, v);
+            }
+            return result;
+        }
+        return src->ToReversed();
     }
 
-    void* ts_array_toSorted(void* arr) {
+    void* ts_array_toSorted(void* arr, void* comparefn) {
+        // ES 23.1.3.34 step 1: validate comparefn (undefined or callable) BEFORE
+        // reading elements. The compiler fast-path passes the boxed comparefn
+        // (null when omitted).
+        bool hasCmp = comparefn && !ts_value_is_undefined((TsValue*)comparefn);
+        if (comparefn && !ts_value_is_undefined((TsValue*)comparefn) &&
+            !ts_is_callable(comparefn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Array.prototype.toSorted comparator must be a function or undefined"));
+            return nullptr;
+        }
         void* rawArr = ts_nanbox_safe_unbox(arr);
         if (!arr_is_tsarray(rawArr)) {
-            TsValue* res = ts_array_toSorted_native(arr, 0, nullptr);
+            TsValue* argvBuf[1] = { (TsValue*)comparefn };
+            TsValue* res = ts_array_toSorted_native(arr, hasCmp ? 1 : 0, argvBuf);
             return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
         }
-        return ((TsArray*)rawArr)->ToSorted();
+        TsArray* src = (TsArray*)rawArr;
+        // ES 23.1.3.34: read a DENSE snapshot of ? Get(O, k) for k in [0,len)
+        // (holes resolve through Array.prototype; `len` is cached once), then
+        // SortIndexedProperties. Only for exotic sources — a plain packed array
+        // takes the fast buffer copy. ts_array_sort handles undefined-to-end.
+        if (ts_array_needs_spec_search(src)) {
+            int64_t len = (int64_t)src->Length();
+            TsArray* result = TsArray::Create(len > 0 ? (size_t)len : 0);
+            for (int64_t k = 0; k < len; ++k) {
+                TsValue* v = ts_array_get_property_at_idx(src, k);
+                ts_array_push(result, v);
+            }
+            ts_array_sort(result, hasCmp ? comparefn : nullptr);
+            return result;
+        }
+        // Copy in default order, then re-sort with the user comparator when one
+        // was supplied (ES step 5 SortIndexedProperties).
+        TsArray* result = src->ToSorted();
+        if (result && hasCmp) ts_array_sort(result, comparefn);
+        return result;
     }
 
     void* ts_array_toSpliced(void* arr, int64_t start, int64_t deleteCount, void* items, int64_t itemCount) {
@@ -2449,11 +2505,78 @@ extern "C" {
             TsValue* res = ts_array_toSpliced_native(arr, argc, argvBuf.data());
             return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
         }
+        TsArray* src = (TsArray*)rawArr;
+        // ES 23.1.3.35: build a DENSE result reading ? Get(O, k) for the
+        // preserved indices only — the deleted range [actualStart,+dc) is NEVER
+        // read, holes resolve through Array.prototype, and reads happen in
+        // ascending order (prefix, then post-delete tail). `len` cached once.
+        // Exotic sources take this spec path; a plain packed array keeps the
+        // fast buffer splice below.
+        if (ts_array_needs_spec_search(src)) {
+            int64_t len = (int64_t)src->Length();
+            // Normalize start/deleteCount exactly like TsArray::ToSpliced
+            // (INT64_MIN = "argument omitted" sentinel from the lowering).
+            bool startMissing = (start == INT64_MIN);
+            int64_t s = startMissing ? 0 : start;
+            if (s < 0) s = len + s;
+            if (s < 0) s = 0;
+            if (s > len) s = len;
+            int64_t dc = deleteCount;
+            if (dc == INT64_MIN) dc = startMissing ? 0 : (len - s);
+            if (dc < 0) dc = 0;
+            if (dc > len - s) dc = len - s;
+            TsArray* itemsArr = (items && arr_is_tsarray(items)) ? (TsArray*)items : nullptr;
+            int64_t ic = itemsArr ? (int64_t)itemsArr->Length() : 0;
+            if (itemCount >= 0 && itemCount < ic) ic = itemCount;
+            int64_t newLen = len - dc + ic;
+            TsArray* result = TsArray::Create(newLen > 0 ? (size_t)newLen : 0);
+            // Prefix [0, s): Get in ascending order.
+            for (int64_t k = 0; k < s; ++k) {
+                ts_array_push(result, ts_array_get_property_at_idx(src, k));
+            }
+            // Inserted items.
+            for (int64_t i = 0; i < ic; ++i) {
+                ts_array_push(result, (void*)itemsArr->GetElementBoxed((size_t)i));
+            }
+            // Tail [s+dc, len): Get in ascending order (deleted range skipped).
+            for (int64_t k = s + dc; k < len; ++k) {
+                ts_array_push(result, ts_array_get_property_at_idx(src, k));
+            }
+            return result;
+        }
         // items is a TsArray*, we need to pass it as-is so ToSpliced can properly extract values
-        return ((TsArray*)rawArr)->ToSpliced(start, deleteCount, items, itemCount);
+        return src->ToSpliced(start, deleteCount, items, itemCount);
     }
 
     void* ts_array_with(void* arr, int64_t index, void* value) {
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (arr_is_tsarray(rawArr)) {
+            TsArray* src = (TsArray*)rawArr;
+            // ES 23.1.3.39: dense result; element k is `value` at the target
+            // index, else ? Get(O, k) (resolving holes through the prototype).
+            // len cached once. Exotic sources use this spec path so holes are
+            // not preserved and out-of-range still RangeErrors.
+            if (ts_array_needs_spec_search(src)) {
+                int64_t len = (int64_t)src->Length();
+                int64_t idx = index < 0 ? len + index : index;
+                if (idx < 0 || idx >= len) {
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Invalid index : Array.prototype.with index is out of range"));
+                    return nullptr;  // unreachable
+                }
+                TsArray* result = TsArray::Create(len > 0 ? (size_t)len : 0);
+                for (int64_t k = 0; k < len; ++k) {
+                    if (k == idx) {
+                        ts_array_push(result, value);
+                    } else {
+                        TsValue* v = ts_array_get_property_at_idx(src, k);
+                        ts_array_push(result, v);
+                    }
+                }
+                return result;
+            }
+            return src->With(index, (int64_t)value);
+        }
         return ((TsArray*)arr)->With(index, (int64_t)value);
     }
 

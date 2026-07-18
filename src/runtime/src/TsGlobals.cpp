@@ -339,7 +339,7 @@ void* ts_get_global_Object() {
     addMethod(ctor, "isSealed", (void*)ts_object_isSealed_native);
     addMethod(ctor, "isExtensible", (void*)ts_object_isExtensible_native);
     addMethod(ctor, "is", (void*)ts_object_is_native);
-    addMethod(ctor, "hasOwn", (void*)ts_object_hasOwn_native);
+    addMethod(ctor, "hasOwn", (void*)ts_object_hasOwn_native, 2);
     // Object.groupBy(items, keyFn) — ES2024.
     extern TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn);
     addMethod(ctor, "groupBy", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {

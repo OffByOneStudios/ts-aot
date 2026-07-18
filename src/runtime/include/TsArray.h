@@ -254,7 +254,7 @@ extern "C" {
 
     // ES2023 "change array by copy" methods
     void* ts_array_toReversed(void* arr);
-    void* ts_array_toSorted(void* arr);
+    void* ts_array_toSorted(void* arr, void* comparefn);
     void* ts_array_toSpliced(void* arr, int64_t start, int64_t deleteCount, void* items, int64_t itemCount);
     void* ts_array_with(void* arr, int64_t index, void* value);
 

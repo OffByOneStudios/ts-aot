@@ -1047,6 +1047,27 @@ static bool ts_proto_chain_has(void* rawObj, void* targetProto) {
         }
     }
 
+    // TsArray / RegExp match array (ARRY / RMAT) are Array exotic objects whose
+    // [[Prototype]] is Array.prototype (whose own [[Prototype]] is
+    // Object.prototype). `arr instanceof Array` / `instanceof Object` in dynamic
+    // code reaches the ordinary walk here; match those two levels directly (no
+    // recursion — Array.prototype is itself an ARRY object).
+    if (magic0 == 0x41525259 /*ARRY*/ || magic0 == 0x524D4154 /*RMAT*/) {
+        extern void* ts_get_global_Array();
+        extern void* ts_get_global_Object();
+        void* levels[2] = { ts_get_global_Array(), ts_get_global_Object() };
+        for (void* g : levels) {
+            if (!g) continue;
+            void* graw = ts_value_get_object((TsValue*)g);
+            if (!graw) graw = g;
+            TsValue* gp = ts_object_get_property(graw, "prototype");
+            if (!gp) continue;
+            uint64_t pnb = nanbox_from_tsvalue_ptr(gp);
+            if (nanbox_is_ptr(pnb) && nanbox_to_ptr(pnb) == targetProto) return true;
+        }
+        return false;
+    }
+
     // Built-in class instance (TsDate, TsRegExp, TsPromise, TsSet, etc.).
     // They don't carry TsMap-style prototype chains; check magic and
     // compare against the corresponding global's .prototype.

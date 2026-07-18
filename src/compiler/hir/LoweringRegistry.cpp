@@ -885,6 +885,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_toSorted")
             .returnsPtr()
             .ptrArg()      // array
+            .ptrArg()      // compareFn (optional, can be null)
             .build());
 
     reg.registerLowering("ts_array_toSpliced",

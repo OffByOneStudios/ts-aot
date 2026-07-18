@@ -938,28 +938,39 @@ extern "C" {
                 void* protoGlobal = nanbox_is_bool(nb)
                     ? ts_get_global_Boolean()
                     : ts_get_global_Number();
-                if (!protoGlobal) return TsArray::Create(0);
+                // The ToObject(receiver) WRAPPER (a real Number/Boolean object)
+                // is the spec `O`: it is both the callback's 3rd argument and
+                // the value returned by mutators like fill/copyWithin. Build it
+                // up front so every early-out below still carries it — e.g.
+                // Boolean.prototype has no "length", but
+                // `Array.prototype.fill.call(true)` must still return an object
+                // that is `instanceof Boolean`.
+                TsValue* wrapArgs0[] = { (TsValue*)ctxToRead };
+                void* wrapper = protoGlobal
+                    ? ts_new_from_constructor_impl((TsValue*)protoGlobal, 1, wrapArgs0)
+                    : nullptr;
+                auto emptyWrap = [&]() -> TsArray* {
+                    TsArray* e = TsArray::Create(0);
+                    e->originalReceiver = wrapper ? wrapper : ctxToRead;
+                    return e;
+                };
+                if (!protoGlobal) return emptyWrap();
                 void* protoCtor = ts_value_get_object((TsValue*)protoGlobal);
                 if (!protoCtor) protoCtor = protoGlobal;
                 TsValue* protoVal = ts_object_get_property(protoCtor, "prototype");
-                if (notPresent(protoVal)) return TsArray::Create(0);
+                if (notPresent(protoVal)) return emptyWrap();
                 void* protoRaw = ts_value_get_object(protoVal);
-                if (!protoRaw) return TsArray::Create(0);
+                if (!protoRaw) return emptyWrap();
 
                 TsValue* lenVal = ts_object_get_property(protoRaw, "length");
-                if (notPresent(lenVal)) return TsArray::Create(0);
+                if (notPresent(lenVal)) return emptyWrap();
                 double lenD = ts_value_get_double(lenVal);
-                if (lenD != lenD || lenD <= 0) return TsArray::Create(0);
+                if (lenD != lenD || lenD <= 0) return emptyWrap();
                 int64_t len = (int64_t)lenD;
                 const int64_t MAX_ITER = 1 << 20;
                 if (len > MAX_ITER) len = MAX_ITER;
 
                 TsArray* tmp = TsArray::Create((size_t)len);
-                // The callback's 3rd arg (O) must be ToObject(receiver) — a real
-                // Number/Boolean WRAPPER — not the raw primitive, so that e.g.
-                // `obj instanceof Number` holds (ES5 15.4.4.x step-1 tests).
-                TsValue* wrapArgs[] = { (TsValue*)ctxToRead };
-                void* wrapper = ts_new_from_constructor_impl((TsValue*)protoGlobal, 1, wrapArgs);
                 tmp->originalReceiver = wrapper ? wrapper : ctxToRead;
                 for (int64_t i = 0; i < len; i++) {
                     char key[32];
@@ -1083,6 +1094,21 @@ extern "C" {
     // methods (filter/map/forEach/every/some/find/findIndex/reduce/etc).
     // Returns true on success, false if TypeError was thrown (caller should
     // return a safe default — ts_throw longjmps so the false branch is rare).
+    // ES 23.1.3.30 / 23.1.3.34 step 1 (sort / toSorted): if comparefn is not
+    // undefined and IsCallable(comparefn) is false, throw a TypeError. This is
+    // observed BEFORE ToObject(this)/LengthOfArrayLike, so callers must invoke
+    // it before require_array_or_throw. Returns true when the comparefn is
+    // acceptable (undefined or callable).
+    static bool validateComparefnOrThrow(int argc, TsValue** argv) {
+        TsValue* cmp = (argc >= 1 && argv) ? argv[0] : nullptr;
+        if (cmp && !ts_value_is_undefined(cmp) && !ts_is_callable((void*)cmp)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "The comparison function must be either a function or undefined"));
+            return false;
+        }
+        return true;
+    }
+
     static bool requireCallableOrThrow(void* callback, const char* methodName) {
         auto throwTE = [methodName]() {
             char msg[160];
@@ -1907,6 +1933,8 @@ extern "C" {
         return ts_value_make_int(ts_array_findIndex(arr, callback, thisArg));
     }
     TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv) {
+        // Step 1: validate comparefn BEFORE ToObject/LengthOfArrayLike.
+        if (!validateComparefnOrThrow(argc, argv)) return ts_value_make_undefined();
         TsArray* arr = require_array_or_throw(ctx, "sort");
         if (!arr) return ts_value_make_undefined();
         void* comparator = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -2155,6 +2183,11 @@ extern "C" {
         int64_t end = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_fill(arr, value, start, end);
         arraylike_writeback(arr);
+        // ES 23.1.3.6 step 12: returns O — the ToObject'd RECEIVER. For an
+        // array-like (or primitive-wrapper) receiver that's the ORIGINAL
+        // object, not the materialized temp.
+        if (arr->originalReceiver && arr->originalReceiver != (void*)arr)
+            return ts_value_make_object(arr->originalReceiver);
         return ts_value_make_object(arr);
     }
     TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv) {
@@ -2216,9 +2249,15 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv) {
+        // Step 1: validate comparefn BEFORE ToObject/LengthOfArrayLike.
+        if (!validateComparefnOrThrow(argc, argv)) return ts_value_make_undefined();
         TsArray* arr = require_array_or_throw(ctx, "toSorted");
         if (!arr) return ts_value_make_undefined();
-        void* result = ts_array_toSorted(arr);
+        void* comparator = (argc >= 1 && argv && argv[0] &&
+                            !ts_value_is_undefined(argv[0])) ? (void*)argv[0] : nullptr;
+        // ES 23.1.3.34 step 5: SortIndexedProperties with the provided
+        // comparefn (ts_array_toSorted copies then sorts with it).
+        void* result = ts_array_toSorted(arr, comparator);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
@@ -2247,6 +2286,10 @@ extern "C" {
         int64_t end    = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_copyWithin(arr, target, start, end);
         arraylike_writeback(arr);
+        // ES 23.1.3.4 step 18: returns O — the ToObject'd RECEIVER (the
+        // original array-like / primitive-wrapper), not the materialized temp.
+        if (arr->originalReceiver && arr->originalReceiver != (void*)arr)
+            return ts_value_make_object(arr->originalReceiver);
         return ts_value_make_object(arr);
     }
     TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
@@ -3258,6 +3301,24 @@ extern "C" {
         return recv;
     }
 
+    // ES 7.2.11 SameValue over two raw (uncoerced) values. Distinguishes the
+    // signed zeros and treats NaN as equal to itself — the @@search lastIndex
+    // save/restore compares with SameValue, NOT ToNumber (a value like -0 must
+    // be re-Set to +0, and an object lastIndex must NOT be coerced here).
+    static bool regexp_same_value(TsValue* a, TsValue* b) {
+        uint64_t na = nanbox_from_tsvalue_ptr(a);
+        uint64_t nb = nanbox_from_tsvalue_ptr(b);
+        bool an = nanbox_is_number(na), bn = nanbox_is_number(nb);
+        if (an && bn) {
+            double da = nanbox_to_number(na), db = nanbox_to_number(nb);
+            if (da != da && db != db) return true;                  // NaN, NaN
+            if (da == 0 && db == 0) return std::signbit(da) == std::signbit(db);
+            return da == db;
+        }
+        if (an != bn) return false;
+        return na == nb;  // non-numbers: identity (undefined/null/ptr)
+    }
+
     extern "C" TsValue* ts_regexp_symbol_search_native(void* ctx, int argc, TsValue** argv) {
         extern void* ts_string_from_value(TsValue* val);
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
@@ -3271,15 +3332,18 @@ extern "C" {
         TsString* sStr = ts_regexp_tostring_arg(sv);
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sStr);
         TsValue* liKey = ts_value_make_string(TsString::GetInterned("lastIndex"));
+        // Step 4-5: previousLastIndex = Get(rx,"lastIndex") (NO coercion). If
+        // SameValue(previousLastIndex, +0) is false, Set(rx,"lastIndex", 0).
         TsValue* prev = ts_object_get_property(recv, "lastIndex");
-        double prevN = prev ? ts_to_number(prev) : 0;
-        if (prevN != 0) {
+        TsValue* posZero = ts_value_make_int(0);
+        if (!regexp_same_value(prev ? prev : posZero, posZero)) {
             ts_object_set_dynamic((TsValue*)recv, liKey, ts_value_make_int(0));
         }
         void* result = ts_regexp_exec_observable(recv, sBoxed);
+        // Step 7: currentLastIndex = Get(rx,"lastIndex"). If
+        // SameValue(currentLastIndex, previousLastIndex) is false, restore.
         TsValue* cur = ts_object_get_property(recv, "lastIndex");
-        double curN = cur ? ts_to_number(cur) : 0;
-        if (curN != prevN) {
+        if (!regexp_same_value(cur ? cur : posZero, prev ? prev : posZero)) {
             ts_object_set_dynamic((TsValue*)recv, liKey,
                                   prev ? prev : ts_value_make_int(0));
         }
@@ -3287,11 +3351,12 @@ extern "C" {
         return ts_object_get_property(result, "index");
     }
 
-    // ECMA-262 22.2.7.3 AdvanceStringIndex (simple form): +1 code unit. Unicode
-    // surrogate-pair advance (+2 under the `u` flag) is a known residual.
+    // ECMA-262 22.2.7.3 AdvanceStringIndex (simple form): +1 code unit.
     static int64_t ts_regexp_advance_string_index(int64_t index) {
         return index + 1;
     }
+    // Surrogate-aware AdvanceStringIndex (defined below, used by @@match).
+    static int ts_regexp_adv_u(const icu::UnicodeString& S, int index, bool unicode);
 
     // ECMA-262 22.2.6.8 RegExp.prototype [ @@match ] ( string ). Non-global:
     // returns the single RegExpExec result (or null). Global: resets lastIndex,
@@ -3324,6 +3389,9 @@ extern "C" {
         TsString* fStr = (TsString*)ts_string_from_value(fv);
         const char* fC = fStr ? fStr->ToUtf8() : nullptr;
         bool global = fC && strchr(fC, 'g');
+        // ES 22.2.6.8 step 6.a: fullUnicode = flags contains "u" or "v" (used by
+        // AdvanceStringIndex to step over a surrogate pair after an empty match).
+        bool fullUnicode = fC && (strchr(fC, 'u') || strchr(fC, 'v'));
         if (!global) {
             void* result = ts_regexp_exec_observable(recv, sBoxed);
             return result ? (TsValue*)ts_value_make_object(result)
@@ -3342,16 +3410,17 @@ extern "C" {
             ts_array_push(arr, (void*)ts_value_make_string(mStr));
             n++;
             if (mStr->Length() == 0) {
+                // Empty match: ES 22.2.6.8 step reads ToLength(Get(rx,"lastIndex"))
+                // and advances (this coercion IS observable per spec).
                 TsValue* liv = ts_object_get_property(recv, "lastIndex");
                 int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
                 ts_object_set_dynamic((TsValue*)recv, liKey,
-                    ts_value_make_int(ts_regexp_advance_string_index(li)));
+                    ts_value_make_int(ts_regexp_adv_u(sStr->getUStr(), (int)li, fullUnicode)));
             }
-            {
-                TsValue* liv = ts_object_get_property(recv, "lastIndex");
-                int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
-                if (li > sLen + 1 || n > (int)sLen + 2) break;  // termination safety
-            }
+            // Termination safety: bound the loop by the match counter ALONE. A
+            // non-empty match must NOT coerce lastIndex (g-match-no-coerce-
+            // lastindex installs a throwing valueOf that spec never invokes).
+            if (n > (int)sLen + 2) break;
         }
         if (n == 0) return (TsValue*)ts_value_make_null();
         return (TsValue*)ts_value_make_object(arr);
@@ -3461,6 +3530,8 @@ extern "C" {
 
         const char* fC = fTs ? fTs->ToUtf8() : nullptr;
         bool global = fC && strchr(fC, 'g');
+        // ES 22.2.6.11 step 8.b: fullUnicode = flags contains "u" or "v".
+        bool fullUnicode = fC && (strchr(fC, 'u') || strchr(fC, 'v'));
         if (global) {
             ts_object_set_dynamic((TsValue*)recvRaw, liKey, ts_value_make_int(0));
         }
@@ -3523,7 +3594,7 @@ extern "C" {
                 TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
                 int64_t li = liv ? (int64_t)ts_to_number(liv) : 0;
                 ts_object_set_dynamic((TsValue*)recvRaw, liKey,
-                    ts_value_make_int(ts_regexp_advance_string_index(li)));
+                    ts_value_make_int(ts_regexp_adv_u(S, (int)li, fullUnicode)));
             }
             {
                 TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
@@ -3546,6 +3617,36 @@ extern "C" {
             if (c2 >= 0xDC00 && c2 <= 0xDFFF) return index + 2;
         }
         return index + 1;
+    }
+
+    // ES 7.3.22 SpeciesConstructor(O, %RegExp%), shared by @@split and @@matchAll.
+    // Returns the constructor to invoke, or nullptr meaning "use the default
+    // RegExp construction". THROWS TypeError when `constructor` is present but
+    // not an Object, or when its @@species is present, non-null, and not a
+    // constructor. (%RegExp% itself and undefined/null @@species mean "default".)
+    // No non-POD locals: a throw here is a clean longjmp.
+    static TsValue* regexp_species_constructor(void* recvRaw) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_get_global_RegExp();
+        extern bool ts_value_is_object(TsValue* v);
+        TsValue* c = ts_object_get_property(recvRaw, "constructor");
+        if (!c || ts_value_is_undefined(c)) return nullptr;              // default
+        if (!ts_value_is_object(c)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "RegExp SpeciesConstructor: constructor is not an Object"));
+            return nullptr;  // unreachable
+        }
+        void* cRaw = ts_value_get_object(c);
+        if (!cRaw) cRaw = (void*)c;
+        TsValue* sp = ts_object_get_property(cRaw, "[Symbol.species]");
+        if (!sp || ts_value_is_undefined(sp) || ts_value_is_null(sp)) return nullptr; // default
+        if (!ts_is_callable((void*)sp)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "RegExp SpeciesConstructor: @@species is not a constructor"));
+            return nullptr;  // unreachable
+        }
+        if ((void*)sp == ts_get_global_RegExp()) return nullptr;         // default
+        return sp;
     }
 
     // ECMA-262 22.2.6.14 RegExp.prototype [ @@split ] ( string, limit ). Uses a
@@ -3597,21 +3698,10 @@ extern "C" {
         bool unicodeMatching = flags.find('u') != std::string::npos;
         newFlags = flags;
         if (newFlags.find('y') == std::string::npos) newFlags += "y";
-        // SpeciesConstructor(rx, %RegExp%): Get(rx,"constructor") ->
-        // @@species; undefined/null fall back to the default construction.
-        TsValue* speciesFn = nullptr;
-        {
-            TsValue* c = ts_object_get_property(recvRaw, "constructor");
-            void* cRaw = c ? ts_value_get_object(c) : nullptr;
-            if (cRaw && (uintptr_t)cRaw >= 4096) {
-                TsValue* sp = ts_object_get_property(cRaw, "[Symbol.species]");
-                if (sp && !ts_value_is_undefined(sp) && !ts_value_is_null(sp) &&
-                    ts_is_callable((void*)sp)) {
-                    extern void* ts_get_global_RegExp();
-                    if ((void*)sp != ts_get_global_RegExp()) speciesFn = sp;
-                }
-            }
-        }
+        // SpeciesConstructor(rx, %RegExp%): validates `constructor`/@@species and
+        // throws a TypeError on a non-object constructor or non-constructor
+        // @@species; nullptr means "use the default construction".
+        TsValue* speciesFn = regexp_species_constructor(recvRaw);
         // The splitter is whatever Construct(C, «rx, newFlags») yields — ANY
         // object (ES 22.2.6.14 step 8). SpeciesConstructor(rx,%RegExp%) with a
         // custom @@species may hand back a plain object whose `exec` /
@@ -3716,17 +3806,12 @@ extern "C" {
     // nullptr for "use the default construction" (no custom species). NO C++
     // locals: a custom species can ts_throw.
     static TsRegExp* regexp_species_construct(void* recvRaw, const char* flagsC) {
-        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
-        extern void* ts_get_global_RegExp();
-        TsValue* c = ts_object_get_property(recvRaw, "constructor");
-        void* cRaw = c ? ts_value_get_object(c) : nullptr;
-        if (!cRaw || (uintptr_t)cRaw < 4096) return nullptr;
-        TsValue* sp = ts_object_get_property(cRaw, "[Symbol.species]");
-        if (!sp || ts_value_is_undefined(sp) || ts_value_is_null(sp) ||
-            !ts_is_callable((void*)sp) || (void*)sp == ts_get_global_RegExp()) {
-            return nullptr;
-        }
+        // ES 7.3.22 SpeciesConstructor with full validation (throws TypeError on
+        // a non-object constructor / non-constructor @@species). nullptr => the
+        // default RegExp construction.
+        TsValue* sp = regexp_species_constructor(recvRaw);
+        if (!sp) return nullptr;
         TsValue* fBoxed = (TsValue*)ts_value_make_string(TsString::Create(flagsC));
         TsValue* args2[2] = { (TsValue*)ts_value_make_object(recvRaw), fBoxed };
         TsValue* built = ts_new_from_constructor(sp, 2, args2);
