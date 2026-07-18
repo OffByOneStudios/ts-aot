@@ -3265,6 +3265,15 @@ void* ts_create_arguments_from_params(
                     return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
                 }
                 TsMap* proto = TsMap::Create();
+                // ES 27.3.3/27.4.3: generator fn `.prototype`.[[Prototype]] =
+                // %(Async)GeneratorPrototype% (mirrors the get_dynamic path).
+                if (closure->genKind == 1) {
+                    extern void* ts_get_generator_object_prototype();
+                    if (void* gp = ts_get_generator_object_prototype()) proto->SetPrototype((TsMap*)gp);
+                } else if (closure->genKind == 2) {
+                    extern void* ts_get_async_generator_object_prototype();
+                    if (void* gp = ts_get_async_generator_object_prototype()) proto->SetPrototype((TsMap*)gp);
+                }
                 // Set closure.prototype.constructor = closure (per ES spec)
                 TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
                 ctorKey.ptr_val = TsString::GetInterned("constructor");
@@ -5227,6 +5236,17 @@ void* ts_create_arguments_from_params(
                         return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
                     }
                     TsMap* proto = TsMap::Create();
+                    // ES 27.3.3/27.4.3: a generator function's `.prototype`.[[Prototype]]
+                    // is %GeneratorPrototype% (async: %AsyncGeneratorPrototype%), which
+                    // carries next/return/throw. Without this link
+                    // Object.getPrototypeOf((function*g(){}).prototype).next was undefined.
+                    if (closure->genKind == 1) {
+                        extern void* ts_get_generator_object_prototype();
+                        if (void* gp = ts_get_generator_object_prototype()) proto->SetPrototype((TsMap*)gp);
+                    } else if (closure->genKind == 2) {
+                        extern void* ts_get_async_generator_object_prototype();
+                        if (void* gp = ts_get_async_generator_object_prototype()) proto->SetPrototype((TsMap*)gp);
+                    }
                     // Set closure.prototype.constructor = closure
                     TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
                     ctorKey.ptr_val = TsString::GetInterned("constructor");
