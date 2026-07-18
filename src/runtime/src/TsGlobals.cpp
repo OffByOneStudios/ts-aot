@@ -7897,6 +7897,27 @@ void* ts_get_new_target() {
     return g_newTarget ? (void*)g_newTarget : (void*)ts_value_make_undefined();
 }
 
+// Attach a NON-constructor native method to a simple-ctor's .prototype, with
+// method attrs {writable:true, enumerable:false, configurable:true} (ES 26.x).
+extern "C" TsValue* ts_make_named_native_function(void* funcPtr, void* context,
+                                                  const char* name, int length);
+extern "C" TsValue* ts_weakref_deref_native(void*, int, TsValue**);
+extern "C" TsValue* ts_fr_register_native(void*, int, TsValue**);
+extern "C" TsValue* ts_fr_unregister_native(void*, int, TsValue**);
+static void addProtoNativeMethod(TsMap* ctor, const char* key, void* fn, int len) {
+    if (!ctor) return;
+    TsValue pk; pk.type = ValueType::STRING_PTR;
+    pk.ptr_val = TsString::GetInterned("prototype");
+    TsValue pv = ctor->Get(pk);
+    if (pv.type == ValueType::UNDEFINED || !pv.ptr_val) return;
+    TsMap* proto = (TsMap*)pv.ptr_val;
+    TsValue k; k.type = ValueType::STRING_PTR;
+    k.ptr_val = TsString::GetInterned(key);
+    proto->SetWithAttrs(k, nanbox_to_tagged(
+        ts_make_named_native_function(fn, nullptr, key, len)),
+        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+}
+
 // Resolve a BUILTIN global constructor by name (the same set the compiler
 // maps via ts_get_global_* in HIRToLLVM). Returns null for unknown names.
 // Used by ts_class_link_builtin_base for `class C extends <builtin>`.
@@ -7910,6 +7931,7 @@ void* ts_get_global_WeakRef() {
         TsMap* ctor = makeSimpleConstructorGlobal("WeakRef");
         cached = wrapAsCallable(ctor, "WeakRef", 1);
         setProtoConstructor(ctor, cached);
+        addProtoNativeMethod(ctor, "deref", (void*)ts_weakref_deref_native, 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
@@ -7921,6 +7943,8 @@ void* ts_get_global_FinalizationRegistry() {
         TsMap* ctor = makeSimpleConstructorGlobal("FinalizationRegistry");
         cached = wrapAsCallable(ctor, "FinalizationRegistry", 1);
         setProtoConstructor(ctor, cached);
+        addProtoNativeMethod(ctor, "register", (void*)ts_fr_register_native, 2);
+        addProtoNativeMethod(ctor, "unregister", (void*)ts_fr_unregister_native, 1);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
