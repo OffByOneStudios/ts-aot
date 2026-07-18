@@ -2590,6 +2590,18 @@ double TsTypedArray::Get(size_t index) {
     }
 }
 
+// ES 7.1.6 ToUint32: NaN/±Infinity -> 0, else truncate toward zero and reduce
+// modulo 2^32. A direct (int32_t)/(uint32_t) cast of an out-of-range double is
+// UB (produced INT32_MIN garbage — set/…-conversions). Narrower integer element
+// types take the low N bits of this value, matching ToInt8/ToUint8/ToInt16/etc.
+static inline uint32_t ts_js_to_uint32(double value) {
+    if (!std::isfinite(value)) return 0;   // catches NaN and ±Inf
+    double d = std::trunc(value);
+    double m = std::fmod(d, 4294967296.0); // (-2^32, 2^32)
+    if (m < 0) m += 4294967296.0;
+    return (uint32_t)m;
+}
+
 void TsTypedArray::Set(size_t index, double value) {
     if (index >= GetLength()) return;  // see Get: resizable-aware bound
     if (!buffer || buffer->IsDetached()) return;
@@ -2597,27 +2609,38 @@ void TsTypedArray::Set(size_t index, double value) {
     if (!data) return;
     switch (arrayType) {
         case TypedArrayType::Uint8Clamped:
-            if (value < 0) value = 0;
-            else if (value > 255) value = 255;
-            data[index] = (uint8_t)value;
+            // ToUint8Clamp: NaN -> 0, clamp to [0,255], round half to even.
+            if (!(value == value)) { data[index] = 0; break; }
+            if (value <= 0) { data[index] = 0; break; }
+            if (value >= 255) { data[index] = 255; break; }
+            {
+                double f = std::floor(value);
+                if (value - f == 0.5) {
+                    // round to even
+                    double r = (std::fmod(f, 2.0) == 0.0) ? f : f + 1.0;
+                    data[index] = (uint8_t)r;
+                } else {
+                    data[index] = (uint8_t)(f + (value - f >= 0.5 ? 1.0 : 0.0));
+                }
+            }
             break;
         case TypedArrayType::Uint8:
-            data[index] = (uint8_t)(int32_t)value;
+            data[index] = (uint8_t)ts_js_to_uint32(value);
             break;
         case TypedArrayType::Int8:
-            data[index] = (uint8_t)(int8_t)(int32_t)value;
+            data[index] = (uint8_t)ts_js_to_uint32(value);  // low 8 bits (ToInt8)
             break;
         case TypedArrayType::Uint16:
-            ((uint16_t*)data)[index] = (uint16_t)(int32_t)value;
+            ((uint16_t*)data)[index] = (uint16_t)ts_js_to_uint32(value);
             break;
         case TypedArrayType::Int16:
-            ((int16_t*)data)[index] = (int16_t)(int32_t)value;
+            ((uint16_t*)data)[index] = (uint16_t)ts_js_to_uint32(value); // low 16 bits
             break;
         case TypedArrayType::Uint32:
-            ((uint32_t*)data)[index] = (uint32_t)value;
+            ((uint32_t*)data)[index] = ts_js_to_uint32(value);
             break;
         case TypedArrayType::Int32:
-            ((int32_t*)data)[index] = (int32_t)value;
+            ((int32_t*)data)[index] = (int32_t)ts_js_to_uint32(value);
             break;
         case TypedArrayType::Float32:
             ((float*)data)[index] = (float)value;

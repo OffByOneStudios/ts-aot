@@ -2608,6 +2608,51 @@ extern "C" {
                                     ta->IsClamped(), ta->GetType());
     }
 
+    // TypedArraySpeciesCreate(exemplar, «buffer, byteOffset[, length]») —
+    // %TypedArray%.prototype.subarray (ES 23.2.3.27) constructs a NEW VIEW that
+    // SHARES `buffer` (not a copy). A custom @@species receives (buffer,
+    // byteOffset, length); the default path is a same-kind view on the buffer.
+    // autoLen=true omits the length arg (length-tracking view). Returns the raw
+    // TsTypedArray, or nullptr if a TypeError was thrown.
+    extern "C" void* ts_typed_array_species_alloc_on_buffer(
+            void* receiver, void* bufferRaw, int64_t byteOffset,
+            int64_t newLength, bool autoLen) {
+        TsTypedArray* ta = (TsTypedArray*)receiver;
+        if (!ta || !bufferRaw) return nullptr;
+        void* defaultCtor = default_ta_ctor_for(ta);
+        TsValue* ctorVal = species_constructor((void*)ta, defaultCtor);
+        if (!ctorVal) return nullptr;  // TypeError already thrown
+        if (ctorVal != (TsValue*)defaultCtor) {
+            TsValue* bufArg = ts_value_make_object(bufferRaw);
+            TsValue* offArg = ts_value_make_int(byteOffset);
+            TsValue* args[3] = { bufArg, offArg, nullptr };
+            int nargs = 2;
+            if (!autoLen) { args[2] = ts_value_make_int(newLength); nargs = 3; }
+            extern TsValue* ts_new_from_constructor(TsValue*, int, TsValue**);
+            TsValue* result = ts_new_from_constructor(ctorVal, nargs, args);
+            if (!result) return nullptr;  // abrupt completion propagates
+            void* resRaw = ts_value_get_object(result);
+            if (resRaw && *(uint32_t*)((char*)resRaw + 16) == TsTypedArray::MAGIC)
+                return resRaw;
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArraySpeciesCreate: result is not a TypedArray"));
+            return nullptr;
+        }
+        // Default path: same-kind view sharing the buffer. Per
+        // InitializeTypedArrayFromArrayBuffer, constructing a view on a DETACHED
+        // buffer is a TypeError (subarray/detached-buffer: coercions run first,
+        // then the TypedArrayCreate throws).
+        TsBuffer* buf = (TsBuffer*)bufferRaw;
+        if (buf->IsDetached()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot construct a TypedArray on a detached ArrayBuffer"));
+            return nullptr;
+        }
+        return TsTypedArray::CreateOnBuffer(buf,
+            (size_t)byteOffset, (size_t)(autoLen ? 0 : newLength),
+            ta->GetElementSize(), ta->IsClamped(), ta->GetType(), autoLen);
+    }
+
     // Helper: given a TsArray result from map/filter on a TypedArray receiver,
     // allocate a TypedArray (via SpeciesConstructor) and copy the elements in.
     // Per ECMA-262 22.2.4.7 TypedArraySpeciesCreate.

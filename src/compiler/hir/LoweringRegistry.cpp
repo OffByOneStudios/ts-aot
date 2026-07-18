@@ -938,10 +938,10 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_charAt",
-        lowering("ts_string_charAt")
+        lowering("ts_string_charAt_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // index
+            .boxedArg()    // index - ToIntegerOrInfinity in runtime (NaN->0, throws on Symbol)
             .build());
 
     reg.registerLowering("ts_string_charCodeAt",
@@ -1030,11 +1030,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_substring",
-        lowering("ts_string_substring")
+        lowering("ts_string_substring_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // start
-            .i64Arg()      // end
+            .boxedArg()    // start - ToIntegerOrInfinity in runtime (NaN->0, throws on Symbol)
+            .boxedArg()    // end   - ToIntegerOrInfinity in runtime (undefined->length)
             .build());
 
     reg.registerLowering("ts_string_substr",
