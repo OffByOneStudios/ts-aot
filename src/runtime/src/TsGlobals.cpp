@@ -5822,13 +5822,23 @@ extern "C" TsValue* ts_global_var_get(const char* name) {
     // Builtin-constructor globalThis entries hold only their NAME STRING
     // (kTA trap) — swap in the real constructor, mirroring the
     // interpreter's envLookup (a tainted `var Map = ...` reads the marker
-    // before its assignment runs).
-    void* sraw = ts_value_get_string(v);
-    if (sraw) {
-        const char* sc = ((TsString*)sraw)->ToUtf8();
-        if (sc && strcmp(sc, name) == 0) {
-            if (void* ctor = ts_interp_global_ctor_by_name(name))
-                return (TsValue*)ctor;
+    // before its assignment runs). Test the marker WITHOUT coercing: a plain
+    // ts_value_get_string on an object runs ToPrimitive (valueOf/toString), so
+    // merely READING a global that holds an object with a custom valueOf fired
+    // that valueOf as a side effect (e.g. a top-level `var poisoned={valueOf(){throw}}`
+    // threw on read, before any operation used it). Only a genuine string can be
+    // the name marker.
+    uint64_t nbv = nanbox_from_tsvalue_ptr(v);
+    if (nanbox_is_ptr(nbv)) {
+        void* praw = nanbox_to_ptr(nbv);
+        if (praw && (uintptr_t)praw >= 4096 &&
+            (*(uint32_t*)praw == TsString::MAGIC ||
+             *(uint32_t*)praw == TsConsString::MAGIC)) {
+            const char* sc = ((TsString*)praw)->ToUtf8();
+            if (sc && strcmp(sc, name) == 0) {
+                if (void* ctor = ts_interp_global_ctor_by_name(name))
+                    return (TsValue*)ctor;
+            }
         }
     }
     return v;
