@@ -264,6 +264,39 @@ public:
         return true;
     }
 
+    // Live insertion-order cursor (ECMA-262 Map/Set [[MapData]]/[[SetData]]
+    // index semantics). Finds the live entry with the smallest insertion `seq`
+    // that is > `afterSeq` (or the global minimum when `first` is true) and
+    // < `seqLimit`. Returns false when none remain. Re-scanning the table on
+    // every call makes iteration tolerate concurrent mutation between steps:
+    // a deleted slot vanishes, and a re-added/appended element (fresh, higher
+    // seq) is visited later — exactly the spec's "reevaluate the list each
+    // iteration" behavior that snapshot iteration cannot provide.
+    // `seqLimit`: pass CurrentSeqMark() captured before iterating to bound out
+    // elements appended during iteration (fixed-size composition loops); pass
+    // UINT64_MAX for unbounded forEach semantics.
+    bool NextLiveBySeq(bool first, uint64_t afterSeq, uint64_t seqLimit,
+                       TsValue* outKey, TsValue* outVal, uint64_t* outSeq) const {
+        bool found = false; uint64_t best = 0; size_t bestIdx = 0;
+        for (size_t i = 0; i < capacity_; i++) {
+            uint8_t c = ctrl_[i];
+            if (c == CTRL_EMPTY || c == CTRL_DELETED) continue;
+            uint64_t s = entries_[i].seq;
+            if (s >= seqLimit) continue;
+            if (!first && s <= afterSeq) continue;
+            if (!found || s < best) { found = true; best = s; bestIdx = i; }
+        }
+        if (!found) return false;
+        if (outKey) *outKey = entries_[bestIdx].key;
+        if (outVal) *outVal = entries_[bestIdx].value;
+        *outSeq = best;
+        return true;
+    }
+
+    // Next insertion seq that will be assigned. Every element currently live has
+    // seq < this; any element inserted after this call gets seq >= this value.
+    uint64_t CurrentSeqMark() const { return insert_seq_; }
+
     static constexpr size_t NOT_FOUND = (size_t)-1;
 
     // Cheap structural sanity check. A stale/corrupt TsMap (e.g. a moved
