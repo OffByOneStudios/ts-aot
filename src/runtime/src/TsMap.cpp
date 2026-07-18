@@ -1784,25 +1784,170 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
     }
     setDone(); return ih_make_result(nullptr, true);
 }
-// ECMA-262 27.1.4.1 Iterator.from(O): get O's iterator (via @@iterator, else O
-// itself if it has .next), and if it isn't already a %IteratorPrototype% iterator
-// wrap it so the helpers apply.
+// ============================================================================
+// %WrapForValidIteratorPrototype% (ES 27.1.3.1.1) — the [[Prototype]] of the
+// object Iterator.from returns when the source is NOT already an Iterator
+// instance (i.e. it does not inherit %IteratorPrototype%). Its next/return
+// delegate to the wrapped iterator record stored on the wrapper as hidden own
+// props "__wrapiter" (the iterator) and "__wrapnext" (its cached next method).
+// Its own [[Prototype]] is %IteratorPrototype% (result-proto.js asserts that
+// Object.getPrototypeOf(WrapForValidIteratorPrototype) === Iterator.prototype).
+// ============================================================================
+extern "C" TsValue* ts_object_getPrototypeOf(TsValue* obj);
+static TsMap* g_wrap_for_valid_iter_prototype = nullptr;
+
+// CreateIterResultObject(value, done).
+static TsValue* wrap_make_result(TsValue* value, bool done) {
+    TsMap* r = TsMap::Create();
+    TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+    r->Set(vk, value ? nanbox_to_tagged(value) : TsValue());
+    TsValue dk; dk.type = ValueType::STRING_PTR; dk.ptr_val = TsString::GetInterned("done");
+    TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = done ? 1 : 0; r->Set(dk, dv);
+    return ts_value_make_object(r);
+}
+
+// RequireInternalSlot(O, [[Iterated]]): a genuine wrapper has its [[Prototype]]
+// === %WrapForValidIteratorPrototype%. We test prototype identity WITHOUT
+// reading any property off the receiver, so that .return.call(proxy) does not
+// trigger the proxy's get trap (return-method-throws-for-invalid-this asserts
+// zero observed operations on an invalid `this`).
+static bool wrap_is_valid_this(TsValue* thisV) {
+    if (!thisV || !g_wrap_for_valid_iter_prototype) return false;
+    TsValue* protoV = ts_object_getPrototypeOf(thisV);
+    if (!protoV) return false;
+    void* protoRaw = ts_value_get_object(protoV);
+    return protoRaw && protoRaw == (void*)g_wrap_for_valid_iter_prototype;
+}
+
+// %WrapForValidIteratorPrototype%.next(): return Call(nextMethod, iterator)
+// — the underlying result object is returned DIRECTLY (not re-wrapped).
+static TsValue* wrap_iter_proto_next(void* ctx, int argc, TsValue** argv) {
+    (void)argc; (void)argv;
+    if (!ctx) ctx = ts_get_call_this();
+    TsValue* thisV = (TsValue*)ctx;
+    if (!wrap_is_valid_this(thisV)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.from wrapper next called on incompatible receiver"));
+        return ts_value_make_undefined();
+    }
+    void* raw = ts_value_get_object(thisV); if (!raw) raw = thisV;
+    TsValue* iterator = ts_object_get_property(raw, "__wrapiter");
+    TsValue* nextFn   = ts_object_get_property(raw, "__wrapnext");
+    if (!nextFn || !ts_is_callable((void*)nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not a function"));
+        return ts_value_make_undefined();
+    }
+    return ts_function_call_with_this(nextFn, iterator, 0, nullptr);
+}
+
+// %WrapForValidIteratorPrototype%.return(): GetMethod(iterator, "return"); if
+// undefined return CreateIterResultObject(undefined, true), else forward.
+static TsValue* wrap_iter_proto_return(void* ctx, int argc, TsValue** argv) {
+    (void)argc; (void)argv;
+    if (!ctx) ctx = ts_get_call_this();
+    TsValue* thisV = (TsValue*)ctx;
+    if (!wrap_is_valid_this(thisV)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.from wrapper return called on incompatible receiver"));
+        return ts_value_make_undefined();
+    }
+    void* raw = ts_value_get_object(thisV); if (!raw) raw = thisV;
+    TsValue* iterator = ts_object_get_property(raw, "__wrapiter");
+    void* itRaw = ts_value_get_object(iterator); if (!itRaw) itRaw = iterator;
+    TsValue* retM = ts_object_get_property(itRaw, "return");  // GetMethod
+    if (!retM || ts_value_is_nullish(retM))
+        return wrap_make_result(ts_value_make_undefined(), true);
+    if (!ts_is_callable((void*)retM)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.return is not a function"));
+        return ts_value_make_undefined();
+    }
+    return ts_function_call_with_this(retM, iterator, 0, nullptr);
+}
+
+static TsMap* getWrapForValidIterPrototype() {
+    if (!g_wrap_for_valid_iter_prototype) {
+        ts_gc_push_tenure();
+        TsMap* p = TsMap::Create();
+        ts_map_addMethod_local(p, "next", (void*)wrap_iter_proto_next, 0);
+        ts_map_addMethod_local(p, "return", (void*)wrap_iter_proto_return, 0);
+        p->SetPrototype(getIteratorPrototype());
+        g_wrap_for_valid_iter_prototype = p;
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_wrap_for_valid_iter_prototype);
+    }
+    return g_wrap_for_valid_iter_prototype;
+}
+
+// ECMA-262 27.1.3.1 Iterator.from(O):
+//   1. iteratorRecord = ? GetIteratorFlattenable(O, iterate-string-primitives)
+//   2. hasInstance = ? OrdinaryHasInstance(%Iterator%, iteratorRecord.[[Iterator]])
+//   3. If hasInstance, return iteratorRecord.[[Iterator]] (already a valid Iterator).
+//   4. Else return an OrdinaryObjectCreate(%WrapForValidIteratorPrototype%) whose
+//      [[Iterated]] slot is iteratorRecord.
 extern "C" void* ts_iterator_from(void* argRaw) {
     TsValue* arg = (TsValue*)argRaw;
     if (!arg) { ts_throw((TsValue*)ts_error_create_typed("TypeError", "Iterator.from of undefined")); return (void*)ts_value_make_undefined(); }
-    void* raw = ts_value_get_object(arg); if (!raw) raw = arg;
-    TsValue* iter = arg;
+
+    // GetIteratorFlattenable step 1: if O is not an Object, only Strings are
+    // accepted (ToObject'd); every other primitive throws a TypeError. Only a
+    // real heap pointer may be dereferenced for the string-magic probe —
+    // primitive numbers/bools unbox to a nanboxed immediate, not a pointer.
+    void* objp = ts_value_get_object(arg);   // non-null for string/object/etc.
+    bool isString = false;
+    if (objp && (uintptr_t)objp >= 0x1000) {
+        uint32_t m0 = *(uint32_t*)objp;
+        isString = (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/);
+    }
+    if (!ts_value_is_object(arg) && !isString) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.from called on a non-iterable primitive"));
+        return (void*)ts_value_make_undefined();
+    }
+    void* raw = objp ? objp : (void*)arg;
+
+    // method = ? GetMethod(O, @@iterator)
     TsValue* itf = ts_object_get_property(raw, "[Symbol.iterator]");
-    if (itf && ts_is_callable((void*)itf)) {
+    TsValue* iter = arg;
+    if (itf && !ts_value_is_nullish(itf)) {
+        if (!ts_is_callable((void*)itf)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.from: @@iterator is not callable"));
+            return (void*)ts_value_make_undefined();
+        }
         iter = ts_function_call_with_this(itf, arg, 0, nullptr);
-    } else {
-        TsValue* nx = ts_object_get_property(raw, "next");
-        if (!nx || !ts_is_callable((void*)nx)) {
-            ts_throw((TsValue*)ts_error_create_typed("TypeError", "Iterator.from argument is not iterable"));
+        if (!ts_value_is_object(iter)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.from: @@iterator returned a non-object"));
             return (void*)ts_value_make_undefined();
         }
     }
-    return (void*)make_iter_helper(5, iter, nullptr, 0);
+    // nextMethod = ? Get(iterator, "next") — read ONCE (a throwing `next`
+    // getter propagates; a missing/non-callable value is only an error when
+    // the wrapper's next is actually called).
+    void* iterRaw = ts_value_get_object(iter); if (!iterRaw) iterRaw = iter;
+    TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+
+    // OrdinaryHasInstance(%Iterator%, iterator): if iterator already inherits
+    // %IteratorPrototype%, it is a valid Iterator — return it unchanged.
+    {
+        TsMap* iterProto = getIteratorPrototype();
+        TsValue* cur = ts_object_getPrototypeOf(iter);
+        for (int i = 0; i < 10000 && cur && !ts_value_is_nullish(cur); i++) {
+            if (ts_value_get_object(cur) == (void*)iterProto) return (void*)iter;
+            cur = ts_object_getPrototypeOf(cur);
+        }
+    }
+
+    // Wrap it in a %WrapForValidIteratorPrototype% object storing the record.
+    TsMap* wrapper = TsMap::Create();
+    wrapper->SetPrototype(getWrapForValidIterPrototype());
+    TsValue wk; wk.type = ValueType::STRING_PTR; wk.ptr_val = TsString::GetInterned("__wrapiter");
+    wrapper->SetWithAttrs(wk, nanbox_to_tagged(iter), 0);
+    TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("__wrapnext");
+    wrapper->SetWithAttrs(nk, nextFn ? nanbox_to_tagged(nextFn) : TsValue(), 0);
+    return (void*)ts_value_make_object(wrapper);
 }
 static TsMap* g_iter_helper_prototype = nullptr;
 // %IteratorHelperPrototype%.return (ES 27.1.4.3.2): mark the helper done and

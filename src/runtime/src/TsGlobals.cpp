@@ -4148,6 +4148,18 @@ static bool iterseq_is_callable(TsValue* v) {
     return ts_is_callable((void*)v);  // canonical IsCallable (TsObject.cpp)
 }
 
+// Iterator.concat's result behaves like the spec generator: it carries a
+// state so re-entrant next/return (while "executing") throw, and so return
+// only forwards IteratorClose to a currently-suspended inner iterator.
+// __state: 0 suspendedStart, 1 suspendedYield, 2 executing, 3 completed.
+static inline void iterseq_set_state(TsMap* st, int64_t s) {
+    TsValue v; v.type = ValueType::NUMBER_INT; v.i_val = s;
+    st->Set(TsString::GetInterned("__state"), v);
+}
+static inline int64_t iterseq_get_state(TsMap* st) {
+    return (int64_t)ts_to_number(ts_object_get_property(st, "__state"));
+}
+
 // next() of the iterator returned by Iterator.concat. State (ctx) is the
 // iterator TsMap itself: "__items" = flat [iterable, method, ...] pairs,
 // "__idx" = next pair index, "__inner" = current inner iterator (lazily
@@ -4157,6 +4169,14 @@ static bool iterseq_is_callable(TsValue* v) {
 static TsValue* iterator_concat_next(void* ctx, TsValue* /*arg*/) {
     TsMap* st = (TsMap*)ctx;
     if (!st) return iterseq_done_result();
+    int64_t state = iterseq_get_state(st);
+    if (state == 2) {  // executing -> re-entrant next (GeneratorValidate)
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.concat: generator is already running"));
+        return iterseq_done_result();
+    }
+    if (state == 3) return iterseq_done_result();  // completed
+    iterseq_set_state(st, 2);  // executing
     for (;;) {
         TsValue* innerV = ts_object_get_property(st, "__inner");
         void* innerRaw = innerV ? ts_value_get_object(innerV) : nullptr;
@@ -4165,6 +4185,7 @@ static TsValue* iterator_concat_next(void* ctx, TsValue* /*arg*/) {
             TsArray* items = itemsV ? (TsArray*)ts_value_get_object(itemsV) : nullptr;
             int64_t idx = (int64_t)ts_to_number(ts_object_get_property(st, "__idx"));
             if (!items || idx * 2 >= (int64_t)items->Length()) {
+                iterseq_set_state(st, 3);  // completed
                 return iterseq_done_result();
             }
             TsValue* iterable = (TsValue*)(intptr_t)items->Get((size_t)(idx * 2));
@@ -4200,6 +4221,7 @@ static TsValue* iterator_concat_next(void* ctx, TsValue* /*arg*/) {
             res->Set(TsString::GetInterned("value"),
                      nanbox_to_tagged((TsValue*)arr->GetElementBoxed((size_t)ii)));
             res->Set(TsString::GetInterned("done"), TsValue(false));
+            iterseq_set_state(st, 1);  // suspendedYield
             return ts_value_make_object(res);
         }
         TsValue* nextFn = ts_object_get_property(innerRaw, "next");
@@ -4222,8 +4244,40 @@ static TsValue* iterator_concat_next(void* ctx, TsValue* /*arg*/) {
             st->Set(TsString::GetInterned("__inner"), undef);
             continue;
         }
+        iterseq_set_state(st, 1);  // suspendedYield
         return res;
     }
+}
+
+// return() of the Iterator.concat result. Per the spec generator model, it
+// performs IteratorClose on the currently-suspended inner iterator (forwarding
+// its `return` with zero arguments) and completes. It does NOT forward before
+// the first next (suspendedStart) or after exhaustion/close (completed), and
+// throws if invoked while the generator is executing.
+static TsValue* iterator_concat_return(void* ctx, TsValue* /*arg*/) {
+    TsMap* st = (TsMap*)ctx;
+    if (!st) return iterseq_done_result();
+    int64_t state = iterseq_get_state(st);
+    if (state == 2) {  // executing -> re-entrant return (GeneratorValidate)
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.concat: generator is already running"));
+        return iterseq_done_result();
+    }
+    if (state == 1) {  // suspendedYield -> IteratorClose(inner)
+        iterseq_set_state(st, 2);  // executing (re-entrant next/return throws)
+        TsValue* innerV = ts_object_get_property(st, "__inner");
+        void* innerRaw = innerV ? ts_value_get_object(innerV) : nullptr;
+        // Plain-array inner shape has no user-observable return.
+        if (innerRaw && *(uint32_t*)innerRaw != 0x41525259 /*ARRY*/) {
+            TsValue* retM = ts_object_get_property(innerRaw, "return");
+            if (retM && ts_is_callable((void*)retM))
+                ts_call_with_this_0(retM, innerV);  // 0 args; may throw (propagates)
+        }
+        TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
+        st->Set(TsString::GetInterned("__inner"), undef);
+    }
+    iterseq_set_state(st, 3);  // completed
+    return iterseq_done_result();
 }
 
 static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
@@ -4268,8 +4322,11 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
     TsValue zero; zero.type = ValueType::NUMBER_INT; zero.i_val = 0;
     st->Set(TsString::GetInterned("__idx"), zero);
     st->Set(TsString::GetInterned("__innerIdx"), zero);
+    iterseq_set_state(st, 0);  // suspendedStart
     st->Set(TsString::GetInterned("next"),
             nanbox_to_tagged(ts_value_make_function((void*)iterator_concat_next, st)));
+    st->Set(TsString::GetInterned("return"),
+            nanbox_to_tagged(ts_value_make_function((void*)iterator_concat_return, st)));
     // [Symbol.iterator]() returns the iterator itself.
     st->Set(TsString::GetInterned("[Symbol.iterator]"),
             nanbox_to_tagged(ts_value_make_function(
@@ -4294,7 +4351,7 @@ void* ts_get_global_Iterator() {
     if (!cached) {
         cached = makeSimpleConstructorGlobal("Iterator");
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
-        addMethod(cached, "concat", (void*)iterator_concat_native, 1);
+        addMethod(cached, "concat", (void*)iterator_concat_native, 0);
         addMethod(cached, "from", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
               return (TsValue*)ts_iterator_from((argc>=1&&argv)?(void*)argv[0]:(void*)ts_value_make_undefined());
           }, 1);

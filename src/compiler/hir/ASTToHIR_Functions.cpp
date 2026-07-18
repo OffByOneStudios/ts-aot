@@ -1318,6 +1318,21 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         for (auto& stmt : node->body) {
             collectHoistedVarNames(stmt.get(), hoistedVars, &hoistedFns);
         }
+        {
+            // Annex B B.3.3: suppress the var-copy for a block-level fn name that
+            // clashes with a top-level lexical declaration of THIS function
+            // (skip-early-err). Mirrors visitFunctionDeclaration — without it the
+            // fn-hoist alloca is created here BEFORE the let/const pre-pass runs,
+            // so the lexical binding never gets its own slot and the block-level
+            // function's Annex B var-copy corrupts the `let`/`const` value.
+            std::set<std::string> lexNames_;
+            collectTopLevelLexicalNames(node->body, lexNames_);
+            for (auto& fn_ : hoistedFns)
+                if (lexNames_.count(fn_))
+                    hoistedVars.erase(std::remove(hoistedVars.begin(), hoistedVars.end(), fn_), hoistedVars.end());
+            hoistedFns.erase(std::remove_if(hoistedFns.begin(), hoistedFns.end(),
+                [&](const std::string& x){ return lexNames_.count(x) != 0; }), hoistedFns.end());
+        }
         for (auto& name : hoistedVars) {
             if (lookupVariableInfoInCurrentFunction(name)) continue;
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
