@@ -2764,6 +2764,14 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
                     /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
+                    /* ES 25.3.1.5 SetViewValue: ToIndex(offset) throws RangeError for a \
+                       negative/too-large index BEFORE ToNumber(value) runs, so a poisoned \
+                       value's valueOf must NOT fire on an out-of-range offset. */ \
+                    if (off < 0 || offD > 9007199254740991.0) { \
+                        ts_throw((TsValue*)ts_error_create_typed("RangeError", \
+                            "DataView offset is out of range")); \
+                        return ts_value_make_undefined(); \
+                    } \
                     double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : 0.0; \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
                     if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \

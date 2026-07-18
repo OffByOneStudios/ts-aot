@@ -1570,12 +1570,25 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
 
-        // Private member WRITE brand check: on an untyped receiver `obj.#x = v`
-        // must throw TypeError if obj is not an instance of the declaring class
-        // (ts_object_set_private validates the hidden field / private setter is
-        // present). A typed receiver is a provable instance → direct hidden-key set.
-        if (!propAccess->name.empty() && propAccess->name[0] == '#'
-            && obj->type && obj->type->kind == HIRTypeKind::Any) {
+        // Private member WRITE brand check (ES PrivateFieldSet / PrivateSet):
+        // route through ts_object_set_private for BOTH dynamic (Any) and TYPED
+        // receivers. A statically-typed `this.#x = v` can be dynamically foreign
+        // — the method may be `.call`'d on an arbitrary object, or `this` inside
+        // an inner class that does not itself declare `#x` (the name resolves to
+        // an enclosing class). Such a receiver lacks the private field slot /
+        // private setter and must throw TypeError, not silently create a slot.
+        // A real declaring-class instance pre-allocates the field slot in its
+        // flat shape, so ts_object_set_private finds it and the write succeeds.
+        // Reached only after the compiler-known setter dispatch above did not
+        // fire (no such setter), so this cannot shadow a real private setter.
+        if (!propAccess->name.empty() && propAccess->name[0] == '#') {
+            // PutValue on a plain method Private Name is always a TypeError
+            // (with the method-specific message), independent of receiver.
+            if (privateMemberKindOf(propAccess->name) == 'm') {
+                auto nm = builder_.createConstString(propAccess->name);
+                builder_.createCall("ts_throw_private_method_write", {nm},
+                                    HIRType::makeVoid());
+            }
             auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             builder_.createCall("ts_object_set_private",
                 {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
@@ -1766,6 +1779,16 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
+                // Private destructuring target (`[this.#x] = ...`, `({a: this.#x} = ...)`):
+                // PutValue on a private reference brand-checks the receiver and
+                // throws TypeError if it lacks the field/setter (member .call'd
+                // on a foreign object). Route through ts_object_set_private.
+                if (!tgt->name.empty() && tgt->name[0] == '#') {
+                    auto pk = builder_.createConstString(resolvePrivateName(tgt->name));
+                    builder_.createCall("ts_object_set_private",
+                        {obj, pk, boxValueIfNeeded(value)}, HIRType::makeVoid());
+                    return;
+                }
                 builder_.createSetPropStatic(obj, resolvePrivateKey(tgt->name), value);
                 return;
             }
@@ -1858,6 +1881,14 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
+                // NOTE: OBJECT-pattern private targets are intentionally NOT
+                // brand-checked here. `({a: this.#x} = src)` can legitimately
+                // add the field via a side-effecting `src` getter that runs a
+                // derived `new C(this)` before the write (privatefieldset-
+                // evaluation-order-3). ts-aot does not yet honor a derived
+                // constructor's object-return-override, so brand-checking here
+                // throws before the field is (should be) added. Array-pattern
+                // targets brand-check (no such ordering hazard).
                 builder_.createSetPropStatic(obj, resolvePrivateKey(tgt->name), value);
                 return;
             }
