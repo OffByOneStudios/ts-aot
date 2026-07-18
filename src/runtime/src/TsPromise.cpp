@@ -2332,8 +2332,12 @@ static TsValue* spec_make_native1(void* fnPtr, void* ctx, int arity) {
     return fn;
 }
 
-// 27.2.1.5.1 GetCapabilitiesExecutor: stores (resolve, reject) once; a second
-// invocation (either slot already set) throws TypeError.
+// 27.2.1.5.1 GetCapabilitiesExecutor: sets (resolve, reject) once. Per the
+// spec, a TypeError is thrown ONLY if [[Resolve]] or [[Reject]] is already
+// *not undefined* — so an executor may legitimately be invoked first with
+// undefined slots (`executor()` or `executor(undefined, undefined)`) and then
+// again with real functions. We represent an undefined/unset slot as nullptr,
+// so a non-null slot means "already holds a non-undefined value" -> throw.
 static TsValue* spec_capability_executor(void* ctx, int argc, TsValue** argv) {
     SpecCapExecCtx* c = (SpecCapExecCtx*)ctx;
     if (!c || !c->cap) return ts_value_make_undefined();
@@ -2341,8 +2345,12 @@ static TsValue* spec_capability_executor(void* ctx, int argc, TsValue** argv) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Promise executor has already been invoked"));
     }
-    c->cap->resolveFn = (argc > 0 && argv) ? argv[0] : ts_value_make_undefined();
-    c->cap->rejectFn  = (argc > 1 && argv) ? argv[1] : ts_value_make_undefined();
+    TsValue* r = (argc > 0 && argv) ? argv[0] : nullptr;
+    TsValue* j = (argc > 1 && argv) ? argv[1] : nullptr;
+    // Store undefined as nullptr so a subsequent call with real resolve/reject
+    // is still honored; any non-undefined value locks the slot per steps 3-4.
+    c->cap->resolveFn = (r && !ts_value_is_undefined(r)) ? r : nullptr;
+    c->cap->rejectFn  = (j && !ts_value_is_undefined(j)) ? j : nullptr;
     return ts_value_make_undefined();
 }
 

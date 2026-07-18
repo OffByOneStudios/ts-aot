@@ -6643,12 +6643,15 @@ void* ts_get_global_TypedArray() {
                 }
                 return ts_value_make_string(TsString::Create(name));
             });
-            #define TA_PROTO_STUB(NAME) \
+            // ARITY is the spec-mandated Function.length (ES 23.2.3: count of
+            // params before the first optional/rest), stored via addMethod so
+            // `%TypedArray%.prototype.<name>.length` reads the correct value.
+            #define TA_PROTO_STUB(NAME, ARITY) \
                 addMethod(tproto, #NAME, (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* { \
                     TsTypedArray* ta = requireTypedArrayOrThrow(ctx, #NAME); \
                     if (!ta) return ts_value_make_undefined(); \
                     return ts_value_make_undefined(); \
-                })
+                }, ARITY)
 
             // entries/keys/values: delegate to the array iterator helpers.
             // ts_array_entries/keys/values fall through to a generic
@@ -6659,19 +6662,19 @@ void* ts_get_global_TypedArray() {
                 if (!ta) return ts_value_make_undefined();
                 void* result = ts_array_entries((void*)ta);
                 return ts_value_make_object(result);
-            });
+            }, 0);
             addMethod(tproto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "keys");
                 if (!ta) return ts_value_make_undefined();
                 void* result = ts_array_keys((void*)ta);
                 return ts_value_make_object(result);
-            });
+            }, 0);
             addMethod(tproto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "values");
                 if (!ta) return ts_value_make_undefined();
                 void* result = ts_array_values((void*)ta);
                 return ts_value_make_object(result);
-            });
+            }, 0);
 
             // Callback-based iteration methods: delegate to ts_array_*
             // which already routes TypedArray receivers through the native
@@ -6720,21 +6723,22 @@ void* ts_get_global_TypedArray() {
                 return ta_reduce_impl(ctx, argc, argv, "reduceRight", true);
             });
 
-            TA_PROTO_STUB(copyWithin);
-            TA_PROTO_STUB(fill);
-            TA_PROTO_STUB(includes);
-            TA_PROTO_STUB(indexOf);
-            TA_PROTO_STUB(join);
-            TA_PROTO_STUB(lastIndexOf);
-            TA_PROTO_STUB(reverse);
-            TA_PROTO_STUB(set);
-            TA_PROTO_STUB(slice);
-            TA_PROTO_STUB(sort);
-            TA_PROTO_STUB(subarray);
-            TA_PROTO_STUB(toLocaleString);
-            TA_PROTO_STUB(toReversed);
-            TA_PROTO_STUB(toSorted);
-            TA_PROTO_STUB(at);
+            TA_PROTO_STUB(copyWithin, 2);
+            TA_PROTO_STUB(fill, 1);
+            TA_PROTO_STUB(includes, 1);
+            TA_PROTO_STUB(indexOf, 1);
+            TA_PROTO_STUB(join, 1);
+            TA_PROTO_STUB(lastIndexOf, 1);
+            TA_PROTO_STUB(reverse, 0);
+            TA_PROTO_STUB(set, 1);
+            TA_PROTO_STUB(slice, 2);
+            TA_PROTO_STUB(sort, 1);
+            TA_PROTO_STUB(subarray, 2);
+            TA_PROTO_STUB(toLocaleString, 0);
+            TA_PROTO_STUB(toReversed, 0);
+            TA_PROTO_STUB(toSorted, 1);
+            TA_PROTO_STUB(with, 2);
+            TA_PROTO_STUB(at, 1);
             #undef TA_PROTO_STUB
         }
     }

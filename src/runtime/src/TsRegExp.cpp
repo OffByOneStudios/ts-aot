@@ -1,6 +1,7 @@
 #include "TsRegExp.h"
 #include "TsHashTable.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <cstdio>
 #include <vector>
 #include <algorithm>
@@ -11,6 +12,8 @@
 #include <unicode/unistr.h>
 #include <unicode/regex.h>
 #include <unicode/uniset.h>
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
 #include <unicode/usetiter.h>
 #include <regex>
 
@@ -193,6 +196,10 @@ TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
     return new(mem) TsRegExp(pattern, flags);
 }
 
+// Defined below (near the ICU escape helpers): decodes a group name's
+// \u / \u{...} escapes into canonical UTF-8 so .groups keys match the JS name.
+static std::string decodeGroupName(const std::string& raw);
+
 // Parse pattern to extract named capture groups (?<name>...)
 // Returns a vector of (name, groupNumber) pairs
 void TsRegExp::parseNamedGroups() {
@@ -239,7 +246,7 @@ void TsRegExp::parseNamedGroups() {
                         size_t nameStart = i + 3;
                         size_t nameEnd = patternUtf8.find('>', nameStart);
                         if (nameEnd != std::string::npos) {
-                            std::string name = patternUtf8.substr(nameStart, nameEnd - nameStart);
+                            std::string name = decodeGroupName(patternUtf8.substr(nameStart, nameEnd - nameStart));
                             namedGroups.push_back({name, groupNumber});
                             i = nameEnd + 1;
                             continue;
@@ -310,6 +317,198 @@ static inline long reCombine(long hi, long lo) {
 }
 static void reAppendCp(std::string& out, long cp) {
     char buf[16]; snprintf(buf, sizeof(buf), "\\x{%lX}", cp); out += buf;
+}
+
+// ---------------------------------------------------------------------------
+// JS named-capture-group -> ICU-safe-name rewrite.
+//
+// ICU accepts capture-group names matching [A-Za-z][A-Za-z0-9]* only, while
+// ECMAScript permits any RegExpIdentifierName ($, _, Unicode ID chars and \u
+// escapes) as a group name. We rewrite each (?<name>...) definition and every
+// \k<name> backreference to a generated ASCII-safe name (already-safe names are
+// left untouched). Group POSITION is preserved, so the runtime's numbered-group
+// matching for the .groups object still lines up; the .groups keys come from
+// parseNamedGroups(), which decodes the ORIGINAL JS names independently.
+// ---------------------------------------------------------------------------
+
+static void reAppendUtf8Cp(std::string& out, long cp) {
+    if (cp < 0x80) { out += (char)cp; }
+    else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+
+// Decode a RegExpIdentifierName's \u / \u{...} escapes into canonical UTF-8.
+static std::string decodeGroupName(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (size_t i = 0; i < raw.size();) {
+        if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == 'u') {
+            size_t len; long cp = reParseUnicodeEscape(raw, i, &len);
+            if (cp >= 0) {
+                // Combine a UTF-16 surrogate pair written as two \u escapes
+                // (e.g. 𝓑 -> U+1D4D1) so astral identifier names
+                // round-trip to their real code point.
+                if (reIsHighSurr(cp)) {
+                    size_t len2;
+                    long lo = reParseUnicodeEscape(raw, i + len, &len2);
+                    if (reIsLowSurr(lo)) { cp = reCombine(cp, lo); len += len2; }
+                }
+                reAppendUtf8Cp(out, cp);
+                i += len;
+                continue;
+            }
+        }
+        out += raw[i++];
+    }
+    return out;
+}
+
+static bool reIsIcuSafeName(const std::string& n) {
+    if (n.empty()) return false;
+    unsigned char c0 = (unsigned char)n[0];
+    if (!((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z'))) return false;
+    for (size_t i = 1; i < n.size(); i++) {
+        unsigned char c = (unsigned char)n[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9')))
+            return false;
+    }
+    return true;
+}
+
+// Is `canon` (decoded UTF-8) a legal ECMAScript RegExpIdentifierName? First
+// code point must be ID_Start / $ / _; the rest ID_Continue / $ / ZWNJ / ZWJ.
+// Invalid names are left un-rewritten so the ICU compile still rejects them
+// (preserving the required SyntaxError), rather than being masked by renaming.
+static bool reIsValidGroupName(const std::string& canon) {
+    if (canon.empty()) return false;
+    const uint8_t* s = (const uint8_t*)canon.data();
+    int32_t len = (int32_t)canon.size();
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(s, i, len, c);
+    if (c < 0) return false;
+    if (!(c == '$' || c == '_' || u_hasBinaryProperty(c, UCHAR_ID_START)))
+        return false;
+    while (i < len) {
+        U8_NEXT(s, i, len, c);
+        if (c < 0) return false;
+        if (!(c == '$' || c == 0x200C || c == 0x200D ||
+              u_hasBinaryProperty(c, UCHAR_ID_CONTINUE)))
+            return false;
+    }
+    return true;
+}
+
+static std::string rewriteNamedGroupsForIcu(const std::string& pat) {
+    // Pass 1: collect definition names (canonical, in source order).
+    std::vector<std::string> defNames;
+    {
+        bool inClass = false;
+        for (size_t i = 0; i < pat.size();) {
+            char c = pat[i];
+            if (c == '\\') { i += 2; continue; }
+            if (c == '[' && !inClass) { inClass = true; i++; continue; }
+            if (c == ']' && inClass) { inClass = false; i++; continue; }
+            if (!inClass && c == '(' && i + 3 < pat.size() && pat[i + 1] == '?' &&
+                pat[i + 2] == '<' && pat[i + 3] != '=' && pat[i + 3] != '!') {
+                size_t ns = i + 3;
+                size_t ne = pat.find('>', ns);
+                if (ne != std::string::npos) {
+                    defNames.push_back(decodeGroupName(pat.substr(ns, ne - ns)));
+                    i = ne + 1;
+                    continue;
+                }
+            }
+            i++;
+        }
+    }
+    if (defNames.empty()) return pat;
+
+    std::unordered_set<std::string> allNames(defNames.begin(), defNames.end());
+    std::unordered_map<std::string, std::string> safe;
+    std::unordered_set<std::string> used;
+    int counter = 0;
+    for (const auto& n : defNames) {
+        if (safe.count(n)) continue;
+        if (!reIsValidGroupName(n)) continue;  // leave for ICU to reject
+        if (reIsIcuSafeName(n)) {
+            safe[n] = n;
+            used.insert(n);
+        } else {
+            std::string cand;
+            do { cand = "G" + std::to_string(counter++); }
+            while (allNames.count(cand) || used.count(cand));
+            safe[n] = cand;
+            used.insert(cand);
+        }
+    }
+
+    // Pass 2: emit the pattern with each valid named group + \k reference
+    // written in canonical safe form. We always rebuild (not just when a
+    // rename happened), because a name spelled with \u escapes that decodes
+    // to an ICU-safe ASCII name (e.g. A -> A) must still be emitted
+    // decoded — ICU rejects escapes inside a group name.
+    std::string out;
+    out.reserve(pat.size());
+    bool inClass = false;
+    for (size_t i = 0; i < pat.size();) {
+        char c = pat[i];
+        if (c == '\\') {
+            // \k<name> backreference (a named backreference is only valid
+            // outside a character class; inside one \k is a literal 'k').
+            if (!inClass && i + 2 < pat.size() && pat[i + 1] == 'k' &&
+                pat[i + 2] == '<') {
+                size_t ns = i + 3;
+                size_t ne = pat.find('>', ns);
+                if (ne != std::string::npos) {
+                    std::string canon = decodeGroupName(pat.substr(ns, ne - ns));
+                    auto it = safe.find(canon);
+                    if (it != safe.end()) {
+                        out += "\\k<";
+                        out += it->second;
+                        out += '>';
+                        i = ne + 1;
+                        continue;
+                    }
+                }
+            }
+            out += c;
+            if (i + 1 < pat.size()) out += pat[i + 1];
+            i += 2;
+            continue;
+        }
+        if (c == '[' && !inClass) { inClass = true; out += c; i++; continue; }
+        if (c == ']' && inClass) { inClass = false; out += c; i++; continue; }
+        if (!inClass && c == '(' && i + 3 < pat.size() && pat[i + 1] == '?' &&
+            pat[i + 2] == '<' && pat[i + 3] != '=' && pat[i + 3] != '!') {
+            size_t ns = i + 3;
+            size_t ne = pat.find('>', ns);
+            if (ne != std::string::npos) {
+                std::string canon = decodeGroupName(pat.substr(ns, ne - ns));
+                auto it = safe.find(canon);
+                out += "(?<";
+                out += (it != safe.end()) ? it->second : pat.substr(ns, ne - ns);
+                out += '>';
+                i = ne + 1;
+                continue;
+            }
+        }
+        out += c;
+        i++;
+    }
+    return out;
 }
 
 // Parse a low-surrogate range class "[\uLO1-\uLO2]" (or single "[\uLO]") at
@@ -797,7 +996,8 @@ void TsRegExp::Recompile(const char* pattern, const char* flags) {
     // (ICU matches on code points), then escape [ inside char classes.
     bool vMode = flags && std::string(flags).find('v') != std::string::npos;
     std::string transformed =
-        transformJsPatternForIcu(rewriteUnicodeForIcu(pattern), vMode);
+        transformJsPatternForIcu(
+            rewriteUnicodeForIcu(rewriteNamedGroupsForIcu(pattern)), vMode);
     // JS ASCII/whitespace shorthand semantics (\d \w \s and negations) —
     // see rewriteJsShorthandClasses.
     transformed = rewriteJsShorthandClasses(transformed);

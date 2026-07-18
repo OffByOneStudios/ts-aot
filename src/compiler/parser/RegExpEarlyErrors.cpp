@@ -21,12 +21,15 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include <unicode/regex.h>
 #include <unicode/unistr.h>
 #include <unicode/uregex.h>
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
 
 namespace tsaot {
 
@@ -73,6 +76,172 @@ static inline long reCombine(long hi, long lo) {
 }
 static void reAppendCp(std::string& out, long cp) {
     char buf[16]; snprintf(buf, sizeof(buf), "\\x{%lX}", cp); out += buf;
+}
+
+// JS named-capture-group -> ICU-safe-name rewrite (mirror of the runtime's
+// rewriteNamedGroupsForIcu in src/runtime/src/TsRegExp.cpp; keep in sync).
+static void reAppendUtf8Cp(std::string& out, long cp) {
+    if (cp < 0x80) { out += (char)cp; }
+    else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+
+static std::string decodeGroupName(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (size_t i = 0; i < raw.size();) {
+        if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == 'u') {
+            size_t len; long cp = reParseUnicodeEscape(raw, i, &len);
+            if (cp >= 0) {
+                if (reIsHighSurr(cp)) {
+                    size_t len2;
+                    long lo = reParseUnicodeEscape(raw, i + len, &len2);
+                    if (reIsLowSurr(lo)) { cp = reCombine(cp, lo); len += len2; }
+                }
+                reAppendUtf8Cp(out, cp);
+                i += len;
+                continue;
+            }
+        }
+        out += raw[i++];
+    }
+    return out;
+}
+
+static bool reIsIcuSafeName(const std::string& n) {
+    if (n.empty()) return false;
+    unsigned char c0 = (unsigned char)n[0];
+    if (!((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z'))) return false;
+    for (size_t i = 1; i < n.size(); i++) {
+        unsigned char c = (unsigned char)n[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9')))
+            return false;
+    }
+    return true;
+}
+
+static bool reIsValidGroupName(const std::string& canon) {
+    if (canon.empty()) return false;
+    const uint8_t* s = (const uint8_t*)canon.data();
+    int32_t len = (int32_t)canon.size();
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(s, i, len, c);
+    if (c < 0) return false;
+    if (!(c == '$' || c == '_' || u_hasBinaryProperty(c, UCHAR_ID_START)))
+        return false;
+    while (i < len) {
+        U8_NEXT(s, i, len, c);
+        if (c < 0) return false;
+        if (!(c == '$' || c == 0x200C || c == 0x200D ||
+              u_hasBinaryProperty(c, UCHAR_ID_CONTINUE)))
+            return false;
+    }
+    return true;
+}
+
+static std::string rewriteNamedGroupsForIcu(const std::string& pat) {
+    std::vector<std::string> defNames;
+    {
+        bool inClass = false;
+        for (size_t i = 0; i < pat.size();) {
+            char c = pat[i];
+            if (c == '\\') { i += 2; continue; }
+            if (c == '[' && !inClass) { inClass = true; i++; continue; }
+            if (c == ']' && inClass) { inClass = false; i++; continue; }
+            if (!inClass && c == '(' && i + 3 < pat.size() && pat[i + 1] == '?' &&
+                pat[i + 2] == '<' && pat[i + 3] != '=' && pat[i + 3] != '!') {
+                size_t ns = i + 3;
+                size_t ne = pat.find('>', ns);
+                if (ne != std::string::npos) {
+                    defNames.push_back(decodeGroupName(pat.substr(ns, ne - ns)));
+                    i = ne + 1;
+                    continue;
+                }
+            }
+            i++;
+        }
+    }
+    if (defNames.empty()) return pat;
+
+    std::unordered_set<std::string> allNames(defNames.begin(), defNames.end());
+    std::unordered_map<std::string, std::string> safe;
+    std::unordered_set<std::string> used;
+    int counter = 0;
+    for (const auto& n : defNames) {
+        if (safe.count(n)) continue;
+        if (!reIsValidGroupName(n)) continue;  // leave for ICU to reject
+        if (reIsIcuSafeName(n)) {
+            safe[n] = n;
+            used.insert(n);
+        } else {
+            std::string cand;
+            do { cand = "G" + std::to_string(counter++); }
+            while (allNames.count(cand) || used.count(cand));
+            safe[n] = cand;
+            used.insert(cand);
+        }
+    }
+
+    std::string out;
+    out.reserve(pat.size());
+    bool inClass = false;
+    for (size_t i = 0; i < pat.size();) {
+        char c = pat[i];
+        if (c == '\\') {
+            if (!inClass && i + 2 < pat.size() && pat[i + 1] == 'k' &&
+                pat[i + 2] == '<') {
+                size_t ns = i + 3;
+                size_t ne = pat.find('>', ns);
+                if (ne != std::string::npos) {
+                    std::string canon = decodeGroupName(pat.substr(ns, ne - ns));
+                    auto it = safe.find(canon);
+                    if (it != safe.end()) {
+                        out += "\\k<";
+                        out += it->second;
+                        out += '>';
+                        i = ne + 1;
+                        continue;
+                    }
+                }
+            }
+            out += c;
+            if (i + 1 < pat.size()) out += pat[i + 1];
+            i += 2;
+            continue;
+        }
+        if (c == '[' && !inClass) { inClass = true; out += c; i++; continue; }
+        if (c == ']' && inClass) { inClass = false; out += c; i++; continue; }
+        if (!inClass && c == '(' && i + 3 < pat.size() && pat[i + 1] == '?' &&
+            pat[i + 2] == '<' && pat[i + 3] != '=' && pat[i + 3] != '!') {
+            size_t ns = i + 3;
+            size_t ne = pat.find('>', ns);
+            if (ne != std::string::npos) {
+                std::string canon = decodeGroupName(pat.substr(ns, ne - ns));
+                auto it = safe.find(canon);
+                out += "(?<";
+                out += (it != safe.end()) ? it->second : pat.substr(ns, ne - ns);
+                out += '>';
+                i = ne + 1;
+                continue;
+            }
+        }
+        out += c;
+        i++;
+    }
+    return out;
 }
 
 static bool reParseLowSurrClass(const std::string& s, size_t i, long* lo1, long* lo2, size_t* len) {
@@ -603,7 +772,8 @@ void validateRegExpLiteral(const std::string& body, const std::string& flags,
         return;
     }
 
-    std::string transformed = transformJsPatternForIcu(rewriteUnicodeForIcu(body));
+    std::string transformed = transformJsPatternForIcu(
+        rewriteUnicodeForIcu(rewriteNamedGroupsForIcu(body)));
     icu::UnicodeString icuPattern = icu::UnicodeString::fromUTF8(transformed);
 
     uint32_t icuFlags = 0;
