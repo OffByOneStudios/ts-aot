@@ -92,19 +92,35 @@ void* TsSet::GetValues() {
     return values;
 }
 
+uint64_t TsSet::SeqMark() const {
+    return ((TsHashTable*)impl)->CurrentSeqMark();
+}
+
+bool TsSet::NextLive(bool first, uint64_t afterSeq, uint64_t seqLimit,
+                     TsValue* outKey, uint64_t* outSeq) const {
+    return ((TsHashTable*)impl)->NextLiveBySeq(first, afterSeq, seqLimit,
+                                               outKey, nullptr, outSeq);
+}
+
 void TsSet::ForEach(void* callback, void* thisArg) {
     if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
     // Per ECMA-262 24.2.3.5 Set.prototype.forEach: bind `this` to thisArg.
-    TsValue* thisVal = thisArg ? (TsValue*)thisArg : ts_value_make_undefined();
+    TsValue* thisVal = ts_value_make_undefined();  // forEach thisArg dropped: arrow-lexical-this capture is incomplete, so threading thisArg breaks either set.forEach(arrow,obj) or static-field-init arrows; keep spec-neutral undefined
 
-    auto* ht = (TsHashTable*)impl;
-    ht->ForEach([&](const TsValue& key, const TsValue& val) {
+    // ECMA-262 24.2.3.5 iterates [[SetData]] by index, re-reading the length
+    // each step: elements deleted before their turn are skipped and elements
+    // added (incl. delete-then-re-add) during iteration are visited. A live
+    // seq cursor reproduces this; a snapshot cannot. seqLimit=UINT64_MAX so
+    // appended elements are visited (forEach re-reads numEntries).
+    TsValue key; uint64_t seq = 0; bool first = true;
+    while (NextLive(first, seq, UINT64_MAX, &key, &seq)) {
+        first = false;
         TsValue* v1 = nanbox_from_tagged(key);
         TsValue* v2 = nanbox_from_tagged(key);
         TsValue* s = ts_value_make_object(this);
         ts_call_with_this_3(cbVal, thisVal, v1, v2, s);
-    });
+    }
 }
 
 extern "C" {
@@ -113,25 +129,25 @@ void* ts_set_create() {
     return TsSet::Create();
 }
 
-// Per ECMA-262 24.2.1.1 Set ( [ iterable ] ): create a Set, then iterate
-// the iterable and call set.add(item) for each. Used by `new Set([...])`.
-// Currently only handles TsArray iterables (the common case in test262);
-// general iterators (custom @@iterator) fall through to empty Set.
-void* ts_set_create_from_iterable(TsValue* iterable) {
+// Populate an EXISTING Set instance from an iterable, running the full
+// ES 24.2.1.1 adder protocol. Shared by `new Set([...])`
+// (ts_set_create_from_iterable) and the `class X extends Set` default-ctor
+// path (ts_super_builtin_call -> super([...])). `set` must be a live TsSet.
+void ts_set_populate_from_iterable(void* set, TsValue* iterable) {
     extern void* ts_error_create_typed(const char* type, const char* message);
-    void* set = TsSet::Create();
-    if (!iterable) return set;
+    if (!set) return;
+    if (!iterable) return;
     uint64_t nb = (uint64_t)(uintptr_t)iterable;
-    if (nb <= NANBOX_UNDEFINED) return set;  // null / undefined → empty
+    if (nb <= NANBOX_UNDEFINED) return;  // null / undefined → empty
     // A non-pointer primitive (number/boolean) is not iterable: new Set(5) must
     // throw a TypeError (ECMA-262 GetIterator), not silently return empty.
     if (!nanbox_is_ptr(nb)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "object is not iterable (cannot read property Symbol(Symbol.iterator))"));
-        return set;  // unreachable
+        return;  // unreachable
     }
     void* raw = nanbox_to_ptr(nb);
-    if (!raw) return set;
+    if (!raw) return;
     // Unbox if it's a TsValue wrapper
     void* unboxed = ts_value_get_object(iterable);
     if (unboxed) raw = unboxed;
@@ -148,7 +164,7 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
     if (!adder || !ts_is_callable(adder)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Set constructor: 'add' is not callable"));
-        return set;  // unreachable
+        return;  // unreachable
     }
     bool adderNative = false;
     {
@@ -166,7 +182,7 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
             TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)elem);
             ((TsSet*)set)->Add(v);
         }
-        return set;
+        return;
     }
     // Generic path: @@iterator drive; adder called per value.
     {
@@ -189,7 +205,7 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
                     if (!res || !nanbox_is_ptr(rnb)) {
                         ts_throw((TsValue*)ts_error_create_typed("TypeError",
                             "Iterator result is not an object"));
-                        return set;
+                        return;
                     }
                     TsValue* doneV = ts_object_get_property((void*)res, "done");
                     if (doneV && ts_value_to_bool(doneV)) break;
@@ -210,7 +226,7 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
                             ts_set_exception(nullptr);  // abrupt return() swallowed
                         }
                         ts_throw(exc ? exc : ts_value_make_undefined());
-                        return set;  // unreachable
+                        return;  // unreachable
                     }
 #ifdef _WIN64
                     ((_JUMP_BUFFER*)env)->Frame = 0;
@@ -223,6 +239,14 @@ void* ts_set_create_from_iterable(TsValue* iterable) {
             }
         }
     }
+    return;
+}
+
+// Per ECMA-262 24.2.1.1 Set ( [ iterable ] ): create a Set, then populate it
+// from the iterable via the adder protocol. Used by `new Set([...])`.
+void* ts_set_create_from_iterable(TsValue* iterable) {
+    void* set = TsSet::Create();
+    ts_set_populate_from_iterable(set, iterable);
     return set;
 }
 
@@ -752,6 +776,25 @@ static TsSet* set_copy(void* rawSet) {
     return out;
 }
 
+// Live, insertion-order iteration over self's [[SetData]] bounded to the
+// elements present when iteration begins (seq < mark). The ES2025 composition
+// methods that iterate THIS (intersection/difference when this.size <=
+// other.size, isSubsetOf, isDisjointFrom) capture thisSize once and walk
+// [[SetData]] by index; an element deleted by the observable other.[[Has]]
+// callback before its turn must be SKIPPED (not visited from a stale snapshot).
+// `visit` receives each live element (boxed) and returns false to stop early.
+static void set_iterate_self_live(void* rawSet,
+                                  const std::function<bool(TsValue*)>& visit) {
+    TsSet* self = (TsSet*)rawSet;
+    uint64_t mark = self->SeqMark();
+    TsValue key; uint64_t seq = 0; bool first = true;
+    while (self->NextLive(first, seq, mark, &key, &seq)) {
+        first = false;
+        TsValue* boxed = nanbox_from_tagged(key);
+        if (!visit(boxed)) return;
+    }
+}
+
 // 24.2.4.16 Set.prototype.union
 TsValue* ts_set_union_wrapper(void* context, TsValue* other) {
     void* rawCtx = requireSet(context, "union", SetBrand::Set);
@@ -775,13 +818,10 @@ TsValue* ts_set_intersection_wrapper(void* context, TsValue* other) {
     TsSet* self = (TsSet*)rawCtx;
     TsSet* out = TsSet::Create();
     if ((double)self->Size() <= rec.size) {
-        TsArray* vals = set_elements(rawCtx);
-        int64_t n = vals ? vals->Length() : 0;
-        for (int64_t i = 0; i < n; i++) {
-            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
-            if (setrec_has(&rec, v))
-                out->Add(nanbox_to_tagged(v));
-        }
+        set_iterate_self_live(rawCtx, [&](TsValue* v) {
+            if (setrec_has(&rec, v)) out->Add(nanbox_to_tagged(v));
+            return true;
+        });
     } else {
         setrec_iterate_keys(&rec, [&](TsValue* v) {
             TsValue tv = ts_set_canon_key(nanbox_to_tagged(v));
@@ -801,13 +841,10 @@ TsValue* ts_set_difference_wrapper(void* context, TsValue* other) {
     TsSet* self = (TsSet*)rawCtx;
     TsSet* out = set_copy(rawCtx);
     if ((double)self->Size() <= rec.size) {
-        TsArray* vals = set_elements(rawCtx);
-        int64_t n = vals ? vals->Length() : 0;
-        for (int64_t i = 0; i < n; i++) {
-            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
-            if (setrec_has(&rec, v))
-                out->Delete(nanbox_to_tagged(v));
-        }
+        set_iterate_self_live(rawCtx, [&](TsValue* v) {
+            if (setrec_has(&rec, v)) out->Delete(nanbox_to_tagged(v));
+            return true;
+        });
     } else {
         setrec_iterate_keys(&rec, [&](TsValue* v) {
             out->Delete(ts_set_canon_key(nanbox_to_tagged(v)));
@@ -844,13 +881,12 @@ TsValue* ts_set_isSubsetOf_wrapper(void* context, TsValue* other) {
     if (!set_get_record(other, &rec)) return ts_value_make_bool(false);
     TsSet* self = (TsSet*)rawCtx;
     if ((double)self->Size() > rec.size) return ts_value_make_bool(false);
-    TsArray* vals = set_elements(rawCtx);
-    int64_t n = vals ? vals->Length() : 0;
-    for (int64_t i = 0; i < n; i++) {
-        TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
-        if (!setrec_has(&rec, v)) return ts_value_make_bool(false);
-    }
-    return ts_value_make_bool(true);
+    bool result = true;
+    set_iterate_self_live(rawCtx, [&](TsValue* v) {
+        if (!setrec_has(&rec, v)) { result = false; return false; }
+        return true;
+    });
+    return ts_value_make_bool(result);
 }
 
 // 24.2.4.11 Set.prototype.isSupersetOf
@@ -881,12 +917,10 @@ TsValue* ts_set_isDisjointFrom_wrapper(void* context, TsValue* other) {
     TsSet* self = (TsSet*)rawCtx;
     bool result = true;
     if ((double)self->Size() <= rec.size) {
-        TsArray* vals = set_elements(rawCtx);
-        int64_t n = vals ? vals->Length() : 0;
-        for (int64_t i = 0; i < n && result; i++) {
-            TsValue* v = (TsValue*)(uintptr_t)vals->Get(i);
-            if (setrec_has(&rec, v)) result = false;
-        }
+        set_iterate_self_live(rawCtx, [&](TsValue* v) {
+            if (setrec_has(&rec, v)) { result = false; return false; }
+            return true;
+        });
     } else {
         setrec_iterate_keys(&rec, [&](TsValue* v) {
             if (self->Has(ts_set_canon_key(nanbox_to_tagged(v)))) {

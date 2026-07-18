@@ -2072,10 +2072,11 @@ void* ts_get_global_Function() {
         // source for native-code detection. Without an explicit toString on
         // Function.prototype, the lookup falls through to Object.prototype.toString
         // which returns "[object Function]" instead of "function NAME() { [native code] }".
-        addMethod(proto, "call", (void*)ts_function_call_native);
-        addMethod(proto, "apply", (void*)ts_function_apply_native);
-        addMethod(proto, "bind", (void*)ts_function_bind_native);
-        addMethod(proto, "toString", (void*)ts_function_toString_native);
+        // ES built-in `length` values: call=1, apply=2, bind=1, toString=0.
+        addMethod(proto, "call", (void*)ts_function_call_native, 1);
+        addMethod(proto, "apply", (void*)ts_function_apply_native, 2);
+        addMethod(proto, "bind", (void*)ts_function_bind_native, 1);
+        addMethod(proto, "toString", (void*)ts_function_toString_native, 0);
         // ES 20.2.3.6 Function.prototype[@@hasInstance]: the default
         // OrdinaryHasInstance as a first-class function value. Descriptor is
         // {writable:false, enumerable:false, configurable:false}; name is
@@ -2098,6 +2099,19 @@ void* ts_get_global_Function() {
             hk.ptr_val = TsString::GetInterned("[Symbol.hasInstance]");
             TsValue hv = nanbox_to_tagged(hi);
             proto->SetWithAttrs(hk, hv, 0);
+        }
+
+        // Function.prototype has its own "length" (0) and "name" ("") data
+        // properties — {writable:false, enumerable:false, configurable:true} —
+        // inserted consecutively so getOwnPropertyNames yields length then name
+        // (built-ins/Function/prototype/{length,name,property-order}.js).
+        {
+            TsValue lk; lk.type = ValueType::STRING_PTR; lk.ptr_val = TsString::GetInterned("length");
+            TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 0;
+            proto->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+            TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("name");
+            TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = TsString::Create("");
+            proto->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
         }
 
         // Set ctor.prototype = proto
@@ -8104,6 +8118,19 @@ void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0)
     if (!thisVal || !nameStr) return;
     const char* n = ((TsString*)nameStr)->ToUtf8();
     if (!n) return;
+    // `class X extends Set/WeakSet {}` with a default (or synthetic) ctor:
+    // super(iterable) must run the builtin base's constructor steps on the
+    // subclass instance (populate [[SetData]] from the iterable). Without this
+    // the instance stayed empty and every inherited method (size/has/union/…)
+    // saw zero elements. Set and WeakSet share the TsSet backing.
+    if (strcmp(n, "Set") == 0 || strcmp(n, "WeakSet") == 0) {
+        extern void ts_set_populate_from_iterable(void* set, TsValue* iterable);
+        void* rawThis = ts_value_get_object((TsValue*)thisVal);
+        if (!rawThis) rawThis = thisVal;
+        if (argc >= 1)
+            ts_set_populate_from_iterable(rawThis, (TsValue*)a0);
+        return;
+    }
     static const char* errNames[8] = { "Error", "EvalError", "RangeError",
         "ReferenceError", "SyntaxError", "TypeError", "URIError",
         "AggregateError" };

@@ -5,6 +5,8 @@
 #include "TsHashTable.h"
 #include "TsNanBox.h"
 #include <cstdio>
+#include <cmath>
+#include <limits>
 #include "TsRuntime.h"
 #include "GC.h"
 
@@ -140,13 +142,25 @@ TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv) {
             }
             if (!foundOwn && synthArity >= 0) { lenD = synthArity; lenIsNum = true; }
         }
+        // ES 20.2.3.2 step 6: SetFunctionLength(F, L) where L is derived from
+        // targetLen via ToIntegerOrInfinity, then max(L - argCount, 0).
+        //   NaN / +0 / -0  -> 0
+        //   +Infinity      -> +Infinity (argCount never subtracted from Inf)
+        //   -Infinity      -> 0
+        //   finite         -> trunc toward zero, then max(len - argCount, 0)
         double outLen = 0;
         if (lenIsNum) {
-            if (lenD == lenD) {  // not NaN
-                double t = (lenD > 0 && lenD != lenD + 1) ? lenD : lenD;  // keep +Inf
+            if (lenD != lenD) {                 // NaN -> 0
+                outLen = 0;
+            } else if (lenD == std::numeric_limits<double>::infinity()) {
+                outLen = std::numeric_limits<double>::infinity();
+            } else if (lenD == -std::numeric_limits<double>::infinity()) {
+                outLen = 0;
+            } else {
+                double t = std::trunc(lenD);    // ToIntegerOrInfinity truncation
                 t = t - (double)boundArgCount;
                 if (t < 0) t = 0;
-                if (!(t != t)) outLen = t;
+                outLen = t;
             }
         }
 
@@ -161,7 +175,7 @@ TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv) {
         snprintf(nameBuf, sizeof(nameBuf), "bound %s", tname ? tname : "");
         // spec: non-string target name -> just "bound " (with trailing space)
         f->name = TsString::Create(nameBuf);
-        f->arity = (int)outLen;
+        f->arity = std::isfinite(outLen) ? (int)outLen : 0;
         f->is_constructor = true;  // bound fns are constructors when target is
 
         if (!f->properties) f->properties = TsMap::Create();

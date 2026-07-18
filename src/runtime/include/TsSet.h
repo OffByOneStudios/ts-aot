@@ -19,6 +19,13 @@ public:
     void* GetValues();
     void ForEach(void* callback, void* thisArg = nullptr);
 
+    // Live insertion-order cursor over [[SetData]] (see TsHashTable::
+    // NextLiveBySeq). Lets forEach and the ES2025 composition methods iterate
+    // this Set with spec-correct live semantics instead of a snapshot.
+    uint64_t SeqMark() const;
+    bool NextLive(bool first, uint64_t afterSeq, uint64_t seqLimit,
+                  TsValue* outKey, uint64_t* outSeq) const;
+
 protected:
     TsSet();
 private:

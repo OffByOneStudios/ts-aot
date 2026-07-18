@@ -3480,20 +3480,11 @@ void* ts_create_arguments_from_params(
         if (argc >= 2 && argv) {
             uint64_t nb = nanbox_from_tsvalue_ptr(argsArray);
             if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb)) {
-                bool isObject = false;
-                if (nanbox_is_ptr(nb)) {
-                    void* ptr = nanbox_to_ptr(nb);
-                    if (ptr && (uintptr_t)ptr >= 0x10000) {
-                        // Primitive strings are NaN-boxed pointers but are not
-                        // objects — reject them (magic STRG / CONS at offset 0).
-                        uint32_t magic0 = *(uint32_t*)ptr;
-                        if (magic0 != 0x53545247 /* STRG */ &&
-                            magic0 != 0x434F4E53 /* CONS */) {
-                            isObject = true;
-                        }
-                    }
-                }
-                if (!isObject) {
+                // CreateListFromArrayLike step 2: any non-Object argArray
+                // (string / symbol / bigint / number / boolean) throws. Use the
+                // canonical object predicate so ALL primitive pointer kinds
+                // (STRG/CONS/SYMB/BIGI) and non-pointer primitives are rejected.
+                if (!ts_value_is_object(argsArray)) {
                     ts_throw((TsValue*)ts_error_create_typed(
                         "TypeError",
                         "CreateListFromArrayLike called on non-object"));

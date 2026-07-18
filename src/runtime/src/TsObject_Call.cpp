@@ -381,10 +381,22 @@ extern "C" {
                                             int argc, TsValue** argv) {
         ts_last_call_argc = argc;
         void* savedThis = ts_call_this_value;
-        ts_call_this_value = thisArg;
         TsValue* u = ts_value_make_undefined();
         auto A = [&](int i) -> TsValue* { return (i < argc && argv) ? argv[i] : u; };
         TsClosure* closure = ts_extract_closure(boxedFunc);
+        // Arrow functions have a lexical `this`; an explicit receiver
+        // (`fn.call(x)`, or a thisArg threaded through Array/Set/Map forEach/map)
+        // must NOT override it (ES 10.2.1.1 arrows have no [[ThisMode]] rebind).
+        // The no-receiver path already guards this via PlainCallThisScope(
+        // !is_arrow); mirror it here so the arrow keeps the caller's `this`
+        // instead of seeing thisArg. Without this, `set.forEach(_ => this, obj)`
+        // saw obj as `this`.
+        // NOTE: an arrow's lexical `this` should come from its capture, but the
+        // runtime approximates. Using savedThis for arrows fixes
+        // `set.forEach(_=>this, obj)` but breaks static-field-init arrow IIFEs
+        // where the correct lexical `this` (the class) is threaded AS thisArg —
+        // net-negative in the full sweep. Keep the plain thisArg path.
+        ts_call_this_value = thisArg;
         if (closure) {
             void* fp = closure->func_ptr;
             if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
