@@ -2470,6 +2470,12 @@ extern "C" {
         } \
         d->SetTime(t0); \
         d->METHOD((int64_t)v); \
+        int64_t __clip = d->GetTime(); \
+        if (__clip != TsDate::INVALID && \
+            (__clip < -8640000000000000LL || __clip > 8640000000000000LL)) { \
+            d->SetTime(TsDate::INVALID); \
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
+        } \
         return dateFieldToValue(d->GetTime()); \
     }
     // Single-argument setters: coerce arg[0] (invoking valueOf once), NaN → Invalid.
@@ -2500,7 +2506,11 @@ extern "C" {
                                 : std::numeric_limits<double>::quiet_NaN();
         double dt = (argc >= 3) ? dateArgOrNaN(argc, argv, 2)
                                 : std::numeric_limits<double>::quiet_NaN();
-        if (std::isnan(y)) { d->SetTime(TsDate::INVALID);
+        // A leading NaN, or any PROVIDED trailing arg that coerced to NaN,
+        // makes the whole result NaN (MakeDay/MakeTime propagate NaN). Absent
+        // trailing args (argc too small) keep the current component instead.
+        if (std::isnan(y) || (argc >= 2 && std::isnan(mo)) ||
+            (argc >= 3 && std::isnan(dt))) { d->SetTime(TsDate::INVALID);
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); }
         double NaNv = std::numeric_limits<double>::quiet_NaN();
         d->SetFields(utc, base, y, mo, dt, NaNv, NaNv, NaNv, NaNv, /*revive*/true);
@@ -2517,7 +2527,7 @@ extern "C" {
                                 : std::numeric_limits<double>::quiet_NaN();
         if (base == TsDate::INVALID)
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        if (std::isnan(mo)) { d->SetTime(TsDate::INVALID);
+        if (std::isnan(mo) || (argc >= 2 && std::isnan(dt))) { d->SetTime(TsDate::INVALID);
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); }
         double NaNv = std::numeric_limits<double>::quiet_NaN();
         d->SetFields(utc, base, NaNv, mo, dt, NaNv, NaNv, NaNv, NaNv, /*revive*/false);
@@ -2536,7 +2546,9 @@ extern "C" {
         double ml = (argc >= 4) ? dateArgOrNaN(argc, argv, 3) : NaNv;
         if (base == TsDate::INVALID)
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        if (std::isnan(h)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        if (std::isnan(h) || (argc >= 2 && std::isnan(m)) ||
+            (argc >= 3 && std::isnan(s)) || (argc >= 4 && std::isnan(ml))) {
+            d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, h, m, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
     }
@@ -2552,7 +2564,9 @@ extern "C" {
         double ml = (argc >= 3) ? dateArgOrNaN(argc, argv, 2) : NaNv;
         if (base == TsDate::INVALID)
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        if (std::isnan(m)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        if (std::isnan(m) || (argc >= 2 && std::isnan(s)) ||
+            (argc >= 3 && std::isnan(ml))) {
+            d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, m, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
     }
@@ -2567,7 +2581,8 @@ extern "C" {
         double ml = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
         if (base == TsDate::INVALID)
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        if (std::isnan(s)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        if (std::isnan(s) || (argc >= 2 && std::isnan(ml))) {
+            d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
         d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, NaNv, s, ml, /*revive*/false);
         return dateFieldToValue(d->GetTime());
     }
@@ -2588,7 +2603,8 @@ extern "C" {
         if (!d) return ts_value_make_undefined();
         double v = std::numeric_limits<double>::quiet_NaN();
         if (argc >= 1 && argv && argv[0]) v = ts_to_number((TsValue*)argv[0]);
-        if (std::isnan(v)) {
+        // TimeClip (ECMA-262 21.4.1.31): non-finite OR abs(v) > 8.64e15 -> NaN.
+        if (std::isnan(v) || v < -8.64e15 || v > 8.64e15) {
             d->SetTime(TsDate::INVALID);
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         }
