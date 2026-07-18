@@ -253,12 +253,27 @@ static TsMap* getAsyncGeneratorObjectPrototype() {
     return g_async_generator_prototype;
 }
 
+// Exposed so the closure `.prototype` synthesis (TsObject.cpp) can link a
+// generator function's `.prototype`.[[Prototype]] to %(Async)GeneratorPrototype%
+// per ES 27.3.3/27.4.3 (Object.getPrototypeOf((function*g(){}).prototype) === it).
+extern "C" void* ts_get_generator_object_prototype() {
+    return (void*)getGeneratorObjectPrototype();
+}
+extern "C" void* ts_get_async_generator_object_prototype() {
+    return (void*)getAsyncGeneratorObjectPrototype();
+}
+
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
     static_cast<TsObject*>(this)->magic = MAGIC; // Set magic for type detection
 
-    TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)Generator_next_internal, this));
+    // ES: %GeneratorPrototype%.next/return/throw are not constructors; the
+    // instance's OWN copies (which shadow the prototype's) must match, so
+    // `new gen.next()` throws (test262 GeneratorPrototype/*/not-a-constructor.js).
+    TsValue* nextFuncV = ts_value_make_function((void*)Generator_next_internal, this);
+    if (void* rn = ts_value_get_object(nextFuncV)) ((TsFunction*)rn)->is_constructor = false;
+    TsValue nextFunc = nanbox_to_tagged(nextFuncV);
     this->Set(TsString::Create("next"), nextFunc);
     
     TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
@@ -271,15 +286,19 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     // (typeof gen.return; IteratorClose reading iterator.return) got
     // undefined — so ih_close silently never closed generators (the
     // Iterator-helpers early-exit close tests observe this).
-    TsValue retFunc = nanbox_to_tagged(ts_value_make_function(
+    TsValue* retFuncV = ts_value_make_function(
         (void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
             return Generator_return(ts_value_make_object(ctx), arg);
-        }, this));
+        }, this);
+    if (void* rr = ts_value_get_object(retFuncV)) ((TsFunction*)rr)->is_constructor = false;
+    TsValue retFunc = nanbox_to_tagged(retFuncV);
     this->Set(TsString::Create("return"), retFunc);
-    TsValue thrFunc = nanbox_to_tagged(ts_value_make_function(
+    TsValue* thrFuncV = ts_value_make_function(
         (void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
             return Generator_throw(ts_value_make_object(ctx), arg);
-        }, this));
+        }, this);
+    if (void* rt = ts_value_get_object(thrFuncV)) ((TsFunction*)rt)->is_constructor = false;
+    TsValue thrFunc = nanbox_to_tagged(thrFuncV);
     this->Set(TsString::Create("throw"), thrFunc);
 
     // Link the generator's [[Prototype]] to %GeneratorPrototype% (which
