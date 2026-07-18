@@ -2543,6 +2543,12 @@ static TsFunction* promise_receiver_fn(void* ctx, void* selfFnPtr) {
 static bool promise_receiver_is_non_ctor(void* ctx, void* selfFnPtr) {
     TsValue* t = (TsValue*)ctx;
     if (!t) return false;
+    // ES 27.2.4.x -> NewPromiseCapability(C): `If IsConstructor(C) is false, throw
+    // a TypeError`. A NON-OBJECT receiver (undefined/null/boolean/number/string/
+    // symbol, e.g. `Promise.all.call(true, [])`) is never a constructor. A direct
+    // `Promise.all(...)` passes the Promise ctor (an object), so it is unaffected.
+    // (test262 built-ins/Promise/*/ctx-non-object.js.)
+    if (!ts_value_is_object(t)) return true;
     if (ts_extract_closure(t)) return false;
     TsFunction* f = promise_receiver_fn(ctx, selfFnPtr);
     return f && !f->is_constructor;
