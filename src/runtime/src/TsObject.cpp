@@ -732,6 +732,18 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
             *out = nanbox_from_tagged(dv);
             return true;
         }
+        // ES 10.1.7.1 OrdinaryGet: an OWN data property explicitly set to
+        // `undefined` still SHADOWS the prototype chain — it must yield
+        // undefined, NOT fall through to an inherited builtin (e.g.
+        // `{toString: undefined}` makes ToString(obj) skip the inherited
+        // Object.prototype.toString and consult valueOf next). `Get` returns
+        // UNDEFINED both for an absent key and a present-undefined value, so
+        // disambiguate with `Has`. A deleted key is CTRL_DELETED (Has==false),
+        // so this correctly does NOT shadow after `delete`.
+        if (pm->Has(dk)) {
+            *out = ts_value_make_undefined();
+            return true;
+        }
         pm = pm->GetPrototype();
         if (pm && g_ts_proxy_vtable && *(void**)pm == g_ts_proxy_vtable) {
             // ES 10.1.7 OrdinaryGet: a Proxy in the [[Prototype]] chain must
@@ -1886,6 +1898,27 @@ void* ts_create_arguments_from_params(
         return ts_object_get_property(protoRaw, keyStr);  // method / data property
     }
 
+    // Lever G — [[Get]] fallback for a builtin INSTANCE (Array/RegExp/...) whose
+    // own props and builtin method ladder both missed `keyStr`: the user may
+    // have augmented the builtin's global .prototype
+    // (`Array.prototype.q = 9; [].q`). Mirrors the String/Number branches.
+    // ctorGlobalFn returns the global constructor (a TsMap holding "prototype").
+    // Returns the inherited value (possibly an accessor result), or nullptr when
+    // unavailable so the caller returns undefined. The prototype is a TsMap so
+    // the walk routes through the object path — no recursion back to this leaf.
+    static TsValue* ts_builtin_proto_get_fallback(void* obj, void* (*ctorGlobalFn)(),
+                                                  const char* keyStr) {
+        if (!ctorGlobalFn || !keyStr) return nullptr;
+        void* g = ctorGlobalFn();
+        void* ctorRaw = g ? ts_value_get_object((TsValue*)g) : nullptr;
+        if (!ctorRaw) ctorRaw = g;
+        if (!ctorRaw || (uintptr_t)ctorRaw < 0x1000) return nullptr;
+        TsValue* protoVal = ts_object_get_property(ctorRaw, "prototype");
+        void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+        if (!protoRaw || protoRaw == obj) return nullptr;
+        return temporal_proto_get(obj, protoRaw, keyStr);
+    }
+
     // ARRAY-as-[[Prototype]] delegation: resolve `key` through the array's
     // own lookup (indices, length, Array.prototype methods), but REBIND any
     // method whose context got baked to the prototype array — `this` must be
@@ -2069,7 +2102,14 @@ void* ts_create_arguments_from_params(
             TsValue* result = (TsValue*)ts_flat_object_get_property(obj, keyStr);
             // If property not found in flat object, check Object.prototype methods
             uint64_t resultNb = nanbox_from_tsvalue_ptr(result);
-            if (resultNb == NANBOX_UNDEFINED) {
+            // ES 10.1.7.1 OrdinaryGet: an OWN property explicitly set to
+            // `undefined` SHADOWS the inherited Object.prototype builtin — a
+            // NANBOX_UNDEFINED result is ambiguous (absent vs present-undefined),
+            // so consult ts_flat_object_has_property. `{toString: undefined}`
+            // must make ToString(obj) skip Object.prototype.toString and try
+            // valueOf next, not resolve to the native method.
+            extern bool ts_flat_object_has_property(void* obj, const char* key);
+            if (resultNb == NANBOX_UNDEFINED && !ts_flat_object_has_property(obj, keyStr)) {
                 if (strcmp(keyStr, "hasOwnProperty") == 0) {
                     return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                 }
@@ -2208,6 +2248,13 @@ void* ts_create_arguments_from_params(
             }
             if (strcmp(keyStr, "[Symbol.matchAll]") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_symbol_matchAll_native, re, "[Symbol.matchAll]", 1);
+            }
+            // Lever G: user-augmented RegExp.prototype props (`RegExp.prototype.q
+            // = 9; /x/.q`). Own props and builtin data/methods above win.
+            {
+                extern void* ts_get_global_RegExp();
+                if (TsValue* inh = ts_builtin_proto_get_fallback(obj, ts_get_global_RegExp, keyStr))
+                    return inh;
             }
             return ts_value_make_undefined();
         }
@@ -2965,6 +3012,13 @@ void* ts_create_arguments_from_params(
                 if (v.type != ValueType::UNDEFINED) {
                     return nanbox_from_tagged(v);
                 }
+            }
+            // Lever G: user-augmented Array.prototype props (`Array.prototype.q
+            // = 9; [].q`). Own indices/length/side-map/builtin methods above win.
+            {
+                extern void* ts_get_global_Array();
+                if (TsValue* inh = ts_builtin_proto_get_fallback(obj, ts_get_global_Array, keyStr))
+                    return inh;
             }
             return ts_value_make_undefined();
         }
@@ -4478,6 +4532,26 @@ void* ts_create_arguments_from_params(
         return ts_object_has_property(fproto, (void*)key);
     }
 
+    // Lever G — [[HasProperty]] fallback for a builtin INSTANCE
+    // (Array/RegExp/Date/Map/Set/...) whose own props and builtin own-name check
+    // both missed: the key may be present because the user (or the builtin init)
+    // put it on the builtin's global .prototype (`Array.prototype.q=9; 'q' in []`
+    // is true). Mirrors ts_function_has_inherited_property for non-callables.
+    // ctorGlobalFn returns the global constructor (a TsMap holding "prototype").
+    // The prototype is a TsMap so [[HasProperty]] routes through the map path —
+    // no recursion back to this leaf.
+    static bool ts_builtin_ctor_proto_has(void* (*ctorGlobalFn)(), TsValue* key) {
+        if (!ctorGlobalFn || !key) return false;
+        void* g = ctorGlobalFn();
+        void* ctorRaw = g ? ts_value_get_object((TsValue*)g) : nullptr;
+        if (!ctorRaw) ctorRaw = g;
+        if (!ctorRaw || (uintptr_t)ctorRaw < 0x1000) return false;
+        TsValue* protoVal = ts_object_get_property(ctorRaw, "prototype");
+        void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+        if (!protoRaw) return false;
+        return ts_object_has_property(protoRaw, (void*)key);
+    }
+
     // Private member READ with brand check (ECMA-262): reading `obj.#x` from an
     // object that does not have the private name `#x` is a TypeError, not
     // undefined. The member is stored under the hidden "\x01#x" key; if that slot
@@ -5804,6 +5878,18 @@ void* ts_create_arguments_from_params(
                 TsString* sk = ts_symbol_storage_key((TsSymbol*)keyTagged.ptr_val);
                 if (sk) { keyTagged.type = ValueType::STRING_PTR; keyTagged.ptr_val = sk; }
             }
+            // ES 10.1.9 [[Set]]: adding a NEW property to a non-extensible
+            // (preventExtensions / seal / freeze) RegExp is rejected — silent in
+            // sloppy mode. Existing own props may still be updated. RegExp is an
+            // exotic object, so its integrity level lives in the pointer-keyed
+            // side-table (ts_integrity_get), not a TsMap header flag. (Latent
+            // pre-Lever-G: masked because `re.hasOwnProperty` didn't resolve; the
+            // prototype-get fallback un-masked it.)
+            {
+                extern uint8_t ts_integrity_get(void* raw);
+                if (ts_integrity_get(rawObj) >= 1 && !props->Has(keyTagged))
+                    return;  // non-extensible: no new property
+            }
             TsValue valTagged = nanbox_to_tagged(value);
             props->Set(keyTagged, valTagged);
             void* pp = re->GetOwnProps(); ts_gc_write_barrier(&pp, pp);
@@ -6831,6 +6917,12 @@ void* ts_create_arguments_from_params(
                 TsValue kv; kv.type = ValueType::STRING_PTR; kv.ptr_val = keyStr2;
                 if (arr->properties->Has(kv)) return true;
             }
+            // Lever G: inherited from Array.prototype (builtin methods AND
+            // user-added props) — `'map' in []` / `Array.prototype.q=9; 'q' in []`.
+            {
+                extern void* ts_get_global_Array();
+                if (ts_builtin_ctor_proto_has(ts_get_global_Array, key)) return true;
+            }
             return false;
         }
         if (magic0 == 0x4D415053 || magic0 == 0x53455453) return false; // TsMap/TsSet at offset 0
@@ -6859,6 +6951,30 @@ void* ts_create_arguments_from_params(
                 "constructor", nullptr };
             for (int i = 0; kReNames[i]; ++i)
                 if (strcmp(k, kReNames[i]) == 0) return true;
+            // Lever G: user-augmented RegExp.prototype props + inherited symbol
+            // methods (`RegExp.prototype.q=9; 'q' in /x/`).
+            {
+                extern void* ts_get_global_RegExp();
+                if (ts_builtin_ctor_proto_has(ts_get_global_RegExp, key)) return true;
+            }
+            return is_object_prototype_member(k);
+        }
+
+        // TsDate: no [[HasProperty]] branch existed, so `'getTime' in new Date()`
+        // and user-augmented `Date.prototype.q` were both false. Own props live
+        // in the g_native_object_props side-map; the rest is inherited from the
+        // global Date.prototype (Lever G) then Object.prototype.
+        if (magic0 == 0x44415445) { // TsDate "DATE"
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (!k) return false;
+            if (TsMap* nprops = getNativeProps(rawObj)) {
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(k);
+                if (nprops->Has(kk)) return true;
+            }
+            extern void* ts_get_global_Date();
+            if (ts_builtin_ctor_proto_has(ts_get_global_Date, key)) return true;
             return is_object_prototype_member(k);
         }
 
@@ -6931,6 +7047,25 @@ void* ts_create_arguments_from_params(
                    strcmp(k, "byteOffset") == 0 || strcmp(k, "buffer") == 0 ||
                    strcmp(k, "BYTES_PER_ELEMENT") == 0 ||
                    strcmp(k, "constructor") == 0;
+        }
+
+        // TsSet: instances aren't linked to the global Set.prototype, so
+        // inherited methods (`'has' in new Set()`) and user-added
+        // `Set.prototype.q` were absent to `in`. Own props live in the
+        // g_native_object_props side-map. (Set has magic16 SETS; distinct from
+        // the MAPS branch below.)
+        if (magic16 == 0x53455453) { // TsSet "SETS"
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (!k) return false;
+            if (TsMap* nprops = getNativeProps(rawObj)) {
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(k);
+                if (nprops->Has(kk)) return true;
+            }
+            extern void* ts_get_global_Set();
+            if (ts_builtin_ctor_proto_has(ts_get_global_Set, key)) return true;
+            return is_object_prototype_member(k);
         }
 
         if (magic16 == 0x4D415053) {
@@ -7007,6 +7142,17 @@ void* ts_create_arguments_from_params(
                     return ts_object_has_property((void*)currentMap,
                                                   (void*)nanbox_from_tagged(keyVal));
                 }
+            }
+            // Lever G: `new Map()` instances aren't physically linked to the
+            // global Map.prototype (see the matching get_property tryProtoLookup),
+            // so inherited methods and user-added `Map.prototype.q` were absent to
+            // `in`. Gated on IsExplicitMap so plain objects / class instances
+            // (also TsMaps) don't spuriously inherit Map/Set.prototype.
+            if (map->IsExplicitMap()) {
+                extern void* ts_get_global_Map();
+                extern void* ts_get_global_Set();
+                if (ts_builtin_ctor_proto_has(ts_get_global_Map, key)) return true;
+                if (ts_builtin_ctor_proto_has(ts_get_global_Set, key)) return true;
             }
             // Inherited from Object.prototype if the chain didn't already
             // include it (plain `{}`-style TsMaps don't link to a materialized

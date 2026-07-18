@@ -1325,28 +1325,39 @@ extern "C" {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "slice")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
+        // RelativeIndex clamp in double-space so ±Infinity / huge magnitudes
+        // don't overflow the int64 cast ((int64_t)+Inf was INT64_MIN garbage,
+        // which then flipped the sign checks — slice/infinity).
+        auto clampRel = [len](double d) -> int64_t {
+            // ToIntegerOrInfinity: NaN -> 0, else truncate toward zero. Do the
+            // truncation BEFORE adding length (relativeIndex is an integer).
+            double rel;
+            if (d != d) rel = 0.0;
+            else if (d >= 9.0e18) rel = 9.0e18;         // +Inf / huge -> clamps to len
+            else if (d <= -9.0e18) rel = -9.0e18;       // -Inf / huge neg -> clamps to 0
+            else rel = (double)(int64_t)d;              // trunc toward zero (in-range)
+            double out = (rel < 0) ? ((double)len + rel) : rel;
+            if (out < 0) out = 0;
+            if (out > (double)len) out = (double)len;
+            return (int64_t)out;
+        };
         int64_t start = 0, end = len;
         // Use ts_to_number for Symbol→TypeError per spec.
-        if (argc >= 1 && argv && argv[0]) {
-            start = (int64_t)ts_to_number(argv[0]);
-            if (start < 0) start = std::max((int64_t)0, len + start);
-        }
-        if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
-            end = (int64_t)ts_to_number(argv[1]);
-            if (end < 0) end = std::max((int64_t)0, len + end);
-        }
-        if (start > len) start = len;
-        if (end > len) end = len;
+        if (argc >= 1 && argv && argv[0]) start = clampRel(ts_to_number(argv[0]));
+        if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+            end = clampRel(ts_to_number(argv[1]));
         if (end < start) end = start;
         int64_t newLen = end - start;
         // TypedArraySpeciesCreate(this, newLen) — honors @@species ctor.
         void* resRaw = ts_typed_array_species_alloc((void*)ta, newLen);
         if (!resRaw) return ts_value_make_undefined();  // TypeError thrown
         TsTypedArray* result = (TsTypedArray*)resRaw;
+        // ta->Get is length-clamped (a resizable-buffer shrink during species
+        // construction/coercion makes past-the-end reads 0 — slice/coerced-
+        // start-end-shrink) and detach-safe.
         size_t copyN = std::min((size_t)newLen, result->GetLength());
-        for (size_t i = 0; i < copyN; i++) {
+        for (size_t i = 0; i < copyN; i++)
             result->Set(i, ta->Get((size_t)start + i));
-        }
         return ts_value_make_object(result);
     }
     // BigInt64/BigUint64 element access without the lossy double round-trip: read/write the
@@ -1392,23 +1403,50 @@ extern "C" {
                               ? *(uint32_t*)((char*)src + 16) : 0;
         if (srcMagic16 == TsTypedArray::MAGIC) {
             TsTypedArray* srcTa = (TsTypedArray*)src;
+            // SetTypedArrayFromTypedArray: a mid-coercion detach of the SOURCE
+            // buffer leaves it out of bounds (srcbuffer-detached-during-
+            // tointeger-offset-throws).
+            if (srcTa->IsDetachedBuffer()) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot set from a TypedArray with a detached buffer"));
+                return ts_value_make_undefined();
+            }
             size_t srcLen = srcTa->GetLength();
-            // BigInt typed arrays have a pre-existing construction/length bug
-            // (GetLength can be garbage); keep the legacy bounded copy for them
-            // so the strict bounds RangeError below doesn't fire spuriously.
-            bool isBig = ta->GetType() == TypedArrayType::BigInt64 ||
-                         ta->GetType() == TypedArrayType::BigUint64 ||
-                         srcTa->GetType() == TypedArrayType::BigInt64 ||
-                         srcTa->GetType() == TypedArrayType::BigUint64;
+            bool tBig = ta->GetType() == TypedArrayType::BigInt64 ||
+                        ta->GetType() == TypedArrayType::BigUint64;
+            bool sBig = srcTa->GetType() == TypedArrayType::BigInt64 ||
+                        srcTa->GetType() == TypedArrayType::BigUint64;
+            // step 3: the two [[ContentType]]s must match, else TypeError
+            // (src-typedarray-big-throws / src-typedarray-not-big-throws).
+            if (tBig != sBig) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot mix BigInt and non-BigInt typed arrays in set()"));
+                return ts_value_make_undefined();
+            }
             // step: if srcLength + targetOffset > targetLength, RangeError
             // (no silent truncation).
-            if (!isBig && srcLen + (size_t)offset > targetLen) {
+            if (srcLen + (size_t)offset > targetLen) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "offset is out of bounds"));
                 return ts_value_make_undefined();
             }
-            for (size_t i = 0; i < srcLen && (size_t)offset + i < targetLen; i++) {
-                ta->Set((size_t)offset + i, srcTa->Get(i));
+            // Read the entire source region FIRST: when source and target share
+            // the same buffer (or overlap), a straight forward copy corrupts
+            // later reads (typedarray-arg-set-values-same-buffer-same-type).
+            if (tBig) {
+                int64_t* sd = (int64_t*)srcTa->GetData();
+                int64_t* td = (int64_t*)ta->GetData();
+                if (sd && td) {
+                    std::vector<int64_t> tmp(srcLen);
+                    for (size_t i = 0; i < srcLen; i++) tmp[i] = sd[i];
+                    for (size_t i = 0; i < srcLen && (size_t)offset + i < targetLen; i++)
+                        td[(size_t)offset + i] = tmp[i];
+                }
+            } else {
+                std::vector<double> tmp(srcLen);
+                for (size_t i = 0; i < srcLen; i++) tmp[i] = srcTa->Get(i);
+                for (size_t i = 0; i < srcLen && (size_t)offset + i < targetLen; i++)
+                    ta->Set((size_t)offset + i, tmp[i]);
             }
         } else {
             // Array / array-like source: ToLength(Get(src,"length")).
@@ -1446,9 +1484,47 @@ extern "C" {
         }
         return ts_value_make_undefined();
     }
+    // %TypedArray%.prototype.subarray(begin, end) — ES 23.2.3.27. Returns a NEW
+    // TypedArray that SHARES this array's ArrayBuffer (a view, not a copy).
+    // Does NOT throw on a detached buffer (srcLength is treated as 0).
     TsValue* ts_typed_array_subarray_native(void* ctx, int argc, TsValue** argv) {
-        // subarray creates a new view (we just copy for now)
-        return ts_typed_array_slice_native(ctx, argc, argv);
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (!ta) return ts_value_make_undefined();
+        int64_t srcLen = (int64_t)ta->GetLength();
+        int64_t esize = (int64_t)ta->GetElementSize();
+        // ToIntegerOrInfinity + RelativeIndex clamp done in double-space so
+        // ±Infinity and huge magnitudes never overflow the int64 cast.
+        auto clampRel = [srcLen](double d) -> int64_t {
+            // ToIntegerOrInfinity: NaN -> 0, else truncate toward zero BEFORE
+            // adding length.
+            double rel;
+            if (d != d) rel = 0.0;                     // NaN -> 0
+            else if (d >= 9.0e18) rel = 9.0e18;        // +Inf / huge -> clamps to srcLen
+            else if (d <= -9.0e18) rel = -9.0e18;      // -Inf / huge neg -> clamps to 0
+            else rel = (double)(int64_t)d;             // trunc toward zero (in-range)
+            double out = (rel < 0) ? ((double)srcLen + rel) : rel;
+            if (out < 0) out = 0;
+            if (out > (double)srcLen) out = (double)srcLen;
+            return (int64_t)out;
+        };
+        int64_t startIndex = 0;
+        if (argc >= 1 && argv && argv[0])
+            startIndex = clampRel(ts_to_number(argv[0]));  // may throw (Symbol)
+        bool endUndef = !(argc >= 2 && argv && argv[1] &&
+                          !ts_value_is_undefined(argv[1]));
+        int64_t endIndex = srcLen;
+        if (!endUndef) endIndex = clampRel(ts_to_number(argv[1]));  // may throw
+        int64_t newLength = endIndex - startIndex;
+        if (newLength < 0) newLength = 0;
+        int64_t beginByteOffset = (int64_t)ta->GetByteOffset() + startIndex * esize;
+        void* buffer = ta->GetBuffer();
+        extern void* ts_typed_array_species_alloc_on_buffer(
+            void* receiver, void* bufferRaw, int64_t byteOffset,
+            int64_t newLength, bool autoLen);
+        void* resRaw = ts_typed_array_species_alloc_on_buffer(
+            (void*)ta, buffer, beginByteOffset, newLength, false);
+        if (!resRaw) return ts_value_make_undefined();  // TypeError thrown
+        return ts_value_make_object(resRaw);
     }
     TsValue* ts_typed_array_fill_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
@@ -1481,7 +1557,15 @@ extern "C" {
         if (throwIfDetached(ta, "at")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         int64_t idx = 0;
-        if (argc >= 1 && argv && argv[0]) idx = (int64_t)ts_to_number(argv[0]);
+        if (argc >= 1 && argv && argv[0]) {
+            // ToIntegerOrInfinity: NaN -> 0 (a raw (int64_t)NaN cast was
+            // INT64_MIN garbage — at/index-non-numeric-argument-tointeger);
+            // ±Infinity is always out of range.
+            double di = ts_to_number(argv[0]);
+            if (di != di) di = 0;
+            if (di >= 9.0e18 || di <= -9.0e18) return ts_value_make_undefined();
+            idx = (int64_t)di;
+        }
         if (idx < 0) idx = len + idx;
         if (idx < 0 || idx >= len) return ts_value_make_undefined();
         return ts_ta_get_boxed(ta, (size_t)idx);
@@ -1678,34 +1762,36 @@ extern "C" {
         return ts_value_make_object(ta);
     }
 
-    // TypedArray.prototype.join(separator?)
+    // TypedArray.prototype.join(separator?) — ES 23.2.3.16. Each element is
+    // stringified via the canonical Number::toString (ecma_number_to_string via
+    // FromDouble), so Infinity/-Infinity/NaN and large integers format exactly
+    // (the old %g/%lld formatter produced "inf"/"9.00720e+15"). GC-string
+    // accumulation keeps the frame longjmp-safe when ToString(separator) throws.
     TsValue* ts_typed_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "join")) return ts_value_make_undefined();
         size_t len = ta->GetLength();
-        std::string sep = ",";
+        extern void* ts_string_from_value(TsValue* val);
+        TsString* sep = TsString::GetInterned(",");
         if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
             TsString* s = (TsString*)ts_value_get_string(argv[0]);
-            if (s) {
-                const char* u = s->ToUtf8();
-                if (u) sep = u;
-            }
+            if (s) sep = s;
         }
-        std::string out;
-        char buf[64];
+        bool isBig = ta->GetType() == TypedArrayType::BigInt64 ||
+                     ta->GetType() == TypedArrayType::BigUint64;
+        TsString* acc = TsString::GetInterned("");
         for (size_t i = 0; i < len; i++) {
-            if (i > 0) out += sep;
-            double v = ta->Get(i);
-            if (v != v) out += "NaN";
-            else if (v == (int64_t)v && std::abs(v) < 1e16) {
-                snprintf(buf, sizeof(buf), "%lld", (long long)v);
-                out += buf;
+            if (i > 0) acc = (TsString*)ts_string_concat(acc, sep);
+            if (ta->IsDetachedBuffer() || i >= ta->GetLength()) continue;
+            TsString* es;
+            if (isBig) {
+                es = (TsString*)ts_string_from_value(ts_ta_get_boxed(ta, i));
             } else {
-                snprintf(buf, sizeof(buf), "%g", v);
-                out += buf;
+                es = TsString::FromDouble(ta->Get(i));
             }
+            if (es) acc = (TsString*)ts_string_concat(acc, es);
         }
-        return ts_value_make_string(TsString::Create(out.c_str()));
+        return ts_value_make_string(acc);
     }
 
     // TypedArray.prototype.toString() — equivalent to join(",") per spec
@@ -1725,8 +1811,9 @@ extern "C" {
         size_t len = ta->GetLength();
         TsString* sep = TsString::GetInterned(",");
         TsString* acc = TsString::GetInterned("");
-        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
         extern void* ts_string_from_value(TsValue* val);
+        TsValue* tlsKey = ts_value_make_string(TsString::GetInterned("toLocaleString"));
         for (size_t k = 0; k < len; k++) {
             if (k > 0) acc = (TsString*)ts_string_concat(acc, sep);
             // Re-read length each step: a user toLocaleString may shrink a
@@ -1734,7 +1821,11 @@ extern "C" {
             // absent element stringifies as "" per Array semantics.
             if (ta->IsDetachedBuffer() || k >= ta->GetLength()) continue;
             TsValue* elem = ts_ta_get_boxed(ta, k);
-            TsValue* m = ts_object_get_property((void*)elem, "toLocaleString");
+            // Resolve "toLocaleString" through the element's prototype chain
+            // (Number.prototype / BigInt.prototype, honoring user overrides).
+            // The old ts_object_get_property treated the boxed TsValue* as a raw
+            // object pointer, so a primitive element never found the override.
+            TsValue* m = ts_object_get_dynamic(elem, tlsKey);
             TsValue* r = nullptr;
             if (m && ts_is_callable(m)) {
                 r = ts_function_call_with_this(m, elem, 0, nullptr);  // may throw

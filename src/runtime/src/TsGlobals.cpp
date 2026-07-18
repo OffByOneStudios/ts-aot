@@ -832,6 +832,7 @@ extern "C" double ts_to_number(TsValue* v);
 static TsMap* g_string_wrapper_proto = nullptr;
 
 extern "C" void* ts_create_string_iterator(void* strPtr);  // TsMap.cpp
+extern "C" void* ts_string_ctor(TsValue* val);  // hook-invoking ToString (TsString.cpp)
 void* ts_get_global_String() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -858,8 +859,15 @@ void* ts_get_global_String() {
                     return ts_value_make_string(TsString::Create(ds.c_str()));
                 }
             }
+            // ECMA-262 22.1.1.1 String(value): ToString(value) — for an OBJECT
+            // argument this is ToPrimitive(string hint), which runs the object's
+            // toString/valueOf/@@toPrimitive hooks and propagates their throws.
+            // ts_string_from_value alone returned "[object Object]" for objects
+            // (so `new String({valueOf(){...}})` / `String(obj)` ignored the
+            // hook). Symbols were already handled above. ts_string_ctor keeps the
+            // fast primitive path and only routes objects through spec ToString.
             void* result = (argc >= 1 && argv && argv[0])
-                ? ts_string_from_value(argv[0])
+                ? ts_string_ctor(argv[0])
                 : (void*)TsString::Create("");
             if (thisVal) {
                 void* raw = ts_value_get_object((TsValue*)thisVal);
@@ -6461,6 +6469,7 @@ static TsTypedArray* requireTypedArrayOrThrow(void* ctx, const char* methodName)
 // not TARR) where raw TA elements were fed to nanbox_from_tagged -> access
 // violation. Iterate the TA directly here: TsTypedArray::Get is detach-safe and
 // we re-read GetLength()/IsDetachedBuffer() each step (a predicate may detach).
+extern "C" TsValue* ts_ta_get_boxed(TsTypedArray* ta, size_t idx);
 static TsValue* ta_find_impl(void* ctx, int argc, TsValue** argv,
                              const char* name, bool wantIndex, bool fromEnd) {
     TsTypedArray* ta = requireTypedArrayOrThrow(ctx, name);
@@ -6490,8 +6499,10 @@ static TsValue* ta_find_impl(void* ctx, int argc, TsValue** argv,
     for (size_t s = 0; s < len; s++) {
         size_t i = fromEnd ? (len - 1 - s) : s;
         // After a mid-iteration detach, the integer-indexed read is undefined.
+        // ts_ta_get_boxed is BigInt-aware; ta->Get returns a lossy double that
+        // mis-boxed BigInt64/BigUint64 elements for the predicate and result.
         TsValue* v = ta->IsDetachedBuffer() ? ts_value_make_undefined()
-                                            : ts_value_make_double(ta->Get(i));
+                                            : ts_ta_get_boxed(ta, i);
         TsValue* idx = ts_value_make_int((int64_t)i);
         TsValue* r = ts_call_with_this_3(cb, thisArg, v, idx, taBoxed);
         if (r && ts_value_to_bool(r)) return wantIndex ? idx : v;
@@ -6612,6 +6623,118 @@ extern "C" TsValue* ta_reduce_impl(void* ctx, int argc, TsValue** argv,
                                   ts_value_make_int((int64_t)k), taBoxed);
     }
     return acc ? acc : ts_value_make_undefined();
+}
+
+// TypedArrayCreateSameType(exemplar, len) — ES 23.2.4.3. Allocates via the
+// INTRINSIC default constructor for the element kind (IGNORES @@species), so
+// with/toSorted/toReversed never read O.constructor.
+static inline TsTypedArray* ta_create_same_type(TsTypedArray* ta, size_t len) {
+    return TsTypedArray::Create(len, ta->GetElementSize(), ta->IsClamped(),
+                                ta->GetType());
+}
+static inline bool ta_is_bigint(TsTypedArray* ta) {
+    return ta->GetType() == TypedArrayType::BigInt64 ||
+           ta->GetType() == TypedArrayType::BigUint64;
+}
+
+// %TypedArray%.prototype.with(index, value) — ES 23.2.3.36. Returns a NEW
+// same-type TypedArray with element[index] replaced. Coerces index then value
+// BEFORE the (current-length) bounds check; RangeError on an invalid index.
+static TsValue* ta_with_impl(void* ctx, int argc, TsValue** argv) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "with");
+    if (!ta) return ts_value_make_undefined();
+    int64_t len = (int64_t)ta->GetLength();
+    // step 4: relativeIndex = ToIntegerOrInfinity(index)
+    double ri = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : 0.0;
+    int64_t actualIndex;
+    if (ri != ri) actualIndex = 0;                 // NaN -> 0
+    else if (ri >= 9.0e18) actualIndex = len + 1;  // +Inf / huge -> OOB
+    else if (ri <= -9.0e18) actualIndex = -1;      // -Inf / huge neg -> OOB
+    else {
+        int64_t rel = (int64_t)ri;
+        actualIndex = (rel >= 0) ? rel : len + rel;
+    }
+    bool isBig = ta_is_bigint(ta);
+    // step 6/7: coerce value (runs BEFORE the bounds check — its side effects
+    // and abrupt completions are observable regardless of index validity).
+    TsValue* valArg = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+    int64_t bigVal = 0; double numVal = 0;
+    if (isBig) {
+        extern void* ts_to_bigint_spec(TsValue* v);
+        extern int64_t ts_bigint_to_i64(void* b);
+        void* bi = ts_to_bigint_spec(valArg);      // throws on non-BigInt-coercible
+        if (bi) bigVal = ts_bigint_to_i64(bi);
+    } else {
+        numVal = ts_to_number(valArg);             // throws on Symbol
+    }
+    // step 8: IsValidIntegerIndex against the CURRENT length (a coercion above
+    // may have resized a length-tracking view).
+    int64_t curLen = (int64_t)ta->GetLength();
+    if (ta->IsDetachedBuffer() || actualIndex < 0 || actualIndex >= curLen) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid typed array index"));
+        return ts_value_make_undefined();
+    }
+    // steps 9-11: A = createSameType(O, len[step 3]); copy with replacement.
+    TsTypedArray* A = ta_create_same_type(ta, (size_t)len);
+    if (isBig) {
+        int64_t* dst = (int64_t*)A->GetData();
+        int64_t* src = (int64_t*)ta->GetData();
+        if (dst && src)
+            for (int64_t k = 0; k < len; k++)
+                dst[k] = (k == actualIndex) ? bigVal : src[k];
+    } else {
+        for (int64_t k = 0; k < len; k++)
+            A->Set((size_t)k, (k == actualIndex) ? numVal : ta->Get((size_t)k));
+    }
+    return ts_value_make_object(A);
+}
+
+// %TypedArray%.prototype.toReversed() — ES 23.2.3.32. New same-type array,
+// elements reversed. Ignores @@species.
+static TsValue* ta_toReversed_impl(void* ctx, int argc, TsValue** argv) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "toReversed");
+    if (!ta) return ts_value_make_undefined();
+    size_t len = ta->GetLength();
+    TsTypedArray* A = ta_create_same_type(ta, len);
+    if (ta_is_bigint(ta)) {
+        int64_t* dst = (int64_t*)A->GetData();
+        int64_t* src = (int64_t*)ta->GetData();
+        if (dst && src)
+            for (size_t k = 0; k < len; k++) dst[k] = src[len - 1 - k];
+    } else {
+        for (size_t k = 0; k < len; k++) A->Set(k, ta->Get(len - 1 - k));
+    }
+    return ts_value_make_object(A);
+}
+
+// %TypedArray%.prototype.toSorted(comparefn?) — ES 23.2.3.34. Validates
+// comparefn FIRST, copies into a new same-type array, sorts it in place.
+static TsValue* ta_toSorted_impl(void* ctx, int argc, TsValue** argv) {
+    TsValue* cmp = (argc >= 1 && argv) ? argv[0] : nullptr;
+    bool cmpFn = cmp && !ts_value_is_undefined(cmp);
+    if (cmpFn && !ts_is_callable((void*)cmp)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "The comparison function must be either a function or undefined"));
+        return ts_value_make_undefined();
+    }
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "toSorted");
+    if (!ta) return ts_value_make_undefined();
+    size_t len = ta->GetLength();
+    TsTypedArray* A = ta_create_same_type(ta, len);
+    if (ta_is_bigint(ta)) {
+        int64_t* dst = (int64_t*)A->GetData();
+        int64_t* src = (int64_t*)ta->GetData();
+        if (dst && src)
+            for (size_t k = 0; k < len; k++) dst[k] = src[k];
+    } else {
+        for (size_t k = 0; k < len; k++) A->Set(k, ta->Get(k));
+    }
+    // Sort the COPY in place via the existing native (re-validates cmp; the
+    // comparator sees the new array as `this`, matching SortIndexedProperties).
+    extern TsValue* ts_typed_array_sort_native(void* ctx, int argc, TsValue** argv);
+    ts_typed_array_sort_native((void*)A, argc, argv);
+    return ts_value_make_object(A);
 }
 
 void* ts_get_global_TypedArray() {
@@ -6811,9 +6934,15 @@ void* ts_get_global_TypedArray() {
             TA_PROTO_STUB(sort, 1);
             TA_PROTO_STUB(subarray, 2);
             TA_PROTO_STUB(toLocaleString, 0);
-            TA_PROTO_STUB(toReversed, 0);
-            TA_PROTO_STUB(toSorted, 1);
-            TA_PROTO_STUB(with, 2);
+            addMethod(tproto, "toReversed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                return ta_toReversed_impl(ctx, argc, argv);
+            }, 0);
+            addMethod(tproto, "toSorted", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                return ta_toSorted_impl(ctx, argc, argv);
+            }, 1);
+            addMethod(tproto, "with", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                return ta_with_impl(ctx, argc, argv);
+            }, 2);
             TA_PROTO_STUB(at, 1);
             #undef TA_PROTO_STUB
         }

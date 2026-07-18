@@ -2100,6 +2100,23 @@ extern "C" {
         int64_t e = ts_to_index_integer_or_sentinel(end);    // may throw
         return ts_string_slice(str, s, e);
     }
+    // ECMA-262 22.1.3.24 String.prototype.substring. Both args go through
+    // ToIntegerOrInfinity (NaN/undefined start -> 0; undefined end -> length via
+    // the INT64_MIN sentinel; Symbol/BigInt/throwing-valueOf -> TypeError). The
+    // old typed lowering did a bare i64 cast of the raw argument, so a string
+    // ("e"), an object with valueOf, or NaN were mis-read as garbage indices.
+    void* ts_string_substring_coerced(void* str, TsValue* start, TsValue* end) {
+        int64_t s = ts_to_index_integer(start);            // undefined/NaN -> 0
+        int64_t e = ts_to_index_integer_or_sentinel(end);  // undefined -> length
+        return ts_string_substring(str, s, e);
+    }
+    // ECMA-262 22.1.3.1 String.prototype.charAt: position = ToIntegerOrInfinity(pos)
+    // (NaN/undefined -> 0, string -> number, Symbol -> TypeError). Out-of-range
+    // yields the empty string (CharAt clamps).
+    void* ts_string_charAt_coerced(void* str, TsValue* index) {
+        int64_t i = ts_to_index_integer(index);  // may throw
+        return ts_string_charAt(str, i);
+    }
     int64_t ts_string_indexOf_from_coerced(void* str, void* searchString, TsValue* startPos) {
         // ToIntegerOrInfinity(position); undefined/omitted -> 0 per spec.
         int64_t p = ts_to_index_integer(startPos);  // may throw
@@ -2652,6 +2669,7 @@ extern "C" {
     // concat / template-literal contexts, which keep using ts_string_from_value.)
     // Every other value is ordinary ToString. The `String(v)` compiler lowering
     // calls this instead of ts_to_string so well-known/user symbols stringify.
+    void* ts_to_string_spec(TsValue* val);  // fwd: hook-invoking ToString (below)
     void* ts_string_ctor(TsValue* val) {
         if (val) {
             uint64_t nb = nanbox_from_tsvalue_ptr(val);
@@ -2665,8 +2683,23 @@ extern "C" {
                 }
             }
         }
-        // Non-symbol: ts_value_get_string is the full ToString (numbers, null,
-        // array-join, object toString) and throws only on symbols — handled above.
+        // A heap OBJECT (plain object / wrapper / array-like) must be ToString'd
+        // via ToPrimitive(string hint) so its user toString/valueOf/@@toPrimitive
+        // hooks run and their throws propagate — `new String({valueOf(){...}})`
+        // and `String(obj)` previously fell to ts_value_get_string, which
+        // returned "[object Object]" without consulting any hook. Already-string
+        // and primitive values keep the fast ts_value_get_string path.
+        uint64_t nb = nanbox_from_tsvalue_ptr(val);
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            uint32_t m = (ptr && (uintptr_t)ptr > 0x10000) ? *(uint32_t*)ptr : 0;
+            // Not an already-flat/cons string: route object-ish values through
+            // the hook-invoking spec ToString.
+            if (m != 0x53545247 /*TsString*/ && m != TsConsString::MAGIC) {
+                return ts_to_string_spec(val);
+            }
+        }
+        // Non-symbol primitive / string: fast ToString (numbers, null, etc.).
         return ts_value_get_string(val);
     }
 

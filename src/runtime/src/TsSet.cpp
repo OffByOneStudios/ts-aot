@@ -1070,6 +1070,26 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
         if (ctor) return (TsValue*)ts_value_make_object(ctor);
     }
 
+    // Lever G: user-augmented Set.prototype props (`Set.prototype.q = 9; s.q`).
+    // Own props and the builtin methods above win; then consult the global
+    // Set.prototype for otherwise-missing keys. The instance isn't physically
+    // linked to Set.prototype, so resolve it via the global constructor.
+    {
+        extern void* ts_get_global_Set();
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        void* g = ts_get_global_Set();
+        void* ctorRaw = g ? ts_value_get_object((TsValue*)g) : nullptr;
+        if (!ctorRaw) ctorRaw = g;
+        if (ctorRaw && name) {
+            TsValue* protoVal = ts_object_get_property(ctorRaw, "prototype");
+            void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+            if (protoRaw && protoRaw != obj) {
+                TsValue* r = ts_object_get_property(protoRaw, name);
+                if (r && !ts_value_is_undefined(r)) return r;
+            }
+        }
+    }
+
     return ts_value_make_undefined();
 }
 
