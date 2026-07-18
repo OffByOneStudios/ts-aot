@@ -73,6 +73,12 @@ void* ts_number_to_fixed(double val, int64_t digits);
 void* ts_int_to_string(int64_t val, int64_t radix);
 void* ts_double_to_string(double val, int64_t radix);
 void* ts_double_to_fixed(double val, int64_t digits);
+// Number.prototype.toExponential/toPrecision formatting (ECMA-262 21.1.3.2/.5).
+// Callers must have already validated the receiver, handled NaN/Infinity, and
+// (for toExponential) range-checked fractionDigits. `fractionDigits < 0` means
+// "undefined" -> shortest round-tripping representation. `precision` is 1..100.
+void* ts_number_to_exponential(double val, int64_t fractionDigits);
+void* ts_number_to_precision(double val, int64_t precision);
 
 // --- String ---
 void* ts_string_create(const char* str);
