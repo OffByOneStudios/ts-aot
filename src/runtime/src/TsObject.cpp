@@ -733,6 +733,17 @@ static bool resolve_map_chain_get(TsMap* start, const char* key,
             return true;
         }
         pm = pm->GetPrototype();
+        if (pm && g_ts_proxy_vtable && *(void**)pm == g_ts_proxy_vtable) {
+            // ES 10.1.7 OrdinaryGet: a Proxy in the [[Prototype]] chain must
+            // forward [[Get]] through its own trap dispatch with the ORIGINAL
+            // receiver — not be read as a plain (empty) object, which silently
+            // yielded undefined for every inherited property.
+            TsProxy* proxy = static_cast<TsProxy*>((TsObject*)pm);
+            void* recv = thisArg ? ts_value_get_object(thisArg) : nullptr;
+            if (!recv) recv = (void*)thisArg;
+            *out = proxy->get(ts_value_make_string(TsString::Create(key)), recv);
+            return true;
+        }
         if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto*/) {
             // ARRAY as [[Prototype]]: delegate to the array's lookup with
             // methods rebound to the original receiver (thisArg).
@@ -5479,6 +5490,14 @@ void* ts_create_arguments_from_params(
                 break;  // Found the property
             }
             currentMap = currentMap->GetPrototype();
+            if (currentMap && g_ts_proxy_vtable && *(void**)currentMap == g_ts_proxy_vtable) {
+                // ES 10.1.7 OrdinaryGet: a Proxy in the [[Prototype]] chain must
+                // forward [[Get]] through its own trap dispatch with the ORIGINAL
+                // receiver — reading it as a plain (empty) map silently yielded
+                // undefined for every inherited property (Object.create(proxy)).
+                TsProxy* proxy = static_cast<TsProxy*>((TsObject*)currentMap);
+                return proxy->get(key, rawObj);
+            }
             if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
                 // ARRAY as [[Prototype]]: delegate with method rebinding.
                 const char* dk = nullptr;
@@ -5541,6 +5560,24 @@ void* ts_create_arguments_from_params(
                     }
                     if (strcmp(k, "valueOf") == 0) {
                         return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
+                    }
+                    // AnnexB accessor helpers (B.2.2.2-5) — the static get path
+                    // (ts_object_get_property) synthesizes these, but the dynamic
+                    // path did not. That gap was invisible until a Proxy in the
+                    // prototype chain routed inherited-method reads through
+                    // proxy->get -> forward-to-target -> this dynamic fallback,
+                    // which then returned undefined for __lookupGetter__ et al.
+                    if (strcmp(k, "__lookupGetter__") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_lookupGetter_native, nullptr, "__lookupGetter__", 1);
+                    }
+                    if (strcmp(k, "__lookupSetter__") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_lookupSetter_native, nullptr, "__lookupSetter__", 1);
+                    }
+                    if (strcmp(k, "__defineGetter__") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_defineGetter_native, nullptr, "__defineGetter__", 2);
+                    }
+                    if (strcmp(k, "__defineSetter__") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_defineSetter_native, nullptr, "__defineSetter__", 2);
                     }
                     // A plain object's inherited `constructor` is Object. Return
                     // the canonical function-tagged global (matching the flat-
@@ -6908,6 +6945,12 @@ void* ts_create_arguments_from_params(
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
+                if (currentMap && g_ts_proxy_vtable && *(void**)currentMap == g_ts_proxy_vtable) {
+                    // ES 10.1.7 OrdinaryHasProperty: a Proxy in the [[Prototype]]
+                    // chain forwards [[HasProperty]] through its own trap dispatch.
+                    TsProxy* proxy = static_cast<TsProxy*>((TsObject*)currentMap);
+                    return proxy->has(key);
+                }
                 if (currentMap && *(uint32_t*)currentMap == 0x41525259 /*ARRY*/) {
                     // ARRAY as [[Prototype]]: delegate.
                     return ts_object_has_property((void*)currentMap,
