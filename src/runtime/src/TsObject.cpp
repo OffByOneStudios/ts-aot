@@ -816,6 +816,32 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
     return false;
 }
 
+// Receiver-aware getter delegation to an explicit [[Prototype]]. A class
+// instance is a FLAT object that stores its prototype as "\x01__proto" in its
+// overflow map; ts_flat_object_get_property delegates a property miss there.
+// A GETTER found on that prototype chain must be invoked with the ORIGINAL
+// instance (receiver) as `this`, NOT the prototype — otherwise
+// `get x(){ return this._x }` reads C.prototype._x (undefined). Sets *found=1
+// and returns the getter value when a getter resolves; otherwise *found=0 and
+// the caller falls back to the receiver-agnostic ts_object_get_property (which
+// correctly handles inherited data/methods/built-ins). Getter-only so the hot
+// prototype-delegation path is unchanged for everything except accessors.
+extern "C" void* ts_get_proto_getter_with_receiver(void* protoObj, const char* key,
+                                                   void* receiver, int* found) {
+    if (found) *found = 0;
+    if (!protoObj || !key) return (void*)(uintptr_t)NANBOX_UNDEFINED;
+    void* raw = ts_value_get_object((TsValue*)protoObj);
+    if (!raw) raw = protoObj;
+    if (*(uint32_t*)((char*)raw + 16) != 0x4D415053 /*TsMap::MAGIC*/)
+        return (void*)(uintptr_t)NANBOX_UNDEFINED;
+    TsValue* out = nullptr;
+    if (dispatch_map_chain_getter((TsMap*)raw, key, (TsValue*)receiver, &out)) {
+        if (found) *found = 1;
+        return (void*)out;
+    }
+    return (void*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
 void ts_set_call_this(void* thisArg) {
     if (getenv("TS_DEBUG_THISSLOT"))
         fprintf(stderr, "[THISSLOT] set=%p\n", thisArg);

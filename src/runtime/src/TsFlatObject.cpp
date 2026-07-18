@@ -194,6 +194,15 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
             pk.ptr_val = TsString::GetInterned("\x01__proto");
             TsValue pv = map->Get(pk);
             if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {
+                // A GETTER found on this explicit [[Prototype]] must run with the
+                // ORIGINAL instance (obj) as `this`, not the prototype. Class
+                // instances store their prototype here, so `c.x` where
+                // `get x(){ return this._x }` must see this=c (not C.prototype,
+                // which read undefined). Non-accessor lookups fall back unchanged.
+                extern void* ts_get_proto_getter_with_receiver(void*, const char*, void*, int*);
+                int gotGetter = 0;
+                void* gv2 = ts_get_proto_getter_with_receiver(pv.ptr_val, key, obj, &gotGetter);
+                if (gotGetter) return gv2;
                 extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
                 return (void*)ts_object_get_property(pv.ptr_val, key);
             }
