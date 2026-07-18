@@ -118,17 +118,31 @@ void ASTToHIR::visitIfStatement(ast::IfStatement* node) {
 
     builder_.createCondBranch(cond, thenBlock, elseBlock);
 
+    // Annex B.3.2: a bare FunctionDeclaration in if-body position is implicitly
+    // wrapped in a Block, giving it block-level lexical scope. The parser wraps
+    // it only in a parser-side scope (not an AST Block), so lower it under a
+    // pushed HIR scope here — otherwise it is misread as function-scoped
+    // (fdInBlock=false) and its Annex B var-copy overwrites a same-named
+    // parameter/lexical binding that should have suppressed it (skip-param /
+    // skip-dft-param).
+    bool thenIsFn = dynamic_cast<ast::FunctionDeclaration*>(node->thenStatement.get()) != nullptr;
+
     // Then block
     builder_.setInsertPoint(thenBlock);
     currentBlock_ = thenBlock;
+    if (thenIsFn) pushScope();
     lowerStatement(node->thenStatement.get());
+    if (thenIsFn) popScope();
     emitBranchIfNeeded(mergeBlock);
 
     // Else block
     builder_.setInsertPoint(elseBlock);
     currentBlock_ = elseBlock;
     if (node->elseStatement) {
+        bool elseIsFn = dynamic_cast<ast::FunctionDeclaration*>(node->elseStatement.get()) != nullptr;
+        if (elseIsFn) pushScope();
         lowerStatement(node->elseStatement.get());
+        if (elseIsFn) popScope();
     }
     emitBranchIfNeeded(mergeBlock);
 
