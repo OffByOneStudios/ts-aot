@@ -1431,6 +1431,11 @@ bool ts_value_to_bool(TsValue* v) {
         if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             return ts_string_like_length(ptr) > 0; // Empty string is falsy
         }
+        // ToBoolean(BigInt): 0n is falsy, any other BigInt is truthy (ES 7.1.2).
+        if (*(uint32_t*)ptr == 0x42494749 /*BIGI*/) {
+            extern bool ts_bigint_is_zero(void* a);
+            return !ts_bigint_is_zero(ptr);
+        }
         // Annex B § B.3.7: [[IsHTMLDDA]] objects coerce to false.
         if (ts_is_htmldda(v)) return false;
         return true; // Non-null objects are truthy

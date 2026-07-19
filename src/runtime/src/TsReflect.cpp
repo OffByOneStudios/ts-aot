@@ -66,6 +66,8 @@ extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receive
     return ts_object_get_dynamic(ts_value_box_any(target), (TsValue*)propArg);
 }
 
+extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg);
+
 extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg, void* receiverArg) {
     void* target = reflect_require_object(targetArg,
         "Reflect.set called on non-object");
@@ -107,6 +109,37 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
                 return 1;
             }
             return 0;
+        }
+    }
+
+    // ES 10.4.5.5 [[Set]] with SameValue(O, Receiver) (no explicit receiver, or
+    // receiver === target): a canonical numeric index runs IntegerIndexedElementSet
+    // (always "true"); an ORDINARY named key runs OrdinarySet, which returns FALSE
+    // when the own property is a non-writable data property or a setter-less
+    // accessor. The direct ts_object_set_dynamic path below always reported true
+    // (internals/Set/key-is-{symbol,not-numeric-index,not-canonical-index}).
+    if ((uintptr_t)target >= 4096 &&
+        *(uint32_t*)((char*)target + 16) == 0x54415252 /* TARR */) {
+        extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+        if (ts_ta_classify_index_c(target, (TsValue*)propArg) == 0) {  // ordinary key
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            TsValue* desc = ts_reflect_getOwnPropertyDescriptor(target, propArg);
+            if (desc && !ts_value_is_undefined(desc)) {
+                void* dRaw = ts_value_get_object(desc);
+                if (dRaw) {
+                    TsValue* getF = ts_object_get_property(dRaw, "get");
+                    TsValue* setF = ts_object_get_property(dRaw, "set");
+                    bool isAccessor =
+                        (getF && !ts_value_is_undefined(getF)) ||
+                        (setF && !ts_value_is_undefined(setF));
+                    if (isAccessor) {
+                        if (!setF || !ts_is_callable((void*)setF)) return 0;  // no setter
+                    } else {
+                        TsValue* wF = ts_object_get_property(dRaw, "writable");
+                        if (wF && !ts_value_to_bool(wF)) return 0;  // non-writable data
+                    }
+                }
+            }
         }
     }
 

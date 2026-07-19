@@ -3240,7 +3240,19 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
 }
 
 static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsValue* onRejected) {
-    TsPromise* promise = (TsPromise*)context;
+    // ES 27.2.5.4 step 2: If IsPromise(this) is false, throw a TypeError.
+    // `context` is the receiver — a primitive (`then.call(3)`) or a plain
+    // object (`then.call(Promise.prototype)`) must be rejected here rather than
+    // reinterpreted as a raw TsPromise* (which faulted on the type-confused
+    // deref). ts_nanbox_safe_unbox returns nullptr for NaN-boxed specials;
+    // ts_cast<TsPromise> validates the "PROM" brand on a heap object.
+    void* raw = context ? ts_nanbox_safe_unbox(context) : nullptr;
+    TsPromise* promise = raw ? ts_cast<TsPromise>(raw) : nullptr;
+    if (!promise) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise.prototype.then called on a non-Promise"));
+        return ts_value_make_undefined();  // unreachable (ts_throw longjmps)
+    }
     TsPromise* next = promise->then(onFulfilled ? nanbox_to_tagged(onFulfilled) : TsValue(), onRejected ? nanbox_to_tagged(onRejected) : TsValue());
     return ts_value_make_promise(next);
 }

@@ -281,8 +281,26 @@ TsValue* ts_bigint_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
 void* ts_bigint_from_value(TsValue* val) {
     if (!val) return TsBigInt::Create((int64_t)0);
 
+    extern void* ts_error_create_typed(const char* type, const char* message);
+    // ECMA-262 21.2.1.1 BigInt(value) / 7.1.13 ToBigInt: undefined and null
+    // are not coercible -> TypeError (BigInt(undefined) must NOT silently
+    // yield 0n).
+    uint64_t nb = nanbox_from_tsvalue_ptr(val);
+    if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot convert undefined or null to a BigInt"));
+        return TsBigInt::Create((int64_t)0);  // unreachable
+    }
+
     TsValue decoded = nanbox_to_tagged(val);
-    if (decoded.type == ValueType::NUMBER_INT) {
+    if (decoded.type == ValueType::BOOLEAN) {
+        // ToBigInt(true) = 1n, ToBigInt(false) = 0n.
+        return TsBigInt::Create((int64_t)(decoded.b_val ? 1 : 0));
+    } else if (decoded.type == ValueType::SYMBOL_PTR) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot convert a Symbol value to a BigInt"));
+        return TsBigInt::Create((int64_t)0);  // unreachable
+    } else if (decoded.type == ValueType::NUMBER_INT) {
         return TsBigInt::Create(decoded.i_val);
     } else if (decoded.type == ValueType::NUMBER_DBL) {
         // ECMA-262 21.2.1.1.1 NumberToBigInt: a non-integral or non-finite Number
@@ -382,6 +400,12 @@ void* ts_bigint_pow(void* base, void* exp) {
 }
 
 // Comparison operations
+// ToBoolean(BigInt): 0n is falsy, every other BigInt is truthy (ES 7.1.2).
+bool ts_bigint_is_zero(void* a) {
+    if (!a) return true;
+    return mp_iszero(&((TsBigInt*)a)->value);
+}
+
 bool ts_bigint_eq(void* a, void* b) {
     if (!a && !b) return true;
     if (!a || !b) return false;

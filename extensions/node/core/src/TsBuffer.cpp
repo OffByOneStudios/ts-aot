@@ -12,6 +12,8 @@
 #include <new>
 
 extern "C" double ts_to_number(TsValue* v);
+extern "C" void* ts_to_bigint_spec(TsValue* v);  // spec ToBigInt (ToPrimitive + TypeError); defined in TsGlobals.cpp
+extern "C" TsValue* ts_to_primitive(TsValue* v, int hint);  // ToPrimitive (Primitives.cpp)
 #include <unicode/unistr.h>
 #include <cstdio>
 #include "TsString.h"
@@ -2683,12 +2685,63 @@ TsDataView::TsDataView(TsBuffer* buffer, size_t byteOffset, size_t byteLength) {
 
 // Virtual dispatch — buffer / byteLength / byteOffset + get/set methods.
 // Reached via the magic16 whitelist in ts_try_virtual_property_dispatch.
+// ES ToInt8/ToUint8/ToInt16/ToUint16/ToInt32/ToUint32: the byte pattern stored
+// for a DataView integer set is ToUint(value) mod 2^(width*8). A direct
+// (intN_t)double narrowing cast is UNDEFINED BEHAVIOR for out-of-range doubles
+// (NaN/Infinity/huge magnitudes) — MSVC produced 0 for e.g. setUint8(4294967295).
+// JS requires trunc-then-modulo. Returns the low width*8 bits as an unsigned
+// value; the signed vs unsigned type share an identical stored bit pattern.
+static inline uint64_t dv_int_bits(double d, int width) {
+    if (!std::isfinite(d)) return 0;               // ToIntegerOrInfinity(NaN/Inf) -> 0
+    double t = std::trunc(d);
+    double mod = std::ldexp(1.0, width * 8);       // 2^(width*8)
+    t = std::fmod(t, mod);
+    if (t < 0) t += mod;
+    return (uint64_t)t;
+}
+
+// ES ToIndex step 1 = ToNumber(byteOffset). ToNumber runs ToPrimitive(number)
+// on an object exactly ONCE, then TypeErrors for a BigInt or Symbol primitive
+// (toindex-byteoffset-{errors,toprimitive} tests: getBigInt64(0n) and an object
+// whose @@toPrimitive/valueOf yields a BigInt must throw). ts_to_number cannot
+// be used directly — its legacy path returns a numeric value for a BigInt. We
+// ToPrimitive once here, then call ts_to_number on the resulting PRIMITIVE
+// (which no longer re-invokes valueOf, so it fires exactly once).
+static inline double dv_offset_tonumber(TsValue* offV) {
+    if (!offV) return 0.0;
+    TsValue* prim = ts_to_primitive(offV, 1 /* number hint */);
+    uint64_t nb = nanbox_from_tsvalue_ptr(prim);
+    if (nanbox_is_ptr(nb)) {
+        void* raw = nanbox_to_ptr(nb);
+        if (raw && (uintptr_t)raw >= 4096) {
+            uint32_t m = *(uint32_t*)raw;
+            if (m == 0x42494749 /*BIGI*/ || m == 0x53594D42 /*SYMB*/) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a BigInt or Symbol value to a number"));
+                return 0.0;  // unreachable
+            }
+        }
+    }
+    return ts_to_number(prim);
+}
+
 TsValue TsDataView::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "buffer") == 0) {
         TsValue v;
         v.type = ValueType::OBJECT_PTR;
         v.ptr_val = buffer;
         return v;
+    }
+    // ES 25.3.4.1/2 get byteLength / byteOffset: if the viewed buffer is
+    // detached the view is out of bounds -> TypeError (detached-buffer /
+    // instance-has-detached-buffer tests). get/set methods check detachment
+    // AFTER their offset/value coercions (in their lambdas), so this pre-empt
+    // is limited to the two accessor getters.
+    if (buffer && buffer->IsDetached() &&
+        (strcmp(key, "byteLength") == 0 || strcmp(key, "byteOffset") == 0)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "DataView: the underlying ArrayBuffer is detached"));
+        TsValue u; u.type = ValueType::UNDEFINED; return u;
     }
     // ES2024 resizable ArrayBuffer: a fixed-length DataView whose window
     // no longer fits the CURRENT buffer length is out of bounds — byteLength
@@ -2758,7 +2811,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                 (void*)+[](void* ctx, TsValue* offV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
-                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
+                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? dv_offset_tonumber(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
                     if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
                         ts_throw((TsValue*)ts_error_create_typed("TypeError", \
@@ -2786,7 +2839,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
-                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
+                    /* ToIndex (ES 7.1.22): NaN -> 0, truncate; a raw                        (int64_t) cast of NaN produced a huge negative and                        tripped the bounds RangeError (toindex-byteoffset). */                     double offD = (offV && !ts_value_is_undefined(offV)) ? dv_offset_tonumber(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD); \
                     /* ES 25.3.1.5 SetViewValue: ToIndex(offset) throws RangeError for a \
                        negative/too-large index BEFORE ToNumber(value) runs, so a poisoned \
                        value's valueOf must NOT fire on an out-of-range offset. */ \
@@ -2795,7 +2848,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                             "DataView offset is out of range")); \
                         return ts_value_make_undefined(); \
                     } \
-                    double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : 0.0; \
+                    double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : std::nan(""); /* ToNumber(undefined) == NaN, not 0 */ \
                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
                     if (dv->GetBuffer()->IsDetached()) { /* after ToNumber(offset/value) per spec; GetData() is freed/null when detached -> crash */ \
                         ts_throw((TsValue*)ts_error_create_typed("TypeError", \
@@ -2819,8 +2872,8 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
 
     DV_GET("getInt8", 1, { (void)le; return ts_value_make_int((int64_t)(int8_t)*p); });
     DV_GET("getUint8", 1, { (void)le; return ts_value_make_int((int64_t)*p); });
-    DV_SET("setInt8", 1, { (void)le; *p = (uint8_t)(int8_t)dval; });
-    DV_SET("setUint8", 1, { (void)le; *p = (uint8_t)dval; });
+    DV_SET("setInt8", 1, { (void)le; *p = (uint8_t)dv_int_bits(dval, 1); });
+    DV_SET("setUint8", 1, { (void)le; *p = (uint8_t)dv_int_bits(dval, 1); });
 
     DV_GET("getInt16", 2, {
         uint16_t u; std::memcpy(&u, p, 2);
@@ -2833,12 +2886,12 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         return ts_value_make_int((int64_t)u);
     });
     DV_SET("setInt16", 2, {
-        uint16_t u = (uint16_t)(int16_t)dval;
+        uint16_t u = (uint16_t)dv_int_bits(dval, 2);
         if (!le) u = (uint16_t)((u >> 8) | (u << 8));
         std::memcpy(p, &u, 2);
     });
     DV_SET("setUint16", 2, {
-        uint16_t u = (uint16_t)dval;
+        uint16_t u = (uint16_t)dv_int_bits(dval, 2);
         if (!le) u = (uint16_t)((u >> 8) | (u << 8));
         std::memcpy(p, &u, 2);
     });
@@ -2854,12 +2907,12 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         return ts_value_make_int((int64_t)u);
     });
     DV_SET("setInt32", 4, {
-        uint32_t u = (uint32_t)(int32_t)dval;
+        uint32_t u = (uint32_t)dv_int_bits(dval, 4);
         if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
         std::memcpy(p, &u, 4);
     });
     DV_SET("setUint32", 4, {
-        uint32_t u = (uint32_t)dval;
+        uint32_t u = (uint32_t)dv_int_bits(dval, 4);
         if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
         std::memcpy(p, &u, 4);
     });
@@ -2910,14 +2963,16 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         uint64_t r = 0;
         if (le) { for (int i = 7; i >= 0; --i) r = (r << 8) | p[i]; }
         else    { for (int i = 0; i <  8; ++i) r = (r << 8) | p[i]; }
-        extern void* ts_bigint_create_int(int64_t v);
+        /* Unsigned 64-bit read: values >= 2^63 must box as a large POSITIVE
+           BigInt, not a two's-complement negative (getBigUint64 return-values). */
+        extern void* ts_bigint_create_uint(uint64_t v);
         extern TsValue* ts_value_make_bigint(void* bi);
-        return ts_value_make_bigint(ts_bigint_create_int((int64_t)r));
+        return ts_value_make_bigint(ts_bigint_create_uint(r));
     });
     // BigInt SET: the shared DV_SET macro ToNumber-coerces the value, which
     // THROWS on a BigInt — these need a BigInt-first extraction (and a
     // TypeError for non-BigInt values per SetViewValue's ToBigInt).
-    #define DV_SET_BIG(name)         if (strcmp(key, name) == 0) {             TsValue v; v.type = ValueType::FUNCTION_PTR;             void* mem = ts_alloc(sizeof(TsFunction));             TsFunction* fn = new (mem) TsFunction(                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* {                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx);                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined();                     double offD = (offV && !ts_value_is_undefined(offV)) ? ts_to_number(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD);                     int64_t iv = 0;                     {                         uint64_t nb = valV ? (uint64_t)(uintptr_t)valV : 0;                         void* raw = (valV && ((nb >> 48) != 0xFFFF) && nb > 4096) ? ts_value_get_object(valV) : nullptr;                         if (!raw) raw = (void*)valV;                         if (raw && (uintptr_t)raw >= 4096 &&                             (uintptr_t)raw < 0x0000800000000000ULL &&                             *(uint32_t*)raw == 0x42494749 /*BIGI*/) {                             extern int64_t ts_bigint_to_i64(void* bi);                             iv = ts_bigint_to_i64(raw);                         } else {                             ts_throw((TsValue*)ts_error_create_typed("TypeError",                                 "Cannot convert a non-BigInt value to a BigInt"));                             return ts_value_make_undefined();                         }                     }                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV);                     if (dv->GetBuffer()->IsDetached()) {                         ts_throw((TsValue*)ts_error_create_typed("TypeError",                             "DataView: the underlying ArrayBuffer is detached"));                         return ts_value_make_undefined();                     }                     if (off < 0 || (size_t)off + 8 > dv->GetByteLength()) {                         ts_throw((TsValue*)ts_error_create_typed("RangeError",                             "Offset is outside the bounds of the DataView"));                         return ts_value_make_undefined();                     }                     uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off;                     uint64_t u = (uint64_t)iv;                     if (le) { for (int i = 0; i < 8; ++i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     else    { for (int i = 7; i >= 0; --i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     return ts_value_make_undefined();                 },                 this, FunctionType::COMPILED, 2);             installFnMeta(fn, name, 2);             v.ptr_val = fn;             return v;         }
+    #define DV_SET_BIG(name)         if (strcmp(key, name) == 0) {             TsValue v; v.type = ValueType::FUNCTION_PTR;             void* mem = ts_alloc(sizeof(TsFunction));             TsFunction* fn = new (mem) TsFunction(                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* {                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx);                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined();                     double offD = (offV && !ts_value_is_undefined(offV)) ? dv_offset_tonumber(offV) : 0.0;                     if (offD != offD) offD = 0.0;                     int64_t off = (int64_t)std::trunc(offD);                     if (off < 0 || offD > 9007199254740991.0) { ts_throw((TsValue*)ts_error_create_typed("RangeError", "DataView offset is out of range")); return ts_value_make_undefined(); }                     /* ES 25.3.1.5 SetViewValue: ToBigInt(value) runs ToPrimitive (valueOf/toString/@@toPrimitive) and throws for a non-BigInt-coercible value, BEFORE the detached/bounds checks. A poisoned valueOf's abrupt completion propagates. */                     extern void* ts_to_bigint_spec(TsValue* val); extern int64_t ts_bigint_to_i64(void* bi);                     void* biRaw = ts_to_bigint_spec(valV ? valV : ts_value_make_undefined());                     if (!biRaw) return ts_value_make_undefined();                     int64_t iv = ts_bigint_to_i64(biRaw);                     bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV);                     if (dv->GetBuffer()->IsDetached()) {                         ts_throw((TsValue*)ts_error_create_typed("TypeError",                             "DataView: the underlying ArrayBuffer is detached"));                         return ts_value_make_undefined();                     }                     if (off < 0 || (size_t)off + 8 > dv->GetByteLength()) {                         ts_throw((TsValue*)ts_error_create_typed("RangeError",                             "Offset is outside the bounds of the DataView"));                         return ts_value_make_undefined();                     }                     uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off;                     uint64_t u = (uint64_t)iv;                     if (le) { for (int i = 0; i < 8; ++i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     else    { for (int i = 7; i >= 0; --i) { p[i] = (uint8_t)(u & 0xFF); u >>= 8; } }                     return ts_value_make_undefined();                 },                 this, FunctionType::COMPILED, 2);             installFnMeta(fn, name, 2);             v.ptr_val = fn;             return v;         }
     DV_SET_BIG("setBigInt64");
     DV_SET_BIG("setBigUint64");
     #undef DV_SET_BIG

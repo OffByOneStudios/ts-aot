@@ -2822,7 +2822,17 @@ void* ts_get_global_Promise() {
             TsValue* ts_promise_finally(TsValue*, TsValue*);
             addMethod(proto, "then", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                // ES 27.2.5.4 step 2: If IsPromise(this) is false, throw a
+                // TypeError. Validate the "PROM" brand (magic at offset 16)
+                // BEFORE force-boxing the receiver as a promise — a primitive
+                // (`then.call(3)`) or a plain object (`then.call(Promise.prototype)`,
+                // a Proxy) must throw rather than be reinterpreted as a promise.
+                void* raw = ctx ? ts_nanbox_safe_unbox((TsValue*)ctx) : nullptr;
+                if (!raw || *(uint32_t*)((char*)raw + 16) != 0x50524F4D /*"PROM"*/) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Promise.prototype.then called on a non-Promise"));
+                    return ts_value_make_undefined();  // unreachable
+                }
                 return ts_promise_then(ts_value_make_promise(raw),
                     (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
                     (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
@@ -6651,10 +6661,14 @@ extern "C" TsValue* ta_iterate_impl(void* ctx, int argc, TsValue** argv,
             case 1: if (r && ts_value_to_bool(r)) return ts_value_make_bool(true); break;
             case 2: break;
             case 3:
-                // Write through the BigInt-aware element store; a detached
-                // result target makes this a silent no-op.
-                if (mapOut) ts_array_set_v(mapOut, (int64_t)k,
-                                           nanbox_to_tagged(r ? r : ts_value_make_undefined()));
+                // Write through the full integer-indexed element store: it runs
+                // ToNumber/ToBigInt on the callback result (undefined -> NaN for
+                // a float target, TypeError on a BigInt/Number mismatch — map/
+                // return-new-typedarray-conversion-operation). ts_array_set_v
+                // only accepted already-numeric values (undefined stored 0).
+                // A detached result target is a silent no-op inside the store.
+                if (mapOut) ts_ta_store_value(mapOut, (size_t)k,
+                                              r ? r : ts_value_make_undefined());
                 break;
             case 4:
                 if (r && ts_value_to_bool(r))
@@ -6965,6 +6979,45 @@ void* ts_get_global_TypedArray() {
                 void* result = ts_array_values((void*)ta);
                 return ts_value_make_object(result);
             }, 0);
+            // ES 23.2.3.35: %TypedArray%.prototype[@@iterator] is the SAME
+            // function object as %TypedArray%.prototype.values ({writable:true,
+            // enumerable:false, configurable:true}).
+            {
+                TsValue vk; vk.type = ValueType::STRING_PTR;
+                vk.ptr_val = TsString::GetInterned("values");
+                TsValue vfn = tproto->Get(vk);
+                if (vfn.type != ValueType::UNDEFINED) {
+                    TsValue ik; ik.type = ValueType::STRING_PTR;
+                    ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+                    tproto->SetWithAttrs(ik, vfn,
+                        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+                }
+            }
+            // ES 23.2.3.31: %TypedArray%.prototype.toString is the SAME built-in
+            // function object as Array.prototype.toString.
+            {
+                extern void* ts_get_global_Array();
+                void* arrCtor = ts_get_global_Array();
+                void* acRaw = arrCtor ? ts_value_get_object((TsValue*)arrCtor) : nullptr;
+                if (!acRaw) acRaw = arrCtor;
+                if (acRaw && *(uint32_t*)((char*)acRaw + 16) == TsFunction::MAGIC) {
+                    TsFunction* ac = (TsFunction*)acRaw;
+                    if (ac->properties) {
+                        TsValue pk; pk.type = ValueType::STRING_PTR;
+                        pk.ptr_val = TsString::GetInterned("prototype");
+                        TsValue pv = ac->properties->Get(pk);
+                        if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {
+                            TsMap* aproto = (TsMap*)pv.ptr_val;
+                            TsValue tk; tk.type = ValueType::STRING_PTR;
+                            tk.ptr_val = TsString::GetInterned("toString");
+                            TsValue tv = aproto->Get(tk);
+                            if (tv.type != ValueType::UNDEFINED)
+                                tproto->SetWithAttrs(tk, tv,
+                                    TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+                        }
+                    }
+                }
+            }
 
             // Callback-based iteration methods: delegate to ts_array_*
             // which already routes TypedArray receivers through the native
@@ -7228,13 +7281,32 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 }                                                                        \
                 return result;                                                           \
             }                                                                            \
-            /* TsTypedArray source: copy via Get/Set. */                                 \
+            /* TsTypedArray source: copy elements. */                                    \
             if (srcMagic16 == TsTypedArray::MAGIC) {                                     \
                 TsTypedArray* srcTa = (TsTypedArray*)rawSrc;                             \
+                /* ES 23.2.5.1 InitializeTypedArrayFromTypedArray: the two    */         \
+                /* [[ContentType]]s must match — mixing a BigInt element kind */         \
+                /* with a Number kind is a TypeError (src-typedarray-big /     */         \
+                /* not-big-throws).                                            */         \
+                bool tBig = ((TypeEnum) == TypedArrayType::BigInt64 ||                   \
+                             (TypeEnum) == TypedArrayType::BigUint64);                   \
+                bool sBig = (srcTa->GetType() == TypedArrayType::BigInt64 ||             \
+                             srcTa->GetType() == TypedArrayType::BigUint64);             \
+                if (tBig != sBig) {                                                      \
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",                \
+                        "Cannot mix BigInt and non-BigInt TypedArray element types"));   \
+                    return nullptr;                                                      \
+                }                                                                        \
                 int64_t n = (int64_t)srcTa->GetLength();                                 \
                 void* result = CreateFn(n);                                              \
-                for (int64_t i = 0; i < n; i++) {                                        \
-                    ((TsTypedArray*)result)->Set((size_t)i, srcTa->Get((size_t)i));      \
+                if (tBig) {                                                              \
+                    /* Raw 64-bit slot copy (the double round-trip is lossy).  */        \
+                    int64_t* sd = (int64_t*)srcTa->GetData();                            \
+                    int64_t* td = (int64_t*)((TsTypedArray*)result)->GetData();          \
+                    if (sd && td) for (int64_t i = 0; i < n; i++) td[i] = sd[i];         \
+                } else {                                                                 \
+                    for (int64_t i = 0; i < n; i++)                                      \
+                        ((TsTypedArray*)result)->Set((size_t)i, srcTa->Get((size_t)i));  \
                 }                                                                        \
                 return result;                                                           \
             }                                                                            \
@@ -7265,9 +7337,10 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
         }                                                                                \
     }                                                                                    \
     double lenD = arg ? ts_to_number(arg) : 0;                                           \
-    /* ECMA-262 ToIndex: NaN -> 0; negative / > 2^53-1 -> RangeError (parity with */     \
-    /* the ctor-macro's ta_to_index_length; negative previously became length 0). */     \
-    double nn = (lenD == lenD) ? lenD : 0.0;                                             \
+    /* ECMA-262 ToIndex(ToIntegerOrInfinity(x)): NaN -> 0; truncate toward zero  */      \
+    /* FIRST, THEN reject a negative (< 0) or > 2^53-1 integer. A fractional in   */      \
+    /* (-1, 0] such as -0.1 truncates to 0 and must NOT throw (toindex-length).   */      \
+    double nn = (lenD == lenD) ? std::trunc(lenD) : 0.0;                                 \
     if (nn < 0 || nn > 9007199254740991.0) {                                            \
         ts_throw((TsValue*)ts_error_create_typed("RangeError",                          \
             "Invalid typed array length"));                                             \
@@ -7298,7 +7371,7 @@ DEFINE_TYPED_ARRAY_NEW(u64,     ts_typed_array_create_u64,     8, false, TypedAr
 // Populate a freshly-allocated TypedArray from an array-like source
 // (iterable .length + indexed property reads). Returns true if the source
 // was actually array-like and values were copied; false otherwise.
-static bool populate_ta_from_array_like(void* result, TsValue* source) {
+[[maybe_unused]] static bool populate_ta_from_array_like(void* result, TsValue* source) {
     if (!result || !source) return false;
     void* rawSrc = ts_value_get_object(source);
     if (!rawSrc) return false;
@@ -7734,6 +7807,10 @@ static void install_uint8_hex_methods(void* ctorVal) {
 // so a huge length throws RangeError instead of attempting a multi-GB
 // allocation (the OOM/hang bug: `new Int8Array(1e12)` previously eager-allocated
 // ~1 TB). NaN -> 0; negative / > 2^53-1 / over the ~2 GB byte cap -> RangeError.
+// NewTarget register accessor (defined in the extern "C" block below); the
+// TypedArray constructor bodies read it to reject a plain [[Call]] (no `new`).
+extern "C" void* ts_get_new_target();
+
 static int64_t ta_to_index_length(double d, int64_t elemSize) {
     double n = std::isnan(d) ? 0.0 : std::trunc(d);   // ToIntegerOrInfinity: NaN -> 0
     int64_t es = elemSize > 0 ? elemSize : 1;
@@ -7745,41 +7822,38 @@ static int64_t ta_to_index_length(double d, int64_t elemSize) {
     return (int64_t)n;
 }
 
-#define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn, ElemSize)                     \
+#define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn, ElemSize, NewFn)              \
 void* ts_get_global_##CName() {                                                         \
     static void* cached = nullptr;                                                      \
     if (!cached) {                                                                      \
         auto fn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {                 \
-            /* Array-like / typed-array source: first read its .length and  */          \
-            /* then initialize each element. Fall back to length-form when   */          \
-            /* the arg is a plain number (or absent).                        */          \
-            if (argc >= 1 && argv && argv[0]) {                                         \
-                void* rawSrc = ts_value_get_object(argv[0]);                            \
-                bool srcIsObject = false;                                               \
-                if (rawSrc) {                                                           \
-                    uintptr_t p = (uintptr_t)rawSrc;                                    \
-                    if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;    \
-                }                                                                       \
-                /* A STRING primitive is not an Object: `new TA("0")` must take  */     \
-                /* the length path (ToIndex(ToNumber("0"))=0), NOT be read as an */     \
-                /* array-like of length "0".length==1. String WRAPPER objects    */     \
-                /* (TsMap) are real Objects and stay array-like.                 */     \
-                if (srcIsObject && !ts_is_any_string(rawSrc)) {                          \
-                    TsValue* lenVal = ts_object_get_property(rawSrc, "length");         \
-                    if (lenVal && !ts_value_is_undefined(lenVal)) {                     \
-                        double lenD = ts_to_number(lenVal);                             \
-                        int64_t n = (lenD == lenD && lenD >= 0) ? (int64_t)lenD : 0;    \
-                        void* result = RuntimeFn(n);                                    \
-                        populate_ta_from_array_like(result, argv[0]);                   \
-                        return (TsValue*)result;                                        \
-                    }                                                                   \
-                }                                                                       \
-            }                                                                           \
-            int64_t length = 0;                                                         \
-            if (argc >= 1 && argv && argv[0]) {                                         \
-                length = ta_to_index_length(ts_to_number(argv[0]), (ElemSize));         \
-            }                                                                           \
-            return (TsValue*)RuntimeFn(length);                                         \
+            /* ES 23.2.5.1 step 1: a TypedArray constructor is not [[Call]]-able */        \
+            /* — invoking it without `new` (NewTarget undefined) is a TypeError. */        \
+            /* The compiler lowers a static `new TA(x)` straight to NewFn; every */        \
+            /* construct path that reaches this body first sets the new-target   */        \
+            /* register, so an undefined register here means a plain call.        */        \
+            {                                                                           \
+              if (ts_value_is_undefined((TsValue*)ts_get_new_target())) {               \
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",                   \
+                    "Constructor " #JsName " requires 'new'"));                         \
+                return ts_value_make_undefined(); } }                                   \
+            /* Indirect / dynamic `new TA(x)` (e.g. test262's                 */         \
+            /* testWithTypedArrayConstructors(TA => new TA(src))) lands here.  */         \
+            /* The compiler lowers a STATIC `new TA(x)` straight to NewFn; the */         \
+            /* generic-construct dispatcher only intercepts the ArrayBuffer    */         \
+            /* form, so every OTHER source shape reached this body. Delegate to */         \
+            /* the full four-form constructor so number length (ToIndex),      */         \
+            /* Array, TypedArray, and OBJECTS with a callable @@iterator        */         \
+            /* (Set/Map/generators, driven through the iterator protocol) are   */         \
+            /* all honored. The old body only read a `.length` (empty result    */         \
+            /* for iterables) and coerced holes/undefined to 0 instead of NaN.  */         \
+            TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;                     \
+            int64_t byteOffset = 0, byteLength = -1;                                    \
+            if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))        \
+                byteOffset = (int64_t)ts_to_number(argv[1]);                            \
+            if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2]))        \
+                byteLength = (int64_t)ts_to_number(argv[2]);                            \
+            return (TsValue*)NewFn(arg, byteOffset, byteLength);                        \
         };                                                                              \
         cached = makeTypedArrayCtor(#JsName, fn, ts_get_global_TypedArray());           \
         /* ECMA-262: BYTES_PER_ELEMENT on the CONSTRUCTOR and its prototype */          \
@@ -7818,17 +7892,17 @@ void* ts_get_global_##CName() {                                                 
 extern "C" void* ts_typed_array_create_i64(int64_t length);
 extern "C" void* ts_typed_array_create_u64(int64_t length);
 
-DEFINE_TYPED_ARRAY_CTOR(Int8Array, Int8Array, ts_typed_array_create_i8, 1)
-DEFINE_TYPED_ARRAY_CTOR(Uint8Array, Uint8Array, ts_typed_array_create_u8, 1)
-DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped, 1)
-DEFINE_TYPED_ARRAY_CTOR(Int16Array, Int16Array, ts_typed_array_create_i16, 2)
-DEFINE_TYPED_ARRAY_CTOR(Uint16Array, Uint16Array, ts_typed_array_create_u16, 2)
-DEFINE_TYPED_ARRAY_CTOR(Int32Array, Int32Array, ts_typed_array_create_i32, 4)
-DEFINE_TYPED_ARRAY_CTOR(Uint32Array, Uint32Array, ts_typed_array_create_u32, 4)
-DEFINE_TYPED_ARRAY_CTOR(Float32Array, Float32Array, ts_typed_array_create_f32, 4)
-DEFINE_TYPED_ARRAY_CTOR(Float64Array, Float64Array, ts_typed_array_create_f64, 8)
-DEFINE_TYPED_ARRAY_CTOR(BigInt64Array, BigInt64Array, ts_typed_array_create_i64, 8)
-DEFINE_TYPED_ARRAY_CTOR(BigUint64Array, BigUint64Array, ts_typed_array_create_u64, 8)
+DEFINE_TYPED_ARRAY_CTOR(Int8Array, Int8Array, ts_typed_array_create_i8, 1, ts_typed_array_new_i8)
+DEFINE_TYPED_ARRAY_CTOR(Uint8Array, Uint8Array, ts_typed_array_create_u8, 1, ts_typed_array_new_u8)
+DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped, 1, ts_typed_array_new_clamped)
+DEFINE_TYPED_ARRAY_CTOR(Int16Array, Int16Array, ts_typed_array_create_i16, 2, ts_typed_array_new_i16)
+DEFINE_TYPED_ARRAY_CTOR(Uint16Array, Uint16Array, ts_typed_array_create_u16, 2, ts_typed_array_new_u16)
+DEFINE_TYPED_ARRAY_CTOR(Int32Array, Int32Array, ts_typed_array_create_i32, 4, ts_typed_array_new_i32)
+DEFINE_TYPED_ARRAY_CTOR(Uint32Array, Uint32Array, ts_typed_array_create_u32, 4, ts_typed_array_new_u32)
+DEFINE_TYPED_ARRAY_CTOR(Float32Array, Float32Array, ts_typed_array_create_f32, 4, ts_typed_array_new_f32)
+DEFINE_TYPED_ARRAY_CTOR(Float64Array, Float64Array, ts_typed_array_create_f64, 8, ts_typed_array_new_f64)
+DEFINE_TYPED_ARRAY_CTOR(BigInt64Array, BigInt64Array, ts_typed_array_create_i64, 8, ts_typed_array_new_i64)
+DEFINE_TYPED_ARRAY_CTOR(BigUint64Array, BigUint64Array, ts_typed_array_create_u64, 8, ts_typed_array_new_u64)
 
 #undef DEFINE_TYPED_ARRAY_CTOR
 

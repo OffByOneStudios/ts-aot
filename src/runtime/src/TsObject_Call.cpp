@@ -545,6 +545,13 @@ extern "C" {
         void* ts_typed_array_new_f64(TsValue*, int64_t, int64_t);
     }
 
+    // Forward decl: the NewTarget-setting variadic entry (defined below); the
+    // per-arity forwarders route through it so the ambient new.target register
+    // is set for the constructor body (TypedArraySpeciesCreate via
+    // ts_new_from_constructor_1 previously reached the core with it UNSET, so a
+    // TypedArray constructor's "requires new" guard misfired).
+    TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
+
     // Helper for "new ConstructorFunction(...args)" in the slow path.
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
@@ -834,8 +841,39 @@ extern "C" {
                         };
                         for (const auto& e : taTable) {
                             if (isGlobal(e.g)) {
-                                int64_t bo = (argc >= 2 && argv && argv[1]) ? (int64_t)ts_to_number(argv[1]) : 0;
-                                int64_t bl = (argc >= 3 && argv && argv[2]) ? (int64_t)ts_to_number(argv[2]) : -1;
+                                // ES 23.2.5.1 InitializeTypedArrayFromArrayBuffer:
+                                // offset = ToIndex(byteOffset) (offset<0 or non-
+                                // integer-overflow → RangeError); then when a
+                                // length is present, ToIndex(length) (negative /
+                                // -Infinity → RangeError). An omitted/undefined
+                                // length keeps the -1 "rest of buffer" sentinel.
+                                // ToIndex(ToIntegerOrInfinity(x)): truncate toward
+                                // zero, THEN reject a negative (< 0, i.e. <= -1
+                                // after trunc) or > 2^53-1 integer. -0.5 truncates
+                                // to 0 and must NOT throw (toindex-byteoffset).
+                                int64_t bo = 0, bl = -1;
+                                if (argc >= 2 && argv && argv[1] &&
+                                    !ts_value_is_undefined(argv[1])) {
+                                    double od = ts_to_number(argv[1]);
+                                    if (od != od) od = 0;  // NaN -> 0
+                                    if (od <= -1.0 || od > 9007199254740991.0) {
+                                        ts_throw((TsValue*)ts_error_create_typed(
+                                            "RangeError", "Invalid typed array byteOffset"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    bo = (od > 0.0) ? (int64_t)od : 0;  // trunc toward zero
+                                }
+                                if (argc >= 3 && argv && argv[2] &&
+                                    !ts_value_is_undefined(argv[2])) {
+                                    double ld = ts_to_number(argv[2]);
+                                    if (ld != ld) ld = 0;  // NaN -> 0
+                                    if (ld <= -1.0 || ld > 9007199254740991.0) {
+                                        ts_throw((TsValue*)ts_error_create_typed(
+                                            "RangeError", "Invalid typed array length"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    bl = (ld > 0.0) ? (int64_t)ld : 0;
+                                }
                                 void* r = e.n(a0, bo, bl);
                                 return r ? ts_value_make_object(r) : ts_value_make_undefined();
                             }
@@ -1027,47 +1065,47 @@ extern "C" {
     }
 
     TsValue* ts_new_from_constructor_0(TsValue* constructorFn) {
-        return ts_new_from_constructor_impl(constructorFn, 0, nullptr);
+        return ts_new_from_constructor(constructorFn, 0, nullptr);
     }
 
     TsValue* ts_new_from_constructor_1(TsValue* constructorFn, TsValue* arg1) {
         TsValue* argv[] = { arg1 };
-        return ts_new_from_constructor_impl(constructorFn, 1, argv);
+        return ts_new_from_constructor(constructorFn, 1, argv);
     }
 
     TsValue* ts_new_from_constructor_2(TsValue* constructorFn, TsValue* arg1, TsValue* arg2) {
         TsValue* argv[] = { arg1, arg2 };
-        return ts_new_from_constructor_impl(constructorFn, 2, argv);
+        return ts_new_from_constructor(constructorFn, 2, argv);
     }
 
     TsValue* ts_new_from_constructor_3(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
         TsValue* argv[] = { arg1, arg2, arg3 };
-        return ts_new_from_constructor_impl(constructorFn, 3, argv);
+        return ts_new_from_constructor(constructorFn, 3, argv);
     }
 
     TsValue* ts_new_from_constructor_4(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
         TsValue* argv[] = { arg1, arg2, arg3, arg4 };
-        return ts_new_from_constructor_impl(constructorFn, 4, argv);
+        return ts_new_from_constructor(constructorFn, 4, argv);
     }
 
     TsValue* ts_new_from_constructor_5(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
         TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5 };
-        return ts_new_from_constructor_impl(constructorFn, 5, argv);
+        return ts_new_from_constructor(constructorFn, 5, argv);
     }
 
     TsValue* ts_new_from_constructor_6(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
         TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6 };
-        return ts_new_from_constructor_impl(constructorFn, 6, argv);
+        return ts_new_from_constructor(constructorFn, 6, argv);
     }
 
     TsValue* ts_new_from_constructor_7(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
         TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
-        return ts_new_from_constructor_impl(constructorFn, 7, argv);
+        return ts_new_from_constructor(constructorFn, 7, argv);
     }
 
     TsValue* ts_new_from_constructor_8(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
         TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
-        return ts_new_from_constructor_impl(constructorFn, 8, argv);
+        return ts_new_from_constructor(constructorFn, 8, argv);
     }
 
     // Unified variable-arity entry — the compiler emits this (ConstructFromValue)
