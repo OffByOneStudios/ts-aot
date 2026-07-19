@@ -2114,6 +2114,17 @@ TsMap* getIteratorPrototype() {
         ts_map_addMethod_local(proto, "take",    (void*)iter_take_native, 1);
         ts_map_addMethod_local(proto, "drop",    (void*)iter_drop_native, 1);
         ts_map_addMethod_local(proto, "flatMap", (void*)iter_flatMap_native, 1);
+        // ES2025 27.1.4.2: %IteratorPrototype%[@@toStringTag] = "Iterator"
+        // { writable:false, enumerable:false, configurable:true }. Every built-in
+        // iterator inherits it, so after a per-kind proto tag is deleted,
+        // Object.prototype.toString falls back to "[object Iterator]".
+        {
+            TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+            tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+            TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+            tagVal.ptr_val = TsString::Create("Iterator");
+            proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+        }
         g_iterator_prototype = proto;
         ts_gc_pop_tenure();
         ts_gc_register_root((void**)&g_iterator_prototype);

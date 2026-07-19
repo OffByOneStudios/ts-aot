@@ -1078,6 +1078,14 @@ void* ts_create_arguments_from_params(
                 uint32_t magic = *(uint32_t*)ptr;
                 if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
                     sStr = ts_ensure_flat(ptr);
+                } else if (!nanbox_is_double(nbs)) {
+                    // ECMA-262 §19.2.5 step 1: inputString = ToString(string).
+                    // A generic object (e.g. new Number(-1), a Date) must run
+                    // its ToPrimitive(string)/toString hooks. Do this BEFORE
+                    // any std::string local exists — ts_to_string_spec can
+                    // ts_throw/longjmp (see longjmp-stdstring rule).
+                    extern void* ts_to_string_spec(TsValue* val);
+                    sStr = ts_ensure_flat(ts_to_string_spec(sv));
                 }
             }
         }
@@ -1093,11 +1101,46 @@ void* ts_create_arguments_from_params(
             return std::nan("");
         }
 
-        // Trim leading whitespace.
+        // Trim leading whitespace. ECMA-262 §19.2.5 step 2 removes leading
+        // StrWhiteSpace code points (WhiteSpace §11.2 + LineTerminator §11.3),
+        // not just ASCII — decode each leading UTF-8 code point and skip it if
+        // it is in the full whitespace set.
+        auto is_es_ws_cp = [](uint32_t cp) -> bool {
+            switch (cp) {
+                case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D:
+                case 0x20: case 0xA0: case 0x1680:
+                case 0x2000: case 0x2001: case 0x2002: case 0x2003:
+                case 0x2004: case 0x2005: case 0x2006: case 0x2007:
+                case 0x2008: case 0x2009: case 0x200A:
+                case 0x2028: case 0x2029: case 0x202F: case 0x205F:
+                case 0x3000: case 0xFEFF:
+                    return true;
+                default: return false;
+            }
+        };
         size_t i = 0;
-        while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' ||
-                                 s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) {
-            i++;
+        while (i < s.size()) {
+            unsigned char c0 = (unsigned char)s[i];
+            uint32_t cp; size_t len;
+            if (c0 < 0x80) { cp = c0; len = 1; }
+            else if ((c0 & 0xE0) == 0xC0 && i + 1 < s.size()) {
+                cp = ((uint32_t)(c0 & 0x1F) << 6) |
+                     ((unsigned char)s[i+1] & 0x3F);
+                len = 2;
+            } else if ((c0 & 0xF0) == 0xE0 && i + 2 < s.size()) {
+                cp = ((uint32_t)(c0 & 0x0F) << 12) |
+                     (((unsigned char)s[i+1] & 0x3F) << 6) |
+                     ((unsigned char)s[i+2] & 0x3F);
+                len = 3;
+            } else if ((c0 & 0xF8) == 0xF0 && i + 3 < s.size()) {
+                cp = ((uint32_t)(c0 & 0x07) << 18) |
+                     (((unsigned char)s[i+1] & 0x3F) << 12) |
+                     (((unsigned char)s[i+2] & 0x3F) << 6) |
+                     ((unsigned char)s[i+3] & 0x3F);
+                len = 4;
+            } else { break; }
+            if (!is_es_ws_cp(cp)) break;
+            i += len;
         }
         if (i >= s.size()) return std::nan("");
 
@@ -4074,16 +4117,39 @@ void* ts_create_arguments_from_params(
         return ts_value_make_double(d1 + d2);
     }
 
+    // ECMA-262 §13.4 (postfix/prefix ++/--): the operand is put through
+    // ToNumeric (7.1.4-adjacent): ToPrimitive(number hint) then a BigInt or
+    // Number branch. Mirror ts_value_sub with a fixed 1/1n addend so booleans,
+    // strings, objects with valueOf, and BigInts all coerce correctly instead
+    // of reading NaN-box bits as a raw double.
     TsValue* ts_value_inc(TsValue* a) {
         if (!a) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        double d = nanbox_extract_double(a);
-        return ts_value_make_double(d + 1.0);
+        a = ts_to_primitive(a, 1);  // hint: number
+        complete_to_numeric(a);
+        uint64_t nba = nanbox_from_tsvalue_ptr(a);
+        if (TsBigInt* abi = try_as_bigint(nba)) {
+            void* one = ts_bigint_create_int(1);
+            return (TsValue*)ts_bigint_add(abi, one);
+        }
+        if (nanbox_is_int32(nba)) {
+            return ts_value_make_int((int64_t)nanbox_to_int32(nba) + 1);
+        }
+        return ts_value_make_double(ts_to_number(a) + 1.0);
     }
 
     TsValue* ts_value_dec(TsValue* a) {
         if (!a) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
-        double d = nanbox_extract_double(a);
-        return ts_value_make_double(d - 1.0);
+        a = ts_to_primitive(a, 1);  // hint: number
+        complete_to_numeric(a);
+        uint64_t nba = nanbox_from_tsvalue_ptr(a);
+        if (TsBigInt* abi = try_as_bigint(nba)) {
+            void* one = ts_bigint_create_int(1);
+            return (TsValue*)ts_bigint_sub(abi, one);
+        }
+        if (nanbox_is_int32(nba)) {
+            return ts_value_make_int((int64_t)nanbox_to_int32(nba) - 1);
+        }
+        return ts_value_make_double(ts_to_number(a) - 1.0);
     }
 
     TsValue* ts_value_sub(TsValue* a, TsValue* b) {
@@ -9092,7 +9158,12 @@ void* ts_create_arguments_from_params(
         // Compute brand tag first per spec (step 4-14 of Object.prototype.toString),
         // then consult @@toStringTag (step 15-16) which overrides if a string.
         const char* tag = "Object";
-        TsMap* mapForTag = nullptr;
+        // ES 19.1.3.6 step 15-16: after the builtinTag above, Get(O, @@toStringTag)
+        // OVERRIDES it when it is a String. genericTagOk gates that generic get to
+        // GENUINE recognized heap objects; the unknown / native-polymorphic /
+        // corrupt fallthrough sets it false so we never run a property getter on a
+        // stack temporary (the lodash assert.deepEqual crash gotcha noted below).
+        bool genericTagOk = true;
         if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
             void* ptr = nanbox_to_ptr(nb);
             if (!ptr) return ts_value_make_string(TsString::Create("[object Null]"));
@@ -9113,9 +9184,14 @@ void* ts_create_arguments_from_params(
                 uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
                 if (magic16 == 0x434C5352) tag = "Function";
                 else if (magic16 == 0x42554646) tag = "ArrayBuffer";  // TsBuffer "BUFF"
-                else if (magic16 == 0x53455453) tag = "Set";  // TsSet "SETS"
-                else if (magic16 == 0x574D4150) tag = "WeakMap";
-                else if (magic16 == 0x57534554) tag = "WeakSet";
+                // Set/WeakMap/WeakSet: builtinTag is "Object" per ES 19.1.3.6 —
+                // the "Set"/"WeakMap"/"WeakSet" tag comes from the prototype's
+                // @@toStringTag (found by the generic Get below), so
+                // `delete Set.prototype[Symbol.toStringTag]` correctly falls to
+                // "[object Object]".
+                else if (magic16 == 0x53455453) tag = "Object";  // TsSet "SETS"
+                else if (magic16 == 0x574D4150) tag = "Object";  // WeakMap
+                else if (magic16 == 0x57534554) tag = "Object";  // WeakSet
                 else if (magic16 == 0x44564945) tag = "DataView";
                 else if (magic16 == 0x50524F4D) tag = "Promise";  // TsPromise "PROM"
                 else if (magic16 == 0x54415252) {  // TsTypedArray "TARR"
@@ -9153,8 +9229,11 @@ void* ts_create_arguments_from_params(
                     }
                     else {
                     TsMap* m = (TsMap*)ptr;
-                    // Distinguish explicit Map from plain object literal.
-                    if (m->IsExplicitMap()) tag = "Map";
+                    // Explicit Map: builtinTag is "Object" per ES 19.1.3.6 — the
+                    // "Map" tag comes from Map.prototype's @@toStringTag (found by
+                    // the generic Get below), so `delete Map.prototype[@@toStringTag]`
+                    // correctly yields "[object Object]".
+                    if (m->IsExplicitMap()) tag = "Object";
                     else {
                         // Primitive wrapper objects (new String/Number/Boolean,
                         // Object(prim)) carry a hidden data slot — brand them
@@ -9169,9 +9248,15 @@ void* ts_create_arguments_from_params(
                         else if (m->Has(nk)) tag = "Number";
                         else if (m->Has(bk)) tag = "Boolean";
                         else if (m->Has(yk)) tag = "Symbol";
-                        else { tag = "Object"; mapForTag = m; }
+                        else tag = "Object";
                     }
                     }
+                }
+                else {
+                    // Unknown / native-polymorphic / corrupt pointer: leave
+                    // tag = "Object" and skip the generic @@toStringTag Get so we
+                    // never run a property getter on a stack temporary.
+                    genericTagOk = false;
                 }
                 // else: unknown / native-polymorphic / corrupt pointer. Leave
                 // tag = "Object" and do NOT dynamic_cast. Earlier this branch
@@ -9188,40 +9273,44 @@ void* ts_create_arguments_from_params(
             }
         }
 
-        // Per ES spec step 15-16: Let tag = Get(O, @@toStringTag). If String,
-        // it OVERRIDES the builtinTag computed above — for EVERY object type,
-        // not just plain TsMaps (arrays/functions/wrappers/Error/Date/RegExp/
-        // flat objects all honour a user `x[Symbol.toStringTag]='t'`). The get
-        // is a generic OrdinaryGet: it reads own props AND walks the prototype
-        // chain, and an abrupt (throwing) @@toStringTag getter propagates
-        // (get-symbol-tag-err). No std::string is live across this call, so a
-        // longjmp out of the getter is safe (see longjmp-stdstring rule).
-        // NOTE: the generic Get(O,@@toStringTag) override was reverted — it made
-        // a generator's toString "[object Generator]", which exposed a latent
-        // element-access ToPropertyKey bug (obj[gen] keyed "undefined") and
-        // regressed 4 class computed-property-name tests. Legacy per-type walk
-        // below handles plain-TsMap @@toStringTag; the +2 generic-tag gains are
-        // given up to hold 0-lost.
-        if (false) { (void)nb; }
-
-        // Legacy plain-TsMap @@toStringTag walk (subsumed by the generic get
-        // above for string tags; retained so `mapForTag` stays referenced and
-        // as a defensive fallback).
-        if (mapForTag) {
-            TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
-            tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
-            TsMap* cur = mapForTag;
-            while (cur) {
-                TsValue tagVal = cur->Get(tagKey);
-                if (tagVal.type == ValueType::STRING_PTR && tagVal.ptr_val) {
-                    TsString* tagStr = (TsString*)tagVal.ptr_val;
-                    std::string out = "[object ";
-                    out += tagStr->ToUtf8();
-                    out += "]";
-                    return ts_value_make_string(TsString::Create(out.c_str()));
+        // ES 19.1.3.6 step 15-16: tag = ? Get(O, @@toStringTag). If it is a
+        // String it OVERRIDES the builtinTag computed above — for EVERY
+        // recognized object type (arrays / functions / primitive wrappers /
+        // Error / Date / RegExp / Map / Set / collections / iterators /
+        // generators / flat objects all honour a user or prototype
+        // `[Symbol.toStringTag]`). @@toStringTag is stored under the interned
+        // string key "[Symbol.toStringTag]" (the runtime's canonical
+        // well-known-symbol key — see the Symbol ctor's key canonicalization),
+        // so a plain ts_object_get_dynamic reads own props, walks the prototype
+        // chain, and invokes an accessor getter, whose abrupt completion
+        // propagates (get-symbol-tag-err). No std::string is live across this
+        // call, so a longjmp out of the getter is safe (longjmp-stdstring rule).
+        // A NON-string result (Symbol / number / a `new String(...)` wrapper
+        // object) is IGNORED per step 16, keeping the builtinTag. genericTagOk
+        // is false for the unknown/corrupt fallthrough so we never Get on a
+        // stack temporary (lodash deepEqual crash gotcha above).
+        if (genericTagOk) {
+            extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+            TsValue* tagKey = ts_value_make_string(
+                TsString::GetInterned("[Symbol.toStringTag]"));
+            TsValue* got = ts_object_get_dynamic((TsValue*)ctx, tagKey);
+            if (got) {
+                uint64_t gnb = nanbox_from_tsvalue_ptr(got);
+                if (nanbox_is_ptr(gnb)) {
+                    void* gp = nanbox_to_ptr(gnb);
+                    if (gp) {
+                        uint32_t gm = *(uint32_t*)gp;
+                        // Primitive string only (TsString "STRG" or a cons
+                        // string). A String WRAPPER object has magic MAPS and is
+                        // correctly rejected here (step 16 keeps builtinTag).
+                        if (gm == 0x53545247 || gm == TsConsString::MAGIC) {
+                            std::string out = "[object ";
+                            out += ((TsString*)gp)->ToUtf8();
+                            out += "]";
+                            return ts_value_make_string(TsString::Create(out.c_str()));
+                        }
+                    }
                 }
-                cur = cur->GetPrototype();
-                if (cur && *(uint32_t*)cur == 0x41525259 /*ARRY: stop*/) cur = nullptr;
             }
         }
 
