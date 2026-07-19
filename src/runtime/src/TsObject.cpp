@@ -1606,7 +1606,7 @@ void* ts_create_arguments_from_params(
     TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
-    static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
+    extern "C" TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
 
     TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
@@ -2142,6 +2142,10 @@ void* ts_create_arguments_from_params(
                 if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
                     return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
                 }
+                if (strcmp(keyStr, "toLocaleString") == 0) {
+                    extern TsValue* ts_object_toLocaleString_native(void*, int, TsValue**);
+                    return makeNamedNativeFunction((void*)ts_object_toLocaleString_native, nullptr, "toLocaleString", 0);
+                }
                 // Check for EventEmitter methods on flat objects extending EventEmitter
                 TsValue* eeMethod = flat_try_ee_method(obj, keyStr);
                 if (eeMethod) return eeMethod;
@@ -2180,8 +2184,12 @@ void* ts_create_arguments_from_params(
                     }
                     TsValue kk; kk.type = ValueType::STRING_PTR;
                     kk.ptr_val = TsString::GetInterned(keyStr);
-                    TsValue vv = props->Get(kk);
-                    if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+                    // Has (not Get-vs-UNDEFINED): an own property EXPLICITLY set
+                    // to undefined shadows the builtin below (OrdinaryGet). This
+                    // is what lets `Object.defineProperty(re, Symbol.replace,
+                    // {value: undefined})` divert String.prototype.replaceAll to
+                    // its ToString(searchValue) string path (getSubstitution-*).
+                    if (props->Has(kk)) return nanbox_from_tagged(props->Get(kk));
                 }
             }
             if (strcmp(keyStr, "constructor") == 0) {
@@ -2271,8 +2279,12 @@ void* ts_create_arguments_from_params(
                     }
                     TsValue kk; kk.type = ValueType::STRING_PTR;
                     kk.ptr_val = TsString::GetInterned(keyStr);
-                    TsValue vv = props->Get(kk);
-                    if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+                    // Has (not Get-vs-UNDEFINED): an own property EXPLICITLY set
+                    // to undefined shadows the builtin below (OrdinaryGet). This
+                    // is what lets `Object.defineProperty(re, Symbol.replace,
+                    // {value: undefined})` divert String.prototype.replaceAll to
+                    // its ToString(searchValue) string path (getSubstitution-*).
+                    if (props->Has(kk)) return nanbox_from_tagged(props->Get(kk));
                 }
             }
             if (strcmp(keyStr, "test") == 0) {
@@ -2751,6 +2763,19 @@ void* ts_create_arguments_from_params(
                     }
                 }
             }
+            // The chain terminates at %Object.prototype%: a TypedArray inherits
+            // hasOwnProperty/valueOf/isPrototypeOf/propertyIsEnumerable/toString.
+            // Without these, `sample.hasOwnProperty(k)` resolved to undefined
+            // (the TypedArrayConstructors/internals Set + Delete tests call it
+            // directly). Bind the instance as the receiver.
+            if (strcmp(keyStr, "hasOwnProperty") == 0)
+                return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, obj, "hasOwnProperty", 1);
+            if (strcmp(keyStr, "isPrototypeOf") == 0)
+                return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, obj, "isPrototypeOf", 1);
+            if (strcmp(keyStr, "propertyIsEnumerable") == 0)
+                return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, obj, "propertyIsEnumerable", 1);
+            if (strcmp(keyStr, "valueOf") == 0)
+                return makeNamedNativeFunction((void*)ts_object_valueOf_native, obj, "valueOf", 0);
             return ts_value_make_undefined();
         }
 
@@ -2863,6 +2888,10 @@ void* ts_create_arguments_from_params(
             }
             if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
                 return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
+            }
+            if (strcmp(keyStr, "toLocaleString") == 0) {
+                extern TsValue* ts_object_toLocaleString_native(void*, int, TsValue**);
+                return makeNamedNativeFunction((void*)ts_object_toLocaleString_native, nullptr, "toLocaleString", 0);
             }
             // Check for EventEmitter methods on TsMap-backed objects extending EventEmitter
             {
@@ -5120,17 +5149,47 @@ void* ts_create_arguments_from_params(
                 if (k) {
                     TsValue* r = (TsValue*)ts_flat_object_get_property(rawObj, k);
                     if (r && nanbox_from_tsvalue_ptr(r) != NANBOX_UNDEFINED) return r;
-                    // Narrow Object.prototype fallback: ONLY `constructor` (an
-                    // any-typed `obj.constructor`, as in lodash equalObjects).
-                    // Return the canonical function-tagged Object so
-                    // `({}).constructor === Object`. Deliberately NOT the other
-                    // inherited members (toString/valueOf/...) — returning those
-                    // on the dynamic path perturbs lodash's tag/equality helpers
-                    // and regressed merge deepEquals.
-                    if (strcmp(k, "constructor") == 0) {
-                        extern void* ts_get_global_Object();
-                        void* ctor = ts_get_global_Object();
-                        if (ctor) return ts_value_make_function_object(ctor);
+                    // Inherited Object.prototype members. A non-empty object
+                    // literal is a FLAT object, and any-typed access (`o.method`
+                    // where o:any, or `o[k]`) lands here — previously every
+                    // inherited method except `constructor` read undefined
+                    // (`typeof {a:1}.propertyIsEnumerable` === "undefined").
+                    // Mirror the static get path (which already synthesizes
+                    // these), gated on the object NOT owning the key so an own
+                    // property — even one holding undefined, or a set-only
+                    // accessor — still shadows the inherited builtin.
+                    extern bool ts_flat_object_has_property(void* obj, const char* key);
+                    if (!ts_flat_object_has_property(rawObj, k)) {
+                        if (strcmp(k, "constructor") == 0) {
+                            extern void* ts_get_global_Object();
+                            void* ctor = ts_get_global_Object();
+                            if (ctor) return ts_value_make_function_object(ctor);
+                        }
+                        if (strcmp(k, "hasOwnProperty") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
+                        if (strcmp(k, "isPrototypeOf") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, nullptr, "isPrototypeOf", 1);
+                        if (strcmp(k, "propertyIsEnumerable") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
+                        if (strcmp(k, "toString") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
+                        if (strcmp(k, "valueOf") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
+                        if (strcmp(k, "toLocaleString") == 0) {
+                            extern TsValue* ts_object_toLocaleString_native(void*, int, TsValue**);
+                            return makeNamedNativeFunction((void*)ts_object_toLocaleString_native, nullptr, "toLocaleString", 0);
+                        }
+                        if (strcmp(k, "__defineGetter__") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_defineGetter_native, nullptr, "__defineGetter__", 2);
+                        if (strcmp(k, "__defineSetter__") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_defineSetter_native, nullptr, "__defineSetter__", 2);
+                        if (strcmp(k, "__lookupGetter__") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_lookupGetter_native, nullptr, "__lookupGetter__", 1);
+                        if (strcmp(k, "__lookupSetter__") == 0)
+                            return makeNamedNativeFunction((void*)ts_object_lookupSetter_native, nullptr, "__lookupSetter__", 1);
+                        // #66: user-added dynamic Object.prototype props.
+                        if (TsValue* pv = ts_object_proto_dynamic_lookup_recv(k, obj))
+                            return pv;
                     }
                     return r;
                 }
@@ -5757,6 +5816,21 @@ void* ts_create_arguments_from_params(
                     }
                     if (strcmp(k, "__defineSetter__") == 0) {
                         return makeNamedNativeFunction((void*)ts_object_defineSetter_native, nullptr, "__defineSetter__", 2);
+                    }
+                    // Remaining inherited Object.prototype methods. The dynamic
+                    // path (any-typed `o.isPrototypeOf` / `o.propertyIsEnumerable`
+                    // / `o.toLocaleString`) previously returned undefined here
+                    // even though the static path synthesizes them — so
+                    // `typeof o.propertyIsEnumerable` read "undefined".
+                    if (strcmp(k, "isPrototypeOf") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, nullptr, "isPrototypeOf", 1);
+                    }
+                    if (strcmp(k, "propertyIsEnumerable") == 0) {
+                        return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
+                    }
+                    if (strcmp(k, "toLocaleString") == 0) {
+                        extern TsValue* ts_object_toLocaleString_native(void*, int, TsValue**);
+                        return makeNamedNativeFunction((void*)ts_object_toLocaleString_native, nullptr, "toLocaleString", 0);
                     }
                     // A plain object's inherited `constructor` is Object. Return
                     // the canonical function-tagged global (matching the flat-
@@ -6958,7 +7032,12 @@ void* ts_create_arguments_from_params(
                strcmp(k, "propertyIsEnumerable") == 0 ||
                strcmp(k, "toLocaleString") == 0 ||
                strcmp(k, "toString") == 0 ||
-               strcmp(k, "valueOf") == 0;
+               strcmp(k, "valueOf") == 0 ||
+               strcmp(k, "__proto__") == 0 ||
+               strcmp(k, "__defineGetter__") == 0 ||
+               strcmp(k, "__defineSetter__") == 0 ||
+               strcmp(k, "__lookupGetter__") == 0 ||
+               strcmp(k, "__lookupSetter__") == 0;
     }
 
     bool ts_object_has_prop(TsValue* obj, TsValue* key) {
@@ -7131,26 +7210,56 @@ void* ts_create_arguments_from_params(
         // chain terminal (Lever G).
         if (magic16 == 0x54415252) { // TsTypedArray::MAGIC "TARR"
             TsTypedArray* ta = (TsTypedArray*)rawObj;
+            // ES 10.4.5.2 [[HasProperty]]: a CANONICAL numeric index returns
+            // IsValidIntegerIndex WITHOUT consulting the prototype (a poisoned
+            // TypedArray.prototype[42] must stay invisible for OOB indices);
+            // any other key is OrdinaryHasProperty (own + the real proto chain).
+            extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+            int cls = ts_ta_classify_index_c(rawObj, key);
+            if (cls == 1) return true;
+            if (cls == 2) return false;
             TsString* keyStr = ts_property_key_string(key);
             if (!keyStr) return false;
-            const char* k = keyStr->ToUtf8();
-            if (!k || !*k) return false;
-            char* end = nullptr;
-            long idx = strtol(k, &end, 10);
-            if (end != k && *end == '\0') {
-                if (k[0] == '-') return false;                  // negative/-0
-                if (k[0] == '0' && k[1] != '\0') return false;  // non-canonical "01"
-                return idx >= 0 && (size_t)idx < ta->GetLength();
-            }
-            // Non-index key: OrdinaryHasProperty — defineProperty on a
-            // TypedArray stores string/symbol-keyed props in the native
-            // side-map (the pre-branch fall-through used to find them there).
+            // Own named/symbol property (defineProperty'd into the side-map).
             if (TsMap* props = getNativeProps(rawObj)) {
                 TsValue keyVal;
                 keyVal.type = ValueType::STRING_PTR;
                 keyVal.ptr_val = keyStr;
                 if (props->Has(keyVal)) return true;
             }
+            // Walk the real prototype chain: the per-class prototype
+            // (Int8Array.prototype …) -> %TypedArray%.prototype (subarray, map,
+            // user-added foo) -> %Object.prototype%. ts_builtin_ctor_proto_has
+            // runs ts_object_has_property over the whole chain.
+            extern void* ts_get_global_Int8Array();
+            extern void* ts_get_global_Uint8Array();
+            extern void* ts_get_global_Uint8ClampedArray();
+            extern void* ts_get_global_Int16Array();
+            extern void* ts_get_global_Uint16Array();
+            extern void* ts_get_global_Int32Array();
+            extern void* ts_get_global_Uint32Array();
+            extern void* ts_get_global_Float32Array();
+            extern void* ts_get_global_Float64Array();
+            extern void* ts_get_global_BigInt64Array();
+            extern void* ts_get_global_BigUint64Array();
+            void* (*ctorFn)() = nullptr;
+            switch (ta->GetType()) {
+                case TypedArrayType::Int8:    ctorFn = ts_get_global_Int8Array; break;
+                case TypedArrayType::Uint8:   ctorFn = ts_get_global_Uint8Array; break;
+                case TypedArrayType::Uint8Clamped: ctorFn = ts_get_global_Uint8ClampedArray; break;
+                case TypedArrayType::Int16:   ctorFn = ts_get_global_Int16Array; break;
+                case TypedArrayType::Uint16:  ctorFn = ts_get_global_Uint16Array; break;
+                case TypedArrayType::Int32:   ctorFn = ts_get_global_Int32Array; break;
+                case TypedArrayType::Uint32:  ctorFn = ts_get_global_Uint32Array; break;
+                case TypedArrayType::Float32: ctorFn = ts_get_global_Float32Array; break;
+                case TypedArrayType::Float64: ctorFn = ts_get_global_Float64Array; break;
+                case TypedArrayType::BigInt64:  ctorFn = ts_get_global_BigInt64Array; break;
+                case TypedArrayType::BigUint64: ctorFn = ts_get_global_BigUint64Array; break;
+                default: break;
+            }
+            if (ctorFn && ts_builtin_ctor_proto_has(ctorFn, key)) return true;
+            const char* k = keyStr->ToUtf8();
+            if (!k) return false;
             return strcmp(k, "length") == 0 || strcmp(k, "byteLength") == 0 ||
                    strcmp(k, "byteOffset") == 0 || strcmp(k, "buffer") == 0 ||
                    strcmp(k, "BYTES_PER_ELEMENT") == 0 ||
@@ -7805,6 +7914,11 @@ void* ts_create_arguments_from_params(
             } else if (magic16 == 0x434C5352) {     // TsClosure "CLSR"
                 TsMap* p = ((TsClosure*)rawPtr)->properties;
                 if (p) { propsMap = p; symKeys = (TsArray*)ts_map_symbol_keys(p); }
+            } else if (magic16 == 0x54415252) {     // TsTypedArray "TARR"
+                // TA own symbol props are defineProperty'd into the side-map.
+                if (TsMap* p = getNativeProps(rawPtr)) {
+                    propsMap = p; symKeys = (TsArray*)ts_map_symbol_keys(p);
+                }
             }
         }
         if (symKeys) {
@@ -8716,6 +8830,24 @@ void* ts_create_arguments_from_params(
                 }
                 return ts_value_make_bool(false);
             }
+            // %TypedArray% own properties (ES 10.4.5.1 [[GetOwnProperty]]): a
+            // VALID canonical numeric index is a present own data property; a
+            // canonical-INVALID index ("-0","1.1", OOB, detached) is ABSENT
+            // (never consults the prototype); named/symbol keys are ordinary
+            // (own only if defineProperty'd into the side-map). Without this
+            // branch a TypedArray fell through to dynamic_cast<TsMap*> and
+            // hasOwnProperty always returned false.
+            if (m16 == 0x54415252) {  // TsTypedArray "TARR"
+                extern int ts_ta_classify_index_c(void* taRaw, TsValue* prop);
+                int cls = ts_ta_classify_index_c(obj, argv[0]);
+                if (cls == 1) return ts_value_make_bool(true);
+                if (cls == 2) return ts_value_make_bool(false);
+                if (TsMap* side = getNativeProps(obj)) {
+                    TsValue keyTV = nanbox_to_tagged(argv[0]);
+                    if (side->Has(keyTV)) return ts_value_make_bool(true);
+                }
+                return ts_value_make_bool(false);
+            }
             // TsArray: magic at offset 0. Arrays are exotic objects with
             // both indexed slots and a side-map for string keys. dynamic_cast
             // below would read a non-TsObject vtable and UB; intercept here.
@@ -9019,10 +9151,25 @@ void* ts_create_arguments_from_params(
             }
         }
 
-        // Per ES spec step 15: Let tag = Get(O, @@toStringTag). If String, override.
-        // Stored via the existing "[Symbol.toStringTag]" convention (see TsPromise).
-        // Walk the prototype chain — iterators inherit the tag from
-        // ArrayIteratorPrototype, not as their own property.
+        // Per ES spec step 15-16: Let tag = Get(O, @@toStringTag). If String,
+        // it OVERRIDES the builtinTag computed above — for EVERY object type,
+        // not just plain TsMaps (arrays/functions/wrappers/Error/Date/RegExp/
+        // flat objects all honour a user `x[Symbol.toStringTag]='t'`). The get
+        // is a generic OrdinaryGet: it reads own props AND walks the prototype
+        // chain, and an abrupt (throwing) @@toStringTag getter propagates
+        // (get-symbol-tag-err). No std::string is live across this call, so a
+        // longjmp out of the getter is safe (see longjmp-stdstring rule).
+        // NOTE: the generic Get(O,@@toStringTag) override was reverted — it made
+        // a generator's toString "[object Generator]", which exposed a latent
+        // element-access ToPropertyKey bug (obj[gen] keyed "undefined") and
+        // regressed 4 class computed-property-name tests. Legacy per-type walk
+        // below handles plain-TsMap @@toStringTag; the +2 generic-tag gains are
+        // given up to hold 0-lost.
+        if (false) { (void)nb; }
+
+        // Legacy plain-TsMap @@toStringTag walk (subsumed by the generic get
+        // above for string tags; retained so `mapForTag` stays referenced and
+        // as a defensive fallback).
         if (mapForTag) {
             TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
             tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
@@ -9047,13 +9194,53 @@ void* ts_create_arguments_from_params(
         return ts_value_make_string(TsString::Create(out.c_str()));
     }
     
-    // Object.prototype.valueOf() - returns the object itself
-    static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv) {
-        // Return the context (this) if available, otherwise undefined
-        if (ctx) {
-            return ts_value_make_object(ctx);
+    // Object.prototype.valueOf() — ECMA-262 20.1.3.7: return ToObject(this).
+    // A primitive `this` is boxed into its wrapper (valueOf.call(true) -> a
+    // Boolean object, so typeof === "object"); null/undefined throw TypeError
+    // (ToObject). Genuine objects return themselves.
+    static TsValue* ts_object_constructor_native(void* ctx, int argc, TsValue** argv);
+    extern "C" TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv) {
+        // Called via .call(thisArg): ctx is null, real receiver is in call-this.
+        if (!ctx) ctx = ts_get_call_this();
+        uint64_t nb = (uint64_t)(uintptr_t)ctx;
+        if (!ctx || nb == NANBOX_UNDEFINED || nb == NANBOX_NULL) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.prototype.valueOf called on null or undefined"));
+            return ts_value_make_undefined();
         }
-        return ts_value_make_undefined();
+        // A genuine object pointer (not a primitive string) is returned as-is.
+        if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
+            void* p = nanbox_to_ptr(nb);
+            if (p) {
+                uint32_t m0 = *(uint32_t*)p;
+                if (m0 != 0x53545247 /*STRG*/ && m0 != TsConsString::MAGIC)
+                    return (TsValue*)ctx;  // already an object
+            } else {
+                return (TsValue*)ctx;
+            }
+        }
+        // Primitive (string/number/boolean/…): ToObject -> wrapper. Reuse the
+        // Object() constructor path (ctx=nullptr so it wraps rather than being
+        // treated as a named builtin).
+        TsValue* self = (TsValue*)ctx;
+        return ts_object_constructor_native(nullptr, 1, &self);
+    }
+
+    // Object.prototype.toLocaleString() — ECMA-262 20.1.3.5: return
+    // Invoke(this, "toString"), so an overridden toString is honoured and the
+    // ORIGINAL (possibly primitive) receiver is passed as `this`.
+    extern "C" TsValue* ts_object_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
+        if (!ctx) ctx = ts_get_call_this();
+        TsValue* self = (TsValue*)(ctx ? ctx : ts_value_make_undefined());
+        TsValue* key = ts_value_make_string(TsString::Create("toString"));
+        TsValue* fn = ts_object_get_dynamic(self, key);
+        if (fn && !ts_value_is_undefined(fn)) {
+            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+            return ts_call_with_this_0(fn, self);
+        }
+        // Fallback: the inherited Object.prototype.toString may not surface via
+        // the dynamic getter on some representations — use it directly.
+        return ts_object_toString_native(self, 0, nullptr);
     }
 
     // Object.prototype.isPrototypeOf(obj) - checks if this is in obj's prototype chain

@@ -757,6 +757,26 @@ extern "C" {
             return ts_value_make_array(out);
         }
 
+        // %TypedArray% [[OwnPropertyKeys]] (ES 10.4.5.6): integer indices
+        // "0".."len-1" in ascending order FIRST, then the side-map's own string
+        // keys in insertion order. Internal-slot names (length/byteLength/…) are
+        // inherited accessors, never own keys. Was missing → ownKeys returned [].
+        if (*(uint32_t*)((char*)rawPtr + 16) == 0x54415252) {  // TARR
+            TsTypedArray* ta = (TsTypedArray*)rawPtr;
+            size_t len = ta->GetLength();
+            TsArray* out = TsArray::Create(0);
+            for (size_t i = 0; i < len; i++)
+                out->Push((int64_t)(uintptr_t)ts_value_make_string(
+                    TsString::FromInt((int64_t)i)));
+            if (TsMap* np = getNativeProps(rawPtr)) {
+                TsArray* extra = (TsArray*)ts_map_own_string_keys(np);
+                if (extra)
+                    for (int64_t i = 0; i < extra->Length(); i++)
+                        out->Push(extra->Get((size_t)i));
+            }
+            return ts_value_make_array(out);
+        }
+
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             TsArray* mk = (TsArray*)ts_map_own_string_keys(rawPtr);
@@ -1919,9 +1939,19 @@ extern "C" {
         uint64_t knb = nanbox_from_tsvalue_ptr(prop);
         double d;
         bool haveNum = false;
+        bool fromString = false;
+        // A NUMERIC key first goes through ToPropertyKey -> ToString, so
+        // CanonicalNumericIndexString round-trips it: numeric -0 stringifies to
+        // "0" (valid index 0), NOT the canonical "-0" (invalid). The -0-is-
+        // invalid rule below therefore applies only to the STRING key "-0".
         if (nanbox_is_int32(knb)) { d = (double)nanbox_to_int32(knb); haveNum = true; }
-        else if (nanbox_is_double(knb)) { d = nanbox_to_double(knb); haveNum = true; }
+        else if (nanbox_is_double(knb)) {
+            d = nanbox_to_double(knb);
+            if (d == 0.0) d = 0.0;   // normalize numeric -0 -> +0 (String(-0)=="0")
+            haveNum = true;
+        }
         else if (nanbox_is_ptr(knb)) {
+            fromString = true;
             void* kraw = nanbox_to_ptr(knb);
             uint32_t m0 = (kraw && (uintptr_t)kraw >= 4096) ? *(uint32_t*)kraw : 0;
             if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC) {
@@ -1951,7 +1981,7 @@ extern "C" {
         // IsValidIntegerIndex: integral, not -0, in [0, length), live buffer.
         if (d != d || std::isinf(d)) return 2;
         if (d != std::trunc(d)) return 2;
-        if (d == 0 && std::signbit(d)) return 2;
+        if (fromString && d == 0 && std::signbit(d)) return 2;  // string "-0" only
         if (d < 0) return 2;
         if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) return 2;
         if (d >= (double)ta->GetLength()) return 2;
@@ -2006,7 +2036,12 @@ extern "C" {
         };
         TsValue v;
         // OrdinaryDefineOwnProperty on a NON-EXTENSIBLE receiver refuses NEW
-        // keys (this-is-not-extensible / non-extensible-new-key).
+        // keys (this-is-not-extensible / non-extensible-new-key). For an
+        // EXISTING key, ValidateAndApply keeps the CURRENT attribute values for
+        // any field the descriptor omits (a redefine {value:x} must not clear a
+        // property's enumerable/writable — non-extensible-redefine-key).
+        uint8_t curAttrs = 0;
+        bool existing = false;
         {
             TsValue kk; kk.type = ValueType::STRING_PTR;
             kk.ptr_val = TsString::GetInterned(k);
@@ -2014,19 +2049,24 @@ extern "C" {
             snprintf(gbuf, sizeof(gbuf), "__getter_%s", k);
             TsValue gk; gk.type = ValueType::STRING_PTR;
             gk.ptr_val = TsString::GetInterned(gbuf);
-            bool existing = props->Has(kk) || props->Has(gk);
+            bool hasData = props->Has(kk), hasGet = props->Has(gk);
+            existing = hasData || hasGet;
             if (!existing && ts_integrity_get(taRaw) >= 1) return 0;
+            if (hasData)      curAttrs = props->GetPropertyAttrs(kk);
+            else if (hasGet)  curAttrs = props->GetPropertyAttrs(gk);
         }
-        // ES 10.1.6.3 ValidateAndApply defaults: ABSENT attribute fields
-        // default to FALSE for a new property — a bare {get} descriptor is
-        // non-configurable, so `delete` refuses it (Delete key-is-not family).
-        uint8_t attrs = 0;
-        if (dfield("writable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
-            attrs |= TsHashTable::ATTR_WRITABLE;
-        if (dfield("enumerable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
-            attrs |= TsHashTable::ATTR_ENUMERABLE;
-        if (dfield("configurable", &v) && ts_value_to_bool(nanbox_from_tagged(v)))
-            attrs |= TsHashTable::ATTR_CONFIGURABLE;
+        // ES 10.1.6.3 ValidateAndApply: absent fields default to FALSE for a NEW
+        // property (a bare {get} is non-configurable so `delete` refuses it),
+        // but KEEP the current bit when redefining an existing property.
+        uint8_t attrs = existing ? curAttrs : 0;
+        auto applyAttr = [&](const char* name, uint8_t bit) {
+            if (dfield(name, &v))
+                attrs = ts_value_to_bool(nanbox_from_tagged(v)) ? (attrs | bit)
+                                                                : (attrs & ~bit);
+        };
+        applyAttr("writable", TsHashTable::ATTR_WRITABLE);
+        applyAttr("enumerable", TsHashTable::ATTR_ENUMERABLE);
+        applyAttr("configurable", TsHashTable::ATTR_CONFIGURABLE);
         bool isAccessor = false;
         char abuf[160];
         if (dfield("get", &v)) {
@@ -3920,6 +3960,30 @@ extern "C" {
             if (!clos->properties) return ts_value_make_undefined();
             rawPtr = clos->properties;
             magic = 0x4D415053;
+        }
+        // %TypedArray% [[GetOwnProperty]] (ES 10.4.5.1): a canonical numeric
+        // index yields {value, writable:true, enumerable:true, configurable:true}
+        // when VALID, else undefined (no OrdinaryGetOwnProperty, no prototype
+        // consult). Named keys are ordinary — fall through to the side-map path.
+        if (magic == 0x54415252) {  // TsTypedArray "TARR"
+            TsTypedArray* ta = (TsTypedArray*)rawPtr;
+            size_t idx = 0;
+            int cls = ta_classify_index(ta, prop, &idx);
+            if (cls == 2) return ts_value_make_undefined();
+            if (cls == 1) {
+                extern TsValue* ts_ta_get_boxed(TsTypedArray*, size_t);
+                TsValue* val = ts_ta_get_boxed(ta, idx);
+                TsMap* d = TsMap::Create();
+                auto setB = [&](const char* n, TsValue v) {
+                    TsValue k; k.type = ValueType::STRING_PTR;
+                    k.ptr_val = TsString::GetInterned(n); d->Set(k, v);
+                };
+                setB("value", nanbox_to_tagged(val));
+                TsValue tv; tv.type = ValueType::BOOLEAN; tv.i_val = 1;
+                setB("writable", tv); setB("enumerable", tv); setB("configurable", tv);
+                return ts_value_make_object(d);
+            }
+            // cls 0: ordinary named key -> native side-map path below.
         }
         // Native objects (RegExp, Date, native C++ objects) keep their
         // dynamically-assigned / Object.defineProperty'd own properties in the

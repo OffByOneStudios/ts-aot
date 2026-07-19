@@ -267,7 +267,8 @@ extern "C" {
     }
         bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
                                    TsString* receiver, TsValue* extra,
-                                   bool hasExtra, TsValue** out);
+                                   bool hasExtra, TsValue** out,
+                                   TsValue* origThis = nullptr);
 
     TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
@@ -455,13 +456,21 @@ extern "C" {
     // Returns true when handled (*out set). POD locals only (ts_throw-safe).
     bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
                                        TsString* receiver, TsValue* extra,
-                                       bool hasExtra, TsValue** out) {
+                                       bool hasExtra, TsValue** out,
+                                       TsValue* origThis) {
         if (!arg || !receiver) return false;
         void* raw = ts_value_get_object(arg);
         if (!raw || (uintptr_t)raw < 0x1000) return false;
         uint32_t m0 = *(uint32_t*)raw;
         TsValue* method = nullptr;
-        if (m0 == 0x52454758) {  // TsRegExp: own override only
+        if (m0 == 0x52454758) {  // TsRegExp
+            // ES 22.1.3.x step 2: GetMethod(rx, @@x). A real RegExp resolves
+            // @@x to RegExp.prototype's builtin (spec-compliant exec-based)
+            // native UNLESS an own/defineProperty override shadows it. Routing
+            // the builtin case here (rather than returning false to the legacy
+            // native fast path) makes String.prototype.{split,match,matchAll,
+            // search,replace,replaceAll} observe lastIndex/flags/exec and the
+            // GetSubstitution rules through RegExp.prototype[@@x].
             // Own @@x overrides land in TWO stores depending on the write
             // path: plain assignment -> re->GetOwnProps(); defineProperty ->
             // the g_native_object_props side-map. Consult both
@@ -475,7 +484,7 @@ extern "C" {
                 extern TsMap* getNativeProps(void* obj);
                 TsMap* side = getNativeProps(raw);
                 if (side && side->Has(k)) method = nanbox_from_tagged(side->Get(k));
-                else return false;
+                else method = ts_object_get_property(raw, symStorageKey);
             }
         } else if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
                    m0 == 0x42494749 || m0 == 0x53594D42) {
@@ -494,11 +503,73 @@ extern "C" {
                 "Symbol method of the search value is not a function"));
             return true;  // unreachable
         }
-        TsValue* args[2] = { ts_value_make_string(receiver),
+        // ES step: the @@method is called with the ORIGINAL this value O as its
+        // first argument (a String-wrapper receiver stays the wrapper, not a
+        // ToString). origThis carries O when the caller has it; else the string
+        // receiver is the this and boxing it is correct.
+        TsValue* args[2] = { origThis ? origThis : ts_value_make_string(receiver),
                              extra ? extra : ts_value_make_undefined() };
         *out = ts_function_call_with_this(method, arg, hasExtra ? 2 : 1, args);
         if (!*out) *out = ts_value_make_undefined();
         return true;
+    }
+
+    // ES 22.2.7.5 IsRegExp(argument): a real RegExp OR any object whose
+    // @@match is truthy. Observable Get(@@match) — POD-only frame (a getter
+    // may ts_throw/longjmp). A primitive (incl. a string) is never a RegExp.
+    static bool string_is_regexp(TsValue* arg) {
+        if (!arg) return false;
+        // Same robust extraction as ts_string_symbol_dispatch: a primitive
+        // (number/bool/null/undefined/raw double from the typed fast path)
+        // yields no object pointer and is NEVER a RegExp.
+        void* raw = ts_value_get_object(arg);
+        if (!raw || (uintptr_t)raw < 0x1000 ||
+            (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return false;
+        uint32_t m0 = *(uint32_t*)raw;
+        // Heap string/cons/symbol/bigint primitives are not Objects (IsRegExp
+        // step 1) and must not consult @@match.
+        if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
+            m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/)
+            return false;
+        TsValue* matcher = ts_object_get_property(raw, "[Symbol.match]");
+        if (matcher) {
+            uint64_t mnb = nanbox_from_tsvalue_ptr(matcher);
+            if (!nanbox_is_undefined(mnb) && !nanbox_is_null(mnb)) {
+                extern bool ts_value_to_bool(TsValue* v);
+                return ts_value_to_bool(matcher);
+            }
+        }
+        return (m0 == 0x52454758 /*REGX*/);
+    }
+
+    // ES 22.1.3.14 step 2 / 22.1.3.21 step 2: if IsRegExp(searchValue), its
+    // `flags` (ToString, hooks observable) MUST contain 'g' — else TypeError;
+    // RequireObjectCoercible(flags) first. Called by matchAll/replaceAll on
+    // the ORIGINAL searchValue BEFORE ToString(this) so the poisoned-this
+    // tests never trigger ToString. POD-only frame (hooks may longjmp).
+    // Exported (non-static) so the typed fast paths in TsString.cpp
+    // (ts_string_matchAll_regexp / ts_string_replaceAll) share the check.
+    void string_regexp_require_global(TsValue* arg, const char* methodName) {
+        if (!arg || ts_value_is_undefined(arg) || ts_value_is_null(arg)) return;
+        if (!string_is_regexp(arg)) return;
+        void* raw = ts_value_get_object(arg);
+        if (!raw) raw = (void*)arg;
+        TsValue* flagsV = ts_object_get_property(raw, "flags");
+        if (!flagsV || ts_value_is_undefined(flagsV) || ts_value_is_null(flagsV)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "flags is null or undefined"));
+            return;
+        }
+        TsString* fStr = (TsString*)ts_to_string_spec(flagsV);
+        const char* f = fStr ? fStr->ToUtf8() : "";
+        bool hasG = false;
+        for (const char* c = f; c && *c; ++c) if (*c == 'g') { hasG = true; break; }
+        if (!hasG) {
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                "String.prototype.%s must be called with a global RegExp", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        }
     }
 
     TsValue* ts_string_replace_native(void* ctx, int argc, TsValue** argv) {
@@ -638,37 +709,41 @@ extern "C" {
         return ts_value_make_string((TsString*)ts_string_trimEnd(s0));
     }
     TsValue* ts_string_replaceAll_native(void* ctx, int argc, TsValue** argv) {
-        TsString* str = ctx ? ts_ensure_flat(ctx) : (TsString*)ctx;
-        if (argc < 1 || !argv) return ts_value_make_string(str);
-
-        // ES 22.1.3.21 step 2: GetMethod(searchValue, @@replace) dispatch
-        // (after the IsRegExp+flags check for real RegExps, which the regexp
-        // branch below performs; user objects divert here).
-        {
-            TsValue* out = nullptr;
-            if (ts_string_symbol_dispatch("[Symbol.replace]", argv[0], str,
-                                       (argc >= 2) ? argv[1] : nullptr, true, &out))
+        // ECMA-262 22.1.3.21 String.prototype.replaceAll ( searchValue, replaceValue ).
+        extern void* ts_string_from_value(TsValue* val);
+        void* O = ctx ? ctx : ts_get_call_this();
+        TsValue* sv = (argc >= 1 && argv) ? argv[0] : nullptr;
+        TsValue* rv = (argc >= 2 && argv) ? argv[1] : nullptr;
+        // step 2: searchValue checks + @@replace dispatch, BEFORE ToString(O)
+        // (the poisoned-this replaceAll tests require O's toString stays untouched
+        //  until step 3). origThis = O so a @@replace replacer receives the
+        //  ORIGINAL this (e.g. a String wrapper), not ToString(O).
+        if (sv && !ts_value_is_undefined(sv) && !ts_value_is_null(sv)) {
+            string_regexp_require_global(sv, "replaceAll");   // step 2.a/2.b
+            TsValue* origThis = (TsValue*)ts_get_call_this();
+            if (!origThis) origThis = (TsValue*)ts_value_make_string((TsString*)O);
+            TsValue* out = nullptr;                           // step 2.c/2.d
+            if (ts_string_symbol_dispatch("[Symbol.replace]", sv, (TsString*)O,
+                                       rv, true, &out, origThis))
                 return out;
         }
-
-        // Extract replacement string
-        void* replacement = (argc >= 2 && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
-        if (!replacement) replacement = (argc >= 2 && argv[1]) ? (void*)argv[1] : nullptr;
-
-        // Check if pattern is a RegExp
-        void* rawPattern = argv[0] ? ts_value_get_object((TsValue*)argv[0]) : nullptr;
-        if (!rawPattern) rawPattern = (void*)argv[0];
-        if (rawPattern) {
-            uint32_t magic = *(uint32_t*)rawPattern;
-            if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
-                return ts_value_make_string((TsString*)ts_string_replace_regexp(str, rawPattern, replacement));
-            }
-        }
-
-        // Pattern is a string
-        void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern) pattern = (void*)argv[0];
-        return ts_value_make_string((TsString*)ts_string_replaceAll(str, pattern, replacement));
+        // step 3: string = ToString(O)   (RequireObjectCoercible + hooks)
+        TsString* string = native_this_to_string(O, "replaceAll");
+        // step 4: searchString = ToString(searchValue). A RegExp with an
+        // own @@replace overridden to undefined reaches here and is ToString'd
+        // to "/src/flags" (getSubstitution-*), NOT regex-matched.
+        TsString* searchStr;
+        if (!sv || ts_value_is_undefined(sv))
+            searchStr = TsString::Create("undefined");
+        else
+            searchStr = (TsString*)ts_to_string_spec(sv);  // hook-invoking ToString
+        if (!searchStr) searchStr = TsString::Create("undefined");
+        // steps 5-15: delegate to the string-path replaceAll (dispatch on a
+        // string primitive is a no-op) — reuses GetSubstitution + functional
+        // replace with the correct empty-captures rule.
+        void* replVal = rv ? (void*)rv : (void*)ts_value_make_undefined();
+        return ts_value_make_string((TsString*)ts_string_replaceAll(
+            (void*)string, (void*)ts_value_make_string(searchStr), replVal));
     }
     TsValue* ts_string_at_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
@@ -711,17 +786,46 @@ extern "C" {
         return ts_value_make_int(ts_string_search_regexp(str, regexp));
     }
     TsValue* ts_string_matchAll_native(void* ctx, int argc, TsValue** argv) {
-        TsString* str = (TsString*)ctx;
-        // ES 22.1.3.14 step 2.c: GetMethod(regexp, @@matchAll) dispatch.
-        if (argc >= 1 && argv && argv[0]) {
-            TsValue* out = nullptr;
-            if (ts_string_symbol_dispatch("[Symbol.matchAll]", argv[0], str,
+        // ECMA-262 22.1.3.14 String.prototype.matchAll ( regexp ).
+        extern void* ts_string_from_value(TsValue* val);
+        extern void* ts_regexp_create(void* pattern, void* flags);
+        void* O = ctx ? ctx : ts_get_call_this();
+        TsValue* R = (argc >= 1 && argv) ? argv[0] : nullptr;
+        // step 2: searchValue checks + @@matchAll dispatch (BEFORE ToString(O)).
+        if (R && !ts_value_is_undefined(R) && !ts_value_is_null(R)) {
+            string_regexp_require_global(R, "matchAll");   // step 2.a/2.b
+            TsValue* out = nullptr;                          // step 2.c
+            if (ts_string_symbol_dispatch("[Symbol.matchAll]", R, (TsString*)O,
                                        nullptr, false, &out))
                 return out;
         }
-        void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        void* result = ts_string_matchAll_regexp(str, regexp);
-        return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+        // step 3: S = ToString(O) (RequireObjectCoercible + hook-observable).
+        TsString* S = native_this_to_string(O, "matchAll");
+        // step 4: rx = RegExpCreate(R, "g").
+        void* rawR = R ? ts_value_get_object(R) : nullptr;
+        void* rxObj;
+        if (rawR && (uintptr_t)rawR >= 0x1000 &&
+            *(uint32_t*)rawR == 0x52454758 /*REGX*/) {
+            rxObj = TsRegExp::Create(((TsRegExp*)rawR)->GetSource()->ToUtf8(), "g");
+        } else if (!R || ts_value_is_undefined(R) || ts_value_is_null(R)) {
+            rxObj = TsRegExp::Create("", "g");
+        } else {
+            TsString* patS = (TsString*)ts_string_from_value(R);
+            rxObj = ts_regexp_create((void*)ts_value_make_string(patS),
+                        (void*)ts_value_make_string(TsString::Create("g")));
+        }
+        // step 5: Return ? Invoke(rx, @@matchAll, «S»).
+        TsValue* method = ts_object_get_property(rxObj, "[Symbol.matchAll]");
+        uint64_t mnb = method ? nanbox_from_tsvalue_ptr(method) : (uint64_t)NANBOX_UNDEFINED;
+        if (!method || nanbox_is_undefined(mnb) || nanbox_is_null(mnb) ||
+            !ts_is_callable((void*)method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "rx[Symbol.matchAll] is not a function"));
+            return (TsValue*)ts_value_make_undefined();
+        }
+        TsValue* a1[1] = { (TsValue*)ts_value_make_string(S) };
+        return ts_function_call_with_this(method,
+            (TsValue*)ts_value_make_object(rxObj), 1, a1);
     }
     TsValue* ts_string_codePointAt_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
@@ -1562,15 +1666,33 @@ extern "C" {
         double fillVal = 0;
         if (argc >= 1 && argv && argv[0]) fillVal = ts_to_number(argv[0]);
         int64_t len = (int64_t)ta->GetLength();
+        // RelativeIndex via ToIntegerOrInfinity: NaN/-Inf -> 0, +Inf -> len,
+        // negatives relative to len. Each coercion is observable and MAY detach
+        // the buffer, re-checked after (ES 23.2.3.9 step 8).
+        auto relIndex = [len](double d) -> int64_t {
+            if (d != d) return 0;
+            if (d == -std::numeric_limits<double>::infinity()) return 0;
+            if (d == std::numeric_limits<double>::infinity()) return len;
+            int64_t r = (int64_t)d;
+            if (r < 0) return std::max((int64_t)0, len + r);
+            return std::min(r, len);
+        };
         int64_t start = 0, end = len;
-        if (argc >= 2 && argv && argv[1]) start = (int64_t)ts_to_number(argv[1]);
+        if (argc >= 2 && argv && argv[1]) start = relIndex(ts_to_number(argv[1]));
         if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2])) {
-            end = (int64_t)ts_to_number(argv[2]);
+            end = relIndex(ts_to_number(argv[2]));
         }
-        if (start < 0) start = std::max((int64_t)0, len + start);
-        if (end < 0) end = std::max((int64_t)0, len + end);
-        if (start > len) start = len;
-        if (end > len) end = len;
+        // Step 8: a {valueOf} argument may have detached the buffer during
+        // coercion — %TypedArray%.prototype.fill throws TypeError in that case.
+        if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot perform %TypedArray%.prototype.fill on a detached ArrayBuffer"));
+            return ts_value_make_undefined();
+        }
+        // Re-clamp to the current length (a resizable buffer may have shrunk).
+        int64_t curLen = (int64_t)ta->GetLength();
+        if (end > curLen) end = curLen;
+        if (start > curLen) start = curLen;
         for (int64_t i = start; i < end; i++) {
             ta->Set((size_t)i, fillVal);
         }
@@ -1597,6 +1719,30 @@ extern "C" {
         return ts_ta_get_boxed(ta, (size_t)idx);
     }
 
+    // %TypedArray%.prototype.{indexOf,lastIndexOf,includes} compare the search
+    // element with strict equality / SameValueZero and DO NOT coerce it (ES
+    // 23.2.3.13/.18/.15). A search element whose type does not match the view's
+    // element kind (Number for the numeric views, BigInt for the two BigInt
+    // views) therefore never matches — e.g. `int8array.indexOf("42")` is -1, not
+    // a coerced 42. Returns true (and sets *out to the numeric value to compare)
+    // only when the type matches; false means "cannot match — return not-found".
+    static bool ta_search_element_matches_kind(TsTypedArray* ta, TsValue* se, double* out) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(se);
+        bool isBigView = (ta->GetType() == TypedArrayType::BigInt64 ||
+                          ta->GetType() == TypedArrayType::BigUint64);
+        void* p = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : nullptr;
+        bool seIsBig = p && *(uint32_t*)p == 0x42494749;  // TsBigInt (magic @0)
+        bool seIsNum = nanbox_is_number(nb);
+        if (isBigView) {
+            if (!seIsBig) return false;
+            *out = ts_to_number(se);   // exact for in-range BigInts, no side effects
+            return true;
+        }
+        if (!seIsNum) return false;
+        *out = nanbox_to_number(nb);
+        return true;
+    }
+
     // TypedArray.prototype.includes(searchElement, fromIndex?)
     TsValue* ts_typed_array_includes_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
@@ -1606,7 +1752,9 @@ extern "C" {
         // coercing search/fromIndex (throwing valueOf must not run on empty).
         if (len == 0) return ts_value_make_bool(false);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
-        double search = ts_to_number(argv[0]);
+        // SameValueZero, no coercion: a type-mismatched search never matches.
+        double search = 0;
+        bool canMatch = ta_search_element_matches_kind(ta, argv[0], &search);
         int64_t from = 0;
         if (argc >= 2 && argv[1]) {
             // ToIntegerOrInfinity: +Inf -> nothing at/after it (false);
@@ -1615,10 +1763,11 @@ extern "C" {
             if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
             if (fd == std::numeric_limits<double>::infinity())
                 return ts_value_make_bool(false);
-            from = (fd == -std::numeric_limits<double>::infinity())
-                       ? 0 : (int64_t)fd;
+            from = (fd == -std::numeric_limits<double>::infinity() || fd != fd)
+                       ? 0 : (int64_t)fd;  // ToIntegerOrInfinity(NaN) = 0
         }
         if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
+        if (!canMatch) return ts_value_make_bool(false);
         if (from < 0) from = std::max((int64_t)0, len + from);
         bool searchNaN = (search != search);
         for (int64_t i = from; i < len; i++) {
@@ -1640,8 +1789,10 @@ extern "C" {
         // to NaN masked this; ts_to_number(BigInt) is now exact.)
         if (len == 0) return ts_value_make_int(-1);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
-        double search = ts_to_number(argv[0]);
-        if (search != search) return ts_value_make_int(-1);  // NaN never matches via ===
+        // Strict equality, no coercion: a type-mismatched search never matches.
+        double search = 0;
+        bool canMatch = ta_search_element_matches_kind(ta, argv[0], &search);
+        if (canMatch && search != search) canMatch = false;  // NaN never matches via ===
         int64_t from = 0;
         if (argc >= 2 && argv[1]) {
             // ToIntegerOrInfinity: +Inf -> -1 (search starts past the end);
@@ -1650,12 +1801,13 @@ extern "C" {
             if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
             if (fd == std::numeric_limits<double>::infinity())
                 return ts_value_make_int(-1);
-            from = (fd == -std::numeric_limits<double>::infinity())
-                       ? 0 : (int64_t)fd;
+            from = (fd == -std::numeric_limits<double>::infinity() || fd != fd)
+                       ? 0 : (int64_t)fd;  // ToIntegerOrInfinity(NaN) = 0
         }
         // ToInteger(fromIndex) can detach the buffer; a detached buffer has no
         // elements, so the search finds nothing.
         if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
+        if (!canMatch) return ts_value_make_int(-1);
         if (from < 0) from = std::max((int64_t)0, len + from);
         for (int64_t i = from; i < len; i++) {
             if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
@@ -1671,8 +1823,10 @@ extern "C" {
         // ECMA-262 step 4: len 0 -> -1 before coercing search/fromIndex.
         if (len == 0) return ts_value_make_int(-1);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
-        double search = ts_to_number(argv[0]);
-        if (search != search) return ts_value_make_int(-1);
+        // Strict equality, no coercion: a type-mismatched search never matches.
+        double search = 0;
+        bool canMatch = ta_search_element_matches_kind(ta, argv[0], &search);
+        if (canMatch && search != search) canMatch = false;
         int64_t from = len - 1;
         if (argc >= 2 && argv[1]) {
             // ToIntegerOrInfinity: +Inf clamps to len-1; -Inf -> not found.
@@ -1683,12 +1837,13 @@ extern "C" {
                 if (!ta->IsDetachedBuffer()) return ts_value_make_int(-1);
                 from = -1;
             } else {
-                from = (int64_t)fd;
+                from = (fd != fd) ? 0 : (int64_t)fd;  // ToIntegerOrInfinity(NaN) = 0
                 if (from < 0) from = len + from;
             }
         }
         // fromIndex coercion can detach the buffer -> no elements -> not found.
         if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
+        if (!canMatch) return ts_value_make_int(-1);
         if (from >= len) from = len - 1;
         for (int64_t i = from; i >= 0; i--) {
             if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
@@ -1858,6 +2013,14 @@ extern "C" {
             } else {
                 r = elem;
             }
+            // ES step: R = ? ToString(? Invoke(element, "toLocaleString")). When
+            // the invoke result is an OBJECT (a user override may return one),
+            // ToString runs ToPrimitive(hint String) — invoking its toString /
+            // valueOf and propagating any abrupt completion — before rendering.
+            // ts_string_from_value alone would stringify it as "[object Object]"
+            // and swallow the throw.
+            extern TsValue* ts_to_primitive(TsValue* val, int hint);
+            r = ts_to_primitive(r, 2 /* hint: string */);            // may throw
             TsString* rs = (TsString*)ts_string_from_value(r);       // may throw
             if (rs) acc = (TsString*)ts_string_concat(acc, rs);
         }
@@ -1869,17 +2032,36 @@ extern "C" {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "copyWithin")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
+        // ES 23.2.3.5 RelativeIndex via ToIntegerOrInfinity: NaN -> 0, -Inf -> 0,
+        // +Inf -> len; negatives are relative to len. Each coercion is observable
+        // and MAY detach/resize the buffer (a {valueOf} argument), so they run
+        // unconditionally and the detach is re-checked after, per step 17.
+        auto relIndex = [len](double d, int64_t dflt) -> int64_t {
+            if (d != d) return 0;                                        // NaN
+            if (d == -std::numeric_limits<double>::infinity()) return 0;
+            if (d == std::numeric_limits<double>::infinity()) return len;
+            int64_t r = (int64_t)d;
+            if (r < 0) return std::max((int64_t)0, len + r);
+            return std::min(r, len);
+        };
         int64_t target = 0, start = 0, end = len;
-        if (argc >= 1 && argv && argv[0]) target = (int64_t)ts_to_number(argv[0]);
-        if (argc >= 2 && argv && argv[1]) start = (int64_t)ts_to_number(argv[1]);
-        if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2])) end = (int64_t)ts_to_number(argv[2]);
-        if (target < 0) target = std::max((int64_t)0, len + target);
-        if (start < 0) start = std::max((int64_t)0, len + start);
-        if (end < 0) end = std::max((int64_t)0, len + end);
-        if (target > len) target = len;
-        if (start > len) start = len;
-        if (end > len) end = len;
+        if (argc >= 1 && argv && argv[0]) target = relIndex(ts_to_number(argv[0]), 0);
+        if (argc >= 2 && argv && argv[1]) start = relIndex(ts_to_number(argv[1]), 0);
+        if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2]))
+            end = relIndex(ts_to_number(argv[2]), len);
         int64_t count = std::min(end - start, len - target);
+        if (count <= 0) return ts_value_make_object(ta);
+        // Step 17: a {valueOf} argument may have detached/resized the buffer.
+        if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot perform %TypedArray%.prototype.copyWithin on a detached ArrayBuffer"));
+            return ts_value_make_undefined();
+        }
+        // The buffer may have SHRUNK (resizable) — re-clamp to the current length.
+        int64_t curLen = (int64_t)ta->GetLength();
+        if (target >= curLen || start >= curLen) return ts_value_make_object(ta);
+        if (start + count > curLen) count = curLen - start;
+        if (target + count > curLen) count = curLen - target;
         if (count <= 0) return ts_value_make_object(ta);
         // Use temp buffer to handle overlap correctly
         std::vector<double> tmp((size_t)count);

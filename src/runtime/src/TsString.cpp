@@ -1756,7 +1756,8 @@ extern "C" {
     // symbol methods too (22.1.3.x step 2).
     bool ts_string_symbol_dispatch(const char* symStorageKey, TsValue* arg,
                                    TsString* receiver, TsValue* extra,
-                                   bool hasExtra, TsValue** out);
+                                   bool hasExtra, TsValue** out,
+                                   TsValue* origThis = nullptr);
 
     void* ts_string_split(void* str, void* separator) {
         {
@@ -2225,6 +2226,9 @@ extern "C" {
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
         {
+            // ES 22.1.3.14 step 2.b: a RegExp searchValue must be global.
+            extern void string_regexp_require_global(TsValue* arg, const char* methodName);
+            string_regexp_require_global((TsValue*)regexp, "matchAll");
             TsValue* out = nullptr;
             if (ts_string_symbol_dispatch("[Symbol.matchAll]", (TsValue*)regexp,
                                           ts_ensure_flat(str), nullptr, false, &out))
@@ -2554,75 +2558,41 @@ extern "C" {
 
         bool replIsCallback = ts_nanbox_is_callable(replacement);
         {
+            // ECMA-262 22.1.3.21 step 2.b: a RegExp searchValue must be global,
+            // else TypeError (checked BEFORE the @@replace dispatch).
+            extern void string_regexp_require_global(TsValue* arg, const char* methodName);
+            string_regexp_require_global((TsValue*)pattern, "replaceAll");
             TsValue* out = nullptr;
             if (ts_string_symbol_dispatch("[Symbol.replace]", (TsValue*)pattern,
                                           flatStr, (TsValue*)replacement, true, &out))
                 return out;
         }
 
-        // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
-        if (pattern) {
-            void* rawObj = ts_value_get_object((TsValue*)pattern);
-            if (rawObj) {
-                uint32_t magic = *(uint32_t*)rawObj;
-                if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
-                    // ECMA-262 22.1.3.21: replaceAll requires a global RegExp;
-                    // a non-global one throws a TypeError (only TsString* locals
-                    // are live here, so the ts_throw longjmp is safe).
-                    if (!((TsRegExp*)rawObj)->IsGlobal()) {
-                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                            "replaceAll must be called with a global RegExp"));
-                        return flatStr;  // unreachable
-                    }
-                    // Global-regexp replaceAll == replace: delegate so the
-                    // functional-replaceValue branch applies (previously a
-                    // callback was ToString'd into the output).
-                    if (replIsCallback) {
-                        return ts_string_replace(str, pattern, replacement);
-                    }
-                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
-                    if (!rawRepl) rawRepl = replacement;
-                    TsString* flatRepl = ts_ensure_flat(rawRepl);
-                    return flatStr->Replace((TsRegExp*)rawObj, flatRepl);
-                }
-                if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
-                    TsString* flatPattern = ts_ensure_flat(rawObj);
-                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
-                    if (!rawRepl) rawRepl = replacement;
-                    TsString* flatRepl = ts_ensure_flat(rawRepl);
-                    if (replIsCallback ||
-                        (flatPattern && flatPattern->Length() == 0) ||
-                        (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
-                        return replaceAll_string_pattern(flatStr, flatPattern,
-                                                         (TsValue*)replacement, replIsCallback);
-                    return flatStr->ReplaceAll(flatPattern, flatRepl);
-                }
-            }
-            void* strPattern = ts_value_get_string((TsValue*)pattern);
-            if (strPattern) {
-                TsString* flatPattern = ts_ensure_flat(strPattern);
-                void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
-                if (!rawRepl) rawRepl = replacement;
-                TsString* flatRepl = ts_ensure_flat(rawRepl);
-                if (replIsCallback ||
-                    (flatPattern && flatPattern->Length() == 0) ||
-                    (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
-                    return replaceAll_string_pattern(flatStr, flatPattern,
-                                                     (TsValue*)replacement, replIsCallback);
-                return flatStr->ReplaceAll(flatPattern, flatRepl);
-            }
+        // No @@replace method (a global RegExp always dispatched above; reaching
+        // here with a RegExp means its @@replace was overridden to undefined, so
+        // per spec it is ToString'd to "/src/flags" and matched literally).
+        // 22.1.3.21 step 4: searchString = ToString(searchValue). ts_to_string_spec
+        // is the hook-invoking ToString (@@toPrimitive/toString/valueOf observable)
+        // and is safe for ANY value (a raw non-pointer pattern would crash
+        // ts_ensure_flat).
+        void* ts_to_string_spec(TsValue* val);
+        TsString* flatPattern = (TsString*)ts_to_string_spec((TsValue*)pattern);
+        flatPattern = flatPattern ? ts_ensure_flat(flatPattern) : TsString::Create("undefined");
+        // step 6: if replaceValue is not callable, replaceValue = ToString(replaceValue).
+        TsString* flatRepl = nullptr;
+        if (!replIsCallback) {
+            flatRepl = (TsString*)ts_to_string_spec((TsValue*)replacement);
+            flatRepl = flatRepl ? ts_ensure_flat(flatRepl) : TsString::Create("undefined");
         }
-        // Non-string, non-RegExp searchValue (String wrapper, number, any
-        // object): ToString it (22.1.3.21 step 5).
-        TsString* flatPattern = ts_ensure_flat(pattern);
-        if (!flatPattern)
-            flatPattern = ts_ensure_flat((TsString*)ts_string_from_value((TsValue*)pattern));
-        TsString* flatRepl = replIsCallback ? nullptr : ts_ensure_flat(replacement);
+        // Pass the ALREADY-coerced replacement string (boxed) so the $-substitution
+        // path doesn't ToString replaceValue a second time.
         if (replIsCallback ||
             (flatPattern && flatPattern->Length() == 0) ||
             (flatRepl && strchr(flatRepl->ToUtf8(), '$')))
             return replaceAll_string_pattern(flatStr, flatPattern,
-                                             (TsValue*)replacement, replIsCallback);
+                replIsCallback ? (TsValue*)replacement
+                               : (TsValue*)ts_value_make_string(flatRepl),
+                replIsCallback);
         return flatStr->ReplaceAll(flatPattern, flatRepl);
     }
 

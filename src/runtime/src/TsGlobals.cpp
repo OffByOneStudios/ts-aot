@@ -79,6 +79,7 @@ TsValue* ts_object_isSealed_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_isExtensible_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_assign(TsValue* target, TsValue* source);
 TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
+TsValue* ts_object_getPrototypeOf(TsValue* obj);
 bool ts_object_is(TsValue* val1, TsValue* val2);
 TsValue* ts_array_isArray_native(void* context, int argc, TsValue** argv);
 // Array instance method natives (defined in TsObject.cpp)
@@ -263,6 +264,64 @@ static TsValue* ts_object_setPrototypeOf_native(void* ctx, int argc, TsValue** a
     return ts_object_setPrototypeOf(argv[0], argv[1]);
 }
 
+// Helper: is a heap pointer an "Object" (not a primitive String/ConsString/
+// Symbol wrapper-less primitive)? Used by the __proto__ accessor's ToObject /
+// Type(x) is Object checks.
+static bool proto_ptr_is_object(uint64_t nb) {
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p) return false;
+    uintptr_t pp = (uintptr_t)p;
+    if (pp < 0x1000 || pp > 0x00007FFFFFFFFFFFULL) return false;
+    uint32_t m0 = *(uint32_t*)p;
+    uint32_t m16 = *(uint32_t*)((char*)p + 16);
+    // primitive string / symbol are heap-backed but NOT Objects
+    if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
+        m0 == 0x53594D42 /*SYMB@0*/ || m16 == 0x53594D42 /*SYMB@16*/)
+        return false;
+    return true;
+}
+
+// get Object.prototype.__proto__ — ECMA-262 B.2.2.1.1:
+//   1. Let O be ? ToObject(this value).
+//   2. Return ? O.[[GetPrototypeOf]]().
+// ts_object_getPrototypeOf performs ToObject (throws on null/undefined; a
+// primitive yields its wrapper's prototype), so this is a thin wrapper.
+static TsValue* proto_getter_native(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    TsValue* self = (TsValue*)(ctx ? ctx : ts_value_make_undefined());
+    return ts_object_getPrototypeOf(self);
+}
+
+// set Object.prototype.__proto__ — ECMA-262 B.2.2.1.2:
+//   1. Let O be ? RequireObjectCoercible(this value).  (throws on null/undef)
+//   2. If Type(proto) is neither Object nor Null, return undefined.
+//   3. If Type(O) is not Object, return undefined.
+//   4. Let status be ? O.[[SetPrototypeOf]](proto).
+//   5. If status is false, throw a TypeError exception.
+//   6. Return undefined.
+static TsValue* proto_setter_native(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    TsValue* self = (TsValue*)ctx;
+    uint64_t snb = self ? nanbox_from_tsvalue_ptr(self) : (uint64_t)NANBOX_UNDEFINED;
+    if (!self || nanbox_is_null(snb) || nanbox_is_undefined(snb)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Object.prototype.__proto__ setter called on null or undefined"));
+        return ts_value_make_undefined();  // unreachable
+    }
+    TsValue* proto = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    uint64_t pnb = nanbox_from_tsvalue_ptr(proto);
+    bool protoIsNull = nanbox_is_null(pnb);
+    bool protoIsObject = proto_ptr_is_object(pnb);
+    // Step 2: proto neither Object nor Null -> no-op, return undefined.
+    if (!protoIsNull && !protoIsObject) return ts_value_make_undefined();
+    // Step 3: this not an Object (primitive / string / symbol) -> return undefined.
+    if (!proto_ptr_is_object(snb)) return ts_value_make_undefined();
+    // Step 4-5: [[SetPrototypeOf]] (throws on immutable/cyclic failure).
+    ts_object_setPrototypeOf(self, protoIsNull ? ts_value_make_null() : proto);
+    return ts_value_make_undefined();
+}
+
 static TsValue* ts_object_is_native(void* ctx, int argc, TsValue** argv) {
     if (argc < 2) return ts_value_make_bool(false);
     return ts_value_make_bool(ts_object_is(argv[0], argv[1]));
@@ -389,28 +448,60 @@ void* ts_get_global_Object() {
         // TsObject.cpp which handles all magic-byte brand checks plus
         // @@toStringTag prototype-chain lookup per ECMA-262 step 15-16.
         // (Forward decl declared at file scope below addMethod call.)
-        auto protoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (!ctx) ctx = ts_get_call_this();
-            return (TsValue*)(ctx ? ctx : ts_value_make_undefined());
-        };
+        // ECMA-262 20.1.3.7: Object.prototype.valueOf returns ToObject(this)
+        // (primitive -> wrapper; null/undefined -> TypeError). Route to the
+        // canonical native so the method and the per-instance synthesized copy
+        // share identical semantics.
+        extern TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
         addMethod(proto, "toString", (void*)ts_object_toString_native, 0);
-        addMethod(proto, "valueOf",  (void*)+protoValueOf,  0);
+        addMethod(proto, "valueOf",  (void*)ts_object_valueOf_native,  0);
         // ECMA-262 20.1.3.5 Object.prototype.toLocaleString(): return
-        // Invoke(O, "toString") — so an overridden toString is honoured. Was
-        // missing entirely (read undefined).
-        auto protoToLocaleString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            TsValue* self = (TsValue*)(ctx ? ctx : ts_get_call_this());
-            if (!self) self = ts_value_make_undefined();
-            TsValue* key = ts_value_make_string(TsString::Create("toString"));
-            TsValue* tsFn = ts_object_get_dynamic(self, key);
-            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
-            if (tsFn && !ts_value_is_undefined(tsFn)) return ts_call_with_this_0(tsFn, self);
-            // A plain object's INHERITED Object.prototype.toString may not surface
-            // via get_dynamic; fall back to the default object toString.
-            extern TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
-            return ts_object_toString_native(self, 0, nullptr);
-        };
-        addMethod(proto, "toLocaleString", (void*)+protoToLocaleString, 0);
+        // Invoke(O, "toString"). Route to the canonical native so the method
+        // and per-instance synthesized copies behave identically.
+        extern TsValue* ts_object_toLocaleString_native(void* ctx, int argc, TsValue** argv);
+        addMethod(proto, "toLocaleString", (void*)ts_object_toLocaleString_native, 0);
+
+        // ECMA-262 B.2.2.1: Object.prototype.__proto__ is an ACCESSOR property
+        // { [[Enumerable]]: false, [[Configurable]]: true } whose get/set are
+        // "get __proto__"/"set __proto__". Install both the hidden
+        // __getter_/__setter_ slots (so getOwnPropertyDescriptor reports an
+        // accessor) and the outward-facing "__proto__" placeholder carrying the
+        // enumerable/configurable attrs. Tests extract the accessor via
+        // getOwnPropertyDescriptor(Object.prototype, "__proto__") and call it.
+        {
+            auto makeAccessorFn = [](void* nativeFn, const char* fname, int arity) -> TsValue* {
+                TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+                TsFunction* func = (TsFunction*)fn;
+                func->name = TsString::Create(fname);
+                func->arity = arity;
+                func->is_constructor = false;
+                if (!func->properties) func->properties = TsMap::Create();
+                TsValue nk; nk.type = ValueType::STRING_PTR;
+                nk.ptr_val = TsString::GetInterned("name");
+                TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+                func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+                TsValue lk; lk.type = ValueType::STRING_PTR;
+                lk.ptr_val = TsString::GetInterned("length");
+                TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+                func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+                return fn;
+            };
+            TsValue gv; gv.type = ValueType::FUNCTION_PTR;
+            gv.ptr_val = makeAccessorFn((void*)proto_getter_native, "get __proto__", 0);
+            TsValue sv; sv.type = ValueType::FUNCTION_PTR;
+            sv.ptr_val = makeAccessorFn((void*)proto_setter_native, "set __proto__", 1);
+            TsValue gk; gk.type = ValueType::STRING_PTR;
+            gk.ptr_val = TsString::GetInterned("__getter___proto__");
+            proto->SetWithAttrs(gk, gv, 0);  // hidden storage slot
+            TsValue sk; sk.type = ValueType::STRING_PTR;
+            sk.ptr_val = TsString::GetInterned("__setter___proto__");
+            proto->SetWithAttrs(sk, sv, 0);  // hidden storage slot
+            // Outward-facing placeholder: enumerable:false, configurable:true.
+            TsValue pk; pk.type = ValueType::STRING_PTR;
+            pk.ptr_val = TsString::GetInterned("__proto__");
+            TsValue pv; pv.type = ValueType::UNDEFINED;
+            proto->SetWithAttrs(pk, pv, TsHashTable::ATTR_CONFIGURABLE);
+        }
     }
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
