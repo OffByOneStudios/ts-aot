@@ -985,9 +985,65 @@ extern "C" {
         ts_object_set_dynamic(origBoxed, lk, ts_value_make_int(n));
     }
 
+    // LengthOfArrayLike(O) for a generic receiver WITHOUT materializing any
+    // element. Returns the ToLength'd length (clamped to [0, 2^53-1]) for a
+    // real array or a plain array-like object; -1 when no usable length could
+    // be read. Used by the change-array-by-copy methods (toReversed/toSorted/
+    // toSpliced/with) and slice/splice to run the ArrayCreate length-limit
+    // check (ES ArrayCreate: length > 2^32-1 -> RangeError) BEFORE any element
+    // getter runs. A too-large length must RangeError with zero element reads.
+    static double arraylike_length_of(void* ctx) {
+        TsArray* a = resolve_array_ctx(ctx);
+        if (a) return (double)a->Length();
+        void* ctxToRead = ctx;
+        if (ctx) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+                void* t = ts_get_call_this();
+                if (t) ctxToRead = t;
+            }
+        } else {
+            void* t = ts_get_call_this();
+            if (t) ctxToRead = t;
+        }
+        if (!ctxToRead) return -1;
+        // Primitives (number/bool) and strings have lengths far below the limit;
+        // let them flow through the normal materializer (no RangeError concern).
+        {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctxToRead);
+            if (nanbox_is_number(nb) || nanbox_is_bool(nb)) return -1;
+        }
+        TsValue* lenVal = ts_object_get_property(ctxToRead, "length");
+        if (!lenVal) return -1;
+        double d = ts_to_number(lenVal);   // may throw TypeError on Symbol length
+        if (d != d || d <= 0) return 0;
+        if (d > 9007199254740991.0) d = 9007199254740991.0;  // ToLength clamp
+        return d;
+    }
+
+    // ES ArrayCreate limit for the change-array-by-copy methods: if the source
+    // LengthOfArrayLike exceeds 2^32-1, ArrayCreate(len) throws RangeError. This
+    // must be observed before any element read (the length-exceeding tests plant
+    // throwing index getters). No-op for real arrays / small lengths.
+    static void array_check_arraycreate_limit(void* ctx) {
+        double len = arraylike_length_of(ctx);
+        if (len > 4294967295.0) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Invalid array length"));
+        }
+    }
+
+    // Raw (pre-clamp) LengthOfArrayLike read by the most recent
+    // require_array_or_throw call. slice/splice consult it for the ArrayCreate
+    // count-limit (RangeError) so length is read exactly once (the array-like
+    // temp clamps length to MAX_ITER, losing the real value). Single-threaded
+    // use, read immediately after the require_array_or_throw call.
+    static double g_require_array_raw_len = 0;
+
     static TsArray* require_array_or_throw(void* ctx, const char* methodName) {
+        g_require_array_raw_len = 0;
         TsArray* arr = resolve_array_ctx(ctx);
-        if (arr) return arr;
+        if (arr) { g_require_array_raw_len = (double)arr->Length(); return arr; }
 
         // Distinguish "nullish receiver" (throw) from "non-array but
         // non-nullish object" (legacy fall-through, returns nullptr).
@@ -1154,6 +1210,10 @@ extern "C" {
         // ToLength: ToNumber → clamp to [0, 2^53-1]. ts_to_number throws
         // TypeError for Symbol (per ES spec), which must propagate up.
         double lenD = ts_to_number(lenVal);
+        // Expose the raw (ToLength-clamped) length for slice/splice's ArrayCreate
+        // count-limit check — read exactly once here.
+        g_require_array_raw_len = (lenD != lenD || lenD <= 0) ? 0.0
+            : (lenD > 9007199254740991.0 ? 9007199254740991.0 : lenD);
         if (lenD != lenD || lenD <= 0) {
             // NaN or non-positive → empty array (matches spec ToLength → 0).
             // KEEP the original receiver: mutators still Set(O,"length",0)
@@ -1425,9 +1485,26 @@ extern "C" {
     TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "slice");
         if (!arr) return ts_value_make_object(ts_array_create());
+        double rawLen = g_require_array_raw_len;  // length read once, pre-clamp
         // Use toInteger so Symbol args throw TypeError per spec.
         int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
         int64_t end   = (argc >= 2 && argv) ? toInteger(argv[1], arr->Length()) : arr->Length();
+        // ES 23.1.3.27 step 8: ArraySpeciesCreate(O, count) -> ArrayCreate(count)
+        // for a non-array receiver RangeErrors when count > 2^32-1. Use the RAW
+        // receiver length (arr->Length() is clamped for huge array-likes) and the
+        // already-coerced start/end (no extra observable coercion). A real array's
+        // count is always bounded by its length, so this never fires for arrays.
+        if (rawLen > 4294967295.0 && !resolve_array_ctx(ctx)) {
+            double rs = (argc >= 1 && argv) ? (double)start : 0.0;
+            double re = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+                            ? (double)end : rawLen;
+            double k = (rs < 0) ? (rawLen + rs > 0 ? rawLen + rs : 0) : (rs > rawLen ? rawLen : rs);
+            double fin = (re < 0) ? (rawLen + re > 0 ? rawLen + re : 0) : (re > rawLen ? rawLen : re);
+            if (fin - k > 4294967295.0) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid array length"));
+            }
+        }
         void* result = ts_array_slice(arr, start, end);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
@@ -1482,6 +1559,15 @@ extern "C" {
         void* resRaw = ts_typed_array_species_alloc((void*)ta, newLen);
         if (!resRaw) return ts_value_make_undefined();  // TypeError thrown
         TsTypedArray* result = (TsTypedArray*)resRaw;
+        // ES 23.2.3.24 step 14: after TypedArraySpeciesCreate, if count > 0 and
+        // the SOURCE buffer is now detached, throw TypeError. A custom species
+        // constructor (or the `constructor` getter it reads) can detach O's
+        // buffer mid-construction (slice/detached-buffer-{get-ctor,custom-ctor-*}).
+        if (newLen > 0 && ta->IsDetachedBuffer()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot slice a TypedArray with a detached buffer"));
+            return ts_value_make_undefined();
+        }
         // ta->Get is length-clamped (a resizable-buffer shrink during species
         // construction/coercion makes past-the-end reads 0 — slice/coerced-
         // start-end-shrink) and detach-safe.
@@ -1517,12 +1603,15 @@ extern "C" {
         double offD = 0;
         if (argc >= 2 && argv[1]) offD = ts_to_number((TsValue*)argv[1]);
         if (offD != offD) offD = 0;            // NaN -> 0
-        if (offD < 0) {
+        // ToIntegerOrInfinity truncates toward zero BEFORE the < 0 test, so a
+        // fractional in (-1, 0] such as -0.5 becomes 0 and must NOT throw
+        // (set/*-arg-offset-tointeger); only a truncated value < 0 (<= -1) throws.
+        if (offD <= -1.0) {
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "offset is out of bounds"));
             return ts_value_make_undefined();
         }
-        int64_t offset = (int64_t)offD;        // truncate toward zero
+        int64_t offset = (offD > 0.0) ? (int64_t)offD : 0;  // truncate toward zero
         if (throwIfDetached(ta, "set")) return ts_value_make_undefined();
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_undefined();
         void* src = ts_value_get_object(argv[0]);
@@ -2162,11 +2251,34 @@ extern "C" {
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "splice");
+        double rawLen = g_require_array_raw_len;  // length read once, pre-clamp
         array_require_length_writable(arr, "splice");
         if (!arr) return ts_value_make_undefined();
         // Use toInteger so Symbol args throw TypeError per spec.
         int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
         int64_t deleteCount = (argc >= 2 && argv) ? toInteger(argv[1], arr->Length() - start) : arr->Length() - start;
+        // ES 23.1.3.31 step 11: ArraySpeciesCreate(O, actualDeleteCount) ->
+        // ArrayCreate for a non-array receiver RangeErrors when actualDeleteCount
+        // > 2^32-1. Compute on the RAW receiver length (arr->Length() is clamped
+        // for huge array-likes), reusing already-coerced start/deleteCount. Never
+        // fires for real arrays (deleteCount bounded by length).
+        if (rawLen > 4294967295.0 && !resolve_array_ctx(ctx)) {
+            double aStart = ((double)start < 0)
+                                ? (rawLen + start > 0 ? rawLen + start : 0)
+                                : ((double)start > rawLen ? rawLen : (double)start);
+            double adc;
+            if (argc == 0) adc = 0;
+            else if (argc == 1) adc = rawLen - aStart;
+            else {
+                double dc = (double)deleteCount < 0 ? 0 : (double)deleteCount;
+                double maxDc = rawLen - aStart;
+                adc = (dc > maxDc) ? maxDc : dc;
+            }
+            if (adc > 4294967295.0) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid array length"));
+            }
+        }
         if (start < 0) start = arr->Length() + start;
         if (start < 0) start = 0;
         if (start > arr->Length()) start = arr->Length();
@@ -2425,6 +2537,9 @@ extern "C" {
         return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv) {
+        // ES 23.1.3.33 step 3: ArrayCreate(len) RangeErrors when len > 2^32-1,
+        // before any element Get. Checked on the raw receiver length.
+        array_check_arraycreate_limit(ctx);
         TsArray* arr = require_array_or_throw(ctx, "toReversed");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_toReversed(arr);
@@ -2433,6 +2548,8 @@ extern "C" {
     TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv) {
         // Step 1: validate comparefn BEFORE ToObject/LengthOfArrayLike.
         if (!validateComparefnOrThrow(argc, argv)) return ts_value_make_undefined();
+        // ES 23.1.3.34 step 3: ArrayCreate(len) RangeErrors when len > 2^32-1.
+        array_check_arraycreate_limit(ctx);
         TsArray* arr = require_array_or_throw(ctx, "toSorted");
         if (!arr) return ts_value_make_undefined();
         void* comparator = (argc >= 1 && argv && argv[0] &&
@@ -2443,6 +2560,40 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
+        // ES 23.1.3.35 steps 2-7: compute newLen = len + insertCount -
+        // actualDeleteCount on the RAW receiver length, then (step 8) if newLen
+        // > 2^53-1 throw TypeError, and (step 12 ArrayCreate) if newLen > 2^32-1
+        // throw RangeError — both BEFORE any element Get (the length-exceeding
+        // tests plant throwing index getters). No-op for ordinary lengths.
+        {
+            double rlen = arraylike_length_of(ctx);
+            if (rlen > 0) {
+                int64_t len = (int64_t)rlen;
+                int64_t relStart = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
+                int64_t actualStart;
+                if (relStart < 0) { actualStart = len + relStart; if (actualStart < 0) actualStart = 0; }
+                else actualStart = (relStart > len) ? len : relStart;
+                int64_t insertCount = (argc > 2) ? (argc - 2) : 0;
+                int64_t actualDeleteCount;
+                if (argc == 0) actualDeleteCount = 0;
+                else if (argc == 1) actualDeleteCount = len - actualStart;
+                else {
+                    int64_t dc = toInteger(argv[1], 0);
+                    if (dc < 0) dc = 0;
+                    int64_t maxDc = len - actualStart;
+                    actualDeleteCount = (dc > maxDc) ? maxDc : dc;
+                }
+                double newLen = (double)len + (double)insertCount - (double)actualDeleteCount;
+                if (newLen > 9007199254740991.0) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Invalid array length"));
+                }
+                if (newLen > 4294967295.0) {
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Invalid array length"));
+                }
+            }
+        }
         TsArray* arr = require_array_or_throw(ctx, "toSpliced");
         if (!arr) return ts_value_make_undefined();
         // Use toInteger so Symbol args throw TypeError per spec.
@@ -2475,6 +2626,8 @@ extern "C" {
         return ts_value_make_object(arr);
     }
     TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
+        // ES 23.1.3.39 step 3: ArrayCreate(len) RangeErrors when len > 2^32-1.
+        array_check_arraycreate_limit(ctx);
         TsArray* arr = require_array_or_throw(ctx, "with");
         if (!arr) return ts_value_make_undefined();
         int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;

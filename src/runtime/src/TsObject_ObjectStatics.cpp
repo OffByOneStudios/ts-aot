@@ -2303,6 +2303,35 @@ extern "C" {
             return obj;
         }
 
+        // NoElementsProtector: defining an integer-indexed property on
+        // Array.prototype (or Object.prototype) via defineProperty lets holey
+        // arrays inherit a value/accessor at that index, so the C++ array
+        // builtins (indexOf/lastIndexOf/includes/iteration) must thereafter
+        // route holey arrays through the spec search. A plain assignment already
+        // flips this in ts_object_set_prop_v_ex; the defineProperty path did not,
+        // so `Object.defineProperty(Array.prototype, "0", {get})` left the flag
+        // clear and `[,,,].indexOf(10)` wrongly returned -1.
+        {
+            extern uint8_t g_array_proto_has_indexed;
+            if (!g_array_proto_has_indexed && ts_array_is_prototype_map(rawPtr)) {
+                bool idx = false;
+                uint64_t pnb = nanbox_from_tsvalue_ptr(prop);
+                if (nanbox_is_int32(pnb)) {
+                    idx = (nanbox_to_int32(pnb) >= 0);
+                } else if (nanbox_is_ptr(pnb)) {
+                    void* kp = nanbox_to_ptr(pnb);
+                    if (kp && *(uint32_t*)kp == 0x53545247 /* TsString::MAGIC */) {
+                        const char* k = ((TsString*)kp)->ToUtf8();
+                        if (k && k[0] >= '0' && k[0] <= '9') {
+                            char* e = nullptr; long v = strtol(k, &e, 10);
+                            idx = (e != k && *e == '\0' && v >= 0);
+                        }
+                    }
+                }
+                if (idx) g_array_proto_has_indexed = 1;
+            }
+        }
+
         // ES 10.4.5.3: integer-indexed exotic [[DefineOwnProperty]]. A refusal
         // is a TypeError here (DefinePropertyOrThrow); non-index keys fall
         // through to the ordinary paths below.
