@@ -136,6 +136,10 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<StringLiteral>();
         setLocation(node.get(), j);
         node->value = j["value"];
+        if (j.contains("templateRaw")) {
+            node->templateRaw = j["templateRaw"].get<std::string>();
+            node->hasTemplateRaw = true;
+        }
         return node;
     } else if (kind == "RegularExpressionLiteral") {
         auto node = std::make_unique<RegularExpressionLiteral>();
@@ -291,10 +295,15 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<TemplateExpression>();
         setLocation(node.get(), j);
         node->head = j["head"];
+        node->rawHead = j.contains("rawHead") ? j["rawHead"].get<std::string>()
+                                               : node->head;
         for (const auto& span : j["templateSpans"]) {
             TemplateSpan s;
             s.expression = parseExpression(span["expression"]);
             s.literal = span["literal"];
+            s.rawLiteral = span.contains("rawLiteral")
+                               ? span["rawLiteral"].get<std::string>()
+                               : s.literal;
             node->spans.push_back(std::move(s));
         }
         return node;

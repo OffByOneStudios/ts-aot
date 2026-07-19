@@ -79,6 +79,7 @@ TsValue* ts_object_isSealed_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_isExtensible_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_assign(TsValue* target, TsValue* source);
 TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
+TsValue* ts_object_setPrototypeOf_checked(TsValue* obj, TsValue* proto);  // throws on false status
 TsValue* ts_object_getPrototypeOf(TsValue* obj);
 bool ts_object_is(TsValue* val1, TsValue* val2);
 TsValue* ts_array_isArray_native(void* context, int argc, TsValue** argv);
@@ -261,7 +262,8 @@ static TsValue* ts_object_assign_native(void* ctx, int argc, TsValue** argv) {
 
 static TsValue* ts_object_setPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
     if (argc < 2) return ts_value_make_undefined();
-    return ts_object_setPrototypeOf(argv[0], argv[1]);
+    // ES 20.1.2.22 step 5: a false [[SetPrototypeOf]] status throws TypeError.
+    return ts_object_setPrototypeOf_checked(argv[0], argv[1]);
 }
 
 // Helper: is a heap pointer an "Object" (not a primitive String/ConsString/
@@ -317,8 +319,9 @@ static TsValue* proto_setter_native(void* ctx, int argc, TsValue** argv) {
     if (!protoIsNull && !protoIsObject) return ts_value_make_undefined();
     // Step 3: this not an Object (primitive / string / symbol) -> return undefined.
     if (!proto_ptr_is_object(snb)) return ts_value_make_undefined();
-    // Step 4-5: [[SetPrototypeOf]] (throws on immutable/cyclic failure).
-    ts_object_setPrototypeOf(self, protoIsNull ? ts_value_make_null() : proto);
+    // Step 4-5: [[SetPrototypeOf]] — a false status (non-extensible / cyclic)
+    // throws TypeError per B.2.2.1.2 step 5.
+    ts_object_setPrototypeOf_checked(self, protoIsNull ? ts_value_make_null() : proto);
     return ts_value_make_undefined();
 }
 
@@ -1133,7 +1136,16 @@ void* ts_get_global_String() {
         // String.raw(template, ...substitutions) — tagged template helper.
         extern void* ts_string_raw(void* templateObj, void* substitutionsArray);
         auto stringRawFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (argc < 1 || !argv || !argv[0]) return ts_value_make_string(TsString::Create(""));
+            // ECMA-262 22.1.3.5 step 2: cooked = ? ToObject(template) — a null
+            // or undefined template (incl. String.raw() with no args) throws
+            // TypeError. Tagged-template call sites always pass a real object,
+            // so this null-check only bites the direct String.raw(x) form.
+            TsValue* tmplV = (argc >= 1 && argv) ? argv[0] : nullptr;
+            if (!tmplV || ts_value_is_null(tmplV) || ts_value_is_undefined(tmplV)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_undefined();  // unreachable
+            }
             // Build a TsArray from argv[1..argc-1] so ts_string_raw can
             // iterate substitutions by index. ts_string_raw expects an
             // array-like wrapper for substitutions.
@@ -1632,10 +1644,13 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
         uintptr_t caddr = (uintptr_t)ctx;
         if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
             strcmp(name, "RegExp") == 0) {
-            // ECMA-262 22.2.4.1: RegExp(pat) is equivalent to new RegExp(pat).
+            // ECMA-262 22.2.4.1: RegExp(pat) called as a function (NewTarget
+            // undefined) — the asfunc path adds the step-4.b short-circuit
+            // (return a RegExp-like pattern whose constructor is %RegExp%).
+            extern void* ts_regexp_create_asfunc(void* pattern, void* flags);
             void* pattern = (argc >= 1 && argv) ? argv[0] : nullptr;
             void* flags = (argc >= 2 && argv) ? argv[1] : nullptr;
-            void* re = ts_regexp_create(pattern, flags);
+            void* re = ts_regexp_create_asfunc(pattern, flags);
             return re ? ts_value_make_object(re) : ts_value_make_undefined();
         }
         if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&

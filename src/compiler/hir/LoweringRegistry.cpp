@@ -1460,6 +1460,16 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // proto (boxed; runtime throws TypeError if non-object/null)
             .build());
 
+    // User-facing Object.setPrototypeOf: same ABI, but throws TypeError when
+    // [[SetPrototypeOf]] returns false (ES 20.1.2.22 step 5). Internal class /
+    // __proto__ setup keeps the non-throwing ts_object_setPrototypeOf above.
+    reg.registerLowering("ts_object_setPrototypeOf_checked",
+        lowering("ts_object_setPrototypeOf_checked")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // proto (boxed)
+            .build());
+
     reg.registerLowering("ts_object_getPrototypeOf",
         lowering("ts_object_getPrototypeOf")
             .returnsPtr()
@@ -2005,6 +2015,16 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_regexp_create")
             .returnsPtr()      // Returns TsRegExp*
             .ptrArg()          // pattern (raw TsString*)
+            .ptrArg()          // flags (raw TsString*)
+            .build());
+
+    // `RegExp(...)` called as a FUNCTION (ES 22.2.4.1 with NewTarget undefined):
+    // same ABI as ts_regexp_create; the runtime adds the step-4.b short-circuit
+    // (return the RegExp-like pattern unchanged when its constructor is RegExp).
+    reg.registerLowering("ts_regexp_create_asfunc",
+        lowering("ts_regexp_create_asfunc")
+            .returnsPtr()      // Returns TsRegExp* (or the pattern object)
+            .ptrArg()          // pattern (raw TsString*/object)
             .ptrArg()          // flags (raw TsString*)
             .build());
 

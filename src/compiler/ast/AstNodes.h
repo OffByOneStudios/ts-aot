@@ -773,6 +773,12 @@ struct StringLiteral : Expression {
     // strings that PRECEDE it, which can only be checked against the
     // undecoded source text.
     std::string raw;
+    // For a NoSubstitutionTemplateLiteral lowered to StringLiteral: the raw
+    // (un-escaped) template body, so a `String.raw` tag sees "\\n" not a
+    // newline. Empty for ordinary string literals. hasTemplateRaw distinguishes
+    // an empty raw template from an ordinary string.
+    std::string templateRaw;
+    bool hasTemplateRaw = false;
     // True only for the parser-synthesized LHS of an ergonomic brand check
     // `#x in obj` (ES2022) — lowering probes the hidden private storage key
     // instead of the literal string. A user-written "#x" string stays false.
@@ -873,10 +879,12 @@ struct ParenthesizedExpression : Expression {
 struct TemplateSpan {
     ExprPtr expression;
     std::string literal;
+    std::string rawLiteral;  // un-escaped source form (for String.raw)
 };
 
 struct TemplateExpression : Expression {
     std::string head;
+    std::string rawHead;     // un-escaped source form of head (for String.raw)
     std::vector<TemplateSpan> spans;
     std::string getKind() const override { return "TemplateExpression"; }
     void accept(Visitor* visitor) override { visitor->visitTemplateExpression(this); }

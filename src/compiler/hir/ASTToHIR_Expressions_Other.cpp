@@ -1853,26 +1853,34 @@ void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node
     // Lower the tag function
     auto tagFn = lowerExpression(node->tag.get());
 
-    // Get template parts - templateExpr could be TemplateExpression or NoSubstitutionTemplateLiteral
+    // Get template parts - templateExpr could be TemplateExpression or NoSubstitutionTemplateLiteral.
+    // stringParts feeds the COOKED strings array; rawParts feeds the `.raw`
+    // array that String.raw reads (ES 12.9.6.1 TemplateStrings) — the raw
+    // parts keep source escapes verbatim (`\n` stays two characters).
     std::vector<std::string> stringParts;
+    std::vector<std::string> rawParts;
     std::vector<std::shared_ptr<HIRValue>> expressions;
 
     auto* templateExpr = dynamic_cast<ast::TemplateExpression*>(node->templateExpr.get());
     if (templateExpr) {
         // Template with substitutions
         stringParts.push_back(templateExpr->head);
+        rawParts.push_back(templateExpr->rawHead);
 
         for (const auto& span : templateExpr->spans) {
             if (span.expression) {
                 expressions.push_back(lowerExpression(span.expression.get()));
             }
             stringParts.push_back(span.literal);
+            rawParts.push_back(span.rawLiteral);
         }
     } else {
         // NoSubstitutionTemplateLiteral - just a single string
         auto* strLit = dynamic_cast<ast::StringLiteral*>(node->templateExpr.get());
         if (strLit) {
             stringParts.push_back(strLit->value);
+            rawParts.push_back(strLit->hasTemplateRaw ? strLit->templateRaw
+                                                       : strLit->value);
         }
     }
 
@@ -1885,12 +1893,12 @@ void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node
         builder_.createSetElem(stringsArray, idx, strVal);
     }
 
-    // Add 'raw' property to the strings array (same values for now)
-    // TODO: Handle raw string escapes properly (e.g., `\n` vs actual newline)
+    // Add 'raw' property to the strings array, populated from the RAW source
+    // segments so `String.raw` sees unescaped text (ES 12.9.6.1 / 22.1.3.5).
     auto rawArray = builder_.createNewArrayBoxed(arrayLen, HIRType::makeString());
-    for (size_t i = 0; i < stringParts.size(); ++i) {
+    for (size_t i = 0; i < rawParts.size(); ++i) {
         auto idx = builder_.createConstInt(static_cast<int64_t>(i));
-        auto strVal = builder_.createConstString(stringParts[i]);
+        auto strVal = builder_.createConstString(rawParts[i]);
         builder_.createSetElem(rawArray, idx, strVal);
     }
     builder_.createSetPropStatic(stringsArray, "raw", rawArray);

@@ -1193,6 +1193,48 @@ extern "C" {
     }
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
+    // ECMA-262 20.1.2.22 Object.setPrototypeOf steps 4-5 (and B.2.2.1.2 set
+    // __proto__ steps 4-5): run O.[[SetPrototypeOf]](proto) and throw a
+    // TypeError when it returns false — a non-extensible receiver or a cyclic
+    // prototype. Reflect.setPrototypeOf returns the boolean instead of throwing.
+    // Proxies are excluded from the pre-check: their [[SetPrototypeOf]] trap
+    // self-throws on a false return (ES 10.5.2) and we must not double-invoke
+    // the getPrototypeOf/isExtensible traps.
+    TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);  // fwd
+    TsValue* ts_object_setPrototypeOf_checked(TsValue* obj, TsValue* proto) {
+        extern int64_t ts_ordinary_set_proto_status(void* targetArg, void* protoArg);
+        extern bool ts_value_is_object(TsValue* v);
+        // ES 20.1.2.22 step 2: Type(proto) must be Object or Null; else TypeError
+        // — and this precedes the Type(O) check, so it applies even when O is a
+        // primitive. ts_object_setPrototypeOf rejects number/boolean/string/
+        // symbol protos already, but treats `undefined` as "clear to null"
+        // (correct for internal callers). Object.setPrototypeOf / set __proto__
+        // instead reject a MISSING or undefined proto here. (The __proto__
+        // setter never reaches this with undefined — it early-returns first.)
+        uint64_t pnb = proto ? nanbox_from_tsvalue_ptr(proto) : (uint64_t)NANBOX_UNDEFINED;
+        if (!proto || nanbox_is_undefined(pnb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object prototype may only be an Object or null"));
+            return ts_value_make_undefined();  // unreachable
+        }
+        // Only ordinary OBJECT receivers run OrdinarySetPrototypeOf: a primitive
+        // O (number/string/symbol/boolean) is a no-op that returns O unchanged
+        // (ES step 3). String/Symbol primitives are heap-backed, so gate on
+        // ts_value_is_object rather than a non-null unbox.
+        if (ts_value_is_object(obj)) {
+            void* raw0 = ts_value_get_object(obj);
+            bool isProxy = raw0 && (uintptr_t)raw0 >= 0x10000 &&
+                           *(uint32_t*)((char*)raw0 + 16) == 0x4D415053 &&
+                           dynamic_cast<TsProxy*>((TsMap*)raw0) != nullptr;
+            if (!isProxy && !ts_ordinary_set_proto_status(obj, proto)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cyclic __proto__ value or non-extensible object"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
+        return ts_object_setPrototypeOf(obj, proto);
+    }
+
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
         // Proxy: route through the setPrototypeOf trap (ES 10.5.2); a
         // trap-less proxy forwards to the target.

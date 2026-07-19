@@ -2141,6 +2141,23 @@ static TsMap* buildIteratorPrototype(const char* tagStr) {
     return proto;
 }
 
+// Same shape as buildIteratorPrototype but with a CALLER-supplied next() —
+// exported for %RegExpStringIteratorPrototype% (ES 22.2.9.1), whose next()
+// lives with the RegExp exec machinery in TsObject_Builtins.cpp. next() gets
+// its name/length own-properties; [[Prototype]] is %IteratorPrototype%;
+// @@toStringTag is { writable:false, enumerable:false, configurable:true }.
+TsMap* buildIteratorPrototypeCustom(const char* tagStr, void* nextFn) {
+    TsMap* proto = TsMap::Create();
+    ts_map_addMethod_local(proto, "next", nextFn, 0);
+    proto->SetPrototype(getIteratorPrototype());
+    TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+    tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+    tagVal.ptr_val = TsString::Create(tagStr);
+    proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    return proto;
+}
+
 // These three iterator-prototype singletons live in plain C++ statics and are
 // reached by iterator objects via their prototype field. A static TsMap* is
 // invisible to the GC's object scan, so a nursery-allocated prototype here was

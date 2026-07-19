@@ -1457,7 +1457,10 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             } else {
                 flagsArg = builder_.createConstNull();
             }
-            lastValue_ = builder_.createCall("ts_regexp_create",
+            // Called as a function (no `new`): ES 22.2.4.1 NewTarget-undefined
+            // path — returns a RegExp-like pattern unchanged when its
+            // constructor is %RegExp% and no flags are supplied.
+            lastValue_ = builder_.createCall("ts_regexp_create_asfunc",
                 {patternArg, flagsArg}, HIRType::makeObject());
             return;
         }

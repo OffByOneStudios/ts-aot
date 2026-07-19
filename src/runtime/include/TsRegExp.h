@@ -141,6 +141,7 @@ TS_DECLARE_TAG(TsRegExp);  // magic at offset 0 (POD)
 
 extern "C" {
     void* ts_regexp_create(void* pattern, void* flags);
+    void* ts_regexp_create_asfunc(void* pattern, void* flags);
     void* ts_regexp_from_literal(void* literal);
     int32_t RegExp_test(void* re, void* str);
     void* RegExp_exec(void* re, void* str);

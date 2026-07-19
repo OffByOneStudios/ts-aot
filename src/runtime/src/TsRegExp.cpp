@@ -1305,50 +1305,162 @@ static bool validateRegExpPatternRuntime(const char* pattern, const char* flags,
 }
 
 extern "C" {
-    void* ts_regexp_create(void* pattern, void* flags) {
-        // pattern/flags may be NaN-boxed TsValue* from slow path
-        TsString* p = nullptr;
-        if (pattern) {
-            void* rawP = ts_value_get_string((TsValue*)pattern);
-            p = rawP ? (TsString*)rawP : (TsString*)pattern;
-            // Validate it's actually a TsString
-            if (p && !ts_is<TsString>(p)) {
-                void* rawObj = ts_value_get_object((TsValue*)pattern);
-                p = ts_cast<TsString>(rawObj) ? (TsString*)rawObj : (TsString*)pattern;
-            }
-        }
-        if (!p) return nullptr;
+    // Returns the raw TsRegExp* if `pattern` unboxes to a RegExp instance
+    // (REGX magic), else nullptr. POD-only, never throws.
+    static TsRegExp* regexp_instance_or_null(void* pattern) {
+        if (!pattern) return nullptr;
+        void* raw = ts_value_get_object((TsValue*)pattern);
+        if (!raw) raw = pattern;
+        uintptr_t a = (uintptr_t)raw;
+        if (a < 0x1000 || (a >> 48) != 0) return nullptr;
+        if (*(uint32_t*)raw == 0x52454758 /*REGX*/) return (TsRegExp*)raw;
+        return nullptr;
+    }
 
-        // flags could be undefined (NaN-boxed) from `new RegExp(pat, undefined)`
-        const char* flagsStr = "";
-        if (flags && !ts_value_is_undefined((TsValue*)flags) && !ts_value_is_null((TsValue*)flags)) {
+    // ES 7.2.8 IsRegExp(argument): if @@match is NOT undefined, the result is
+    // ToBoolean(@@match) — this takes precedence over the [[RegExpMatcher]]
+    // slot, so a RegExp instance with `re[Symbol.match] = false` is NOT a
+    // RegExp. Only when @@match is undefined does the internal-slot test apply.
+    // Observable Get(@@match) — may ts_throw/longjmp, so the caller frame must
+    // be POD-only. A primitive is never a RegExp.
+    static bool regexp_pattern_is_regexp(void* pattern) {
+        if (!pattern) return false;
+        void* raw = ts_value_get_object((TsValue*)pattern);
+        if (!raw) return false;
+        uintptr_t a = (uintptr_t)raw;
+        if (a < 0x1000 || (a >> 48) != 0) return false;
+        uint32_t m0 = *(uint32_t*)raw;
+        // Heap string/cons/symbol/bigint primitives are not Objects.
+        if (m0 == 0x53545247 /*STRG*/ || m0 == 0x434F4E53 /*CONS*/ ||
+            m0 == 0x53594D42 /*SYMB*/ || m0 == 0x42494749 /*BIGI*/)
+            return false;
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern bool ts_value_to_bool(TsValue* v);
+        TsValue* matcher = ts_object_get_property(raw, "[Symbol.match]");
+        if (matcher) {
+            uint64_t mnb = nanbox_from_tsvalue_ptr(matcher);
+            // "If matcher is not undefined, return ToBoolean(matcher)" — null is
+            // NOT undefined, so `re[@@match]=null` yields false (not the slot).
+            if (!nanbox_is_undefined(mnb))
+                return ts_value_to_bool(matcher);
+        }
+        // @@match is undefined: fall back to the [[RegExpMatcher]] slot.
+        return m0 == 0x52454758 /*REGX*/;
+    }
+
+    // ECMA-262 22.2.4.1 RegExp ( pattern, flags ). Shared implementation for
+    // both `new RegExp(...)` (asFunc=false) and `RegExp(...)` called as a
+    // function (asFunc=true). The only NewTarget-dependent behavior is the
+    // step-4.b short-circuit: called as a function with a RegExp-like pattern
+    // whose `constructor` is %RegExp% and no flags returns the pattern
+    // unchanged.
+    //
+    // Observable Gets (@@match, constructor, source, flags) may ts_throw via
+    // longjmp; ALL locals in this frame are POD (TsString*/void*/bool) so the
+    // MSVC unwinder is never asked to run through a live std::string
+    // (longjmp-stdstring-frame-corruption rule). std::string only appears in
+    // the validator's own frame at the POD tail, after every observable Get.
+    static void* ts_regexp_create_impl(void* pattern, void* flags, bool asFunc) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_string_from_value(TsValue* val);
+        extern void* ts_get_global_RegExp();
+
+        bool flagsProvided = flags &&
+            !ts_value_is_undefined((TsValue*)flags) &&
+            !ts_value_is_null((TsValue*)flags);
+
+        TsRegExp* reInst = regexp_instance_or_null(pattern);
+        bool patternIsRegExp = regexp_pattern_is_regexp(pattern);  // observable
+
+        // step 4.b: `RegExp(R)` (as a function) with a RegExp-like R and no
+        // flags returns R when SameValue(newTarget, Get(R,"constructor")).
+        if (asFunc && patternIsRegExp && !flagsProvided) {
+            void* raw = ts_value_get_object((TsValue*)pattern);
+            if (!raw) raw = pattern;
+            TsValue* ctor = ts_object_get_property(raw, "constructor");  // may throw
+            void* g = ts_get_global_RegExp();
+            void* gRaw = ts_value_get_object((TsValue*)g);
+            void* cRaw = ctor ? ts_value_get_object(ctor) : nullptr;
+            // SameValue(newTarget, patternConstructor): compare across boxing
+            // permutations — %RegExp%'s identity is unique.
+            if (ctor && ((void*)ctor == g || (void*)ctor == gRaw ||
+                         cRaw == g || (gRaw && cRaw == gRaw)))
+                return pattern;  // return R unchanged
+        }
+
+        // Resolve P (source) and, when flags is undefined, F (flags) — as POD
+        // TsString* pointers. ToUtf8/validate/Create happen at the tail.
+        TsString* srcStr = nullptr;
+        TsString* flagsTs = nullptr;
+        if (reInst) {
+            // step 5: pattern has [[RegExpMatcher]] — use its internal slots.
+            srcStr = reInst->GetSource();
+            if (!flagsProvided) flagsTs = reInst->GetFlags();
+        } else if (patternIsRegExp) {
+            // step 6: RegExp-like object — Get "source" then (if needed) "flags".
+            void* raw = ts_value_get_object((TsValue*)pattern);
+            if (!raw) raw = pattern;
+            TsValue* srcV = ts_object_get_property(raw, "source");   // may throw
+            srcStr = (TsString*)ts_string_from_value(
+                srcV ? srcV : (TsValue*)ts_value_make_undefined());
+            if (!flagsProvided) {
+                TsValue* flV = ts_object_get_property(raw, "flags"); // may throw
+                flagsTs = (TsString*)ts_string_from_value(
+                    flV ? flV : (TsValue*)ts_value_make_undefined());
+            }
+        } else {
+            // step 7: pattern is an ordinary value used as the source string.
+            if (pattern) {
+                void* rawP = ts_value_get_string((TsValue*)pattern);
+                srcStr = rawP ? (TsString*)rawP : (TsString*)pattern;
+                if (srcStr && !ts_is<TsString>(srcStr)) {
+                    void* rawObj = ts_value_get_object((TsValue*)pattern);
+                    srcStr = ts_cast<TsString>(rawObj) ? (TsString*)rawObj
+                                                       : (TsString*)pattern;
+                }
+            }
+            if (!srcStr) return nullptr;
+        }
+
+        // Resolve the flags string when the caller passed one (ToString).
+        if (flagsProvided) {
             void* rawF = ts_value_get_string((TsValue*)flags);
             TsString* f = rawF ? (TsString*)rawF : (TsString*)flags;
-            if (ts_is<TsString>(f)) {
-                flagsStr = f->ToUtf8();
-            }
+            flagsTs = ts_is<TsString>(f) ? f
+                        : (TsString*)ts_string_from_value((TsValue*)flags);
         }
-        // Validate flags HERE, in this std::string-free frame, BEFORE entering
-        // TsRegExp::Create (whose frame holds named-group std::vector state that the
-        // longjmp ts_throw cannot safely unwind through). See the note in
-        // TsRegExp::Create and the longjmp-stdstring-frame-crash memory.
+
+        const char* flagsStr = flagsTs ? flagsTs->ToUtf8() : "";
+        const char* patStr = srcStr ? srcStr->ToUtf8() : "";
+
+        // POD tail: validate flags/pattern (validator catches its own C++
+        // exceptions) then Create. Only ts_throws from here — no user Gets.
+        // See the note in TsRegExp::Create and the longjmp-stdstring-frame
+        // -crash memory: this frame holds no live std::string.
         if (!validateRegExpFlags(flagsStr)) {
             ts_throw((TsValue*)ts_error_create_typed(
                 "SyntaxError", "Invalid flags supplied to RegExp constructor"));
             return nullptr;
         }
-        // Pattern early errors (same recognizer as regex literals). The
-        // helper fully unwinds its C++ exception before we longjmp; this
-        // frame holds only POD locals.
         {
             char msg[256];
-            if (!validateRegExpPatternRuntime(p->ToUtf8(), flagsStr, msg,
+            if (!validateRegExpPatternRuntime(patStr, flagsStr, msg,
                                               sizeof(msg))) {
                 ts_throw((TsValue*)ts_error_create_typed("SyntaxError", msg));
                 return nullptr;
             }
         }
-        return TsRegExp::Create(p->ToUtf8(), flagsStr);
+        return TsRegExp::Create(patStr, flagsStr);
+    }
+
+    void* ts_regexp_create(void* pattern, void* flags) {
+        // `new RegExp(...)` — NewTarget is defined, no step-4.b short-circuit.
+        return ts_regexp_create_impl(pattern, flags, /*asFunc=*/false);
+    }
+
+    void* ts_regexp_create_asfunc(void* pattern, void* flags) {
+        // `RegExp(...)` called as a function — NewTarget is undefined.
+        return ts_regexp_create_impl(pattern, flags, /*asFunc=*/true);
     }
 
     void* ts_regexp_from_literal(void* literal) {
