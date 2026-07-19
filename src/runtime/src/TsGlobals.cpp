@@ -1183,7 +1183,9 @@ void* ts_get_global_Error();
 // Helper: create a callable error constructor global
 // Returns a TsFunction that, when called via `new`, creates an error TsMap
 // with .message, .name, and .stack properties.
-static void* makeErrorConstructor(const char* errorName) {
+typedef TsValue* (*ErrorBodyFn)(void*, int, TsValue**);
+static void* makeErrorConstructor(const char* errorName,
+                                  ErrorBodyFn bodyFn = nullptr, int arity = 1) {
     TenureScope _tenure;
     // Create the constructor as a native function
     auto constructorFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
@@ -1227,8 +1229,10 @@ static void* makeErrorConstructor(const char* errorName) {
         return (TsValue*)ts_error_create(nullptr);
     };
 
-    // Create the TsFunction for the constructor
-    TsValue* ctorVal = ts_value_make_native_function((void*)+constructorFn, nullptr);
+    // Create the TsFunction for the constructor. AggregateError supplies its
+    // own body (errors,message,options) via bodyFn; NativeErrors use the default.
+    TsValue* ctorVal = ts_value_make_native_function(
+        bodyFn ? (void*)bodyFn : (void*)+constructorFn, nullptr);
 
     // Extract the raw TsFunction to set .prototype and .captureStackTrace
     void* ctorRaw = ts_value_get_object(ctorVal);
@@ -1352,7 +1356,7 @@ static void* makeErrorConstructor(const char* errorName) {
     // Install name/length as own properties per ES spec:
     // {writable:false, enumerable:false, configurable:true}. Tests use
     // hasOwnProperty / getOwnPropertyDescriptor to verify these exist.
-    ctorFunc->arity = 1;  // Error(message) arity is 1
+    ctorFunc->arity = arity;  // Error(message)=1, AggregateError(errors,message)=2
     {
         TsValue nk; nk.type = ValueType::STRING_PTR;
         nk.ptr_val = TsString::GetInterned("name");
@@ -1361,7 +1365,7 @@ static void* makeErrorConstructor(const char* errorName) {
         ctorFunc->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
         TsValue lk; lk.type = ValueType::STRING_PTR;
         lk.ptr_val = TsString::GetInterned("length");
-        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 1;
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
         ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
     }
 
@@ -1445,90 +1449,156 @@ void* ts_get_global_Error() {
     return cached;
 }
 
+// ECMA-262 20.5.7.1.1 AggregateError ( errors, message [ , options ] ). Runs as
+// the constructor body (installed via makeErrorConstructor's bodyFn hook); the
+// prototype/name/length/[[Prototype]] wiring is shared with the NativeErrors.
+void* ts_get_global_AggregateError();  // fwd (defined below)
+namespace ts {
+    TsValue* ts_iterator_get(TsValue* iterable);
+    TsValue* ts_iterator_next(TsValue* iterator, TsValue* value);
+    bool ts_iterator_result_done(TsValue* result);
+    TsValue* ts_iterator_result_value(TsValue* result);
+}
+// Steps 3-6 of AggregateError: message (ToString, may throw), InstallErrorCause,
+// IterableToList(errors) → own non-enumerable "errors". Shared by the native
+// constructor and the ts_aggregate_error_new C entry so there is one impl.
+static void aggregate_error_fill(TsMap* O, int argc, TsValue** argv) {
+    extern void* ts_to_string_spec(TsValue* v);
+    extern bool ts_object_has_property(void* obj, void* key);
+    extern TsValue* ts_object_get_property(void* obj, const char* key);
+    extern bool ts_value_is_nullish(TsValue* v);
+
+    // Brand [[ErrorData]] (@@toStringTag "Error", own non-enumerable).
+    {
+        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+        tagVal.ptr_val = TsString::Create("Error");
+        O->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    }
+
+    // Step 3: if message is not undefined, msg = ? ToString(message); create
+    // non-enumerable own "message". ToString runs user hooks and may throw
+    // (message-tostring-abrupt / symbol), which longjmps out to the caller.
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
+        TsString* msg = (TsString*)ts_to_string_spec(argv[1]);  // may throw
+        TsValue mk; mk.type = ValueType::STRING_PTR;
+        mk.ptr_val = TsString::GetInterned("message");
+        TsValue mv; mv.type = ValueType::STRING_PTR; mv.ptr_val = msg;
+        O->SetWithAttrs(mk, mv,
+            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
+
+    // Step 4: InstallErrorCause(O, options). options = argv[2]. If it is an
+    // object with an (own or inherited) "cause", create non-enumerable "cause".
+    if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2])) {
+        void* opt = ts_value_get_object(argv[2]);
+        if (opt && (uintptr_t)opt > 0x1000) {
+            TsValue* causeKey = ts_value_make_string(TsString::GetInterned("cause"));
+            if (ts_object_has_property(opt, (void*)causeKey)) {
+                TsValue* causeV = ts_object_get_property(opt, "cause");
+                TsValue ck; ck.type = ValueType::STRING_PTR;
+                ck.ptr_val = TsString::GetInterned("cause");
+                O->SetWithAttrs(ck, nanbox_to_tagged(causeV),
+                    TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            }
+        }
+    }
+
+    // Steps 5-6: errorsList = ? IterableToList(errors); define own
+    // non-enumerable "errors" = CreateArrayFromList(errorsList).
+    TsArray* errs = (TsArray*)ts_array_create();
+    if (argc >= 1 && argv && argv[0]) {
+        void* src = ts_value_get_object(argv[0]);
+        if (src && (uintptr_t)src > 0x1000 && *(uint32_t*)src == 0x41525259) {
+            TsArray* a = (TsArray*)src;              // fast path: real array
+            int64_t n = a->Length();
+            for (int64_t i = 0; i < n; i++) errs->Push(a->Get(i));
+        } else {
+            // Generic IterableToList: GetIterator + IteratorStep/IteratorValue.
+            if (ts_value_is_nullish(argv[0]))
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "AggregateError: errors is not iterable"));
+            TsValue* iter = ts::ts_iterator_get(argv[0]);
+            void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+            bool ok = false;
+            if (iterRaw && (uintptr_t)iterRaw > 0x1000) {
+                TsValue* nx = ts_object_get_property(iterRaw, "next");
+                ok = nx && !ts_value_is_nullish(nx);
+            }
+            if (!ok)
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "AggregateError: errors is not iterable"));
+            for (;;) {
+                TsValue* res = ts::ts_iterator_next(iter, nullptr);
+                if (!res || ts::ts_iterator_result_done(res)) break;
+                errs->Push((int64_t)(uintptr_t)ts::ts_iterator_result_value(res));
+            }
+        }
+    }
+    TsValue ek; ek.type = ValueType::STRING_PTR;
+    ek.ptr_val = TsString::GetInterned("errors");
+    TsValue ev; ev.type = ValueType::OBJECT_PTR; ev.ptr_val = errs;
+    O->SetWithAttrs(ek, ev,
+        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+}
+
+// Create a fresh instance whose [[Prototype]] is %AggregateError.prototype%.
+static TsMap* aggregate_error_ordinary_create() {
+    TsMap* O = TsMap::Create();
+    void* aggCtor = ts_get_global_AggregateError();
+    void* craw = aggCtor ? ts_value_get_object((TsValue*)aggCtor) : nullptr;
+    TsFunction* cf = craw ? (TsFunction*)craw : nullptr;
+    if (cf && cf->properties) {
+        TsValue pk; pk.type = ValueType::STRING_PTR;
+        pk.ptr_val = TsString::GetInterned("prototype");
+        TsValue pv = cf->properties->Get(pk);
+        if (pv.ptr_val && *(uint32_t*)((char*)pv.ptr_val + 16) == 0x4D415053)
+            O->SetPrototype((TsMap*)pv.ptr_val);
+    }
+    return O;
+}
+
+static TsValue* ts_aggregate_error_construct(void* ctx, int argc, TsValue** argv) {
+    // Steps 1-2: O = OrdinaryCreateFromConstructor(newTarget, %AggregateError.prototype%).
+    // With `new`, the runtime already created `this` with the derived prototype;
+    // without `new` (NewTarget undefined, step 1) build a fresh object from the
+    // constructor's own .prototype so Object.getPrototypeOf(O) is correct.
+    void* thisVal = ts_get_call_this();
+    void* raw = thisVal ? ts_value_get_object((TsValue*)thisVal) : nullptr;
+    TsMap* O = nullptr;
+    bool viaNew = false;
+    if (raw) {
+        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+        uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+        if (m16 == 0x4D415053 || m20 == 0x4D415053) { O = (TsMap*)raw; viaNew = true; }
+    }
+    if (!O) O = aggregate_error_ordinary_create();
+    aggregate_error_fill(O, argc, argv);
+    return viaNew ? (TsValue*)thisVal : ts_value_make_object(O);
+}
+
+// C entry used by the `new AggregateError(...)` compiler lowering and by
+// Promise.any. Always creates O from %AggregateError.prototype% (this ABI has
+// no NewTarget); errors/message/options may be nullptr/undefined.
+extern "C" void* ts_aggregate_error_new(TsValue* errors, TsValue* message,
+                                        TsValue* options) {
+    TsMap* O = aggregate_error_ordinary_create();
+    TsValue* argv[3] = { errors, message, options };
+    aggregate_error_fill(O, 3, argv);
+    return ts_value_make_object(O);
+}
+
 void* ts_get_global_AggregateError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
-        // AggregateError(errors, message?) — subclass of Error with
-        // an additional .errors array. Follow the makeErrorConstructor
-        // pattern but accept (errors, message) args.
-        auto aggFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            void* thisVal = ts_get_call_this();
-            void* raw = thisVal ? ts_value_get_object((TsValue*)thisVal) : nullptr;
-            if (!raw) return ts_value_make_undefined();
-            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-            uint32_t m20 = *(uint32_t*)((char*)raw + 20);
-            if (m16 != 0x4D415053 && m20 != 0x4D415053) return (TsValue*)thisVal;
-            TsMap* obj = (TsMap*)raw;
-            // .errors: iterate `errors` iterable into an array. Simplified:
-            // if it's already an array, copy it; else leave empty.
-            TsArray* errs = (TsArray*)ts_array_create();
-            if (argc >= 1 && argv && argv[0]) {
-                void* arg0 = ts_value_get_object(argv[0]);
-                if (arg0 && *(uint32_t*)arg0 == 0x41525259) {  // TsArray
-                    TsArray* src = (TsArray*)arg0;
-                    int64_t n = src->Length();
-                    for (int64_t i = 0; i < n; i++) errs->Push(src->Get(i));
-                }
-            }
-            TsValue errsKey; errsKey.type = ValueType::STRING_PTR;
-            errsKey.ptr_val = TsString::GetInterned("errors");
-            TsValue errsVal; errsVal.type = ValueType::OBJECT_PTR;
-            errsVal.ptr_val = errs;
-            obj->Set(errsKey, errsVal);
-            // .message
-            if (argc >= 2 && argv && argv[1]) {
-                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
-                msgKey.ptr_val = TsString::GetInterned("message");
-                TsValue msgVal = nanbox_to_tagged(argv[1]);
-                obj->Set(msgKey, msgVal);
-            }
-            return (TsValue*)thisVal;
-        };
-        TsValue* ctorVal = ts_value_make_native_function((void*)+aggFn, nullptr);
-        TsFunction* ctorFunc = (TsFunction*)ts_value_get_object(ctorVal);
-        ctorFunc->name = TsString::Create("AggregateError");
-        ctorFunc->arity = 2;
-        ctorFunc->is_constructor = true;
-        if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
-
-        // Prototype inherits from Error.prototype so (aggErr instanceof Error).
-        TsMap* proto = TsMap::Create();
-        TsValue pNameKey; pNameKey.type = ValueType::STRING_PTR;
-        pNameKey.ptr_val = TsString::GetInterned("name");
-        TsValue pNameVal; pNameVal.type = ValueType::STRING_PTR;
-        pNameVal.ptr_val = TsString::Create("AggregateError");
-        proto->Set(pNameKey, pNameVal);
-        void* errorCtor = ts_get_global_Error();
-        if (errorCtor) {
-            TsFunction* ef = (TsFunction*)ts_value_get_object((TsValue*)errorCtor);
-            if (ef && ef->properties) {
-                TsValue pk; pk.type = ValueType::STRING_PTR;
-                pk.ptr_val = TsString::GetInterned("prototype");
-                TsValue pv = ef->properties->Get(pk);
-                if (pv.type != ValueType::UNDEFINED && pv.ptr_val) {
-                    uint32_t mm = *(uint32_t*)((char*)pv.ptr_val + 16);
-                    if (mm == 0x4D415053) proto->SetPrototype((TsMap*)pv.ptr_val);
-                }
-            }
-        }
-        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
-        protoKey.ptr_val = TsString::GetInterned("prototype");
-        TsValue protoValFn; protoValFn.type = ValueType::OBJECT_PTR;
-        protoValFn.ptr_val = proto;
-        ctorFunc->properties->SetWithAttrs(protoKey, protoValFn, 0);
-
-        TsValue nk; nk.type = ValueType::STRING_PTR;
-        nk.ptr_val = TsString::GetInterned("name");
-        TsValue nv; nv.type = ValueType::STRING_PTR;
-        nv.ptr_val = ctorFunc->name;
-        ctorFunc->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
-        TsValue lk; lk.type = ValueType::STRING_PTR;
-        lk.ptr_val = TsString::GetInterned("length");
-        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 2;
-        ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
-
-        cached = (void*)ctorVal;
+        // Reuse the shared NativeError infrastructure (prototype.name/message/
+        // constructor, prototype[[Prototype]]=Error.prototype, ctor[[Prototype]]=
+        // Error, name/length own props) with the AggregateError-specific body
+        // and arity 2 (errors, message).
+        cached = makeErrorConstructor("AggregateError",
+                                      ts_aggregate_error_construct, 2);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;

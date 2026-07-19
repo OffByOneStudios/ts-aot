@@ -1465,6 +1465,21 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        // AggregateError called as a function (without new) — ES 20.5.7.1.1
+        // step 1 treats NewTarget-undefined identically to `new`. Route to the
+        // same runtime as the `new` lowering (errors, message?, options?).
+        if (ident->name == "AggregateError") {
+            std::shared_ptr<HIRValue> errors = !args.empty()
+                ? boxValueIfNeeded(args[0]) : builder_.createConstUndefined();
+            std::shared_ptr<HIRValue> message = args.size() >= 2
+                ? boxValueIfNeeded(args[1]) : builder_.createConstUndefined();
+            std::shared_ptr<HIRValue> options = args.size() >= 3
+                ? boxValueIfNeeded(args[2]) : builder_.createConstUndefined();
+            lastValue_ = builder_.createCall("ts_aggregate_error_new",
+                {errors, message, options}, HIRType::makeAny());
+            return;
+        }
+
         // Error constructors called as functions (without new) - same as new Error()
         if (ident->name == "Error" || ident->name == "TypeError" || ident->name == "RangeError" ||
             ident->name == "ReferenceError" || ident->name == "SyntaxError" || ident->name == "URIError" ||
@@ -2489,24 +2504,24 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
-    // AggregateError has signature (errors, message?), unlike the (message)
-    // signature of all other built-in Error subclasses. Route to a dedicated
-    // runtime that builds the .errors array.
+    // AggregateError(errors, message?, options?) — ECMA-262 20.5.7.1.1. Unlike
+    // the (message, options) signature of the other Error subclasses, arg0 is an
+    // iterable of errors. Route to a dedicated runtime that runs IterableToList,
+    // ToString(message), and InstallErrorCause. Missing args become `undefined`
+    // so the runtime applies the correct "not present" semantics (e.g. undefined
+    // message defines no own "message" property).
     if (className == "AggregateError") {
-        std::shared_ptr<HIRValue> errors;
-        std::shared_ptr<HIRValue> message;
-        if (!node->arguments.empty()) {
-            errors = lowerExpression(node->arguments[0].get());
-        } else {
-            errors = builder_.createConstString("");  // will be ignored runtime-side
-        }
-        if (node->arguments.size() >= 2) {
-            message = lowerExpression(node->arguments[1].get());
-        } else {
-            message = builder_.createConstString("");
-        }
-        lastValue_ = builder_.createCall("ts_error_create_aggregate",
-            {errors, message}, HIRType::makeAny());
+        std::shared_ptr<HIRValue> errors = !node->arguments.empty()
+            ? boxValueIfNeeded(lowerExpression(node->arguments[0].get()))
+            : builder_.createConstUndefined();
+        std::shared_ptr<HIRValue> message = node->arguments.size() >= 2
+            ? boxValueIfNeeded(lowerExpression(node->arguments[1].get()))
+            : builder_.createConstUndefined();
+        std::shared_ptr<HIRValue> options = node->arguments.size() >= 3
+            ? boxValueIfNeeded(lowerExpression(node->arguments[2].get()))
+            : builder_.createConstUndefined();
+        lastValue_ = builder_.createCall("ts_aggregate_error_new",
+            {errors, message, options}, HIRType::makeAny());
         return;
     }
 

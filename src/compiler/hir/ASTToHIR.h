@@ -722,6 +722,13 @@ private:
     // Force box a value - used for default params where inlining may change the actual type
     std::shared_ptr<HIRValue> forceBoxValue(std::shared_ptr<HIRValue> value);
 
+    // UpdateExpression (++/--) helpers: a NARROW non-number operand slot
+    // (bool/string/object/bigint/...) must run ToNumeric through the runtime
+    // rather than the i64 fast path, and its writeback slot must widen to Any.
+    bool isNarrowUpdateType(const std::shared_ptr<HIRValue>& operand);
+    void widenUpdateSlotToAny(bool active, VariableInfo* info,
+                              const std::string& name);
+
     // Lower a MethodDefinition to a function value (for object literal methods including getters/setters)
     std::shared_ptr<HIRValue> lowerMethodDefinitionToFunction(ast::MethodDefinition* method);
 
