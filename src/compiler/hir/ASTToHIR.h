@@ -217,6 +217,11 @@ private:
         // with-scope depth at loop creation: break/continue pop the runtime
         // with-stack down to this level (mirrors tryDepth_/PopHandler).
         int withDepth = 0;
+        // ES 14.15: exception-handler and finally-block depth just OUTSIDE this
+        // loop. break/continue that cross an enclosing try's finally must run it
+        // (finallyDepth), and must pop handlers down to the loop's own tryDepth.
+        int tryDepth = 0;
+        int finallyDepth = 0;
     };
     std::stack<LoopContext> loopStack_;
 
@@ -237,6 +242,58 @@ private:
     // Unified break target stack - both loops and switches push here.
     // break uses the top of this stack; continue uses loopStack_.
     std::stack<HIRBlock*> breakTargetStack_;
+
+    // Parallel to breakTargetStack_: the tryDepth_/withDepth_/finallyStack_
+    // sizes just OUTSIDE each break-target construct (loop OR switch). An
+    // unlabeled `break` inside an enclosing try's finally consults these to
+    // decide which finallys to run and how many handlers to pop en route.
+    struct BreakTargetMeta { int tryDepth; int withDepth; int finallyDepth; };
+    std::stack<BreakTargetMeta> breakTargetMeta_;
+
+    // ES 14.15 TryStatement completion records: a `try { ... } finally { F }`
+    // must run F when the try/catch body exits abruptly via break/continue/
+    // return, not only on normal/exception completion. Each enclosing
+    // try-with-finally pushes a FinallyContext while its try+catch bodies are
+    // lowered. An abrupt statement inside stores a completion discriminant
+    // (0 = normal/exception, 1 = return, >=2 = a specific break/continue
+    // target) into the innermost crossed finally's alloca and branches to that
+    // finally; the finally's epilogue re-raises the completion to the next
+    // enclosing crossed finally, or performs the original return/break/continue
+    // when none remain. A finally whose own body completes abruptly overrides
+    // the pending completion (its terminator suppresses the epilogue).
+    struct FinallyContext {
+        HIRBlock* finallyBB = nullptr;   // finally-body entry block
+        HIRBlock* mergeBB = nullptr;     // normal-completion destination
+        std::shared_ptr<HIRValue> discAlloca;  // i64 completion discriminant
+        std::shared_ptr<HIRValue> valAlloca;   // Any: pending return value
+        int handlerOutside = 0;          // tryDepth_ just outside this try
+        int withOutside = 0;             // withDepth_ just outside this try
+        bool withEnvEnteredOutside = false;
+        bool sawReturn = false;          // a return was routed through here
+        std::set<HIRBlock*> targets;     // break/continue targets routed through
+    };
+    std::vector<FinallyContext> finallyStack_;
+    // Per-function: break/continue target block -> its completion discriminant
+    // (>=2) plus the tryDepth/withDepth/finallyDepth just outside its construct.
+    struct CompletionDest { int id; int tryDepth; int withDepth; int finallyDepth; };
+    std::map<HIRBlock*, CompletionDest> completionDestId_;
+    int nextCompletionId_ = 2;
+
+    // Route an abrupt completion (break/continue/return) inside one or more
+    // enclosing try-with-finally blocks through those finallys. Returns true if
+    // it emitted the routing branch (caller must NOT emit its own). `target` is
+    // null for return. crossFinallyDepth = finallyStack_ index above which
+    // finallys must run (0 for return; the target loop's finallyDepth for
+    // break/continue). Registers the completion on each crossed finally so its
+    // epilogue can dispatch it.
+    bool routeAbruptThroughFinally(bool isReturn, HIRBlock* target,
+                                   int targetTryDepth, int targetWithDepth,
+                                   int crossFinallyDepth,
+                                   std::shared_ptr<HIRValue> retVal);
+    // Emit the completion-dispatch epilogue after a finally body, using the
+    // (already-popped) context F and the enclosing finallys still on the stack.
+    void emitFinallyDispatch(const FinallyContext& F, HIRBlock* mergeBB,
+                             std::shared_ptr<HIRValue> pendingExc);
 
     // Try block depth: tracks how many exception handlers are active.
     // return/break/continue inside try blocks must emit PopHandler for each
@@ -904,6 +961,10 @@ private:
               labeledLoops_(std::move(l.labeledLoops_)),
               switchStack_(std::move(l.switchStack_)),
               breakTargetStack_(std::move(l.breakTargetStack_)),
+              breakTargetMeta_(std::move(l.breakTargetMeta_)),
+              finallyStack_(std::move(l.finallyStack_)),
+              completionDestId_(std::move(l.completionDestId_)),
+              nextCompletionId_(l.nextCompletionId_),
               pendingLabel_(std::move(l.pendingLabel_)) {
             l.tryDepth_ = 0;
             l.withDepth_ = 0;
@@ -915,6 +976,10 @@ private:
             l.labeledLoops_.clear();
             l.switchStack_ = {};
             l.breakTargetStack_ = {};
+            l.breakTargetMeta_ = {};
+            l.finallyStack_.clear();
+            l.completionDestId_.clear();
+            l.nextCompletionId_ = 2;
             l.pendingLabel_.clear();
         }
         ~FunctionLoweringScope() {
@@ -929,6 +994,10 @@ private:
             l_.labeledLoops_ = std::move(labeledLoops_);
             l_.switchStack_ = std::move(switchStack_);
             l_.breakTargetStack_ = std::move(breakTargetStack_);
+            l_.breakTargetMeta_ = std::move(breakTargetMeta_);
+            l_.finallyStack_ = std::move(finallyStack_);
+            l_.completionDestId_ = std::move(completionDestId_);
+            l_.nextCompletionId_ = nextCompletionId_;
             l_.pendingLabel_ = std::move(pendingLabel_);
         }
         FunctionLoweringScope(const FunctionLoweringScope&) = delete;
@@ -947,6 +1016,10 @@ private:
         std::map<std::string, LoopContext> labeledLoops_;
         std::stack<SwitchContext> switchStack_;
         std::stack<HIRBlock*> breakTargetStack_;
+        std::stack<BreakTargetMeta> breakTargetMeta_;
+        std::vector<FinallyContext> finallyStack_;
+        std::map<HIRBlock*, CompletionDest> completionDestId_;
+        int nextCompletionId_;
         std::string pendingLabel_;
     };
 

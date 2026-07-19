@@ -79,11 +79,29 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
     // active), then pop handlers. This ensures try/catch still protects the
     // expression evaluation (e.g., `return parseUrl(req).pathname` must be
     // caught if parseUrl throws).
+    std::shared_ptr<HIRValue> retVal;
     if (node->expression) {
-        auto retVal = lowerExpression(node->expression.get());
+        retVal = lowerExpression(node->expression.get());
         // "use fast" struct value semantics: returning a struct read from an
         // lvalue yields an independent copy to the caller.
         retVal = maybeCloneStruct(retVal, node->expression.get());
+    }
+
+    // ES 14.15: a `return` inside one or more enclosing try-with-finally blocks
+    // must run every enclosing finally (in order) BEFORE returning. Route the
+    // return completion through those finallys; the outermost finally's
+    // epilogue performs the actual return (or a finally's own abrupt completion
+    // overrides it). crossFinallyDepth = 0: a return crosses ALL finallys.
+    if (!finallyStack_.empty()) {
+        std::shared_ptr<HIRValue> boxed = retVal ? boxValueIfNeeded(retVal)
+                                                 : builder_.createConstUndefined();
+        routeAbruptThroughFinally(/*isReturn=*/true, /*target=*/nullptr,
+                                  /*targetTryDepth=*/0, /*targetWithDepth=*/0,
+                                  /*crossFinallyDepth=*/0, boxed);
+        return;
+    }
+
+    if (node->expression) {
         for (int i = 0; i < tryDepth_; i++) {
             builder_.createPopHandler();
         }
@@ -158,9 +176,10 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     auto* endBlock = createBlock("while.end");
 
     // Push loop context for break/continue
-    LoopContext ctx = {condBlock, endBlock, withDepth_};
+    LoopContext ctx = {condBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -188,6 +207,7 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
 
     loopStack_.pop();
     breakTargetStack_.pop();
+    breakTargetMeta_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -205,9 +225,10 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     auto* endBlock = createBlock("for.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock, withDepth_};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -276,6 +297,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
 
     loopStack_.pop();
     breakTargetStack_.pop();
+    breakTargetMeta_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -301,9 +323,10 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     // for the indexed-array path) and falls through to endBlock. Normal
     // exhaustion (done === true) jumps straight to endBlock — an exhausted
     // iterator is NOT closed.
-    LoopContext ctx = {updateBlock, closeBlock, withDepth_};
+    LoopContext ctx = {updateBlock, closeBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(closeBlock);
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
     // Set by the iterator-protocol path; closeBlock calls iterator.return().
     std::shared_ptr<HIRValue> forofCloseIterAlloca = nullptr;
 
@@ -918,6 +941,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
 
     loopStack_.pop();
     breakTargetStack_.pop();
+    breakTargetMeta_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -948,9 +972,10 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     auto* endBlock = createBlock("forin.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock, withDepth_};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -1024,6 +1049,7 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
 
     loopStack_.pop();
     breakTargetStack_.pop();
+    breakTargetMeta_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -1035,6 +1061,35 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
 
 void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
     setSourceLine(node);
+    // ES 14.15: if this break exits the body of an enclosing try-with-finally,
+    // run those finallys (in innermost-first order) before branching to the
+    // loop/switch break target. routeAbruptThroughFinally returns true and
+    // emits the routing branch when at least one finally must run; otherwise we
+    // fall through to the original direct-branch fast path.
+    {
+        HIRBlock* target = nullptr;
+        int tTry = 0, tWith = withDepth_, tFin = (int)finallyStack_.size();
+        if (!node->label.empty()) {
+            auto it = labeledLoops_.find(node->label);
+            if (it != labeledLoops_.end()) {
+                target = it->second.breakTarget;
+                tTry = it->second.tryDepth;
+                tWith = it->second.withDepth;
+                tFin = it->second.finallyDepth;
+            }
+        } else if (!breakTargetStack_.empty()) {
+            target = breakTargetStack_.top();
+            const auto& m = breakTargetMeta_.top();
+            tTry = m.tryDepth;
+            tWith = m.withDepth;
+            tFin = m.finallyDepth;
+        }
+        if (target &&
+            routeAbruptThroughFinally(/*isReturn=*/false, target, tTry, tWith,
+                                      tFin, /*retVal=*/nullptr)) {
+            return;
+        }
+    }
     for (int i = 0; i < tryDepth_; i++) {
         builder_.createPopHandler();
     }
@@ -1060,6 +1115,31 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
 
 void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
     setSourceLine(node);
+    // ES 14.15: a `continue` that leaves an enclosing try-with-finally body must
+    // run those finallys before jumping to the loop's continue target.
+    {
+        HIRBlock* target = nullptr;
+        int tTry = 0, tWith = withDepth_, tFin = (int)finallyStack_.size();
+        if (!node->label.empty()) {
+            auto it = labeledLoops_.find(node->label);
+            if (it != labeledLoops_.end()) {
+                target = it->second.continueTarget;
+                tTry = it->second.tryDepth;
+                tWith = it->second.withDepth;
+                tFin = it->second.finallyDepth;
+            }
+        } else if (!loopStack_.empty()) {
+            target = loopStack_.top().continueTarget;
+            tTry = loopStack_.top().tryDepth;
+            tWith = loopStack_.top().withDepth;
+            tFin = loopStack_.top().finallyDepth;
+        }
+        if (target &&
+            routeAbruptThroughFinally(/*isReturn=*/false, target, tTry, tWith,
+                                      tFin, /*retVal=*/nullptr)) {
+            return;
+        }
+    }
     for (int i = 0; i < tryDepth_; i++) {
         builder_.createPopHandler();
     }
@@ -1133,6 +1213,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
     auto* endBlock = createBlock("switch.end");
     switchStack_.push({endBlock, {}, nullptr});
     breakTargetStack_.push(endBlock);
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
 
     std::vector<HIRBlock*> caseBlocks;
     HIRBlock* defaultBlock = endBlock;
@@ -1285,9 +1366,166 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
 
     switchStack_.pop();
     breakTargetStack_.pop();
+    breakTargetMeta_.pop();
 
     builder_.setInsertPoint(endBlock);
     currentBlock_ = endBlock;
+}
+
+bool ASTToHIR::routeAbruptThroughFinally(bool isReturn, HIRBlock* target,
+        int targetTryDepth, int targetWithDepth, int crossFinallyDepth,
+        std::shared_ptr<HIRValue> retVal) {
+    // Nothing to do unless at least one enclosing finally lies between the
+    // abrupt statement and its destination (finallyStack_ indices at or above
+    // crossFinallyDepth). The caller then takes its original direct-branch path.
+    if ((int)finallyStack_.size() <= crossFinallyDepth) {
+        return false;
+    }
+    // Assign / look up the completion discriminant for this destination.
+    // 1 == return; each distinct break/continue target gets its own id (>=2).
+    int discVal;
+    if (isReturn) {
+        discVal = 1;
+    } else {
+        auto it = completionDestId_.find(target);
+        if (it == completionDestId_.end()) {
+            CompletionDest cd{nextCompletionId_++, targetTryDepth, targetWithDepth,
+                              crossFinallyDepth};
+            completionDestId_[target] = cd;
+            discVal = cd.id;
+        } else {
+            discVal = it->second.id;
+        }
+    }
+    // Record the completion on every finally it will pass through so each
+    // finally's epilogue emits a dispatch case for it.
+    for (int i = crossFinallyDepth; i < (int)finallyStack_.size(); i++) {
+        if (isReturn) finallyStack_[i].sawReturn = true;
+        else finallyStack_[i].targets.insert(target);
+    }
+    // Leave the try bodies between here and the innermost crossed finally: pop
+    // their handlers plus any with-scopes opened inside them, store the pending
+    // completion, and branch into that finally. Its epilogue forwards the
+    // completion outward (see emitFinallyDispatch).
+    FinallyContext& inner = finallyStack_.back();
+    for (int i = 0; i < tryDepth_ - inner.handlerOutside; i++) {
+        builder_.createPopHandler();
+    }
+    int wn = withDepth_ - inner.withOutside;
+    if (wn > 0) {
+        builder_.createCall("ts_with_pop_n",
+            {builder_.createConstInt(wn)}, HIRType::makeVoid());
+    }
+    builder_.createStore(builder_.createConstInt(discVal), inner.discAlloca);
+    if (isReturn && retVal) {
+        builder_.createStore(retVal, inner.valAlloca);
+    }
+    builder_.createBranch(inner.finallyBB);
+    return true;
+}
+
+void ASTToHIR::emitFinallyDispatch(const FinallyContext& F, HIRBlock* mergeBB,
+                                   std::shared_ptr<HIRValue> pendingExc) {
+    auto disc = builder_.createLoad(HIRType::makeInt64(), F.discAlloca);
+
+    HIRBlock* normalBB = createBlock("finally.normal");
+    std::vector<std::pair<int64_t, HIRBlock*>> cases;
+
+    HIRBlock* retBB = nullptr;
+    if (F.sawReturn) {
+        retBB = createBlock("finally.ret");
+        cases.push_back({1, retBB});
+    }
+    std::vector<std::pair<HIRBlock*, HIRBlock*>> targetBlocks;  // (dest, dispatchBB)
+    for (HIRBlock* t : F.targets) {
+        auto cdIt = completionDestId_.find(t);
+        if (cdIt == completionDestId_.end()) continue;  // defensive
+        HIRBlock* tb = createBlock("finally.brk");
+        cases.push_back({cdIt->second.id, tb});
+        targetBlocks.push_back({t, tb});
+    }
+    builder_.createSwitch(disc, normalBB, cases);
+
+    // disc == 0: normal completion, or a pending exception to rethrow (the
+    // original try-finally-without-abrupt behaviour, preserved exactly).
+    builder_.setInsertPoint(normalBB);
+    currentBlock_ = normalBB;
+    if (pendingExc) {
+        auto exc = builder_.createLoad(HIRType::makeAny(), pendingExc);
+        auto isNull = builder_.createCmpEqPtr(exc, builder_.createConstNull());
+        auto rethrowBB = createBlock("try.rethrow");
+        builder_.createCondBranch(isNull, mergeBB, rethrowBB);
+        builder_.setInsertPoint(rethrowBB);
+        currentBlock_ = rethrowBB;
+        builder_.createThrow(exc);
+    } else {
+        builder_.createBranch(mergeBB);
+    }
+
+    // Helper: pop handlers/with-scopes from this finally's outside level down to
+    // `toHandler`/`toWith` and store the completion into the enclosing finally.
+    auto reRaiseTo = [&](FinallyContext& G, int discVal,
+                         bool copyReturnValue) {
+        for (int i = 0; i < F.handlerOutside - G.handlerOutside; i++)
+            builder_.createPopHandler();
+        int wn = F.withOutside - G.withOutside;
+        if (wn > 0) builder_.createCall("ts_with_pop_n",
+            {builder_.createConstInt(wn)}, HIRType::makeVoid());
+        builder_.createStore(builder_.createConstInt(discVal), G.discAlloca);
+        if (copyReturnValue) {
+            auto v = builder_.createLoad(HIRType::makeAny(), F.valAlloca);
+            builder_.createStore(v, G.valAlloca);
+        }
+        builder_.createBranch(G.finallyBB);
+    };
+
+    // disc == 1: a pending return. Re-raise to the next enclosing finally (a
+    // return crosses ALL of them) or, when none remains, perform the return.
+    if (retBB) {
+        builder_.setInsertPoint(retBB);
+        currentBlock_ = retBB;
+        if (!finallyStack_.empty()) {
+            FinallyContext& G = finallyStack_.back();
+            G.sawReturn = true;
+            reRaiseTo(G, 1, /*copyReturnValue=*/true);
+        } else {
+            for (int i = 0; i < F.handlerOutside; i++)
+                builder_.createPopHandler();
+            if (F.withOutside > 0) builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(F.withOutside)}, HIRType::makeVoid());
+            if (F.withEnvEnteredOutside)
+                builder_.createCall("ts_with_exit_fn", {}, HIRType::makeVoid());
+            auto v = builder_.createLoad(HIRType::makeAny(), F.valAlloca);
+            builder_.createReturn(v);
+        }
+    }
+
+    // disc >= 2: a pending break/continue to a specific target. Re-raise to the
+    // next enclosing finally only if that finally is ALSO inside the target
+    // construct (its stack index >= the target's finallyDepth); otherwise the
+    // target is reached now.
+    for (auto& [dest, tb] : targetBlocks) {
+        builder_.setInsertPoint(tb);
+        currentBlock_ = tb;
+        const CompletionDest& cd = completionDestId_[dest];
+        bool reRaise = false;
+        if (!finallyStack_.empty() &&
+            (int)finallyStack_.size() - 1 >= cd.finallyDepth) {
+            reRaise = true;
+        }
+        if (reRaise) {
+            FinallyContext& G = finallyStack_.back();
+            G.targets.insert(dest);
+            reRaiseTo(G, cd.id, /*copyReturnValue=*/false);
+        } else {
+            for (int i = 0; i < F.handlerOutside - cd.tryDepth; i++)
+                builder_.createPopHandler();
+            int wn = F.withOutside - cd.withDepth;
+            if (wn > 0) builder_.createCall("ts_with_pop_n",
+                {builder_.createConstInt(wn)}, HIRType::makeVoid());
+            builder_.createBranch(dest);
+        }
+    }
 }
 
 void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
@@ -1317,6 +1555,26 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     if (finallyBB) {
         pendingExc = builder_.createAlloca(HIRType::makeAny());
         builder_.createStore(builder_.createConstNull(), pendingExc);
+    }
+
+    // ES 14.15: register this finally so break/continue/return inside the
+    // try/catch body route through it (see routeAbruptThroughFinally). The
+    // discriminant alloca carries the abrupt-completion kind (0 = normal/
+    // exception, 1 = return, >=2 = a break/continue target); the value alloca
+    // carries the pending return value. Both are initialised on the normal
+    // entry path so the fall-through / exception paths read 0.
+    if (finallyBB) {
+        FinallyContext fctx;
+        fctx.finallyBB = finallyBB;
+        fctx.mergeBB = mergeBB;
+        fctx.discAlloca = builder_.createAlloca(HIRType::makeInt64());
+        builder_.createStore(builder_.createConstInt(0), fctx.discAlloca);
+        fctx.valAlloca = builder_.createAlloca(HIRType::makeAny());
+        builder_.createStore(builder_.createConstUndefined(), fctx.valAlloca);
+        fctx.handlerOutside = tryDepth_;
+        fctx.withOutside = withDepth_;
+        fctx.withEnvEnteredOutside = withEnvEntered_;
+        finallyStack_.push_back(std::move(fctx));
     }
 
     // Setup try: push handler and call setjmp
@@ -1410,6 +1668,13 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
 
     // --- Finally Block ---
     if (finallyBB) {
+        // Pop this finally off the active stack BEFORE lowering its body: an
+        // abrupt statement in the finally body itself must route through the
+        // ENCLOSING finallys, never through this one (and its own abrupt
+        // completion overrides any pending one). Keep a copy for the epilogue.
+        FinallyContext fctx = std::move(finallyStack_.back());
+        finallyStack_.pop_back();
+
         builder_.setInsertPoint(finallyBB);
         currentBlock_ = finallyBB;
 
@@ -1421,9 +1686,15 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
         }
         popScope();
 
-        // Check for pending exception to rethrow
+        // Emit the completion-dispatch epilogue. If the finally body itself
+        // completed abruptly (terminator present) the pending completion is
+        // discarded (ES 14.15.3 step 6). Otherwise, if any break/continue/return
+        // was routed through this finally, dispatch on the discriminant;
+        // if none was, fall back to the plain pending-exception rethrow/merge.
         if (currentBlock_->getTerminator() == nullptr) {
-            if (pendingExc) {
+            if (fctx.sawReturn || !fctx.targets.empty()) {
+                emitFinallyDispatch(fctx, mergeBB, pendingExc);
+            } else if (pendingExc) {
                 auto exc = builder_.createLoad(HIRType::makeAny(), pendingExc);
                 auto isNull = builder_.createCmpEqPtr(exc, builder_.createConstNull());
 
