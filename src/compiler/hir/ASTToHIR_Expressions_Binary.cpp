@@ -1625,6 +1625,22 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     if (elemAccess) {
         auto obj = lowerExpression(elemAccess->expression.get());
         auto idx = lowerExpression(elemAccess->argumentExpression.get());
+        // Strict code with a DYNAMIC (Any) or plain-Object receiver: route the
+        // computed write through the strict runtime entry so a blocked write
+        // (non-writable / non-extensible / frozen — including SYMBOL-keyed
+        // props) throws TypeError (PutValue throw=true). Mirrors the
+        // member-access strict path above; createSetElem carries no strict flag,
+        // so `"use strict"; o[sym] = v` previously failed silently. Arrays and
+        // typed receivers keep the fast createSetElem path.
+        if (strictCode_ && obj->type &&
+            (obj->type->kind == HIRTypeKind::Any ||
+             obj->type->kind == HIRTypeKind::Object)) {
+            builder_.createCall("ts_object_set_property_strict",
+                {boxValueIfNeeded(obj), boxValueIfNeeded(idx), boxValueIfNeeded(rhs)},
+                HIRType::makeVoid());
+            lastValue_ = rhs;
+            return;
+        }
         builder_.createSetElem(obj, idx, rhs);
         lastValue_ = rhs;
         return;

@@ -306,8 +306,12 @@ void BuiltinRegistry::registerStringStaticMethods() {
     globalTable_[{"String", "fromCodePoint"}] =
         BuiltinResolution::makeRuntimeCall("ts_string_fromCodePoint", stringType);
 
-    globalTable_[{"String", "raw"}] =
-        BuiltinResolution::makeRuntimeCall("ts_string_raw", stringType);
+    // NOTE: String.raw is intentionally NOT registered as a builtin call. The
+    // ts_string_raw PackArray lowering assumes a compiler-built tagged-template
+    // descriptor as arg0, which is wrong for a direct `String.raw(obj, ...)`
+    // call (arg0 is the user's template object). Leaving it unregistered routes
+    // BOTH direct calls and tagged templates through the runtime String.raw
+    // method (ts_string_raw in TsGlobals.cpp), which is spec-correct for both.
 }
 
 void BuiltinRegistry::registerNumberStaticMethods() {
@@ -402,8 +406,10 @@ void BuiltinRegistry::registerObjectMethods() {
     globalTable_[{"Object", "getPrototypeOf"}] =
         BuiltinResolution::makeRuntimeCall("ts_object_getPrototypeOf", objectType);
 
+    // Throw-on-false variant (ES 20.1.2.22 step 5); internal callers keep the
+    // plain ts_object_setPrototypeOf.
     globalTable_[{"Object", "setPrototypeOf"}] =
-        BuiltinResolution::makeRuntimeCall("ts_object_setPrototypeOf", objectType);
+        BuiltinResolution::makeRuntimeCall("ts_object_setPrototypeOf_checked", objectType);
 
     globalTable_[{"Object", "isFrozen"}] =
         BuiltinResolution::makeRuntimeCall("ts_object_isFrozen", boolType);

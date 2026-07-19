@@ -1591,86 +1591,72 @@ extern "C" {
         return TsString::FromCodePoint(codePoints, len);
     }
 
+    // ECMA-262 22.1.3.5 String.raw ( template, ...substitutions )
+    //  1. Let substitutionCount be the number of elements in substitutions.
+    //  2. Let cooked be ? ToObject(template).            (null-check in wrapper)
+    //  3. Let literalSegments be ? LengthOfArrayLike(? ToObject(? Get(cooked,"raw"))).
+    //  4. If literalSegments <= 0, return "".
+    //  5-8. For i = 0 .. literalSegments-1: append ToString(Get(raw, ToString(i)))
+    //       and, if i+1 < literalSegments and a substitution exists,
+    //       append ToString(substitutions[i]).
+    // `raw` is an arbitrary array-like object (NOT necessarily a TsArray): the
+    // tests pass plain objects with `length`/index getters. Every Get and every
+    // ToString can run user code and abrupt-complete; ts_object_get_property
+    // invokes getters and ts_to_string_spec runs ToPrimitive hooks / throws on
+    // Symbol, and their ts_throw() longjmps propagate automatically. The result
+    // is accumulated with TsString::Concat (GC-managed) rather than a
+    // std::string local, because a std::string on this extern-C frame would be
+    // corrupted by a longjmp out of a throwing Get/ToString.
     void* ts_string_raw(void* templateObj, void* substitutionsArray) {
-        // String.raw(template, ...substitutions)
-        // template is an object with a 'raw' property that contains array of string pieces
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern double ts_to_number(TsValue* v);
+        void* ts_to_string_spec(TsValue* v);
         if (!templateObj) return TsString::Create("");
 
-        // Get the 'raw' property from the template object
-        void* rawArray = ts_object_get_property(templateObj, "raw");
-
-        // Unbox if it's a NaN-boxed pointer
-        uint64_t rawNb = (uint64_t)(uintptr_t)rawArray;
-        if (nanbox_is_ptr(rawNb)) {
-            rawArray = nanbox_to_ptr(rawNb);
+        // ? Get(cooked, "raw") — getter may throw (propagates).
+        TsValue* rawV = ts_object_get_property(templateObj, "raw");
+        // ? ToObject(raw) — null/undefined throw TypeError.
+        void* rawObj = ts_value_get_object(rawV);
+        if (!rawObj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return TsString::Create("");  // unreachable
         }
 
-        if (!rawArray || rawNb < 0x10000) return TsString::Create("");  // Guard NaN-boxed specials
+        // ? LengthOfArrayLike(raw): ToLength(ToNumber(Get(raw,"length"))).
+        // Get may throw; ToNumber throws TypeError on a Symbol length.
+        TsValue* lenV = ts_object_get_property(rawObj, "length");
+        double lenNum = ts_to_number(lenV);
+        int64_t literalSegments;
+        if (lenNum != lenNum || lenNum <= 0.0) {
+            literalSegments = 0;
+        } else {
+            double intLen = std::floor(lenNum);
+            const double kMaxLen = 9007199254740991.0;  // 2^53 - 1
+            literalSegments = (intLen > kMaxLen) ? (int64_t)kMaxLen : (int64_t)intLen;
+        }
+        if (literalSegments <= 0) return TsString::Create("");
 
-        TsArray* rawPieces = (TsArray*)rawArray;
         TsArray* subs = substitutionsArray ? (TsArray*)substitutionsArray : nullptr;
+        int64_t subCount = subs ? subs->Length() : 0;
 
-        int64_t rawLen = rawPieces->Length();
-        if (rawLen == 0) return TsString::Create("");
+        TsString* result = TsString::GetInterned("");
+        for (int64_t i = 0; i < literalSegments; i++) {
+            // nextSeg = ? ToString(? Get(raw, ToString(i)))
+            char keyBuf[24];
+            snprintf(keyBuf, sizeof(keyBuf), "%lld", (long long)i);
+            TsValue* segV = ts_object_get_property(rawObj, keyBuf);
+            TsString* segStr = ts_ensure_flat(ts_to_string_spec(segV));
+            if (segStr) result = TsString::Concat(result, segStr);
 
-        // Build the result by interleaving raw pieces and substitutions
-        std::string result;
-
-        for (int64_t i = 0; i < rawLen; i++) {
-            // Get raw string piece
-            int64_t pieceVal = rawPieces->Get(i);
-            uint64_t pieceNb = (uint64_t)pieceVal;
-            TsString* piece = nullptr;
-
-            if (nanbox_is_ptr(pieceNb)) {
-                void* pp = nanbox_to_ptr(pieceNb);
-                if (pp) {
-                    uint32_t m = *(uint32_t*)pp;
-                    if (m == 0x53545247) piece = (TsString*)pp; // TsString
-                    else if (m == TsConsString::MAGIC) piece = ((TsConsString*)pp)->Flatten();
-                }
-            }
-
-            if (piece) {
-                result += piece->ToUtf8();
-            }
-
-            // Add substitution if available (there's one fewer substitution than raw pieces)
-            if (subs && i < rawLen - 1 && i < subs->Length()) {
-                int64_t subVal = subs->Get(i);
-                uint64_t subNb = (uint64_t)subVal;
-
-                if (nanbox_is_undefined(subNb)) {
-                    result += "undefined";
-                } else if (nanbox_is_null(subNb)) {
-                    result += "null";
-                } else if (nanbox_is_true(subNb)) {
-                    result += "true";
-                } else if (nanbox_is_false(subNb)) {
-                    result += "false";
-                } else if (nanbox_is_int32(subNb)) {
-                    result += std::to_string(nanbox_to_int32(subNb));
-                } else if (nanbox_is_double(subNb)) {
-                    result += std::to_string(nanbox_to_double(subNb));
-                } else if (nanbox_is_ptr(subNb)) {
-                    void* sp = nanbox_to_ptr(subNb);
-                    if (!sp) {
-                        result += "null";
-                    } else {
-                        uint32_t sm = *(uint32_t*)sp;
-                        if (sm == 0x53545247) {
-                            result += ((TsString*)sp)->ToUtf8();
-                        } else if (sm == TsConsString::MAGIC) {
-                            result += ((TsConsString*)sp)->Flatten()->ToUtf8();
-                        } else {
-                            result += "[object]";
-                        }
-                    }
-                }
+            // If i+1 < literalSegments: append ? ToString(substitutions[i]).
+            if (i + 1 < literalSegments && subs && i < subCount) {
+                TsValue* subV = (TsValue*)(uintptr_t)subs->Get(i);
+                TsString* subStr = ts_ensure_flat(ts_to_string_spec(subV));
+                if (subStr) result = TsString::Concat(result, subStr);
             }
         }
-
-        return TsString::Create(result.c_str());
+        return result;
     }
 
     void* ts_string_charAt(void* str, int64_t index) {
@@ -2236,8 +2222,19 @@ extern "C" {
         }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        // 22.1.3.14: a coerced (non-RegExp) argument uses RegExpCreate(arg, "g").
-        return s->MatchAll(coerceArgToRegExp(regexp, "g"));
+        // 22.1.3.14 steps 4-5: a coerced (non-RegExp) argument becomes
+        // rx = RegExpCreate(arg, "g"); return Invoke(rx, @@matchAll, «S»). Route
+        // through the @@matchAll native so the result is the lazy
+        // %RegExpStringIterator% (not the eager array), matching the RegExp path.
+        TsRegExp* rx = coerceArgToRegExp(regexp, "g");
+        if (!rx) return s->MatchAll(rx);
+        extern TsValue* ts_regexp_symbol_matchAll_native(void*, int, TsValue**);
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(s);
+        TsValue* a1[1] = { sBoxed };
+        TsValue* it = ts_regexp_symbol_matchAll_native(
+            (void*)ts_value_make_object(rx), 1, a1);
+        void* raw = it ? ts_value_get_object(it) : nullptr;
+        return raw ? raw : (void*)it;
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {

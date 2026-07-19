@@ -782,9 +782,14 @@ function visitInternal(node) {
             return {
                 kind: "TemplateExpression",
                 head: node.head.text,
+                // rawText preserves un-escaped source (e.g. "\\n" stays two
+                // chars) for String.raw tagged templates; falls back to cooked
+                // text when the token has no distinct raw form.
+                rawHead: node.head.rawText !== undefined ? node.head.rawText : node.head.text,
                 templateSpans: node.templateSpans.map(span => ({
                     expression: visit(span.expression),
-                    literal: span.literal.text
+                    literal: span.literal.text,
+                    rawLiteral: span.literal.rawText !== undefined ? span.literal.rawText : span.literal.text
                 }))
             };
         case ts.SyntaxKind.TaggedTemplateExpression:
@@ -796,7 +801,9 @@ function visitInternal(node) {
         case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
             return {
                 kind: "StringLiteral",
-                value: node.text
+                value: node.text,
+                // Raw (un-escaped) form for String.raw`...` with no substitutions.
+                templateRaw: node.rawText !== undefined ? node.rawText : node.text
             };
         case ts.SyntaxKind.AsExpression:
             return {

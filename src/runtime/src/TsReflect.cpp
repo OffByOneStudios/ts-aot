@@ -323,6 +323,48 @@ extern "C" TsValue* ts_reflect_getPrototypeOf(void* targetArg) {
     return ts_object_getPrototypeOf((TsValue*)targetArg);
 }
 
+// ECMA-262 10.1.2.1 OrdinarySetPrototypeOf status test (performs NO mutation).
+// Returns 1 if setting O.[[Prototype]] = V would succeed — including the
+// SameValue(V, current) no-op — and 0 if it must return false: O is
+// non-extensible with V != current, or V's [[Prototype]] chain already contains
+// O (a cycle). O must be an ordinary object; proxies/primitives are handled by
+// callers. The chain is walked with the generic ts_object_getPrototypeOf so
+// exotic prototypes (Array.prototype, %TypedArray%.prototype, ...) are
+// traversed — a TsMap-magic-only walk broke at the first exotic link and so
+// missed real cycles (e.g. Object.prototype <- Array.prototype).
+extern "C" int64_t ts_ordinary_set_proto_status(void* targetArg, void* protoArg) {
+    void* tRaw = ts_nanbox_safe_unbox(targetArg);
+    if (!tRaw) return 1;  // not an object — no OrdinarySetPrototypeOf failure
+    TsValue* cur = ts_object_getPrototypeOf((TsValue*)targetArg);
+    uint64_t vNb = protoArg ? nanbox_from_tsvalue_ptr((TsValue*)protoArg) : 0;
+    uint64_t cNb = cur ? nanbox_from_tsvalue_ptr(cur) : 0;
+    void* vRaw = (protoArg && nanbox_is_ptr(vNb)) ? nanbox_to_ptr(vNb) : nullptr;
+    void* cRaw = (cur && nanbox_is_ptr(cNb)) ? nanbox_to_ptr(cNb) : nullptr;
+    bool vNull = !protoArg || nanbox_is_null(vNb) || nanbox_is_undefined(vNb);
+    bool cNull = !cur || nanbox_is_null(cNb) || nanbox_is_undefined(cNb);
+    if ((vNull && cNull) || (vRaw && vRaw == cRaw)) return 1;   // SameValue -> no-op success
+    if (!ts_reflect_isExtensible(targetArg)) return 0;          // non-extensible -> false
+    // Cycle check (ES 10.1.2.1 step 8): walk V's [[Prototype]] chain looking for
+    // the target O. Per step 8.d the walk STOPS at a node whose [[GetPrototypeOf]]
+    // is not the ordinary internal method — i.e. a Proxy — WITHOUT reporting a
+    // cycle even if O lies beyond it (a proxy "shadows" the chain).
+    void* walk = vRaw;
+    for (int depth = 0; walk && depth < 1000000; depth++) {
+        if (walk == tRaw) return 0;                             // 8.c: cycle
+        // 8.d: non-ordinary [[GetPrototypeOf]] (Proxy) -> stop, no cycle.
+        if ((uintptr_t)walk >= 0x10000 &&
+            *(uint32_t*)((char*)walk + 16) == 0x4D415053 /*MAPS*/ &&
+            dynamic_cast<TsProxy*>((TsMap*)walk) != nullptr) break;
+        TsValue* nxt = ts_object_getPrototypeOf((TsValue*)walk);
+        uint64_t nNb = nxt ? nanbox_from_tsvalue_ptr(nxt) : 0;
+        if (!nxt || !nanbox_is_ptr(nNb)) break;                 // reached null / non-object
+        void* nRaw = nanbox_to_ptr(nNb);
+        if (!nRaw || nRaw == walk) break;                       // defensive
+        walk = nRaw;
+    }
+    return 1;
+}
+
 extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
     // ECMA-262 step 1: Type(target) must be Object.
     reflect_require_object(targetArg,
@@ -332,24 +374,7 @@ extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
     // OrdinarySetPrototypeOf (ES 10.1.2): SameValue(V, current) -> true;
     // non-extensible target -> false; V's prototype chain containing the
     // target (cycle) -> false; else set and return true.
-    TsValue* cur = ts_object_getPrototypeOf((TsValue*)targetArg);
-    uint64_t vNb = protoArg ? nanbox_from_tsvalue_ptr((TsValue*)protoArg) : 0;
-    uint64_t cNb = cur ? nanbox_from_tsvalue_ptr(cur) : 0;
-    void* vRaw = (protoArg && nanbox_is_ptr(vNb)) ? nanbox_to_ptr(vNb) : nullptr;
-    void* cRaw = (cur && nanbox_is_ptr(cNb)) ? nanbox_to_ptr(cNb) : nullptr;
-    bool vNull = !protoArg || nanbox_is_null(vNb) || nanbox_is_undefined(vNb);
-    bool cNull = !cur || nanbox_is_null(cNb) || nanbox_is_undefined(cNb);
-    if ((vNull && cNull) || (vRaw && vRaw == cRaw)) return 1;
-    if (!ts_reflect_isExtensible(targetArg)) return 0;
-    // Cycle check: walk V's [[Prototype]] chain looking for target.
-    void* tRaw = ts_nanbox_safe_unbox(targetArg);
-    void* walk = vRaw;
-    for (int depth = 0; walk && depth < 1000; depth++) {
-        if (walk == tRaw) return 0;
-        uint32_t wm16 = *(uint32_t*)((char*)walk + 16);
-        if (wm16 != 0x4D415053 /*MAPS*/) break;
-        walk = ((TsMap*)walk)->GetPrototype();
-    }
+    if (!ts_ordinary_set_proto_status(targetArg, protoArg)) return 0;
     ts_object_setPrototypeOf((TsValue*)targetArg, (TsValue*)protoArg);
     return 1;
 }

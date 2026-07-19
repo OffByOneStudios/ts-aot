@@ -4159,6 +4159,147 @@ extern "C" {
         return nullptr;
     }
 
+    // ======================================================================
+    // ECMA-262 22.2.9 %RegExpStringIteratorPrototype% (lazy, spec-faithful).
+    // A RegExp String Iterator is a TsMap carrying the internal slots
+    // [[IteratingRegExp]] (R), [[IteratedString]] (S), [[Global]], [[Unicode]],
+    // [[Done]] as hidden own properties. Storing R/S as own TsMap values keeps
+    // them reachable by the normal GC object scan (no separate C++ container to
+    // root). Its [[Prototype]] is %RegExpStringIteratorPrototype%, whose own
+    // next() is ts_regexp_string_iter_next and whose @@toStringTag is
+    // "RegExp String Iterator".
+    // ======================================================================
+    static const char* kRESI_R = "__resi_regexp";
+    static const char* kRESI_S = "__resi_string";
+    static const char* kRESI_G = "__resi_global";
+    static const char* kRESI_U = "__resi_unicode";
+    static const char* kRESI_D = "__resi_done";
+
+    static TsValue resi_slot(TsMap* it, const char* k) {
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(k);
+        return it->Get(key);
+    }
+    static void resi_set_bool(TsMap* it, const char* k, bool b) {
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(k);
+        TsValue v; v.type = ValueType::BOOLEAN; v.i_val = b ? 1 : 0;
+        it->Set(key, v);
+    }
+    // CreateIterResultObject(value, done); `value` is a boxed TsValue* (or null
+    // meaning undefined).
+    static TsValue* resi_make_result(TsValue* value, bool done) {
+        TsMap* r = TsMap::Create();
+        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+        r->Set(vk, nanbox_to_tagged(value ? value : (TsValue*)ts_value_make_undefined()));
+        TsValue dk; dk.type = ValueType::STRING_PTR; dk.ptr_val = TsString::GetInterned("done");
+        TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = done ? 1 : 0; r->Set(dk, dv);
+        return (TsValue*)ts_value_make_object(r);
+    }
+
+    // ECMA-262 22.2.9.2.1 %RegExpStringIteratorPrototype%.next ( ).
+    extern "C" TsValue* ts_regexp_string_iter_next(void* ctx, int argc, TsValue** argv) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void ts_object_set_property(void* obj, void* key, void* value);
+        (void)argc; (void)argv;
+        // step 1-2: Let O be the this value; if not Object, throw TypeError.
+        if (!ctx) ctx = ts_get_call_this();
+        void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+        if (!raw) raw = ctx;
+        auto throw_brand = []() {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "%RegExpStringIteratorPrototype%.next called on incompatible receiver"));
+        };
+        // step 3: O must have the RegExp String Iterator internal slots. Require
+        // a TsMap (magic@16) carrying an OWN [[IteratingRegExp]] slot — an
+        // Object.create(iterator) inherits next() but not the own slot.
+        if (!is_safe_ptr_for_magic(raw) ||
+            *(uint32_t*)((char*)raw + 16) != TsMap::MAGIC) {
+            throw_brand(); return (TsValue*)ts_value_make_undefined();
+        }
+        TsMap* iter = (TsMap*)raw;
+        {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(kRESI_R);
+            if (!iter->Has(k)) { throw_brand(); return (TsValue*)ts_value_make_undefined(); }
+        }
+        // step 4: If [[Done]] is true, return CreateIterResultObject(undefined, true).
+        {
+            TsValue d = resi_slot(iter, kRESI_D);
+            if (d.type == ValueType::BOOLEAN && d.i_val) return resi_make_result(nullptr, true);
+        }
+        // steps 5-8: read R, S, global, fullUnicode.
+        TsValue rv = resi_slot(iter, kRESI_R);
+        void* R = (rv.type == ValueType::OBJECT_PTR || rv.type == ValueType::ARRAY_PTR ||
+                   rv.type == ValueType::FUNCTION_PTR) ? rv.ptr_val : nullptr;
+        TsValue sv = resi_slot(iter, kRESI_S);
+        TsString* S = (sv.type == ValueType::STRING_PTR) ? (TsString*)sv.ptr_val
+                                                         : TsString::Create("");
+        TsValue gv = resi_slot(iter, kRESI_G);
+        bool global = (gv.type == ValueType::BOOLEAN && gv.i_val);
+        TsValue uv = resi_slot(iter, kRESI_U);
+        bool fullUnicode = (uv.type == ValueType::BOOLEAN && uv.i_val);
+        // step 9: match = RegExpExec(R, S) — honors a user-overridden `exec`.
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(S);
+        void* match = ts_regexp_exec_observable(R, sBoxed);   // may throw
+        // step 10: null match -> set [[Done]], return {undefined, true}.
+        if (!match) {
+            resi_set_bool(iter, kRESI_D, true);
+            return resi_make_result(nullptr, true);
+        }
+        TsValue* matchBoxed = (TsValue*)ts_value_make_object(match);
+        if (!global) {
+            // step 11.b: non-global -> set [[Done]], return {match, false}.
+            resi_set_bool(iter, kRESI_D, true);
+            return resi_make_result(matchBoxed, false);
+        }
+        // step 11.a: global -> advance lastIndex past a zero-width match.
+        TsString* m0 = ts_regexp_tostring_arg(
+            ts_object_get_property(match, "0"));            // ToString(Get(match,"0")); may throw
+        if (m0 && m0->Length() == 0) {
+            TsValue* liv = ts_object_get_property(R, "lastIndex");   // may throw
+            double li = liv ? ts_to_number(liv) : 0;                // ToLength; may throw
+            if (li != li || li < 0) li = 0;
+            int64_t nextIndex = ts_regexp_adv_u(S->getUStr(), (int)li, fullUnicode);
+            TsValue* liKey = (TsValue*)ts_value_make_string(TsString::Create("lastIndex"));
+            ts_object_set_property(R, liKey, (void*)ts_value_make_int(nextIndex)); // may throw
+        }
+        return resi_make_result(matchBoxed, false);
+    }
+
+    // %RegExpStringIteratorPrototype% singleton. buildIteratorPrototypeCustom
+    // (TsMap.cpp) wires next()/@@toStringTag and sets [[Prototype]] =
+    // %IteratorPrototype%. Immortal-tenured + registered as a GC root (the
+    // static holder is invisible to the object scan otherwise).
+    static TsMap* g_regexp_string_iter_proto = nullptr;
+    static TsMap* getRegExpStringIteratorPrototype() {
+        extern TsMap* buildIteratorPrototypeCustom(const char* tagStr, void* nextFn);
+        if (!g_regexp_string_iter_proto) {
+            ts_gc_push_tenure();
+            g_regexp_string_iter_proto = buildIteratorPrototypeCustom(
+                "RegExp String Iterator", (void*)ts_regexp_string_iter_next);
+            ts_gc_pop_tenure();
+            ts_gc_register_root((void**)&g_regexp_string_iter_proto);
+        }
+        return g_regexp_string_iter_proto;
+    }
+
+    // ECMA-262 22.2.9.1 CreateRegExpStringIterator ( R, S, global, fullUnicode ).
+    static TsValue* create_regexp_string_iterator(void* R, TsString* S,
+                                                  bool global, bool fullUnicode) {
+        TsMap* iter = TsMap::Create();
+        iter->SetPrototype(getRegExpStringIteratorPrototype());
+        TsValue rk; rk.type = ValueType::STRING_PTR; rk.ptr_val = TsString::GetInterned(kRESI_R);
+        TsValue rv; rv.type = ValueType::OBJECT_PTR; rv.ptr_val = R; iter->Set(rk, rv);
+        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(kRESI_S);
+        TsValue sv; sv.type = ValueType::STRING_PTR; sv.ptr_val = S ? S : TsString::Create("");
+        iter->Set(sk, sv);
+        resi_set_bool(iter, kRESI_G, global);
+        resi_set_bool(iter, kRESI_U, fullUnicode);
+        resi_set_bool(iter, kRESI_D, false);
+        return (TsValue*)ts_value_make_object(iter);
+    }
+
     extern "C" TsValue* ts_regexp_symbol_matchAll_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
@@ -4192,10 +4333,11 @@ extern "C" {
         }
         TsRegExp* matcher =
             regexp_species_construct(recvRaw, fTs ? fTs->ToUtf8() : "");
-        S = sTs->getUStr();
-        int sLen = S.length();
         flags = fTs ? fTs->ToUtf8() : "";
         bool global = flags.find('g') != std::string::npos;
+        // step 9: fullUnicode is true when the flags contain 'u' (or 'v').
+        bool fullUnicode = flags.find('u') != std::string::npos ||
+                           flags.find('v') != std::string::npos;
         if (!matcher) {
             if (recvIsRegExp) {
                 srcU8 = ((TsRegExp*)recvRaw)->GetSource()->ToUtf8();
@@ -4208,25 +4350,16 @@ extern "C" {
             }
             matcher = TsRegExp::Create(srcU8.c_str(), flags.c_str());
         }
+        // steps 6-7: matcher.lastIndex = ToLength(Get(R,"lastIndex")).
         {
             TsValue* liv = ts_object_get_property(recvRaw, "lastIndex");
             double li = liv ? ts_to_number(liv) : 0;
             if (li != li || li < 0) li = 0;
             matcher->SetLastIndex((int64_t)li);
         }
-        TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
-        void* results = ts_array_create();
-        while (true) {
-            void* result = ts_regexp_exec_observable(matcher, sBoxed);
-            if (!result) break;
-            ts_array_push(results, (void*)ts_value_make_object(result));
-            if (!global) break;
-            TsString* m0 = ts_regexp_tostring_arg(ts_object_get_property(result, "0"));
-            if (m0->Length() == 0)
-                matcher->SetLastIndex(ts_regexp_advance_string_index(matcher->GetLastIndex()));
-            if (matcher->GetLastIndex() > sLen + 1) break;
-        }
-        return ts_create_array_iterator_pub(results);
+        // step 10: return CreateRegExpStringIterator(matcher, S, global,
+        // fullUnicode) — LAZY: each next() re-execs matcher against S.
+        return create_regexp_string_iterator((void*)matcher, sTs, global, fullUnicode);
     }
 
 }  // extern "C"

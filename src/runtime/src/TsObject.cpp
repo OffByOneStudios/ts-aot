@@ -2291,6 +2291,15 @@ void* ts_create_arguments_from_params(
                 return makeNamedNativeFunction((void*)ts_regexp_test_native, re, "test", 1);
             }
             if (strcmp(keyStr, "exec") == 0) {
+                // ES OrdinaryGet: a user-reassigned RegExp.prototype.exec is on
+                // the prototype chain and MUST win over the builtin (RegExpExec
+                // step 3 Get(R,"exec") — honored by @@match/@@matchAll/@@replace
+                // /@@split and the RegExp String Iterator). Own `exec` was
+                // already handled by the own-prop stores above; here we consult
+                // RegExp.prototype for an override before the hardcoded builtin.
+                extern void* ts_get_global_RegExp();
+                if (TsValue* inh = ts_builtin_proto_get_fallback(obj, ts_get_global_RegExp, "exec"))
+                    return inh;
                 return makeNamedNativeFunction((void*)ts_regexp_exec_native, re, "exec", 1);
             }
             if (strcmp(keyStr, "compile") == 0) {
@@ -6721,9 +6730,21 @@ void* ts_create_arguments_from_params(
             if (keyStr) {
                 const char* keyCStr = keyStr->ToUtf8();
                 if (keyCStr) {
-                    // Convert TaggedValue to NaN-boxed for ts_flat_object_set_property
+                    // Convert TaggedValue to NaN-boxed for the flat store.
+                    // Route through the violation-reporting _ex variant so a
+                    // strict write to a non-writable / non-extensible property
+                    // sets *violated and the caller throws TypeError. The
+                    // string-key fast path in ts_object_set_dynamic already uses
+                    // _ex; SYMBOL keys (keyStr = ts_symbol_storage_key) skip that
+                    // path and land here, where the non-_ex store silently
+                    // dropped the strict throw. Non-strict callers (strict=0)
+                    // never set *violated, so behavior is unchanged for them.
                     TsValue* nbValue = nanbox_from_tagged(value);
-                    ts_flat_object_set_property(rawObj, keyCStr, nbValue);
+                    extern void ts_flat_object_set_property_ex(
+                        void* obj, const char* key, void* value,
+                        int strict, int* violated);
+                    ts_flat_object_set_property_ex(rawObj, keyCStr, nbValue,
+                                                   strict, violated);
                     return value;
                 }
             }
@@ -6933,9 +6954,15 @@ void* ts_create_arguments_from_params(
                     // Check if value is a TsMap (canonical magic at offset 16)
                     uint32_t pm16 = *(uint32_t*)((char*)protoPtr + 16);
                     if (pm16 == 0x4D415053) {
-                        if (!map->WouldCreateCycle((TsMap*)protoPtr)) {
-                            map->SetPrototype((TsMap*)protoPtr);
-                        }
+                        // ES B.2.2.1.2 set __proto__ steps 4-5 via the checked
+                        // helper: a Proxy receiver invokes its setPrototypeOf
+                        // trap, and a false [[SetPrototypeOf]] status (cycle /
+                        // non-extensible) throws TypeError — unconditionally,
+                        // not strict-gated. Was a silent WouldCreateCycle no-op
+                        // that both dropped cycle errors and bypassed the trap.
+                        extern TsValue* ts_object_setPrototypeOf_checked(TsValue* o, TsValue* p);
+                        ts_object_setPrototypeOf_checked(ts_value_make_object(rawObj),
+                                                         ts_value_make_object(protoPtr));
                         return value;
                     }
                 }
@@ -6959,7 +6986,17 @@ void* ts_create_arguments_from_params(
                 while (chain) {
                     if (chain->Has(key)) {
                         uint8_t attrs = chain->GetPropertyAttrs(key);
-                        if (!(attrs & ATTR_WRITABLE)) {
+                        // A frozen receiver's OWN data properties are all
+                        // non-writable, including symbol-keyed ones whose
+                        // per-property [[Writable]] bit SetIntegrityLevel could
+                        // not clear (Object.freeze's GetKeys hides @@symbol
+                        // storage keys, so the attr stayed writable). Honor the
+                        // map-level frozen flag as the source of truth for own
+                        // props. (Sealed leaves [[Writable]] intact, so a plain
+                        // update still succeeds — IsSealed is intentionally not
+                        // checked here.)
+                        bool frozenOwn = (chain == map) && map->IsFrozen();
+                        if (!(attrs & ATTR_WRITABLE) || frozenOwn) {
                             if (strict) *violated = 1;  // strict: caller throws
                             return value;  // silent fail (non-strict)
                         }
