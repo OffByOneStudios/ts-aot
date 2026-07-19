@@ -2,6 +2,65 @@
 
 namespace ts::hir {
 
+// True when an UpdateExpression (++/--) operand carries a NARROW, non-number,
+// non-Any HIR type. Such a slot keeps the initializer's type (e.g. `var x =
+// false`/`"1"`/`{}`/`0n` -> Bool/String/Object/BigInt) even though the binding
+// is dynamically `any`; the i64/f64 fast path misreads its NaN-boxed pointer or
+// i1 as a raw integer. These must run ToNumeric through the runtime instead.
+// Int64/Float64 (real numeric counters) and Any (already handled) are excluded.
+bool ASTToHIR::isNarrowUpdateType(const std::shared_ptr<HIRValue>& operand) {
+    if (!operand || !operand->type) return false;
+    switch (operand->type->kind) {
+        case HIRTypeKind::Bool:
+        case HIRTypeKind::String:
+        case HIRTypeKind::Object:
+        case HIRTypeKind::Array:
+        case HIRTypeKind::Map:
+        case HIRTypeKind::Set:
+        case HIRTypeKind::Symbol:
+        case HIRTypeKind::BigInt:
+        case HIRTypeKind::Function:
+        case HIRTypeKind::Class:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Widen an UpdateExpression writeback slot to Any when the runtime ToNumeric
+// path is used. The result is stored boxed (a pointer); a non-pointer scalar
+// alloca (i1 for Bool) cannot hold it, so allocate a fresh Any (ptr) slot and
+// rebind the binding IN PLACE. Pointer-repr slots (String/Object/BigInt/... all
+// lower to ptr) reuse the existing alloca. The elemType is set to Any so later
+// reads load and unbox the widened value correctly.
+void ASTToHIR::widenUpdateSlotToAny(bool active, VariableInfo* info,
+                                    const std::string& name) {
+    if (!active || !info || !info->isAlloca) return;
+    bool slotIsPtr = false;
+    if (info->elemType) {
+        switch (info->elemType->kind) {
+            case HIRTypeKind::String:
+            case HIRTypeKind::Object:
+            case HIRTypeKind::Array:
+            case HIRTypeKind::Map:
+            case HIRTypeKind::Set:
+            case HIRTypeKind::Symbol:
+            case HIRTypeKind::BigInt:
+            case HIRTypeKind::Function:
+            case HIRTypeKind::Class:
+            case HIRTypeKind::Any:
+            case HIRTypeKind::Ptr:
+                slotIsPtr = true;
+                break;
+            default:
+                break;
+        }
+    }
+    if (!slotIsPtr) {
+        info->value = builder_.createAlloca(HIRType::makeAny(), name);
+    }
+    info->elemType = HIRType::makeAny();
+}
 
 void ASTToHIR::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
     setSourceLine(node);
@@ -2101,6 +2160,16 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         if (!isFloat && operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
             isAny = true;
         }
+        // ES 13.4: UpdateExpression puts the operand through ToNumeric. A slot
+        // whose HIR type is a NARROW non-number (bool/string/object/bigint/
+        // symbol/array/function/class — kept from the initializer even though
+        // the analyzer types the binding `any`) cannot take the i64 fast path:
+        // treating the NaN-boxed pointer or i1 as a raw integer produced
+        // `false++`->true, `{}++`->1, `0n++`->collapsed, `"1"++`->garbage.
+        // Route these through the runtime any-path (ToPrimitive -> BigInt or
+        // ToNumber +/- 1) exactly like the Any case, and widen the writeback
+        // slot to Any below. Pure Int64/Float64 counters stay on the fast path.
+        bool useRuntimeNarrow = !isFloat && !isAny && isNarrowUpdateType(operand);
 
         std::shared_ptr<HIRValue> result;
         if (isAny) {
@@ -2108,6 +2177,11 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             // (unlike ts_value_add which does string concatenation for strings)
             result = (op == "++") ? builder_.createCall("ts_value_inc", {operand}, HIRType::makeAny())
                                   : builder_.createCall("ts_value_dec", {operand}, HIRType::makeAny());
+        } else if (useRuntimeNarrow) {
+            // Box the narrow operand to Any, then run the same ToNumeric path.
+            auto boxed = boxValueIfNeeded(operand);
+            result = (op == "++") ? builder_.createCall("ts_value_inc", {boxed}, HIRType::makeAny())
+                                  : builder_.createCall("ts_value_dec", {boxed}, HIRType::makeAny());
         } else if (isFloat) {
             auto one = builder_.createConstFloat(1.0);
             result = (op == "++") ? builder_.createAddF64(operand, one)
@@ -2182,6 +2256,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 } else {
                     auto* info = lookupVariableInfo(ident->name);
                     if (info && info->isAlloca) {
+                        widenUpdateSlotToAny(useRuntimeNarrow, info, ident->name);
                         builder_.createStore(result, info->value, info->elemType);
                         broadcastCaptureWrite(info, result);
                         // If used by inner function AND module global, also update __modvar_
@@ -2349,6 +2424,10 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         if (!isFloat && operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
             isAny = true;
         }
+        // See the prefix path: a narrow non-number slot (bool/string/object/
+        // bigint/...) must run ToNumeric via the runtime instead of the i64
+        // fast path, and widen its writeback slot to Any.
+        bool useRuntimeNarrow = !isFloat && !isAny && isNarrowUpdateType(operand);
 
         std::shared_ptr<HIRValue> result;
         if (isAny) {
@@ -2356,6 +2435,20 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             // (unlike ts_value_add which does string concatenation for strings)
             result = (op == "++") ? builder_.createCall("ts_value_inc", {operand}, HIRType::makeAny())
                                   : builder_.createCall("ts_value_dec", {operand}, HIRType::makeAny());
+        } else if (useRuntimeNarrow) {
+            // Box the narrow operand, run ToNumeric ±1 for the NEW value, then
+            // recover the OLD ToNumeric value (postfix returns it, ES 13.4.2/
+            // 13.4.3 step "Return oldValue") with the inverse op. The runtime
+            // ToPrimitive/valueOf hook fires exactly once — on the first call;
+            // the second operates on the already-numeric result.
+            auto boxed = boxValueIfNeeded(operand);
+            if (op == "++") {
+                result = builder_.createCall("ts_value_inc", {boxed}, HIRType::makeAny());
+                oldValue = builder_.createCall("ts_value_dec", {result}, HIRType::makeAny());
+            } else {
+                result = builder_.createCall("ts_value_dec", {boxed}, HIRType::makeAny());
+                oldValue = builder_.createCall("ts_value_inc", {result}, HIRType::makeAny());
+            }
         } else if (isFloat) {
             auto one = builder_.createConstFloat(1.0);
             result = (op == "++") ? builder_.createAddF64(operand, one)
@@ -2431,6 +2524,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                 } else {
                     auto* info = lookupVariableInfo(ident->name);
                     if (info && info->isAlloca) {
+                        widenUpdateSlotToAny(useRuntimeNarrow, info, ident->name);
                         builder_.createStore(result, info->value, info->elemType);
                         broadcastCaptureWrite(info, result);
                         // If used by inner function AND module global, also update __modvar_

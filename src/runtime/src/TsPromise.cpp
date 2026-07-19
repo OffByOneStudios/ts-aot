@@ -2885,12 +2885,22 @@ TsValue* ts_promise_any_fulfilled_helper(void* context, TsValue* val) {
     return nullptr;
 }
 
+// ES 27.2.4.3 PerformPromiseAny: when remainingElementsCount hits 0, reject
+// with a newly created AggregateError whose "errors" is the collected list.
+static TsValue* ts_promise_any_aggregate(TsArray* errors) {
+    extern TsValue* ts_error_create_aggregate(TsValue* errors, TsValue* message);
+    return ts_error_create_aggregate(
+        ts_value_make_array(errors),
+        ts_value_make_string(TsString::Create("All promises were rejected")));
+}
+
 TsValue* ts_promise_any_rejected_helper(void* context, TsValue* reason) {
     AnyContext* ctx = (AnyContext*)context;
     ctx->errors->Push((int64_t)reason);
     ctx->remaining--;
     if (ctx->remaining == 0) {
-        ts_promise_reject_internal(ctx->mainPromise, ts_value_make_array(ctx->errors));
+        ts_promise_reject_internal(ctx->mainPromise,
+            ts_promise_any_aggregate(ctx->errors));
     }
     return nullptr;
 }
@@ -3049,7 +3059,7 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
             ctx->remaining--;
             if (ctx->remaining == 0) {
                 ts_promise_reject_internal(mainPromise,
-                    ts_value_make_array(ctx->errors));
+                    ts_promise_any_aggregate(ctx->errors));
             }
         } else {
             // Abrupt completion from user code: ts_throw already popped our
@@ -3083,7 +3093,8 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
     if (total == 0) {
-        ts_promise_reject_internal(mainPromise, ts_value_make_object(TsArray::Create()));
+        ts_promise_reject_internal(mainPromise,
+            ts_promise_any_aggregate(TsArray::Create()));
         return ts_value_make_promise(mainPromise);
     }
 

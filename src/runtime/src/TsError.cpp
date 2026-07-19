@@ -257,6 +257,7 @@ extern "C" void* ts_get_global_ReferenceError();
 extern "C" void* ts_get_global_SyntaxError();
 extern "C" void* ts_get_global_URIError();
 extern "C" void* ts_get_global_EvalError();
+extern "C" void* ts_get_global_AggregateError();
 
 // Look up global error constructor by name
 static void* getErrorConstructorByName(const char* name) {
@@ -267,6 +268,7 @@ static void* getErrorConstructorByName(const char* name) {
     if (strcmp(name, "SyntaxError") == 0) return ts_get_global_SyntaxError();
     if (strcmp(name, "URIError") == 0) return ts_get_global_URIError();
     if (strcmp(name, "EvalError") == 0) return ts_get_global_EvalError();
+    if (strcmp(name, "AggregateError") == 0) return ts_get_global_AggregateError();
     return ts_get_global_Error();
 }
 
@@ -334,52 +336,13 @@ extern "C" {
         return err;
     }
 
-    // AggregateError(errors, message?) — ES2021. Constructs an Error-shaped
-    // object with name="AggregateError", optional .message, and .errors set
-    // to a fresh array containing each item from the iterable `errorsVal`.
-    // Differs from ts_error_create_typed_js, which treats arg0 as message.
+    // AggregateError(errors, message?) — ES 20.5.7.1.1. Delegates to the
+    // canonical constructor implementation (TsGlobals.cpp) so there is a single
+    // source of truth for prototype wiring, IterableToList, ToString(message),
+    // and InstallErrorCause. Used by Promise.any's rejection path.
     void* ts_error_create_aggregate(void* errorsVal, void* messageVal) {
-        TsString* msg = nullptr;
-        if (messageVal) {
-            void* raw = ts_value_get_string((TsValue*)messageVal);
-            if (raw) msg = (TsString*)raw;
-        }
-        TsValue* err = buildTypedErrorObject("AggregateError",
-            msg ? msg : TsString::Create(""));
-
-        // Build .errors array. If errorsVal is already a TsArray, copy its
-        // contents element-by-element. Other iterables would need full
-        // iterator-protocol walking; we accept arrays as the common case.
-        TsArray* errs = (TsArray*)ts_array_create();
-        if (errorsVal) {
-            void* rawSrc = ts_value_get_object((TsValue*)errorsVal);
-            if (!rawSrc) rawSrc = errorsVal;
-            if (TsArray* src = ts_cast<TsArray>(rawSrc)) {  // ARRY
-                int64_t n = src->Length();
-                for (int64_t i = 0; i < n; i++) errs->Push(src->Get(i));
-            }
-        }
-        if (err) {
-            void* errRaw = ts_value_get_object(err);
-            if (errRaw) {
-                if (TsMap* errMap = ts_cast<TsMap>(errRaw)) {  // TsMap
-                    TsValue errsKey; errsKey.type = ValueType::STRING_PTR;
-                    errsKey.ptr_val = TsString::GetInterned("errors");
-                    TsValue errsValOut; errsValOut.type = ValueType::OBJECT_PTR;
-                    errsValOut.ptr_val = errs;
-                    errMap->Set(errsKey, errsValOut);
-                    // .constructor → AggregateError ctor.
-                    void* ctor = getErrorConstructorByName("AggregateError");
-                    if (ctor) {
-                        TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
-                        ctorKey.ptr_val = TsString::GetInterned("constructor");
-                        TsValue ctorValOut; ctorValOut.type = ValueType::OBJECT_PTR;
-                        ctorValOut.ptr_val = ctor;
-                        errMap->Set(ctorKey, ctorValOut);
-                    }
-                }
-            }
-        }
-        return err;
+        extern void* ts_aggregate_error_new(void* errors, void* message,
+                                            void* options);
+        return ts_aggregate_error_new(errorsVal, messageVal, nullptr);
     }
 }
