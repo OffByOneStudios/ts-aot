@@ -1253,6 +1253,294 @@ extern "C" {
         return tmp;
     }
 
+    // ================================================================
+    // Array-like mutator spec path (ECMA-262 23.1.3.{push,pop,shift,
+    // unshift,splice}).
+    //
+    // These run the mutators DIRECTLY on an array-LIKE receiver via
+    // Get/Set/Has/Delete + a single ToLength(Get(O,"length")), touching
+    // only the affected indices — never materializing O(len) elements.
+    // This is mandatory for receivers whose "length" is near 2^53-1:
+    // both the C++ fast path and require_array_or_throw's temp-array
+    // materializer allocate/iterate O(len) and either time out or clamp
+    // the length to a wrong value. Fast real arrays never reach here
+    // (every call site guards with resolve_array_ctx(ctx) == nullptr),
+    // and only plain data objects (TsMap) take this path — primitives,
+    // strings, functions and Proxies keep the legacy materializer.
+    // ================================================================
+    extern "C" TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    extern "C" bool ts_object_has_prop(TsValue* obj, TsValue* key);
+    extern "C" bool ts_object_delete_prop(TsValue* obj, TsValue* key);
+
+    static const double kArrayMaxSafeLen = 9007199254740991.0;  // 2^53 - 1
+
+    // obj[idx] canonicalizes a numeric key to its index string, matching the
+    // compiler's dynamic member access exactly (getters fire, holes report via
+    // HasProperty). idx is always an exact integer < 2^53, so a double key is
+    // lossless.
+    static inline TsValue* al_key(double idx) { return ts_value_make_double(idx); }
+
+    static inline TsValue* al_lengthKey() {
+        return ts_value_make_string(TsString::GetInterned("length"));
+    }
+
+    // ToLength(Get(O, "length")) = clamp(ToIntegerOrInfinity(len), 0, 2^53-1).
+    // ts_to_number throws TypeError on a Symbol length per spec, which
+    // propagates. The ToIntegerOrInfinity truncation matters: a fractional
+    // length like 2.5 must become 2 (else the written-back length is 1.5).
+    static double al_to_length(TsValue* O) {
+        TsValue* lv = ts_object_get_dynamic(O, al_lengthKey());
+        if (!lv) return 0;
+        double d = ts_to_number(lv);
+        if (d != d) return 0;                        // NaN -> 0
+        if (std::isinf(d)) return d < 0 ? 0 : kArrayMaxSafeLen;
+        d = (d < 0) ? std::ceil(d) : std::floor(d);  // truncate toward zero
+        if (d <= 0) return 0;
+        return d > kArrayMaxSafeLen ? kArrayMaxSafeLen : d;
+    }
+    static inline TsValue* al_get(TsValue* O, double idx) {
+        return ts_object_get_dynamic(O, al_key(idx));
+    }
+    static inline bool al_has(TsValue* O, double idx) {
+        return ts_object_has_prop(O, al_key(idx));
+    }
+    static inline void al_set(TsValue* O, double idx, TsValue* v) {
+        ts_object_set_dynamic(O, al_key(idx), v ? v : ts_value_make_undefined());
+    }
+    static inline void al_delete(TsValue* O, double idx) {
+        ts_object_delete_prop(O, al_key(idx));
+    }
+    static inline void al_set_length(TsValue* O, double len) {
+        ts_object_set_dynamic(O, al_lengthKey(), ts_value_make_double(len));
+    }
+    // ToIntegerOrInfinity returning a double (preserves +/-Infinity for the
+    // splice start/deleteCount clamps). Throws on Symbol/BigInt via ts_to_number.
+    static double al_to_integer_or_infinity(TsValue* v) {
+        if (!v) return 0;
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (nanbox_is_undefined(nb)) return 0;
+        double d = ts_to_number(v);
+        if (d != d) return 0;                        // NaN -> 0
+        if (std::isinf(d)) return d;
+        return d < 0 ? std::ceil(d) : std::floor(d);
+    }
+    static void al_throw_length_limit(const char* method) {
+        char msg[128];
+        snprintf(msg, sizeof(msg),
+                 "Array.prototype.%s: resulting length exceeds 2^53-1", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
+    // Boxed array-LIKE receiver for a mutator, or nullptr to signal "not a plain
+    // array-like object; take the legacy path" (nullish receivers, primitives,
+    // strings, functions, Proxies). resolve_array_ctx already excluded real
+    // arrays before this is called.
+    static TsValue* arraylike_data_receiver(void* ctx) {
+        void* ctxToRead = ctx;
+        bool nullish = true;
+        if (ctx) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            nullish = nanbox_is_null(nb) || nanbox_is_undefined(nb);
+        }
+        if (nullish) {
+            void* t = ts_get_call_this();
+            if (!t) return nullptr;
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)t);
+            if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) return nullptr;
+            ctxToRead = t;
+        }
+        void* raw = ts_value_get_object((TsValue*)ctxToRead);
+        if (!raw) raw = ctxToRead;
+        if ((uintptr_t)raw < 0x1000 || (uintptr_t)raw >= 0x0000800000000000ULL)
+            return nullptr;
+        // Plain data objects only: a flat object (FLAT magic at offset 0) or a
+        // TsMap (MAPS magic at offset 16, excluding module-namespace exotics
+        // whose [[Set]] is always false). Real arrays are already filtered by
+        // the caller's resolve_array_ctx guard; primitives, strings, functions
+        // and Proxies keep the legacy materializer path.
+        bool ok = false;
+        if (*(uint32_t*)raw == 0x464C4154 /*FLAT*/) {
+            ok = true;
+        } else if (*(uint32_t*)((char*)raw + 16) == 0x4D415053 /*MAPS*/) {
+            if (((TsMap*)raw)->IsModuleNamespace()) return nullptr;
+            ok = true;
+        }
+        if (!ok) return nullptr;
+        return ts_value_make_object(raw);
+    }
+
+    // 23.1.3.23 Array.prototype.push
+    static TsValue* arraylike_push(TsValue* O, int argc, TsValue** argv) {
+        double len = al_to_length(O);
+        double argCount = (double)argc;
+        if (len + argCount > kArrayMaxSafeLen) { al_throw_length_limit("push"); return ts_value_make_undefined(); }
+        for (int i = 0; i < argc; i++) al_set(O, len + (double)i, argv[i]);
+        double newLen = len + argCount;
+        al_set_length(O, newLen);
+        return ts_value_make_double(newLen);
+    }
+
+    // 23.1.3.22 Array.prototype.pop
+    static TsValue* arraylike_pop(TsValue* O) {
+        double len = al_to_length(O);
+        if (len == 0) { al_set_length(O, 0); return ts_value_make_undefined(); }
+        double newLen = len - 1;
+        TsValue* elem = al_get(O, newLen);
+        al_delete(O, newLen);
+        al_set_length(O, newLen);
+        return elem ? elem : ts_value_make_undefined();
+    }
+
+    // 23.1.3.27 Array.prototype.shift
+    static TsValue* arraylike_shift(TsValue* O) {
+        double len = al_to_length(O);
+        if (len == 0) { al_set_length(O, 0); return ts_value_make_undefined(); }
+        TsValue* first = al_get(O, 0);
+        for (double k = 1; k < len; k += 1) {
+            double to = k - 1;
+            if (al_has(O, k)) al_set(O, to, al_get(O, k));
+            else al_delete(O, to);
+        }
+        al_delete(O, len - 1);
+        al_set_length(O, len - 1);
+        return first ? first : ts_value_make_undefined();
+    }
+
+    // 23.1.3.32 Array.prototype.unshift
+    static TsValue* arraylike_unshift(TsValue* O, int argc, TsValue** argv) {
+        double len = al_to_length(O);
+        double argCount = (double)argc;
+        if (argCount > 0) {
+            if (len + argCount > kArrayMaxSafeLen) { al_throw_length_limit("unshift"); return ts_value_make_undefined(); }
+            for (double k = len; k > 0; k -= 1) {
+                double from = k - 1, to = k + argCount - 1;
+                if (al_has(O, from)) al_set(O, to, al_get(O, from));
+                else al_delete(O, to);
+            }
+            for (int j = 0; j < argc; j++) al_set(O, (double)j, argv[j]);
+        }
+        double newLen = len + argCount;
+        al_set_length(O, newLen);
+        return ts_value_make_double(newLen);
+    }
+
+    // 23.1.3.31 Array.prototype.splice (array-like receiver; removed elements
+    // returned in a default Array — ArraySpeciesCreate on a non-array O uses
+    // the %Array% constructor).
+    static TsValue* arraylike_splice(TsValue* O, int argc, TsValue** argv) {
+        double len = al_to_length(O);
+        double relStart = (argc >= 1) ? al_to_integer_or_infinity(argv[0]) : 0;
+        double actualStart;
+        if (std::isinf(relStart) && relStart < 0) actualStart = 0;
+        else if (relStart < 0) actualStart = (len + relStart > 0) ? (len + relStart) : 0;
+        else actualStart = (relStart > len) ? len : relStart;
+
+        double insertCount, actualDeleteCount;
+        if (argc == 0) { insertCount = 0; actualDeleteCount = 0; }
+        else if (argc == 1) { insertCount = 0; actualDeleteCount = len - actualStart; }
+        else {
+            insertCount = (double)(argc - 2);
+            double dc = al_to_integer_or_infinity(argv[1]);
+            if (dc < 0) dc = 0;
+            double maxDc = len - actualStart;
+            actualDeleteCount = (dc < maxDc) ? dc : maxDc;
+        }
+        if (len + insertCount - actualDeleteCount > kArrayMaxSafeLen) {
+            al_throw_length_limit("splice");
+            return ts_value_make_undefined();
+        }
+        // ArraySpeciesCreate(O, actualDeleteCount) -> ArrayCreate: RangeError if
+        // the removed-count exceeds 2^32-1 (observed before any element read).
+        if (actualDeleteCount > 4294967295.0) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError", "Invalid array length"));
+            return ts_value_make_undefined();
+        }
+        TsArray* A = TsArray::Create(actualDeleteCount > 0 ? (size_t)actualDeleteCount : 4);
+        for (double k = 0; k < actualDeleteCount; k += 1) {
+            double from = actualStart + k;
+            if (al_has(O, from)) ts_array_push(A, (void*)al_get(O, from));
+            else ts_array_push(A, ts_value_make_undefined());
+        }
+
+        double itemCount = insertCount;
+        if (itemCount < actualDeleteCount) {
+            for (double k = actualStart; k < len - actualDeleteCount; k += 1) {
+                double from = k + actualDeleteCount, to = k + itemCount;
+                if (al_has(O, from)) al_set(O, to, al_get(O, from));
+                else al_delete(O, to);
+            }
+            for (double k = len; k > len - actualDeleteCount + itemCount; k -= 1)
+                al_delete(O, k - 1);
+        } else if (itemCount > actualDeleteCount) {
+            for (double k = len - actualDeleteCount; k > actualStart; k -= 1) {
+                double from = k + actualDeleteCount - 1, to = k + itemCount - 1;
+                if (al_has(O, from)) al_set(O, to, al_get(O, from));
+                else al_delete(O, to);
+            }
+        }
+        double k = actualStart;
+        for (int i = 2; i < argc; i++) { al_set(O, k, argv[i]); k += 1; }
+        al_set_length(O, len - actualDeleteCount + itemCount);
+        return ts_value_make_object(A);
+    }
+
+    // Clamp a relative index (ToIntegerOrInfinity result) into [0, len] per the
+    // fill/copyWithin/slice/splice convention.
+    static double al_clamp_relative(double rel, double len) {
+        if (std::isinf(rel)) return rel < 0 ? 0 : len;
+        if (rel < 0) return (len + rel > 0) ? (len + rel) : 0;
+        return (rel > len) ? len : rel;
+    }
+
+    // 23.1.3.6 Array.prototype.fill (array-like receiver). Returns O.
+    static TsValue* arraylike_fill(TsValue* O, int argc, TsValue** argv) {
+        double len = al_to_length(O);
+        TsValue* value = (argc >= 1) ? argv[0] : ts_value_make_undefined();
+        double k = al_clamp_relative(
+            (argc >= 2) ? al_to_integer_or_infinity(argv[1]) : 0, len);
+        bool endGiven = (argc >= 3 && argv[2] && !ts_value_is_undefined(argv[2]));
+        double final = endGiven
+            ? al_clamp_relative(al_to_integer_or_infinity(argv[2]), len) : len;
+        while (k < final) { al_set(O, k, value); k += 1; }
+        return O;
+    }
+
+    // 23.1.3.4 Array.prototype.copyWithin (array-like receiver). Returns O.
+    static TsValue* arraylike_copyWithin(TsValue* O, int argc, TsValue** argv) {
+        double len = al_to_length(O);
+        double to   = al_clamp_relative((argc >= 1) ? al_to_integer_or_infinity(argv[0]) : 0, len);
+        double from = al_clamp_relative((argc >= 2) ? al_to_integer_or_infinity(argv[1]) : 0, len);
+        bool endGiven = (argc >= 3 && argv[2] && !ts_value_is_undefined(argv[2]));
+        double final = endGiven
+            ? al_clamp_relative(al_to_integer_or_infinity(argv[2]), len) : len;
+        double count = std::min(final - from, len - to);
+        double direction = 1;
+        if (from < to && to < from + count) { direction = -1; from += count - 1; to += count - 1; }
+        while (count > 0) {
+            if (al_has(O, from)) al_set(O, to, al_get(O, from));
+            else al_delete(O, to);
+            from += direction; to += direction; count -= 1;
+        }
+        return O;
+    }
+
+    // 23.1.3.26 Array.prototype.reverse (array-like receiver). Returns O.
+    static TsValue* arraylike_reverse(TsValue* O, int, TsValue**) {
+        double len = al_to_length(O);
+        double middle = std::floor(len / 2);
+        for (double lower = 0; lower != middle; lower += 1) {
+            double upper = len - 1 - lower;
+            bool lowerExists = al_has(O, lower);
+            bool upperExists = al_has(O, upper);
+            TsValue* lowerVal = lowerExists ? al_get(O, lower) : nullptr;
+            TsValue* upperVal = upperExists ? al_get(O, upper) : nullptr;
+            if (lowerExists && upperExists) { al_set(O, lower, upperVal); al_set(O, upper, lowerVal); }
+            else if (upperExists)          { al_set(O, lower, upperVal); al_delete(O, upper); }
+            else if (lowerExists)          { al_delete(O, lower);        al_set(O, upper, lowerVal); }
+        }
+        return O;
+    }
+
     // Validate that `callback` is callable (function or closure).
     // Throws TypeError if not callable, matching spec for Array callback
     // methods (filter/map/forEach/every/some/find/findIndex/reduce/etc).
@@ -1375,6 +1663,12 @@ extern "C" {
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: run the spec algorithm directly on the
+        // object (ES 23.1.3.23). Avoids the O(len) temp materialization that
+        // times out / mis-clamps a length near 2^53-1.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_push(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "push");
         array_require_length_writable(arr, "push");
         if (!arr) return ts_value_make_undefined();
@@ -1385,6 +1679,11 @@ extern "C" {
         return ts_value_make_int(arr->Length());
     }
     TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.22) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_pop(O);
+        }
         TsArray* arr = require_array_or_throw(ctx, "pop");
         array_require_length_writable(arr, "pop");
         if (!arr) return ts_value_make_undefined();
@@ -2239,6 +2538,11 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.26) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_reverse(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "reverse");
         if (!arr) return ts_value_make_undefined();
         void* result = ts_array_reverse(arr);
@@ -2250,6 +2554,12 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.31). Handles length near 2^53-1 (integer-limit TypeError,
+        // ArrayCreate RangeError) without the O(len) temp materialization.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_splice(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "splice");
         double rawLen = g_require_array_raw_len;  // length read once, pre-clamp
         array_require_length_writable(arr, "splice");
@@ -2451,6 +2761,11 @@ extern "C" {
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.27).
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_shift(O);
+        }
         TsArray* arr = require_array_or_throw(ctx, "shift");
         array_require_length_writable(arr, "shift");
         if (!arr) return ts_value_make_undefined();
@@ -2459,6 +2774,11 @@ extern "C" {
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.32) — near-limit length throws before any element move.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_unshift(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "unshift");
         array_require_length_writable(arr, "unshift");
         if (!arr) return ts_value_make_undefined();
@@ -2469,6 +2789,11 @@ extern "C" {
         return ts_value_make_int(arr->Length());
     }
     TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.6) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_fill(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "fill");
         if (!arr) return ts_value_make_undefined();
         void* value = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -2611,6 +2936,11 @@ extern "C" {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec algorithm directly on the object
+        // (ES 23.1.3.4) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_copyWithin(O, argc, argv);
+        }
         TsArray* arr = require_array_or_throw(ctx, "copyWithin");
         if (!arr) return ts_value_make_undefined();
         // Use toInteger so Symbol args throw TypeError per spec.

@@ -2039,7 +2039,13 @@ extern "C" {
         // HIRToLLVM passes INT64_MIN as the "missing arg" sentinel for variadic
         // builtin lowerings, so convert that back to the spec default here.
         if (depth == INT64_MIN) depth = 1;
-        return ((TsArray*)arr)->Flat(depth);
+        // Step 5 ArraySpeciesCreate(O, 0): a custom constructor/@@species is
+        // validated (TypeError for a non-object constructor / non-constructor
+        // species) and the target is built through it, and each element goes in
+        // via CreateDataPropertyOrThrow (TypeError on a non-extensible /
+        // non-configurable target). The helper fast-rejects a plain array with
+        // no own props, so normal flat() pays only a null-check.
+        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->Flat(depth));
     }
 
     // Boxed-depth entry used by the compiler lowering: ES 23.1.3.13 step 3
@@ -2054,7 +2060,8 @@ extern "C" {
             else if (n >= 9007199254740991.0) d = INT64_MAX;    // +Inf / huge
             else d = (int64_t)n;                                // negatives clamp in Flat
         }
-        return ((TsArray*)arr)->Flat(d);
+        // ArraySpeciesCreate(O, 0) + CreateDataPropertyOrThrow (see ts_array_flat).
+        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->Flat(d));
     }
 
     // Forward decl — defined further down. Used by the C-level array
@@ -2066,7 +2073,10 @@ extern "C" {
         if (TsValue* r = array_selfhost_holey(g_selfhosted_flatMap, arr, callback, thisArg))
             return ts_value_get_object(r);  // flatMap returns an array
         if (!array_require_callable(callback, "flatMap")) return nullptr;
-        return ((TsArray*)arr)->FlatMap(callback, thisArg);
+        // ArraySpeciesCreate(O, 0) + CreateDataPropertyOrThrow (see ts_array_flat):
+        // validates a custom constructor/@@species and builds the result through
+        // it. Fast-rejects a plain array (no own props).
+        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->FlatMap(callback, thisArg));
     }
 
     bool ts_array_includes(void* arr, int64_t value) {
@@ -2920,14 +2930,53 @@ extern "C" {
         return raw ? raw : resultRaw;
     }
 
+    // True when the array has EXOTIC INDEX state that the packed C++ iteration
+    // fast paths cannot honor: own index accessor/attribute records (a
+    // `defineProperty` getter/setter or non-default attrs on an integer index),
+    // an array-like originalReceiver, or a hole while Array.prototype carries an
+    // indexed property (an inherited index could fill the hole). Deliberately
+    // does NOT fire for a plain string own property (e.g. a custom
+    // `constructor` for @@species): those keep the fast path so map/filter still
+    // apply ArraySpeciesCreate to their result.
+    static bool array_has_exotic_index_state(TsArray* a) {
+        if (!a) return false;
+        if (a->originalReceiver && a->originalReceiver != (void*)a) return true;
+        if (a->HasHoles() && g_array_proto_has_indexed) return true;
+        if (a->properties) {
+            void* keysRaw = a->properties->GetKeys();
+            if (keysRaw) {
+                TsArray* keys = (TsArray*)keysRaw;
+                size_t n = keys->Length();
+                for (size_t i = 0; i < n; i++) {
+                    TsValue* kv = (TsValue*)keys->GetElementBoxed(i);
+                    void* ks = kv ? ts_value_get_string(kv) : nullptr;
+                    if (!ks) continue;
+                    const char* s = ((TsString*)ks)->ToUtf8();
+                    if (s && (strncmp(s, "__arr_getter_", 13) == 0 ||
+                              strncmp(s, "__arr_setter_", 13) == 0 ||
+                              strncmp(s, "__arr_attrs_", 12) == 0))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // Inverted-dispatch bailout shared by the array iteration natives: when a
-    // spec impl is installed AND the receiver is a HOLEY real array while the
-    // NoElementsProtector is invalidated (an inherited index could fill a hole),
+    // spec impl is installed AND the receiver is an EXOTIC real array,
     // delegate to the self-hosted impl. `rawArr` is the unboxed array pointer.
-    // Returns the impl's boxed result, or nullptr to take the native fast path.
+    // "Exotic" (ts_array_needs_spec_search) covers: own index ACCESSOR/attr
+    // properties (arr->properties — a `defineProperty` getter on an index that
+    // mutates later indices mid-iteration), an array-like originalReceiver, or
+    // a HOLEY array while the NoElementsProtector is invalidated (an inherited
+    // index could fill a hole). Each requires the spec's read-len-once +
+    // HasProperty(O,k) + Get(O,k)-at-call-time semantics that the packed C++
+    // fast path does not provide. Returns the impl's boxed result, or nullptr
+    // to take the native fast path.
     static TsValue* array_selfhost_holey(void* impl, void* rawArr, void* cb, void* thisArg) {
-        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
-        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        if (!impl || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC) return nullptr;
+        if (!array_has_exotic_index_state((TsArray*)rawArr)) return nullptr;
         extern TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3);
         return ts_call_with_this_3(ts_value_make_object(impl), ts_value_make_undefined(),
                                    ts_value_make_object(rawArr), (TsValue*)cb, (TsValue*)thisArg);
@@ -2937,8 +2986,9 @@ extern "C" {
     // `initialValue == nullptr` means "no initial value provided" (the spec
     // distinction that decides the seed and the empty-array TypeError).
     static TsValue* array_selfhost_holey_reduce(void* impl, void* rawArr, void* cb, void* initialValue) {
-        if (!impl || !g_array_proto_has_indexed || !rawArr) return nullptr;
-        if (*(uint32_t*)rawArr != TsArray::MAGIC || !((TsArray*)rawArr)->HasHoles()) return nullptr;
+        if (!impl || !rawArr) return nullptr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC) return nullptr;
+        if (!array_has_exotic_index_state((TsArray*)rawArr)) return nullptr;
         extern TsValue* ts_call_with_this_4(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
         bool hasInitial = (initialValue != nullptr);
         TsValue* iv = initialValue ? (TsValue*)initialValue : ts_value_make_undefined();

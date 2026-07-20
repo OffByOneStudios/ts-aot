@@ -179,21 +179,39 @@ static bool functionIsStaticClassMember(HIRFunction* fn, HIRClass* cls) {
     return false;
 }
 
+std::shared_ptr<HIRValue> ASTToHIR::lowerSuperHomeObject() {
+    if (!currentClass_) return nullptr;
+    // The constructor closure carries the class's static shape and, via its
+    // "prototype" property, the instance home object. Both are installed by the
+    // deferred class-prototype pass before any method runs.
+    auto ctor = builder_.createLoadFunction(currentClass_->name + "_constructor");
+    bool inStatic = currentMethodIsStatic_ ||
+        functionIsStaticClassMember(currentFunction_, currentClass_);
+    if (inStatic) {
+        // Static method [[HomeObject]] is the constructor object itself; its
+        // [[Prototype]] is the base constructor (ES 15.7.14 static inheritance).
+        return ctor;
+    }
+    return builder_.createGetPropStatic(ctor, "prototype", HIRType::makeAny());
+}
+
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
     setSourceLine(node);
-    // `super[key]` READ with a literal key: dispatch base-class getter/method.
-    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
-        currentClass_ && currentClass_->baseClass) {
+    // `super[key]` READ. A literal key that names a base-class getter/method is
+    // dispatched statically (fast + proven). Everything else — data properties
+    // (incl. ones assigned to a base prototype at runtime) and non-literal keys —
+    // goes through the runtime SuperProperty walk (ECMA-262 13.3.7).
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) && currentClass_) {
         std::string key;
         if (auto* sl = dynamic_cast<ast::StringLiteral*>(node->argumentExpression.get()))
             key = sl->value;
         else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get()))
             key = std::to_string((int64_t)nl->value);
-        if (!key.empty()) {
-            bool inStatic = currentMethodIsStatic_ ||
-                functionIsStaticClassMember(currentFunction_, currentClass_);
-            auto thisVal = lookupVariable("this");
-            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+        bool inStatic = currentMethodIsStatic_ ||
+            functionIsStaticClassMember(currentFunction_, currentClass_);
+        auto thisVal = lookupVariable("this");
+        if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+        if (!key.empty() && currentClass_->baseClass) {
             for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
                 auto& tbl = inStatic ? sc->staticMethods : sc->methods;
                 auto git = tbl.find("__getter_" + key);
@@ -208,6 +226,19 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
                     lastValue_ = builder_.createLoadFunction(mit->second->name);
                     return;
                 }
+            }
+        }
+        // Runtime fallback: base.[[Get]](key, this) with the real prototype chain.
+        // Evaluate the key EXPRESSION first (ES 13.3.7.1: after GetThisBinding,
+        // before GetSuperBase — a throwing key hook is ordered by the helper).
+        // Gated on a user base class (see visitPropertyAccessExpression note).
+        if (currentClass_->baseClass) {
+            auto keyVal = lowerExpression(node->argumentExpression.get());
+            if (auto home = lowerSuperHomeObject()) {
+                lastValue_ = builder_.createCall("ts_super_get_computed",
+                    {home, boxValueIfNeeded(keyVal), boxValueIfNeeded(thisVal)},
+                    HIRType::makeAny());
+                return;
             }
         }
     }
@@ -301,11 +332,12 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             return;
         }
     }
-    // `super.prop` READ (not a call): dispatch a base-class getter with `this`,
-    // or load a base-class method. (super.method() calls are handled in the call
-    // path; this covers `super.getter` and `super.method` without invocation.)
-    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
-        currentClass_ && currentClass_->baseClass) {
+    // `super.prop` READ (not a call): dispatch a base-class getter/method
+    // statically when the name is class-declared (fast + proven); otherwise fall
+    // back to the runtime SuperProperty walk so data properties (incl. ones
+    // assigned to a base prototype at runtime) resolve. (super.method() calls are
+    // handled in the call path; this covers `super.getter`/`super.method` reads.)
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) && currentClass_) {
         bool inStatic = currentMethodIsStatic_ ||
                 functionIsStaticClassMember(currentFunction_, currentClass_);
         auto thisVal = lookupVariable("this");
@@ -336,6 +368,23 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             auto mit = sc->methods.find(node->name);
             if (mit != sc->methods.end() && mit->second) {
                 lastValue_ = builder_.createLoadFunction(mit->second->name);
+                return;
+            }
+        }
+        // Runtime fallback: base.[[Get]](name, this) walking the real chain.
+        // Gated on a user base class. Non-derived classes and `extends null` /
+        // `extends <builtin>` keep the legacy null-base path, which correctly
+        // throws (TypeError for a null super base; ReferenceError for an
+        // uninitialized `this` in a derived constructor) — the runtime walk
+        // cannot reproduce those throws because this compiler wires neither a
+        // null [[Prototype]] for `extends null` nor `this`-TDZ here. `extends
+        // null` is indistinguishable from a non-derived class in the AST (no
+        // heritage flag is plumbed), so both take the legacy path.
+        if (currentClass_->baseClass) {
+            if (auto home = lowerSuperHomeObject()) {
+                auto keyStr = builder_.createConstString(node->name);
+                lastValue_ = builder_.createCall("ts_super_get",
+                    {home, keyStr, boxValueIfNeeded(thisVal)}, HIRType::makeAny());
                 return;
             }
         }

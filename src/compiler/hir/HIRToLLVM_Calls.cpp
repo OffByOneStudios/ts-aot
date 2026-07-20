@@ -1072,6 +1072,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     llvm::Value* result = builder_->CreateCall(fn, args);
     if (inst->result) {
+        // The callee returns void but this call has a result value that a
+        // consumer may read as an operand — e.g. `new`'s ts_construct_select
+        // over a derived-class constructor whose return type is void (either
+        // declared void, or propagated to void by TypePropagation after the
+        // construct_select was lowered against an Any result). A void CreateCall
+        // result cannot be passed as an argument (LLVM verify: "Call parameter
+        // type does not match function signature"). Substitute `undefined` so the
+        // consumer receives a valid GC pointer; a genuinely unused void result
+        // is harmless.
+        if (fn->getReturnType()->isVoidTy()) {
+            auto undefFn = module_->getOrInsertFunction(
+                "ts_value_make_undefined",
+                llvm::FunctionType::get(getGCPtrTy(), {}, false));
+            result = builder_->CreateCall(undefFn);
+        }
         setValue(inst->result, result);
     }
 }
