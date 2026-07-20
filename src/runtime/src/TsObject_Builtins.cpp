@@ -2075,12 +2075,27 @@ extern "C" {
     TsValue* ts_typed_array_fill_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "fill")) return ts_value_make_undefined();
-        // Use ts_to_number — Symbol/object args must throw TypeError per spec
-        // (Symbol→Number throws, object falls through ToPrimitive). The
-        // earlier ts_value_get_double/ts_value_get_int didn't throw and
-        // silently produced garbage for these inputs.
+        // ES 23.2.3.9 step 4-5: coerce the fill value ONCE, BEFORE start/end.
+        // BigInt arrays take ToBigInt (Number/undefined/null/Symbol -> TypeError,
+        // strings parse, booleans map) — the old ts_to_number path silently
+        // stored a truncated double into the int64 slots
+        // (fill/BigInt/fill-values-non-numeric-throw). Number arrays take
+        // ToNumber (Symbol/object throw / ToPrimitive per spec).
+        bool isBig = (ta->GetType() == TypedArrayType::BigInt64 ||
+                      ta->GetType() == TypedArrayType::BigUint64);
+        TsValue* valArg = (argc >= 1 && argv && argv[0]) ? argv[0]
+                          : ts_value_make_undefined();
+        int64_t bigFill = 0;
         double fillVal = 0;
-        if (argc >= 1 && argv && argv[0]) fillVal = ts_to_number(argv[0]);
+        if (isBig) {
+            extern void* ts_to_bigint_spec(TsValue* v);
+            extern int64_t ts_bigint_to_i64(void* bi);
+            void* bi = ts_to_bigint_spec(valArg);  // throws on non-BigInt-coercible
+            if (!bi) return ts_value_make_undefined();  // unreachable (threw)
+            bigFill = ts_bigint_to_i64(bi);
+        } else {
+            fillVal = ts_to_number(valArg);
+        }
         int64_t len = (int64_t)ta->GetLength();
         // RelativeIndex via ToIntegerOrInfinity: NaN/-Inf -> 0, +Inf -> len,
         // negatives relative to len. Each coercion is observable and MAY detach
@@ -2109,8 +2124,11 @@ extern "C" {
         int64_t curLen = (int64_t)ta->GetLength();
         if (end > curLen) end = curLen;
         if (start > curLen) start = curLen;
-        for (int64_t i = start; i < end; i++) {
-            ta->Set((size_t)i, fillVal);
+        if (isBig) {
+            int64_t* data = (int64_t*)ta->GetData();
+            if (data) for (int64_t i = start; i < end; i++) data[i] = bigFill;
+        } else {
+            for (int64_t i = start; i < end; i++) ta->Set((size_t)i, fillVal);
         }
         return ts_value_make_object(ta);
     }
