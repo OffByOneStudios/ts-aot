@@ -4484,19 +4484,43 @@ extern "C" {
     // Iterator-returning versions (return TsMap-based iterator with .next())
     // ============================================================
 
+    extern "C" void* ts_create_typedarray_iterator(void* ta, int kind);  // TsMap.cpp
+
+    // A statically-typed TypedArray receiver reaches entries/keys/values via
+    // these intrinsic runtime calls (BuiltinRegistry) rather than the dynamic
+    // %TypedArray%.prototype method. Route it to the LIVE TA iterator so the
+    // resizable-buffer / out-of-bounds semantics (ES 23.1.5.1, TA branch) hold
+    // here too; ValidateTypedArray throws for a detached / out-of-bounds view.
+    static void* ta_iter_or_null(void* arr, int kind) {
+        void* raw = ts_nanbox_safe_unbox(arr);
+        TsTypedArray* ta = asTypedArray(raw);
+        if (!ta) return nullptr;
+        if (ta->IsDetachedBuffer() || ta->IsOutOfBounds()) {
+            extern void* ts_error_create_typed(const char* type, const char* message);
+            extern void ts_throw(TsValue* err);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArray iterator requested on a detached or out-of-bounds TypedArray"));
+            return nullptr;
+        }
+        return ts_create_typedarray_iterator((void*)ta, kind);
+    }
+
     void* ts_array_entries_iter(void* arr) {
+        if (void* it = ta_iter_or_null(arr, 2)) return it;
         void* items = ts_array_entries(arr);
         if (!items) return ts_create_array_iterator(ts_array_create());
         return ts_create_array_iterator(items);
     }
 
     void* ts_array_keys_iter(void* arr) {
+        if (void* it = ta_iter_or_null(arr, 0)) return it;
         void* items = ts_array_keys(arr);
         if (!items) return ts_create_array_iterator(ts_array_create());
         return ts_create_array_iterator(items);
     }
 
     void* ts_array_values_iter(void* arr) {
+        if (void* it = ta_iter_or_null(arr, 1)) return it;
         void* items = ts_array_values(arr);
         if (!items) return ts_create_array_iterator(ts_array_create());
         return ts_create_array_iterator(items);

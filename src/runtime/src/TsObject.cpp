@@ -2280,20 +2280,29 @@ void* ts_create_arguments_from_params(
         // methods bound to this receiver, then fall through to any
         // user-extended BigInt.prototype props.
         if (magic0 == 0x42494749) { // TsBigInt
+            // Ordinary [[Get]] walks BigInt.prototype FIRST, so a user override
+            // of toString / valueOf / toLocaleString (ES 21.2.3) is honored even
+            // when the method is invoked directly on a primitive. The default
+            // methods live on BigInt.prototype (installed at init), so this also
+            // preserves default behavior — the hardcoded natives below are only a
+            // fallback for the case where BigInt.prototype isn't yet available.
+            extern void* ts_get_global_BigInt();
+            void* biCtor = ts_value_get_object((TsValue*)ts_get_global_BigInt());
+            if (biCtor) {
+                TsValue* protoVal = ts_object_get_property(biCtor, "prototype");
+                void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+                if (protoRaw && protoRaw != obj) {
+                    TsValue* fromProto = temporal_proto_get(obj, protoRaw, keyStr);
+                    if (fromProto && nanbox_from_tsvalue_ptr(fromProto) != NANBOX_UNDEFINED)
+                        return fromProto;
+                }
+            }
             if (strcmp(keyStr, "toString") == 0)
                 return makeNamedNativeFunction((void*)ts_bigint_toString_native, obj, "toString", 0);
             if (strcmp(keyStr, "valueOf") == 0)
                 return makeNamedNativeFunction((void*)ts_bigint_valueOf_native, obj, "valueOf", 0);
             if (strcmp(keyStr, "toLocaleString") == 0)
                 return makeNamedNativeFunction((void*)ts_bigint_toLocaleString_native, obj, "toLocaleString", 0);
-            extern void* ts_get_global_BigInt();
-            void* biCtor = ts_value_get_object((TsValue*)ts_get_global_BigInt());
-            if (biCtor) {
-                TsValue* protoVal = ts_object_get_property(biCtor, "prototype");
-                void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
-                if (protoRaw && protoRaw != obj)
-                    return temporal_proto_get(obj, protoRaw, keyStr);
-            }
             return ts_value_make_undefined();
         }
         // Check for flat inline-slot object (magic at offset 0)

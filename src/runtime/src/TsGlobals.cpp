@@ -6295,6 +6295,7 @@ extern "C" void* ts_get_global_BigInt64Array();
 extern "C" void* ts_get_global_BigUint64Array();
 extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v);
 extern "C" void* ts_typed_array_create_i64(int64_t);
+extern "C" void* ts_create_typedarray_iterator(void* ta, int kind);  // TsMap.cpp
 extern "C" void* ts_typed_array_create_u64(int64_t);
 extern "C" void* ts_typed_array_create_u8(int64_t);
 extern "C" void* ts_typed_array_create_clamped(int64_t);
@@ -7042,27 +7043,41 @@ void* ts_get_global_TypedArray() {
                     return ts_value_make_undefined(); \
                 }, ARITY)
 
-            // entries/keys/values: delegate to the array iterator helpers.
-            // ts_array_entries/keys/values fall through to a generic
-            // length-walking path when the receiver isn't a TsArray, so
-            // passing a TsTypedArray works.
+            // entries/keys/values (ES 23.2.3.7 / .18 / .32): each performs
+            // ValidateTypedArray (throw TypeError if the view is out of bounds
+            // on a resized buffer, or detached) then returns a LIVE array
+            // iterator (ts_create_typedarray_iterator) that re-derives the
+            // view's length + OOB state on every .next() step. Kind: 0=keys,
+            // 1=values, 2=entries.
             addMethod(tproto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "entries");
                 if (!ta) return ts_value_make_undefined();
-                void* result = ts_array_entries((void*)ta);
-                return ts_value_make_object(result);
+                if (ta->IsOutOfBounds()) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "TypedArray.prototype.entries called on an out-of-bounds TypedArray"));
+                    return ts_value_make_undefined();
+                }
+                return (TsValue*)ts_create_typedarray_iterator((void*)ta, 2);
             }, 0);
             addMethod(tproto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "keys");
                 if (!ta) return ts_value_make_undefined();
-                void* result = ts_array_keys((void*)ta);
-                return ts_value_make_object(result);
+                if (ta->IsOutOfBounds()) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "TypedArray.prototype.keys called on an out-of-bounds TypedArray"));
+                    return ts_value_make_undefined();
+                }
+                return (TsValue*)ts_create_typedarray_iterator((void*)ta, 0);
             }, 0);
             addMethod(tproto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "values");
                 if (!ta) return ts_value_make_undefined();
-                void* result = ts_array_values((void*)ta);
-                return ts_value_make_object(result);
+                if (ta->IsOutOfBounds()) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "TypedArray.prototype.values called on an out-of-bounds TypedArray"));
+                    return ts_value_make_undefined();
+                }
+                return (TsValue*)ts_create_typedarray_iterator((void*)ta, 1);
             }, 0);
             // ES 23.2.3.35: %TypedArray%.prototype[@@iterator] is the SAME
             // function object as %TypedArray%.prototype.values ({writable:true,
