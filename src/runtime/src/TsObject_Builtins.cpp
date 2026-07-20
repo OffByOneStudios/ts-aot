@@ -1891,6 +1891,15 @@ extern "C" {
             int64_t raw = ((int64_t*)data)[index];
             return ts_value_make_bigint(ts_bigint_create_int(raw));
         }
+        // ES 10.4.5.15 IntegerIndexedElementGet: an index outside the view's
+        // CURRENT length (a detached buffer, or a resizable buffer shrunk so the
+        // index no longer maps to a slot) reads as `undefined`, NOT 0. GetLength()
+        // re-derives from the live buffer, so a length-tracking view shrunk during
+        // iteration (find/filter/map callbackfn-resize) yields undefined here —
+        // matching the direct `ta[i]` path (ts_array_get_as_value), which the
+        // dynamic [[Get]] at the self-hosted-arraylike call site bypassed.
+        if (!ta->GetData() || index >= ta->GetLength())
+            return ts_value_make_undefined();
         return ts_value_make_double(ta->Get(index));
     }
     TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
@@ -2036,11 +2045,16 @@ extern "C" {
         if (newLength < 0) newLength = 0;
         int64_t beginByteOffset = (int64_t)ta->GetByteOffset() + startIndex * esize;
         void* buffer = ta->GetBuffer();
+        // ES 23.2.3.27 step 15: if the source view's [[ArrayLength]] is `auto`
+        // (length-tracking) AND `end` is undefined, the result is created WITHOUT
+        // a length argument, i.e. it is itself length-tracking and re-derives from
+        // the (possibly resized-back-in-bounds) buffer. Only then omit newLength.
+        bool resultAutoLen = ta->IsLengthTracking() && endUndef;
         extern void* ts_typed_array_species_alloc_on_buffer(
             void* receiver, void* bufferRaw, int64_t byteOffset,
             int64_t newLength, bool autoLen);
         void* resRaw = ts_typed_array_species_alloc_on_buffer(
-            (void*)ta, buffer, beginByteOffset, newLength, false);
+            (void*)ta, buffer, beginByteOffset, newLength, resultAutoLen);
         if (!resRaw) return ts_value_make_undefined();  // TypeError thrown
         return ts_value_make_object(resRaw);
     }
@@ -2133,37 +2147,20 @@ extern "C" {
 
     // TypedArray.prototype.includes(searchElement, fromIndex?)
     TsValue* ts_typed_array_includes_native(void* ctx, int argc, TsValue** argv) {
-        TsTypedArray* ta = (TsTypedArray*)ctx;
-        if (throwIfDetached(ta, "includes")) return ts_value_make_undefined();
-        int64_t len = (int64_t)ta->GetLength();
-        // ECMA-262 %TypedArray%.prototype.includes step 4: len 0 -> false before
-        // coercing search/fromIndex (throwing valueOf must not run on empty).
-        if (len == 0) return ts_value_make_bool(false);
-        if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
-        // SameValueZero, no coercion: a type-mismatched search never matches.
-        double search = 0;
-        bool canMatch = ta_search_element_matches_kind(ta, argv[0], &search);
-        int64_t from = 0;
-        if (argc >= 2 && argv[1]) {
-            // ToIntegerOrInfinity: +Inf -> nothing at/after it (false);
-            // -Inf -> clamp to 0. FPToSI(Inf) is INT64_MIN garbage.
-            double fd = ts_to_number(argv[1]);
-            if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
-            if (fd == std::numeric_limits<double>::infinity())
-                return ts_value_make_bool(false);
-            from = (fd == -std::numeric_limits<double>::infinity() || fd != fd)
-                       ? 0 : (int64_t)fd;  // ToIntegerOrInfinity(NaN) = 0
-        }
-        if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
-        if (!canMatch) return ts_value_make_bool(false);
-        if (from < 0) from = std::max((int64_t)0, len + from);
-        bool searchNaN = (search != search);
-        for (int64_t i = from; i < len; i++) {
-            double v = ta->Get((size_t)i);
-            if (searchNaN) { if (v != v) return ts_value_make_bool(true); }
-            else if (v == search) return ts_value_make_bool(true);
-        }
-        return ts_value_make_bool(false);
+        // ECMA-262 %TypedArray%.prototype.includes. Delegate to the shared,
+        // resizable-aware engine used by the compiled fast path so both dispatch
+        // routes agree: `len` (initial) is captured before ToIntegerOrInfinity
+        // (fromIndex), the empty-view short-circuit precedes coercion, and each
+        // element read is an IntegerIndexedElementGet — a slot past the CURRENT
+        // (shrunk/detached) length reads as `undefined`, so a search for
+        // `undefined` matches it (SameValueZero). The old native returned false
+        // for an undefined search and read OOB slots as 0.
+        extern bool ts_array_includes_from_coerced(void* arr, int64_t value, TsValue* fromIndex);
+        int64_t sv = (argc >= 1 && argv && argv[0])
+                         ? (int64_t)(intptr_t)argv[0]
+                         : (int64_t)(intptr_t)ts_value_make_undefined();
+        TsValue* fi = (argc >= 2 && argv) ? argv[1] : nullptr;
+        return ts_value_make_bool(ts_array_includes_from_coerced(ctx, sv, fi));
     }
 
     // TypedArray.prototype.indexOf(searchElement, fromIndex?)

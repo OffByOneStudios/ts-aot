@@ -2737,6 +2737,14 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "buffer") == 0) {
                 return ts_value_make_object(ta->GetBuffer());
             }
+            // ES 23.2.3.27 %TypedArray%.prototype.subarray does NOT perform
+            // ValidateTypedArray at entry — it tolerates an out-of-bounds view,
+            // treating srcLength as 0 (a coercion of its start/end args may even
+            // resize the buffer back in bounds). So resolve `subarray` BEFORE the
+            // OOB chokepoint below; the native impl handles OOB gracefully.
+            if (strcmp(keyStr, "subarray") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_subarray_native, ta, "subarray", 2);
+            }
             // ES2024 ValidateTypedArray: a fixed-extent view left out of
             // bounds by a buffer shrink must make every prototype method
             // throw TypeError. Validating here (method ACCESS on the
@@ -2754,9 +2762,6 @@ void* ts_create_arguments_from_params(
             }
             if (strcmp(keyStr, "set") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_set_native, ta, "set", 1);
-            }
-            if (strcmp(keyStr, "subarray") == 0) {
-                return makeNamedNativeFunction((void*)ts_typed_array_subarray_native, ta, "subarray", 2);
             }
             if (strcmp(keyStr, "fill") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_fill_native, ta, "fill", 1);

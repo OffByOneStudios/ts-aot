@@ -7331,7 +7331,13 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                 size_t bytesAvail = bufLen - off;                                        \
                 size_t bytes;                                                            \
                 if (byteLength < 0) {                                                    \
-                    if (bytesAvail % (ElemSize) != 0) {                                  \
+                    /* ES 23.2.5.1 InitializeTypedArrayFromArrayBuffer step 8: the   */  \
+                    /* "bufferByteLength mod elementSize != 0 -> RangeError" check    */  \
+                    /* applies ONLY when the buffer is NOT resizable (fixed-length).  */  \
+                    /* Over a RESIZABLE buffer the view is length-tracking and its    */  \
+                    /* length floors to floor((byteLength-offset)/elementSize) with   */  \
+                    /* no divisibility requirement (re-derived on each access).       */  \
+                    if (!buf->IsResizable() && bytesAvail % (ElemSize) != 0) {           \
                         ts_throw((TsValue*)ts_error_create_typed("RangeError",           \
                             "buffer length not divisible by element size"));              \
                         return nullptr;                                                  \

@@ -987,6 +987,18 @@ extern "C" {
             }
         }
 
+        // A user class `extends Promise`: build a genuine promise instance
+        // whose executor (the effect of `super(executor)`) settles it, so
+        // NewPromiseCapability(C) — reached here for `Promise.all.call(Sub, …)`,
+        // the *-ctx-ctor tests, and `new Sub(fn)` — yields a working subclass
+        // promise instead of a plain object. Returns nullptr for non-Promise
+        // classes, leaving the generic [[Construct]] path below unchanged.
+        {
+            extern TsValue* ts_promise_construct_subclass(TsValue*, int, TsValue**);
+            if (TsValue* pinst = ts_promise_construct_subclass(constructorFn, argc, argv))
+                return pinst;
+        }
+
         // 1. Create a new TsMap object
         TsMap* newObj = TsMap::Create();
 

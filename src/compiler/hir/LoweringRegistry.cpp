@@ -694,11 +694,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_includes_from",
-        lowering("ts_array_includes_from")
+        lowering("ts_array_includes_from_coerced")
             .returnsBool()
             .ptrArg()      // array
             .boxedArg()    // value
-            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
+            .boxedArg()    // fromIndex — ToIntegerOrInfinity in runtime AFTER len is
+                           // captured (TypedArray initial-length + empty-view order)
             .build());
 
     reg.registerLowering("ts_array_indexOf",

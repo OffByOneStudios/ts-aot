@@ -2051,6 +2051,95 @@ TsValue* ts_promise_new(TsValue* executor) {
     return ts_value_make_promise(promise);
 }
 
+// ES 27.2.3.1 Promise(executor) steps 3-11 applied to an ALREADY-ALLOCATED
+// promise. Used when constructing a subclass of Promise (`class C extends
+// Promise`): NewPromiseCapability(C) / `new C(executor)` allocates the
+// subclass's own promise instance, and the base constructor steps (that
+// `super(executor)` runs) must settle THAT instance. Create resolving functions
+// bound to `promise`, then call the executor; an executor throw rejects the
+// promise (once-semantics via the Pending check in reject_internal). A
+// non-callable executor throws TypeError exactly as the base constructor does.
+extern "C" void ts_promise_run_executor_on(void* promiseRaw, TsValue* executor) {
+    TsPromise* promise = promiseRaw ? ts_cast<TsPromise>(promiseRaw) : nullptr;
+    if (!promise) return;
+    if (!executor || !agen_is_callable(executor)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise resolver is not a function"));
+        return;  // unreachable (ts_throw longjmps)
+    }
+    TsValue* resolveArg = make_promise_settle_fn(
+        (void*)ts_promise_resolve_wrapper, promise);
+    TsValue* rejectArg = make_promise_settle_fn(
+        (void*)ts_promise_reject_wrapper, promise);
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        // See promise_iterable_to_array: register-restore longjmp only.
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+        tsCall(executor, resolveArg, rejectArg);
+        ts_pop_exception_handler();
+    } else {
+        // ts_throw already popped our handler.
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ts_promise_reject_internal(promise,
+            exc ? exc : ts_value_make_undefined());
+    }
+}
+
+// ES 27.2.3.1 / NewPromiseCapability(C): detect `class C extends Promise` and,
+// when C derives from Promise, perform the base construction so the returned
+// instance IS a working promise. Allocate the promise, link its [[Prototype]]
+// to C.prototype (so `instanceof C` / `.then` walk resolve), run C's own
+// constructor for its observable side effects, then run the executor — the
+// effect of `super(executor)`, which our lowering leaves as a no-op for a
+// builtin base. Returns nullptr when C does NOT derive from Promise, so the
+// generic [[Construct]] path handles it unchanged. ts_new_from_constructor
+// reaches this for every subclassed combinator (`Promise.all.call(Sub, …)`),
+// the *-ctx-ctor tests, and a direct `new Sub(executor)`.
+extern "C" void ts_native_object_set_proto(void* obj, TsValue* proto);
+extern "C" void* ts_native_object_get_proto(void* obj);
+extern "C" TsValue* ts_promise_construct_subclass(TsValue* constructorFn,
+                                                  int argc, TsValue** argv) {
+    if (!constructorFn) return nullptr;
+    void* gp = ts_get_global_Promise();
+    if (!gp) return nullptr;
+    void* gpRaw = ts_value_get_object((TsValue*)gp);
+    // Walk C's [[Prototype]] chain; a match on the Promise global => subclass.
+    bool isSub = false;
+    TsValue* cur = ts_object_getPrototypeOf(constructorFn);
+    for (int hops = 0; hops < 64 && cur &&
+         !ts_value_is_undefined(cur) && !ts_value_is_null(cur); hops++) {
+        void* curRaw = ts_value_get_object(cur);
+        if (curRaw && (curRaw == gp || curRaw == gpRaw)) { isSub = true; break; }
+        cur = ts_object_getPrototypeOf(cur);
+    }
+    if (!isSub) return nullptr;
+
+    TsPromise* p = ts_promise_create();
+    TsValue* thisArg = ts_value_make_promise(p);
+    // Link instance -> C.prototype (native side-map proto; consumed by the
+    // instanceof / getPrototypeOf walks — mirrors ts_subclass_builtin_alloc).
+    TsValue* protoVal = ts_object_get_dynamic(constructorFn,
+        ts_value_make_string(TsString::Create("prototype")));
+    if (protoVal && !ts_value_is_undefined(protoVal) && !ts_value_is_null(protoVal))
+        ts_native_object_set_proto((void*)p, protoVal);
+
+    // Run C's own constructor for its observable side effects (field inits,
+    // callCount, capturing the executor). `super(executor)` inside it is a
+    // no-op for a builtin base in our lowering — the executor runs below.
+    if (ts_is_callable((void*)constructorFn))
+        ts_function_call_with_this(constructorFn, thisArg, argc, argv);
+
+    // ES 27.2.3.1 steps 3-11: run the executor (argv[0]) on the promise — the
+    // effect of the base Promise constructor invoked by super().
+    TsValue* executor = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    ts_promise_run_executor_on((void*)p, executor);
+    return thisArg;
+}
+
 TsValue* ts_promise_await(TsValue* promise) {
     TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
     if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) {
@@ -3300,7 +3389,16 @@ TsValue* ts_promise_get_property(void* obj, void* propName) {
     } else if (strcmp(name, "finally") == 0) {
         return promise_method_function((void*)ts_promise_finally_wrapper, obj);
     } else if (strcmp(name, "constructor") == 0) {
-        // Promise.prototype.constructor === Promise (`p.constructor` tests).
+        // A subclass instance (`class C extends Promise`) records C.prototype
+        // in the native side map (ts_promise_construct_subclass); its
+        // C.prototype.constructor === C, so consult it first — `instance
+        // .constructor === C` (the *-ctx-ctor tests). Fall back to the
+        // intrinsic Promise for a plain promise.
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        if (void* sp = ts_native_object_get_proto(obj)) {
+            TsValue* c = ts_object_get_property(sp, "constructor");
+            if (c && !ts_value_is_undefined(c) && !ts_value_is_null(c)) return c;
+        }
         extern void* ts_get_global_Promise();
         void* ctor = ts_get_global_Promise();
         if (ctor) return (TsValue*)ctor;
@@ -3337,7 +3435,13 @@ TsValue TsPromise::GetPropertyVirtual(const char* key) {
         return v;
     }
     if (strcmp(key, "constructor") == 0) {
-        // Promise.prototype.constructor === Promise (`p.constructor`).
+        // Subclass instance: C.prototype.constructor === C (side-map proto).
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        if (void* sp = ts_native_object_get_proto((void*)this)) {
+            TsValue* c = ts_object_get_property(sp, "constructor");
+            if (c && !ts_value_is_undefined(c) && !ts_value_is_null(c))
+                return nanbox_to_tagged(c);
+        }
         extern void* ts_get_global_Promise();
         if (void* ctor = ts_get_global_Promise())
             return nanbox_to_tagged((TsValue*)ctor);

@@ -18,6 +18,7 @@ extern "C" void* ts_error_create_typed(const char* type, const char* message);
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg);
 extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
 extern "C" TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
+extern "C" bool ts_object_is(TsValue* a, TsValue* b);  // ES 7.2.11 SameValue
 
 // ECMA-262 10.5.x: every Proxy internal method whose [[ProxyHandler]] is null
 // (i.e. the proxy has been revoked) must throw a TypeError. Previously the
@@ -82,6 +83,43 @@ TsValue* TsProxy::getTrap(const char* trapName) {
     return boxed;
 }
 
+// Full own-property descriptor state of the proxy TARGET for the [[Get]]/[[Set]]
+// invariants (ES 10.5.8 step 13 / 10.5.9 step 9). A descriptor object from
+// [[GetOwnProperty]] is complete: a DATA descriptor carries "writable"/"value",
+// an ACCESSOR descriptor carries "get"/"set" (no "writable" key).
+struct ProxyTargetDesc {
+    bool present = false;      // target has an own property P
+    bool configurable = false;
+    bool isData = false;       // true = data descriptor, false = accessor
+    bool writable = false;     // data only
+    TsValue* value = nullptr;  // data only ([[Value]])
+    TsValue* getter = nullptr; // accessor only ([[Get]])
+    TsValue* setter = nullptr; // accessor only ([[Set]])
+};
+static ProxyTargetDesc proxy_target_desc(void* target, TsValue* prop) {
+    ProxyTargetDesc td;
+    if (!target) return td;
+    TsValue* d = ts_object_getOwnPropertyDescriptor(ts_value_box_any(target), prop);
+    if (!d || ts_value_is_undefined(d)) return td;
+    void* dRaw = ts_value_get_object(d);
+    if (!dRaw) return td;
+    td.present = true;
+    TsValue* cfg = ts_object_get_property(dRaw, "configurable");
+    td.configurable = cfg && ts_value_to_bool(cfg);
+    // Discriminate: a present, defined "writable" attribute => data descriptor.
+    TsValue* wr = ts_object_get_property(dRaw, "writable");
+    if (wr && !ts_value_is_undefined(wr)) {
+        td.isData = true;
+        td.writable = ts_value_to_bool(wr);
+        td.value = ts_object_get_property(dRaw, "value");
+    } else {
+        td.isData = false;
+        td.getter = ts_object_get_property(dRaw, "get");
+        td.setter = ts_object_get_property(dRaw, "set");
+    }
+    return td;
+}
+
 TsValue* TsProxy::get(TsValue* prop, void* receiver) {
     if (revoked) {
         throw_revoked("get");
@@ -100,7 +138,34 @@ TsValue* TsProxy::get(TsValue* prop, void* receiver) {
         TsValue* receiverVal = receiver ? ts_value_box_any(receiver) : ts_value_box_any(this);
         TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
         TsValue* argv[3] = { targetVal, prop, receiverVal };
-        return ts_function_call_with_this(trap, handlerVal, 3, argv);
+        TsValue* trapResult = ts_function_call_with_this(trap, handlerVal, 3, argv);
+        // ES 10.5.8 step 13: reconcile the trap result with a non-configurable
+        // own property of the target.
+        ProxyTargetDesc td = proxy_target_desc(target, prop);
+        if (td.present && !td.configurable) {
+            if (td.isData && !td.writable) {
+                // Non-configurable, non-writable data property: the trap must
+                // report SameValue(trapResult, [[Value]]).
+                if (!ts_object_is(trapResult ? trapResult : ts_value_make_undefined(),
+                                  td.value ? td.value : ts_value_make_undefined())) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "'get' on proxy: property is a read-only and "
+                        "non-configurable data property on the proxy target but "
+                        "the proxy did not return its actual value"));
+                }
+            } else if (!td.isData &&
+                       (!td.getter || ts_value_is_undefined(td.getter))) {
+                // Non-configurable accessor with an undefined getter: the trap
+                // must return undefined.
+                if (trapResult && !ts_value_is_undefined(trapResult)) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "'get' on proxy: property is a non-configurable "
+                        "accessor property on the proxy target and does not "
+                        "have a getter function"));
+                }
+            }
+        }
+        return trapResult;
     }
 
     // No trap - forward to target
@@ -127,7 +192,36 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
         TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
         TsValue* argv[4] = { targetVal, prop, value, receiverVal };
         TsValue* result = ts_function_call_with_this(trap, handlerVal, 4, argv);
-        return result && ts_value_get_bool(result);
+        bool boolRes = result && ts_value_get_bool(result);
+        // ES 10.5.9 step 9: a truish trap result must be consistent with a
+        // non-configurable own property of the target.
+        if (boolRes) {
+            ProxyTargetDesc td = proxy_target_desc(target, prop);
+            if (td.present && !td.configurable) {
+                if (td.isData && !td.writable) {
+                    // Non-configurable, non-writable data property: setting a
+                    // value not SameValue as [[Value]] is a violation.
+                    if (!ts_object_is(value ? value : ts_value_make_undefined(),
+                                      td.value ? td.value : ts_value_make_undefined())) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'set' on proxy: trap returned truish for property "
+                            "which exists in the proxy target as a "
+                            "non-configurable and non-writable data property "
+                            "with a different value"));
+                    }
+                } else if (!td.isData &&
+                           (!td.setter || ts_value_is_undefined(td.setter))) {
+                    // Non-configurable accessor with an undefined setter cannot
+                    // accept a write.
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "'set' on proxy: trap returned truish for property "
+                        "which exists in the proxy target as a "
+                        "non-configurable and non-writable accessor property "
+                        "without a setter"));
+                }
+            }
+        }
+        return boolRes;
     }
 
     // No trap - forward to target
@@ -519,10 +613,13 @@ TsValue* TsProxy::getPrototypeOfTrap() {
     if (trap) {
         TsValue* argv[1] = { ts_value_box_any(target) };
         TsValue* r = proxy_call_trap(this, trap, 1, argv);
-        // ES 10.5.1 step 8: trap result must be Object or null.
+        // ES 10.5.1 step 8: trap result must be Object or null. Type(r) is
+        // Object per the typeof-based check — a String/Symbol/BigInt is a heap
+        // pointer but NOT an Object, so nanbox_is_ptr alone wrongly accepted
+        // them (throws-string / throws-symbol tests).
         uint64_t nb = r ? nanbox_from_tsvalue_ptr(r) : 0;
         bool isNull = r && nanbox_is_null(nb);
-        bool isObj = r && nanbox_is_ptr(nb) && nanbox_to_ptr(nb);
+        bool isObj = proxy_value_is_object(r);
         if (!isNull && !isObj) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "'getPrototypeOf' on proxy: trap returned neither object nor null"));

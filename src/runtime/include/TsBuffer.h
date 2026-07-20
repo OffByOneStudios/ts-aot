@@ -183,9 +183,17 @@ public:
         return length;
     }
     size_t GetByteLength() { return GetLength() * elementSize; }
-    size_t GetByteOffset() { return IsDetachedBuffer() ? 0 : byteOffset; }
+    // ES 23.2.3.3 get %TypedArray%.prototype.byteOffset: if the view is out of
+    // bounds on a resized buffer (or detached), IsTypedArrayOutOfBounds is true
+    // and the getter returns +0 rather than the creation-time offset.
+    size_t GetByteOffset() { return (IsDetachedBuffer() || IsOutOfBounds()) ? 0 : byteOffset; }
     size_t GetElementSize() { return elementSize; }
     bool IsClamped() { return clamped; }
+    // A length-tracking ("auto-length") view was constructed over a resizable
+    // buffer without an explicit length; its [[ArrayLength]] is `auto` and it
+    // re-derives from the live buffer (ES 10.4.5 IsArrayBufferViewOutOfBounds /
+    // subarray step 15 "If O.[[ArrayLength]] is auto").
+    bool IsLengthTracking() { return autoLength; }
     TypedArrayType GetType() { return arrayType; }
     TsBuffer* GetBuffer() { return buffer; }
 
