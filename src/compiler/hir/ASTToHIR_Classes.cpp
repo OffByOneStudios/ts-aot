@@ -1041,11 +1041,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         } else {
             lastValue_ = builder_.createLoadFunction(hirClass->name + "_constructor");
         }
+        // ECMA-262 14.6.13 ClassDefinitionEvaluation: the class expression's
+        // VALUE is the constructor F. Capture it now — emitComputedAccessorInstalls
+        // below lowers each computed key via lowerExpression, which overwrites
+        // lastValue_ with the key string. Without restoring it, an inline
+        // `(class { [k](){} }).prototype` read `.prototype` off that string
+        // (-> undefined).
+        auto ctorResult = lastValue_;
         // Set up prototype object with instance methods for dynamic dispatch.
         // Always build (even for an empty class body) so `A.prototype`, the
         // constructor backref, and instanceof via the prototype walk hold.
         {
-            auto ctorVal = lastValue_;
+            auto ctorVal = ctorResult;
             auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
                 if (!methodFunc) continue;
@@ -1081,8 +1088,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
-            installClassMember(lastValue_, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
+            installClassMember(ctorResult, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
         }
+        // Restore the class-expression value (a computed-key install above may
+        // have overwritten lastValue_ with the key string).
+        lastValue_ = ctorResult;
         return;
     }
 
@@ -1895,13 +1905,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         lastValue_ = builder_.createLoadFunction(className + "_constructor");
     }
 
+    // ECMA-262 14.6.13 ClassDefinitionEvaluation: the class expression's VALUE
+    // is the constructor F. Capture it now — emitComputedAccessorInstalls below
+    // lowers each computed key via lowerExpression, which overwrites lastValue_
+    // with the key string. Without restoring it, an inline
+    // `(class { [k](){} }).prototype` read `.prototype` off that string.
+    auto ctorResult = lastValue_;
+
     // Set up prototype object with instance methods for dynamic dispatch.
     // This is critical for untyped JS classes (e.g. npm modules) where method
     // calls go through ts_object_get_property -> prototype chain lookup.
     // Build the prototype when there are instance methods OR computed-name
     // accessors (the latter aren't in the static `methods` map).
     {
-        auto ctorVal = lastValue_;
+        auto ctorVal = ctorResult;
 
         // Create prototype TsMap — always, even for an empty class body, so
         // `A.prototype` / constructor backref / instanceof-walk all hold.
@@ -1960,8 +1977,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
         if (!methodFunc) continue;
         auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
-        installClassMember(lastValue_, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
+        installClassMember(ctorResult, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);  // non-enumerable
     }
+    // Restore the class-expression value (a computed-key install above may have
+    // overwritten lastValue_ with the key string).
+    lastValue_ = ctorResult;
 }
 
 }  // namespace ts::hir

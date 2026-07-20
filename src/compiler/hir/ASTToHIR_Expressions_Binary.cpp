@@ -1129,6 +1129,36 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 info->value = allocaPtr;
                 info->elemType = result->type;
                 info->isAlloca = true;
+            } else {
+                // No static binding: the LHS Reference base is the global
+                // object environment record. ES 13.15.2 evaluates lref BEFORE
+                // the compound read, and PutValue reuses that Reference
+                // (6.2.5.6 / 9.1.1.4.5 SetMutableBinding). The read can delete
+                // the binding mid-expression (self-deleting global getter,
+                // S11.13.2_A5.10 / *putvalue-lref* family): strict PutValue
+                // then re-validates HasProperty(globalObject, N) and throws a
+                // ReferenceError; sloppy code re-creates the global. Mirrors
+                // the simple-assignment PutValue tail in visitAssignmentExpression.
+                bool declaredModuleVar =
+                    module_->globals.count(modVarName(ident->name)) != 0 ||
+                    moduleToplevelDeclaredNames_.count(ident->name) != 0;
+                if (!declaredModuleVar) {
+                    auto mit = moduleGlobalVarsByModule_.find(ident->name);
+                    declaredModuleVar = mit != moduleGlobalVarsByModule_.end() &&
+                                        mit->second.count(currentModulePath_) != 0;
+                }
+                if (strictCode_ && !declaredModuleVar) {
+                    auto nameStr = builder_.createConstString(ident->name);
+                    builder_.createCall("ts_strict_unresolved_assign",
+                        {nameStr, boxValueIfNeeded(result)}, HIRType::makeVoid());
+                    lastValue_ = result;
+                    return;
+                }
+                // Sloppy implicit global: give it real global storage so the
+                // re-created binding persists (matches the simple-assignment path).
+                moduleGlobalVarsByModule_[ident->name].insert(currentModulePath_);
+                module_->globals[modVarName(ident->name)] = HIRType::makeAny();
+                builder_.createStoreGlobal(modVarName(ident->name), result);
             }
 
             // If this variable is a module-scoped global, also update __modvar_ global
@@ -1459,8 +1489,10 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // the runtime SuperProperty set — base.[[Set]](name, rhs, this). A base-class
     // setter runs with the current `this`; absent a setter, an own data property
     // is created on `this` (the receiver), never on the super base.
-    if (propAccess && currentClass_ && currentClass_->baseClass &&
-        dynamic_cast<ast::SuperExpression*>(propAccess->expression.get())) {
+    if (propAccess &&
+        dynamic_cast<ast::SuperExpression*>(propAccess->expression.get()) &&
+        ((currentClass_ && currentClass_->baseClass) ||
+         (!currentClass_ && objectSuperHomeAvailable()))) {
         if (auto home = lowerSuperHomeObject()) {
             auto thisVal = lookupVariable("this");
             if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
@@ -1640,8 +1672,10 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Handle element access assignment
     auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get());
     // `super[expr] = rhs` WRITE: runtime SuperProperty set with a computed key.
-    if (elemAccess && currentClass_ && currentClass_->baseClass &&
-        dynamic_cast<ast::SuperExpression*>(elemAccess->expression.get())) {
+    if (elemAccess &&
+        dynamic_cast<ast::SuperExpression*>(elemAccess->expression.get()) &&
+        ((currentClass_ && currentClass_->baseClass) ||
+         (!currentClass_ && objectSuperHomeAvailable()))) {
         auto keyVal = lowerExpression(elemAccess->argumentExpression.get());
         if (auto home = lowerSuperHomeObject()) {
             auto thisVal = lookupVariable("this");

@@ -1461,9 +1461,14 @@ extern "C" {
 
         TsMap* objMap = (TsMap*)objRaw;
 
-        // If proto is null/undefined, clear the prototype
+        // If proto is null/undefined, set a genuinely null [[Prototype]]
+        // (ECMA-262 10.1.2 OrdinarySetPrototypeOf). SetNullPrototype(true) marks
+        // it explicit — without this a cleared pointer is indistinguishable from
+        // a plain `{}` and getPrototypeOf returned Object.prototype, so
+        // `super.x` on such an object never hit the null-base TypeError.
         if (!proto || ts_value_is_nullish(proto)) {
             objMap->SetPrototype(nullptr);
+            objMap->SetNullPrototype(true);
             return obj;
         }
 
@@ -1490,6 +1495,7 @@ extern "C" {
             }
 
             objMap->SetPrototype(protoMap);
+            objMap->SetNullPrototype(false);  // a real proto replaces any prior null
         } else if (*(uint32_t*)protoRaw == 0x41525259 /*ARRY*/) {
             // A real ARRAY as [[Prototype]] (`Foo.prototype = new Array(...)`,
             // the test262 subclassed-Array pattern). Store the array pointer
@@ -1497,6 +1503,7 @@ extern "C" {
             // ARRY magic and delegate to the array's own lookup (indices,
             // length, Array.prototype methods).
             objMap->SetPrototype((TsMap*)protoRaw);
+            objMap->SetNullPrototype(false);
         }
 
         return obj;

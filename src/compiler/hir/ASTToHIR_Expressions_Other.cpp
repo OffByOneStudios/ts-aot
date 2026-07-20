@@ -180,19 +180,51 @@ static bool functionIsStaticClassMember(HIRFunction* fn, HIRClass* cls) {
 }
 
 std::shared_ptr<HIRValue> ASTToHIR::lowerSuperHomeObject() {
-    if (!currentClass_) return nullptr;
-    // The constructor closure carries the class's static shape and, via its
-    // "prototype" property, the instance home object. Both are installed by the
-    // deferred class-prototype pass before any method runs.
-    auto ctor = builder_.createLoadFunction(currentClass_->name + "_constructor");
-    bool inStatic = currentMethodIsStatic_ ||
-        functionIsStaticClassMember(currentFunction_, currentClass_);
-    if (inStatic) {
-        // Static method [[HomeObject]] is the constructor object itself; its
-        // [[Prototype]] is the base constructor (ES 15.7.14 static inheritance).
-        return ctor;
+    if (currentClass_) {
+        // The constructor closure carries the class's static shape and, via its
+        // "prototype" property, the instance home object. Both are installed by the
+        // deferred class-prototype pass before any method runs.
+        auto ctor = builder_.createLoadFunction(currentClass_->name + "_constructor");
+        bool inStatic = currentMethodIsStatic_ ||
+            functionIsStaticClassMember(currentFunction_, currentClass_);
+        if (inStatic) {
+            // Static method [[HomeObject]] is the constructor object itself; its
+            // [[Prototype]] is the base constructor (ES 15.7.14 static inheritance).
+            return ctor;
+        }
+        return builder_.createGetPropStatic(ctor, "prototype", HIRType::makeAny());
     }
-    return builder_.createGetPropStatic(ctor, "prototype", HIRType::makeAny());
+    // Object-literal concise method (ECMA-262 13.2.5.5 MethodDefinition
+    // Evaluation / 9.2.10 OrdinaryFunctionCreate): the method's [[HomeObject]]
+    // is the enclosing object literal. visitObjectLiteralExpression binds it as
+    // a synthetic outer variable; reach it here through closure capture so a
+    // method (and any arrow nested in it) sees the SAME object at runtime and
+    // `super.x` walks obj.[[Prototype]].
+    size_t scopeIndex = 0;
+    if (isCapturedVariable(kObjectSuperHomeVar, &scopeIndex)) {
+        auto* info = lookupVariableInfo(kObjectSuperHomeVar);
+        auto type = info && info->elemType ? info->elemType
+                    : (info && info->value ? info->value->type : HIRType::makeAny());
+        registerCapture(kObjectSuperHomeVar, type, scopeIndex);
+        if (currentFunction_) currentFunction_->hasClosure = true;
+        // Box to a TsValue* so the runtime SuperProperty helpers receive the
+        // same boxed form as the class path (a raw object pointer misreads the
+        // null-[[Prototype]] case in ts_object_getPrototypeOf).
+        return boxValueIfNeeded(builder_.createLoadCapture(kObjectSuperHomeVar, type));
+    }
+    // Home bound directly in the current function's scope (super used in the
+    // same function that created the object — not a concise method; unusual but
+    // handled for completeness).
+    if (auto* info = lookupVariableInfo(kObjectSuperHomeVar)) {
+        if (info->isAlloca && info->elemType)
+            return boxValueIfNeeded(builder_.createLoad(info->elemType, info->value));
+        return boxValueIfNeeded(info->value);
+    }
+    return nullptr;
+}
+
+bool ASTToHIR::objectSuperHomeAvailable() {
+    return lookupVariableInfo(kObjectSuperHomeVar) != nullptr;
 }
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
@@ -201,38 +233,44 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
     // dispatched statically (fast + proven). Everything else — data properties
     // (incl. ones assigned to a base prototype at runtime) and non-literal keys —
     // goes through the runtime SuperProperty walk (ECMA-262 13.3.7).
-    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) && currentClass_) {
-        std::string key;
-        if (auto* sl = dynamic_cast<ast::StringLiteral*>(node->argumentExpression.get()))
-            key = sl->value;
-        else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get()))
-            key = std::to_string((int64_t)nl->value);
-        bool inStatic = currentMethodIsStatic_ ||
-            functionIsStaticClassMember(currentFunction_, currentClass_);
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
+        (currentClass_ || objectSuperHomeAvailable())) {
         auto thisVal = lookupVariable("this");
         if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
-        if (!key.empty() && currentClass_->baseClass) {
-            for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
-                auto& tbl = inStatic ? sc->staticMethods : sc->methods;
-                auto git = tbl.find("__getter_" + key);
-                if (git != tbl.end() && git->second) {
-                    std::string real = completeMethodSymbol(sc, "__getter_" + key, git->second, inStatic);
-                    lastValue_ = inStatic ? builder_.createCall(real, {}, HIRType::makeAny())
-                                          : builder_.createCall(real, {thisVal}, HIRType::makeAny());
-                    return;
-                }
-                auto mit = tbl.find(key);
-                if (mit != tbl.end() && mit->second) {
-                    lastValue_ = builder_.createLoadFunction(mit->second->name);
-                    return;
+        if (currentClass_) {
+            std::string key;
+            if (auto* sl = dynamic_cast<ast::StringLiteral*>(node->argumentExpression.get()))
+                key = sl->value;
+            else if (auto* nl = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get()))
+                key = std::to_string((int64_t)nl->value);
+            bool inStatic = currentMethodIsStatic_ ||
+                functionIsStaticClassMember(currentFunction_, currentClass_);
+            if (!key.empty() && currentClass_->baseClass) {
+                for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+                    auto& tbl = inStatic ? sc->staticMethods : sc->methods;
+                    auto git = tbl.find("__getter_" + key);
+                    if (git != tbl.end() && git->second) {
+                        std::string real = completeMethodSymbol(sc, "__getter_" + key, git->second, inStatic);
+                        lastValue_ = inStatic ? builder_.createCall(real, {}, HIRType::makeAny())
+                                              : builder_.createCall(real, {thisVal}, HIRType::makeAny());
+                        return;
+                    }
+                    auto mit = tbl.find(key);
+                    if (mit != tbl.end() && mit->second) {
+                        lastValue_ = builder_.createLoadFunction(mit->second->name);
+                        return;
+                    }
                 }
             }
         }
         // Runtime fallback: base.[[Get]](key, this) with the real prototype chain.
         // Evaluate the key EXPRESSION first (ES 13.3.7.1: after GetThisBinding,
         // before GetSuperBase — a throwing key hook is ordered by the helper).
-        // Gated on a user base class (see visitPropertyAccessExpression note).
-        if (currentClass_->baseClass) {
+        // Class path is gated on a user base class (see
+        // visitPropertyAccessExpression note); object-literal methods always
+        // walk the object's [[Prototype]] via the bound [[HomeObject]].
+        bool runFallback = currentClass_ ? (currentClass_->baseClass != nullptr) : true;
+        if (runFallback) {
             auto keyVal = lowerExpression(node->argumentExpression.get());
             if (auto home = lowerSuperHomeObject()) {
                 lastValue_ = builder_.createCall("ts_super_get_computed",
@@ -337,12 +375,13 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // back to the runtime SuperProperty walk so data properties (incl. ones
     // assigned to a base prototype at runtime) resolve. (super.method() calls are
     // handled in the call path; this covers `super.getter`/`super.method` reads.)
-    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) && currentClass_) {
-        bool inStatic = currentMethodIsStatic_ ||
-                functionIsStaticClassMember(currentFunction_, currentClass_);
+    if (dynamic_cast<ast::SuperExpression*>(node->expression.get()) &&
+        (currentClass_ || objectSuperHomeAvailable())) {
+        bool inStatic = currentClass_ && (currentMethodIsStatic_ ||
+                functionIsStaticClassMember(currentFunction_, currentClass_));
         auto thisVal = lookupVariable("this");
         if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
-        for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
+        for (HIRClass* sc = currentClass_ ? currentClass_->baseClass : nullptr; sc; sc = sc->baseClass) {
             if (inStatic) {
                 // Static `super.g` / `super.m`: base-class STATIC accessor/method
                 // (no `this`).
@@ -379,8 +418,10 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         // cannot reproduce those throws because this compiler wires neither a
         // null [[Prototype]] for `extends null` nor `this`-TDZ here. `extends
         // null` is indistinguishable from a non-derived class in the AST (no
-        // heritage flag is plumbed), so both take the legacy path.
-        if (currentClass_->baseClass) {
+        // heritage flag is plumbed), so both take the legacy path. Object-literal
+        // methods always walk the object's [[Prototype]] via [[HomeObject]].
+        bool runFallback = currentClass_ ? (currentClass_->baseClass != nullptr) : true;
+        if (runFallback) {
             if (auto home = lowerSuperHomeObject()) {
                 auto keyStr = builder_.createConstString(node->name);
                 lastValue_ = builder_.createCall("ts_super_get",
@@ -917,6 +958,15 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
         return objSlot ? builder_.createLoad(HIRType::makeAny(), objSlot) : obj;
     };
 
+    // Bind this object as the [[HomeObject]] for its concise methods (ECMA-262
+    // 13.2.5.5 MethodDefinition Evaluation): a synthetic outer variable in a
+    // dedicated block scope, reached from a method body via closure capture only
+    // when that body actually references `super` (lowerSuperHomeObject). The
+    // scope is popped after all properties are lowered, so nested object
+    // literals rebind cleanly without clobbering an enclosing object's home.
+    pushScope();
+    defineVariable(kObjectSuperHomeVar, obj);
+
     for (auto& prop : node->properties) {
         // Handle spread element: {...other}
         if (auto* spread = dynamic_cast<ast::SpreadElement*>(prop.get())) {
@@ -980,6 +1030,9 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
             prop->accept(this);
         }
     }
+
+    // Pop the [[HomeObject]] binding scope (see pushScope above).
+    popScope();
 
     // Ensure lastValue_ is the object after all properties are set
     lastValue_ = reloadObj();
