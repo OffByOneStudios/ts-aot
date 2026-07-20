@@ -1604,6 +1604,16 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                                    targetClass->name + "_" + member.substr(1);
                         else
                             real = targetClass->name + "_static_set_" + member;
+                        // ES 15.7 static PrivateSet brand check: this static setter
+                        // is dispatched by lexical resolution, so its `this` may be
+                        // a foreign receiver (`C.access.call({})`). Verify the
+                        // runtime receiver owns the static private member before
+                        // running the setter — else TypeError.
+                        if (!member.empty() && member[0] == '#') {
+                            auto brandKey = builder_.createConstString(resolvePrivateName(member));
+                            builder_.createCall("ts_static_private_brand_check",
+                                {obj, brandKey}, HIRType::makeVoid());
+                        }
                         // The static setter body takes ONLY the value (its `this`
                         // is the class, resolved at compile time) — unlike instance
                         // setters which take (this, value).
@@ -1621,6 +1631,15 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 // and failed the whole compile for static get/set # classes.
                 size_t nParams = setterFunc->params.size();
                 if (nParams == 1) {
+                    // Static setter (arity 1: `this` is the compile-time class).
+                    // A private static setter dispatched here may be `.call`'d
+                    // with a foreign `this` — ES 15.7 static PrivateSet brand
+                    // check on the runtime receiver before running the setter.
+                    if (!propAccess->name.empty() && propAccess->name[0] == '#') {
+                        auto brandKey = builder_.createConstString(resolvePrivateName(propAccess->name));
+                        builder_.createCall("ts_static_private_brand_check",
+                            {obj, brandKey}, HIRType::makeVoid());
+                    }
                     builder_.createCall(setterFunc->name, {rhs}, HIRType::makeVoid());
                 } else {
                     builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
@@ -1870,17 +1889,23 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
         // fast path (identifier/nested targets never throw before the step, and
         // the bulk helper already closes on a normal early finish).
         //
-        // EXCLUSION: the interleaved path builds a setjmp-based try region, which
-        // cannot span a generator/async SUSPENSION point. A `yield`/`await` inside
-        // a target Reference (e.g. `for await ([ x[yield] ] of it)` in an async
-        // generator) would longjmp-corrupt the handler across the suspend/resume
-        // boundary. Such a target can only appear when the current function is a
-        // generator or async function, so restrict the interleaved path to
-        // NON-generator, NON-async functions; those contexts keep the previous
-        // bulk ts_destructure_iterate path (which handled them before this change).
+        // SUSPENDABLE contexts (generator/async): the interleaved path's
+        // reference-before-step ORDERING is still observable and required here —
+        // a `yield`/`await` inside a target Reference (`[ x[yield] ] = it`) must
+        // suspend BEFORE the iterator is stepped for that element (ES 8.6.2
+        // ArrayAssignmentPattern evaluates each AssignmentElement's target
+        // Reference before IteratorStep). The old bulk ts_destructure_iterate
+        // path stepped (and closed) the iterator UP FRONT, so a first next()
+        // observed next=1/return=1 before the yield resolved — wrong. Route them
+        // through the interleaved path with suspendSafe=true, which keeps that
+        // ordering and the normal-completion IteratorClose (both plain control
+        // flow) but DROPS the setjmp abrupt-completion (throw) region: a setjmp
+        // buffer cannot span the suspend/resume boundary (its frame is torn down
+        // by the state-machine generator), so a throw across the suspend is left
+        // unhandled — no worse than the old bulk path, which never closed at all.
         bool suspendable = currentFunction_ &&
                            (currentFunction_->isGenerator || currentFunction_->isAsync);
-        if (!suspendable) {
+        {
             auto targetNeedsRefEval = [](ast::Expression* t) -> bool {
                 if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(t))
                     t = dynamic_cast<ast::Expression*>(assn->left.get());
@@ -1894,7 +1919,7 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 if (e && targetNeedsRefEval(e.get())) { needsInterleave = true; break; }
             }
             if (needsInterleave) {
-                destructureArrayPatternInterleaved(arrLit, rhs);
+                destructureArrayPatternInterleaved(arrLit, rhs, suspendable);
                 return;
             }
         }
@@ -2151,7 +2176,8 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
 }
 
 void ASTToHIR::destructureArrayPatternInterleaved(
-        ast::ArrayLiteralExpression* arrLit, std::shared_ptr<HIRValue> rhs) {
+        ast::ArrayLiteralExpression* arrLit, std::shared_ptr<HIRValue> rhs,
+        bool suspendSafe) {
     // ES 8.6.2 DestructuringAssignmentEvaluation for ArrayAssignmentPattern +
     // ES 7.4.6 IteratorClose. GetIterator once, then step the iterator ONE
     // element at a time with each target Reference evaluated BEFORE its step; a
@@ -2166,11 +2192,23 @@ void ASTToHIR::destructureArrayPatternInterleaved(
     builder_.createStore(builder_.createConstBool(false), doneAlloca);
 
     auto* bodyBB  = currentFunction_->createBlock("dstr.body");
-    auto* catchBB = currentFunction_->createBlock("dstr.catch");
+    // In suspendSafe mode there is no setjmp catch region (it cannot span a
+    // yield/await suspend), so no catch block is emitted.
+    auto* catchBB = suspendSafe ? nullptr
+                                : currentFunction_->createBlock("dstr.catch");
     auto* afterBB = currentFunction_->createBlock("dstr.after");
 
-    auto isExc = builder_.createSetupTry(catchBB);
-    builder_.createCondBranch(isExc, catchBB, bodyBB);
+    if (suspendSafe) {
+        // No exception handler pushed: enter the body directly. A throw during
+        // element evaluation/assignment propagates without IteratorClose (the
+        // old bulk path for these contexts never closed either), and — crucially
+        // — no stale setjmp buffer is left live across the suspend/resume of a
+        // `yield`/`await` inside a target Reference.
+        builder_.createBranch(bodyBB);
+    } else {
+        auto isExc = builder_.createSetupTry(catchBB);
+        builder_.createCondBranch(isExc, catchBB, bodyBB);
+    }
 
     builder_.setInsertPoint(bodyBB); currentBlock_ = bodyBB;
     auto iter = builder_.createLoad(HIRType::makeAny(), iterAlloca);
@@ -2341,8 +2379,9 @@ void ASTToHIR::destructureArrayPatternInterleaved(
         performAssign(rp, value);
     }
 
-    // Normal completion: pop the handler, then IteratorClose if not done.
-    builder_.createPopHandler();
+    // Normal completion: pop the handler (only if one was pushed), then
+    // IteratorClose if not done.
+    if (!suspendSafe) builder_.createPopHandler();
     {
         auto* ncloseBB = currentFunction_->createBlock("dstr.nclose");
         auto d = builder_.createLoad(HIRType::makeBool(), doneAlloca);
@@ -2354,11 +2393,12 @@ void ASTToHIR::destructureArrayPatternInterleaved(
     }
 
     // Abrupt completion (throw during element evaluation / assignment):
-    // IteratorClose swallowing return()'s own throw, then rethrow.
-    builder_.setInsertPoint(catchBB); currentBlock_ = catchBB;
-    auto exc = builder_.createGetException();
-    builder_.createClearException();
-    {
+    // IteratorClose swallowing return()'s own throw, then rethrow. Omitted in
+    // suspendSafe mode — no setjmp handler was pushed (it cannot span a suspend).
+    if (!suspendSafe) {
+        builder_.setInsertPoint(catchBB); currentBlock_ = catchBB;
+        auto exc = builder_.createGetException();
+        builder_.createClearException();
         auto* acloseBB  = currentFunction_->createBlock("dstr.aclose");
         auto* rethrowBB = currentFunction_->createBlock("dstr.rethrow");
         auto d = builder_.createLoad(HIRType::makeBool(), doneAlloca);

@@ -114,14 +114,20 @@ inline Cpl normal(TsValue* v = nullptr) { Cpl c; c.k = Cpl::Normal; c.v = v; ret
 inline Cpl thrown(TsValue* ex)          { Cpl c; c.k = Cpl::Thrown; c.v = ex; return c; }
 inline bool isAbrupt(const Cpl& c)      { return c.k != Cpl::Normal; }
 
-// ES2015+ UpdateEmpty(stmtResult, undefined): if / iteration / with / switch /
-// try / labelled statements produce undefined (NOT empty) when their inner
-// completion carries no value, REPLACING the running statement-list value —
-// eval('1; if(true){}') and eval('1; do{}while(false)') are undefined, not 1.
-// Applied at the execStmt dispatch arms for those statement forms only; plain
-// blocks and declarations keep empty completions (eval('1; {}') stays 1).
+// ES 6.2.4.4 UpdateEmpty(completionRecord, undefined): if / iteration / with /
+// switch / try / labelled statements evaluate to Completion(UpdateEmpty(result,
+// undefined)) — see 14.6.2 (if), 14.11.7 (switch), 14.15.3 (try), etc. When the
+// inner completion carries no value it is REPLACED with undefined, REGARDLESS of
+// the completion TYPE (normal OR abrupt). This is load-bearing for abrupt-empty
+// completions: eval('2; do { 3; if (true) { break; } else { } } while (false)')
+// is undefined, not 3 — the break, absorbed by the loop, must carry undefined
+// (from the if's UpdateEmpty) rather than the statement-list's running value 3.
+// UpdateEmpty leaves a non-empty value untouched, so a break that already
+// carries a value (eval('do{ switch{ case: {6;break;} } }while(false)')) keeps
+// it. Plain blocks and declarations are NOT wrapped here: their StatementList
+// evaluation applies UpdateEmpty(result, V) with the running value V instead.
 inline Cpl updateEmptyUndef(Cpl c) {
-    if (c.k == Cpl::Normal && !c.v) c.v = jsUndefined();
+    if (!c.v) c.v = jsUndefined();
     return c;
 }
 
@@ -2494,9 +2500,21 @@ Cpl execSwitch(ast::SwitchStatement* sw, TsMap* env, TsValue* thisV, bool strict
         if (!stmts) continue;
         for (auto& s : *stmts) {
             Cpl c = execStmt(s.get(), senv, thisV, strict);
-            if (c.k == Cpl::Brk && c.label.empty()) return normal(completion);
-            if (isAbrupt(c)) return c;
+            // ES 14.12.2 CaseBlockEvaluation: first update the running value V
+            // with R.[[Value]] when non-empty, THEN on an abrupt completion
+            // return UpdateEmpty(R, V). Ordering matters: a nested block break
+            // ('case "a": { 3; break; }') carries its value up, so V=3 must be
+            // captured before the break is absorbed (eval -> 3, not undefined).
             if (c.v) completion = c.v;
+            if (isAbrupt(c)) {
+                // An unlabelled break targets the switch: absorb it, yielding
+                // the (UpdateEmpty'd) running value as a normal completion.
+                if (c.k == Cpl::Brk && c.label.empty()) return normal(completion);
+                // continue / return / throw / labelled break propagate out with
+                // UpdateEmpty(R, V): an empty value is replaced by V.
+                if (!c.v) c.v = completion;
+                return c;
+            }
         }
     }
     return normal(completion);

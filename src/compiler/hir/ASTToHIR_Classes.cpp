@@ -322,6 +322,17 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                                                     node->name + "_constructor", propDef->name,
                                                     propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
                                                     privateClassStack_});
+                } else if (!propDef->name.empty() && propDef->name[0] == '#') {
+                    // ES 15.7: a static private field establishes the class's
+                    // static PrivateBrand at class evaluation even with NO
+                    // initializer (`static #x;`). Install `\x01#x@Class` = undefined
+                    // on the constructor now so the static brand check
+                    // (ts_object_{get,set}_private on a constructor receiver)
+                    // distinguishes the declaring class from a subclass / foreign
+                    // receiver. A null initExpr means "store undefined" in the drain.
+                    deferredStaticInits_.push_back({globalPtr, propType, nullptr,
+                                                    node->name + "_constructor", propDef->name,
+                                                    nullptr, privateClassStack_});
                 }
             }
         }
@@ -1288,6 +1299,16 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                                                     className + "_constructor", propDef->name,
                                                     propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
                                                     privateClassStack_});
+                }
+                else if (!propDef->name.empty() && propDef->name[0] == '#') {
+                    // ES 15.7: a static private field (`static #x;`) establishes
+                    // the class's static PrivateBrand at class evaluation even
+                    // without an initializer. Install `\x01#x@Class` = undefined so
+                    // the static brand check distinguishes the declaring class from
+                    // a subclass / foreign receiver (null initExpr = store undefined).
+                    deferredStaticInits_.push_back({globalPtr, propType, nullptr,
+                                                    className + "_constructor", propDef->name,
+                                                    nullptr, privateClassStack_});
                 }
             }
         }

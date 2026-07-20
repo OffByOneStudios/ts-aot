@@ -20,6 +20,15 @@ extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
 extern "C" TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
 extern "C" bool ts_object_is(TsValue* a, TsValue* b);  // ES 7.2.11 SameValue
 
+// Generic proxy-aware object operations (defined later in this file / TsReflect).
+// A no-trap fallback whose TARGET is itself a proxy must re-dispatch into that
+// target's own internal-method machinery (ES 10.5.*: "return ?
+// target.[[InternalMethod]](...)"). ts_proxy_construct does that recursion for
+// [[Construct]]; ts_reflect_ownKeys returns the target's FULL own-key list
+// (non-enumerable strings + symbols) and recurses into a proxy target.
+extern "C" TsValue* ts_proxy_construct(void* proxyArg, void* argsArg, int64_t argCount, void* newTargetArg);
+extern "C" TsValue* ts_reflect_ownKeys(void* target);
+
 // ECMA-262 10.5.x: every Proxy internal method whose [[ProxyHandler]] is null
 // (i.e. the proxy has been revoked) must throw a TypeError. Previously the
 // revoked traps returned a benign value (undefined/false/empty), so the ~163
@@ -396,6 +405,18 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
     // newTarget defaults to the PROXY itself (new proxyOfCtor(...) runs the
     // target ctor with new.target === proxy).
     if (!target) return ts_value_make_undefined();
+    // If the target is ITSELF a proxy, recurse through its [[Construct]] so the
+    // trap chain and the newTarget are preserved (construct/trap-is-*-target-is-
+    // proxy). ts_new_from_constructor_with_target below cannot see a proxy ctor.
+    {
+        uint32_t m16 = *(uint32_t*)((char*)target + 16);
+        if (m16 == 0x4D415053 /*MAPS*/ && g_ts_proxy_vtable &&
+            *(void**)target == g_ts_proxy_vtable) {
+            TsValue* nt = newTarget ? (TsValue*)newTarget : ts_value_box_any(this);
+            return ts_proxy_construct(ts_value_box_any(target), (void*)args,
+                                      (int64_t)argCount, (void*)nt);
+        }
+    }
     {
         void* argsRaw = args ? ts_value_get_object(args) : nullptr;
         TsArray* argArr = (argsRaw && *(uint32_t*)argsRaw == 0x41525259 /*ARRY*/)
@@ -583,13 +604,14 @@ TsValue* TsProxy::ownKeys() {
         return r;
     }
 
-    // No trap - return Object.keys(target)
+    // No trap — ES 10.5.11 step 7: Return ? target.[[OwnPropertyKeys]]().
+    // ts_reflect_ownKeys re-dispatches into a proxy target AND returns the FULL
+    // own-key list (non-enumerable strings and symbols) — not the enumerable-
+    // only Object.keys, which dropped `length`, non-enumerables, and symbols.
     if (!target) {
         return ts_value_make_array(TsArray::Create());
     }
-
-    // Get keys from target using ts_object_keys
-    return ts_object_keys(ts_value_box_any(target));
+    return ts_reflect_ownKeys((void*)ts_value_box_any(target));
 }
 
 // ---- ES 10.5.1-10.5.6: remaining internal-method traps (stage A5) ----
