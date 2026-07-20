@@ -696,7 +696,6 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         builder_.createBranch(condBlock);
     } else {
         // Array iteration: use index-based access
-        auto lenVal = builder_.createArrayLength(iterable);
 
         // Create index variable (alloca for SSA)
         auto indexAlloca = builder_.createAlloca(HIRType::makeInt64(), "forof.idx");
@@ -708,6 +707,11 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         // Condition: index < length
         builder_.setInsertPoint(condBlock);
         currentBlock_ = condBlock;
+        // ES 23.1.5.2.1 ArrayIterator: each next() reads the array's CURRENT
+        // length fresh — re-read ts_array_length inside the condition block so
+        // appending during iteration visits new elements and shrinking stops
+        // early. Hoisting this before the loop cached a stale length.
+        auto lenVal = builder_.createArrayLength(iterable);
         auto indexVal = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
         auto cond = builder_.createCmpLtI64(indexVal, lenVal);
         builder_.createCondBranch(cond, bodyBlock, endBlock);

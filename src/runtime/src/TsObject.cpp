@@ -865,6 +865,138 @@ extern "C" void* ts_get_proto_getter_with_receiver(void* protoObj, const char* k
     return (void*)(uintptr_t)NANBOX_UNDEFINED;
 }
 
+// ============================================================================
+// SuperProperty (ECMA-262 13.3.7): super.x / super[e] read+write from a class
+// method. GetSuperBase = [[HomeObject]].[[GetPrototypeOf]](); the evaluation is
+// base.[[Get]](key, thisValue) for reads and base.[[Set]](key, v, thisValue)
+// for writes — thisValue is the current `this`, NOT the base (13.3.7.1
+// MakeSuperPropertyReference + 6.2.5.5 GetValue/PutValue). The compiler passes
+// the DEFINING class's home object (instance methods: <Class>.prototype; static
+// methods: the constructor); this runtime does the real prototype-chain walk so
+// that data properties assigned to a base prototype at runtime (e.g.
+// `A.prototype.x = 'a'`) resolve correctly.
+extern "C" {
+    TsValue* ts_object_getPrototypeOf(TsValue* obj);              // TsGlobals.cpp
+    TsValue* ts_object_get_property(void* obj, const char* keyStr); // below
+    void ts_object_set_property(void* obj, void* key, void* value); // below
+    TsValue* ts_to_property_key_spec(TsValue* key);               // below
+    void* ts_error_create_typed(const char* type, const char* message);
+
+    // Shared: base = GetSuperBase(home). Returns the boxed base value or nullptr
+    // and sets *isNullish when the base is null/undefined (RequireObjectCoercible
+    // must throw). GetSuperBase runs here so the computed forms can order it
+    // before ToPropertyKey (spec 13.3.7.1).
+    static TsValue* super_base_of(void* homeObj, bool* isNullish) {
+        *isNullish = false;
+        TsValue* baseV = ts_object_getPrototypeOf((TsValue*)homeObj);
+        uint64_t nb = baseV ? (uint64_t)(uintptr_t)baseV : 0;
+        if (!baseV || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            *isNullish = true;
+            return nullptr;
+        }
+        return baseV;
+    }
+
+    // base.[[Get]](key, thisVal): getter-aware chain walk with the ORIGINAL
+    // receiver, then ordinary (data/method/inherited) lookup.
+    static void* super_get_impl(TsValue* baseV, const char* key, void* thisVal) {
+        void* raw = ts_value_get_object(baseV);
+        if (!raw) raw = baseV;
+        if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053 /*TsMap MAPS*/) {
+            TsValue* out = nullptr;
+            if (dispatch_map_chain_getter((TsMap*)raw, key, (TsValue*)thisVal, &out))
+                return (void*)out;
+        }
+        return (void*)ts_object_get_property(raw, key);
+    }
+
+    // base.[[Set]](key, val, thisVal): setter-aware chain walk with the ORIGINAL
+    // receiver; if no setter is found, ordinary [[Set]] creates/updates an own
+    // data property on the RECEIVER (thisVal), never on the base.
+    static void super_set_impl(TsValue* baseV, const char* key,
+                               void* val, void* thisVal) {
+        void* raw = ts_value_get_object(baseV);
+        if (!raw) raw = baseV;
+        if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053 /*TsMap MAPS*/) {
+            int rejected = 0;
+            if (dispatch_map_chain_set((TsMap*)raw, key, (TsValue*)thisVal,
+                                       (TsValue*)val, &rejected))
+                return;  // setter invoked (or set-less accessor rejected)
+        }
+        TsValue* keyV = ts_value_make_string(TsString::GetInterned(key));
+        ts_object_set_property(thisVal, keyV, val);
+    }
+
+    static const char* super_key_cstr(void* keyVal) {
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)keyVal);
+        return ks ? ks->ToUtf8() : "";
+    }
+
+    // super.<name> READ (static key).
+    void* ts_super_get(void* homeObj, void* keyStr, void* thisVal) {
+        bool nullish = false;
+        TsValue* baseV = super_base_of(homeObj, &nullish);
+        if (nullish) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot read property of null or undefined super base"));
+            return (void*)ts_value_make_undefined();
+        }
+        return super_get_impl(baseV, super_key_cstr(keyStr), thisVal);
+    }
+
+    // super[<expr>] READ (computed key). GetSuperBase before ToPropertyKey.
+    void* ts_super_get_computed(void* homeObj, void* keyVal, void* thisVal) {
+        bool nullish = false;
+        TsValue* baseV = super_base_of(homeObj, &nullish);
+        TsValue* pk = ts_to_property_key_spec((TsValue*)keyVal);  // may throw
+        if (nullish) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot read property of null or undefined super base"));
+            return (void*)ts_value_make_undefined();
+        }
+        // Symbol keys: no c-string form; fall back to receiver-agnostic get.
+        void* pkraw = ts_value_get_object(pk);
+        if (pkraw && *(uint32_t*)pkraw == 0x53594D42 /*SYMB*/) {
+            void* raw = ts_value_get_object(baseV);
+            if (!raw) raw = baseV;
+            extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+            return (void*)ts_object_get_dynamic(baseV, pk);
+        }
+        return super_get_impl(baseV, super_key_cstr(pk), thisVal);
+    }
+
+    // super.<name> = val WRITE (static key).
+    void ts_super_set(void* homeObj, void* keyStr, void* val, void* thisVal) {
+        bool nullish = false;
+        TsValue* baseV = super_base_of(homeObj, &nullish);
+        if (nullish) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot set property of null or undefined super base"));
+            return;
+        }
+        super_set_impl(baseV, super_key_cstr(keyStr), val, thisVal);
+    }
+
+    // super[<expr>] = val WRITE (computed key). GetSuperBase before ToPropertyKey.
+    void ts_super_set_computed(void* homeObj, void* keyVal, void* val, void* thisVal) {
+        bool nullish = false;
+        TsValue* baseV = super_base_of(homeObj, &nullish);
+        TsValue* pk = ts_to_property_key_spec((TsValue*)keyVal);  // may throw
+        if (nullish) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot set property of null or undefined super base"));
+            return;
+        }
+        void* pkraw = ts_value_get_object(pk);
+        if (pkraw && *(uint32_t*)pkraw == 0x53594D42 /*SYMB*/) {
+            extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+            ts_object_set_dynamic((TsValue*)thisVal, pk, (TsValue*)val);
+            return;
+        }
+        super_set_impl(baseV, super_key_cstr(pk), val, thisVal);
+    }
+}
+
 void ts_set_call_this(void* thisArg) {
     if (getenv("TS_DEBUG_THISSLOT"))
         fprintf(stderr, "[THISSLOT] set=%p\n", thisArg);

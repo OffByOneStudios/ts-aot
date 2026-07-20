@@ -1455,6 +1455,23 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
     // Handle property access assignment
     auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get());
+    // `super.name = rhs` WRITE (ECMA-262 13.3.7 + 6.2.5.5 PutValue): route through
+    // the runtime SuperProperty set — base.[[Set]](name, rhs, this). A base-class
+    // setter runs with the current `this`; absent a setter, an own data property
+    // is created on `this` (the receiver), never on the super base.
+    if (propAccess && currentClass_ && currentClass_->baseClass &&
+        dynamic_cast<ast::SuperExpression*>(propAccess->expression.get())) {
+        if (auto home = lowerSuperHomeObject()) {
+            auto thisVal = lookupVariable("this");
+            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+            auto keyStr = builder_.createConstString(propAccess->name);
+            builder_.createCall("ts_super_set",
+                {home, keyStr, boxValueIfNeeded(rhs), boxValueIfNeeded(thisVal)},
+                HIRType::makeVoid());
+            lastValue_ = rhs;
+            return;
+        }
+    }
     if (propAccess) {
         // Check for static property assignment: ClassName.propertyName = value
         auto* classNameIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
@@ -1622,6 +1639,20 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
     // Handle element access assignment
     auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get());
+    // `super[expr] = rhs` WRITE: runtime SuperProperty set with a computed key.
+    if (elemAccess && currentClass_ && currentClass_->baseClass &&
+        dynamic_cast<ast::SuperExpression*>(elemAccess->expression.get())) {
+        auto keyVal = lowerExpression(elemAccess->argumentExpression.get());
+        if (auto home = lowerSuperHomeObject()) {
+            auto thisVal = lookupVariable("this");
+            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+            builder_.createCall("ts_super_set_computed",
+                {home, boxValueIfNeeded(keyVal), boxValueIfNeeded(rhs),
+                 boxValueIfNeeded(thisVal)}, HIRType::makeVoid());
+            lastValue_ = rhs;
+            return;
+        }
+    }
     if (elemAccess) {
         auto obj = lowerExpression(elemAccess->expression.get());
         auto idx = lowerExpression(elemAccess->argumentExpression.get());

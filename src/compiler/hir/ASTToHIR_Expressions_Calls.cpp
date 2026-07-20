@@ -67,24 +67,62 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // and missing args are undefined.
             HIRFunction* baseCtor = currentClass_->baseClass->constructor;
             // Param 0 of a constructor is `this` (implicit), so user-visible
-            // arity is params.size() - 1.
+            // arity is params.size() - 1. (A base ctor that reads `arguments`
+            // is padded to 10 params — this + 9 hidden __argN__ slots — so
+            // expectedUserArgs is 9 there and the flattened args physically
+            // reach the arguments object.)
             size_t expectedUserArgs = baseCtor->params.empty() ? 0 : baseCtor->params.size() - 1;
             std::vector<std::shared_ptr<HIRValue>> ctorArgs;
             auto thisVal = lookupVariable("this");
-            if (thisVal) {
-                ctorArgs.push_back(thisVal);
-            } else {
-                ctorArgs.push_back(builder_.createConstNull());
-            }
-            if (baseCtor->hasRestParam) {
-                for (auto& arg : args) ctorArgs.push_back(arg);
-            } else {
-                for (size_t i = 0; i < expectedUserArgs; ++i) {
-                    if (i < args.size()) ctorArgs.push_back(args[i]);
-                    else ctorArgs.push_back(builder_.createConstUndefined());
+            ctorArgs.push_back(thisVal ? thisVal : builder_.createConstNull());
+
+            // ECMA-262 SuperCall / ArgumentListEvaluation: `super(...iterable)`
+            // spreads via the iterator protocol (GetIterator/IteratorStep,
+            // propagating iterator errors in order). Flatten into a TsArray, set
+            // the runtime argc so the base ctor's `arguments` sees the full list,
+            // then forward positionally into the base ctor's (possibly hidden)
+            // parameter slots.
+            bool superSpread = false;
+            for (auto& a : node->arguments)
+                if (dynamic_cast<ast::SpreadElement*>(a.get())) { superSpread = true; break; }
+
+            if (superSpread) {
+                auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
+                auto packed = builder_.createCall("ts_array_create", {}, anyArr);
+                for (size_t i = 0; i < node->arguments.size(); ++i) {
+                    if (dynamic_cast<ast::SpreadElement*>(node->arguments[i].get()))
+                        packed = builder_.createCall("ts_array_spread_into",
+                            {packed, boxValueIfNeeded(args[i])}, anyArr);
+                    else
+                        builder_.createCall("ts_array_push",
+                            {packed, boxValueIfNeeded(args[i])}, HIRType::makeInt64());
                 }
+                auto argc = builder_.createCall("ts_array_length", {packed}, HIRType::makeInt64());
+                // Extract positional args BEFORE setting argc (ts_array_get may
+                // clobber the argc slot); base ctors with a rest param collect
+                // the tail from the same forwarded slots.
+                for (size_t i = 0; i < expectedUserArgs; ++i) {
+                    auto idx = builder_.createConstInt((int64_t)i);
+                    ctorArgs.push_back(builder_.createGetElem(packed, idx));
+                }
+                builder_.createCall("ts_set_last_call_argc", {argc}, HIRType::makeVoid());
+                builder_.createCall(baseCtor->name, ctorArgs, HIRType::makeVoid());
+            } else {
+                if (baseCtor->hasRestParam) {
+                    for (auto& arg : args) ctorArgs.push_back(arg);
+                } else {
+                    for (size_t i = 0; i < expectedUserArgs; ++i) {
+                        if (i < args.size()) ctorArgs.push_back(args[i]);
+                        else ctorArgs.push_back(builder_.createConstUndefined());
+                    }
+                }
+                // Set the runtime argc to the ACTUAL call arity so the base
+                // ctor's `arguments.length` is correct (previously stale — a
+                // 0-declared-param base saw arguments.length wrong).
+                builder_.createCall("ts_set_last_call_argc",
+                    {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                builder_.createCall(baseCtor->name, ctorArgs, HIRType::makeVoid());
             }
-            builder_.createCall(baseCtor->name, ctorArgs, HIRType::makeVoid());
         }
         // If base class has no explicit constructor (e.g., abstract class),
         // super() is a no-op - just continue with the derived class constructor
@@ -2837,6 +2875,10 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         auto prevNT = builder_.createCall("ts_set_new_target",
             {ntCtorVal}, HIRType::makeAny());
         if (hirClass->baseClass && ctorIsJs) {
+            // The ctor's returnType may not be finalized here (its body lowers
+            // later), so we always request an Any result; HIRToLLVM materializes
+            // `undefined` when the emitted ctor turns out to be void, so
+            // ts_construct_select never receives a void operand.
             auto ctorResult = builder_.createCall(ctor->name, ctorArgs, HIRType::makeAny());
             if (ctorResult)
                 newObj = builder_.createCall("ts_construct_select", {ctorResult, newObj}, HIRType::makeAny());

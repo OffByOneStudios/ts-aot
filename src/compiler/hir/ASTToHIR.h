@@ -699,6 +699,11 @@ private:
     // prefer that. Returns the module function symbol to install on the prototype.
     std::string completeMethodSymbol(HIRClass* hirClass, const std::string& methodKey,
                                      HIRFunction* fallback, bool isStatic = false);
+    // SuperProperty (ECMA-262 13.3.7): build the [[HomeObject]] of the current
+    // class method for a runtime super get/set. Instance methods: the defining
+    // class's prototype (<Class>.prototype); static methods: the constructor
+    // itself. Returns nullptr when not lowering inside a class method.
+    std::shared_ptr<HIRValue> lowerSuperHomeObject();
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override;
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override;
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override;
