@@ -6419,6 +6419,10 @@ static void* ta_create_for_ctor_checked(void* ctx, int64_t len) {
     return resRaw;
 }
 
+// Defined later (constructor-path iterator driver). Forward-declared so
+// %TypedArray%.from can reuse the full IterableToList protocol.
+static TsArray* ta_iterable_collect(void* rawSrc);
+
 static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) {
     TenureScope _tenure;
     if (argc < 1 || !argv || !argv[0]) {
@@ -6426,6 +6430,24 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
             "TypedArray.from: source is required"));
         return ts_value_make_undefined();
     }
+
+    // ECMA-262 23.2.2.1 %TypedArray%.from step 2: if mapfn is not undefined,
+    // IsCallable(mapfn) MUST be validated BEFORE GetMethod(source, @@iterator)
+    // is read (from/mapfn-is-not-callable counts source[@@iterator] accesses
+    // and expects 0 when mapfn is bad). Only UNDEFINED mapfn is "absent";
+    // null (or any non-callable) is a TypeError.
+    TsValue* mapFn = (argc >= 2 && argv) ? argv[1] : nullptr;
+    bool mapping = false;
+    if (mapFn && !ts_value_is_undefined(mapFn)) {
+        if (!ts_is_callable((void*)mapFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArray.from: mapfn is not callable"));
+            return ts_value_make_undefined();
+        }
+        mapping = true;
+    }
+    TsValue* thisArg = (argc >= 3 && argv) ? argv[2] : ts_value_make_undefined();
+
     void* source = ts_value_get_object(argv[0]);
     if (!source) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -6433,35 +6455,39 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
         return ts_value_make_undefined();
     }
 
-    // ECMA-262 23.2.2.1.1 IterableToList: when the source has @@iterator,
-    // call it and validate Type(iterator) is Object — throw TypeError if
-    // not. The IsHTMLDDA-emulates-undefined cluster relies on this check.
+    // ECMA-262 23.2.2.1 step 3-6: GetMethod(source, @@iterator). If present &
+    // callable, drive the FULL iterator protocol (IterableToList): a poisoned
+    // next()/value getter propagates, a modified @@iterator is honored, and
+    // element ToNumber/ToBigInt runs at store time on the collected values.
     {
         TsValue* iterMethod = ts_object_get_property(source, "[Symbol.iterator]");
         if (iterMethod && !ts_value_is_undefined(iterMethod) &&
             !ts_value_is_null(iterMethod)) {
-            bool isCallable = ts_is_callable((void*)iterMethod);  // canonical IsCallable
-            if (isCallable) {
-                TsValue* sourceBoxed = ts_value_make_object(source);
-                TsValue* iter = ts_call_with_this_0(iterMethod, sourceBoxed);
-                bool iterIsObj = false;
-                if (iter) {
-                    uint64_t inb = (uint64_t)(uintptr_t)iter;
-                    if (nanbox_is_ptr(inb) && inb > NANBOX_UNDEFINED) {
-                        if (nanbox_to_ptr(inb)) iterIsObj = true;
-                    }
-                }
-                if (!iterIsObj) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "TypedArray.from: result of @@iterator method is not an object"));
-                    return ts_value_make_undefined();
-                }
-                // Iterator is valid — fall through to length-based path
-                // (full protocol-driven iteration is a separate fix).
+            if (!ts_is_callable((void*)iterMethod)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArray.from: @@iterator is not callable"));
+                return ts_value_make_undefined();
             }
+            TsArray* values = ta_iterable_collect(source);
+            if (!values) return ts_value_make_undefined();  // abrupt already thrown
+            int64_t len = (int64_t)values->Length();
+            void* result = ta_create_for_ctor_checked(ctx, len);
+            if (!result) return ts_value_make_undefined();
+            for (int64_t i = 0; i < len; i++) {
+                TsValue* v = (TsValue*)values->GetElementBoxed((size_t)i);
+                if (!v) v = ts_value_make_undefined();
+                if (mapping) {
+                    TsValue* idx = ts_value_make_int(i);
+                    TsValue* args[2] = { v, idx };
+                    v = ts_function_call_with_this(mapFn, thisArg, 2, args);
+                }
+                ts_ta_store_value(result, (size_t)i, v);   // type-aware
+            }
+            return ts_value_make_object(result);
         }
     }
 
+    // Array-like path (no @@iterator): ToLength(Get(source,"length")).
     TsValue* lenVal = ts_object_get_property(source, "length");
     double lenD = lenVal ? ts_to_number(lenVal) : 0;
     if (lenD != lenD || lenD <= 0) lenD = 0;
@@ -6472,35 +6498,11 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
     void* result = ta_create_for_ctor_checked(ctx, len);
     if (!result) return ts_value_make_undefined();
 
-    // Spec step 3: only UNDEFINED mapfn is "absent" — null (or any other
-    // non-callable) is a TypeError.
-    TsValue* mapFn = (argc >= 2 && argv) ? argv[1] : nullptr;
-    if (mapFn && ts_value_is_null(mapFn)) {
-        ts_throw((TsValue*)ts_error_create_typed("TypeError",
-            "TypedArray.from: mapfn is not callable"));
-        return ts_value_make_undefined();
-    }
-    if (mapFn && !ts_value_is_nullish(mapFn)) {
-        // Must be callable — if not a Function/Closure, throw.
-        uint64_t mfNb = nanbox_from_tsvalue_ptr(mapFn);
-        void* mfRaw = nanbox_is_ptr(mfNb) ? nanbox_to_ptr(mfNb) : nullptr;
-        uint32_t mfMagic = mfRaw ? *(uint32_t*)((char*)mfRaw + 16) : 0;
-        if (mfMagic != TsFunction::MAGIC && mfMagic != 0x434C5352) {
-            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                "TypedArray.from: mapFn is not callable"));
-            return ts_value_make_undefined();
-        }
-    } else {
-        mapFn = nullptr;
-    }
-    TsValue* thisArg = (argc >= 3 && argv) ? argv[2] : nullptr;
-    if (!thisArg) thisArg = ts_value_make_undefined();
-
     for (int64_t i = 0; i < len; i++) {
         char key[32]; snprintf(key, sizeof(key), "%lld", (long long)i);
         TsValue* v = ts_object_get_property(source, key);
         if (!v) v = ts_value_make_undefined();
-        if (mapFn) {
+        if (mapping) {
             TsValue* idx = ts_value_make_int(i);
             TsValue* args[2] = { v, idx };
             v = ts_function_call_with_this(mapFn, thisArg, 2, args);
@@ -7203,34 +7205,17 @@ extern "C" void ts_ta_store_value(void* taRaw, size_t i, TsValue* v) {
     TsTypedArray* ta = (TsTypedArray*)taRaw;
     TypedArrayType tt = ta->GetType();
     if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
-        // ES 7.1.13 ToBigInt: BigInt passes; booleans map to 0n/1n; objects
-        // run ToPrimitive FIRST (a poisoned valueOf's abrupt completion
-        // propagates as-is); everything else is a TypeError.
-        uint64_t nb = nanbox_from_tsvalue_ptr(v);
-        void* raw = (v && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
-        if (raw && (uintptr_t)raw >= 4096 &&
-            *(uint32_t*)raw != 0x42494749 /*BIGI*/ &&
-            *(uint32_t*)raw != 0x53545247 /*STRG*/ &&
-            *(uint32_t*)raw != TsConsString::MAGIC) {
-            extern TsValue* ts_to_primitive(TsValue* v, int hint);
-            v = ts_to_primitive(v, 1 /* number hint */);
-            nb = nanbox_from_tsvalue_ptr(v);
-            raw = (v && nanbox_is_ptr(nb)) ? nanbox_to_ptr(nb) : nullptr;
-        }
-        int64_t iv = 0;
-        if (raw && (uintptr_t)raw >= 4096 && *(uint32_t*)raw == 0x42494749) {
-            iv = ts_bigint_to_i64(raw);
-        } else if (nanbox_is_true(nb)) {
-            iv = 1;
-        } else if (nanbox_is_false(nb)) {
-            iv = 0;
-        } else {
-            // ES 7.1.13: ToBigInt(undefined/null/number/symbol) throws —
-            // INCLUDING construction holes (`new BigInt64Array([1n,,3n])`).
-            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                "Cannot convert a non-BigInt value to a BigInt"));
-            return;
-        }
+        // ES 7.1.13 ToBigInt via the canonical spec routine: BigInt passes;
+        // booleans map to 0n/1n; STRINGS parse via the StringToBigInt grammar
+        // (SyntaxError on bad syntax); objects run ToPrimitive (a poisoned
+        // valueOf's abrupt completion propagates); Number/undefined/null/Symbol
+        // (and construction holes normalized to undefined upstream) TypeError.
+        // The prior ad-hoc branch EXCLUDED strings and threw for them
+        // (set/BigInt/string-tobigint, ctors-bigint/object-arg/string-tobigint).
+        extern void* ts_to_bigint_spec(TsValue* v);
+        void* bi = ts_to_bigint_spec(v);
+        if (!bi) return;  // unreachable — a bad conversion already ts_throw'd
+        int64_t iv = ts_bigint_to_i64(bi);
         uint8_t* data = ta->GetData();
         if (data && i < ta->GetLength()) ((int64_t*)data)[i] = iv;
         return;

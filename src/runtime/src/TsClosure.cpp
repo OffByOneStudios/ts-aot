@@ -356,6 +356,52 @@ void ts_closure_set_name(TsClosure* closure, void* name) {
     }
 }
 
+// ECMA-262 SetFunctionName driven by object-literal / class computed-key
+// NamedEvaluation (PropertyDefinitionEvaluation): a computed PropertyName that
+// is a Symbol with description d names the anonymous function value "[d]"
+// ("" when the description is undefined); any other key names it ToString(key).
+// The compiler emits this ONLY for anonymous function/arrow/generator/method
+// values, so it always replaces the empty placeholder name. keyVal is the
+// (boxed) property key; fnVal is the (boxed) function value.
+extern void* ts_symbol_get_description(void* sym);
+TsValue* ts_function_set_name_from_key(TsValue* fnVal, TsValue* keyVal) {
+    if (!fnVal || !keyVal) return fnVal;
+    void* raw = ts_value_get_object(fnVal);
+    if (!raw) return fnVal;
+    // Only ordinary function objects (closures) carry a settable name here.
+    if (*(uint32_t*)((char*)raw + 16) != TsClosure::MAGIC) return fnVal;
+    TsClosure* cl = (TsClosure*)raw;
+
+    TsString* nameStr = nullptr;
+    uint64_t nb = nanbox_from_tsvalue_ptr(keyVal);
+    if (nanbox_is_ptr(nb)) {
+        void* kraw = nanbox_to_ptr(nb);
+        uintptr_t kp = (uintptr_t)kraw;
+        if (kraw && kp >= 0x1000 && kp <= 0x00007FFFFFFFFFFFULL) {
+            uint32_t m0 = *(uint32_t*)kraw;
+            uint32_t m16 = *(uint32_t*)((char*)kraw + 16);
+            if (m0 == 0x53594D42 || m16 == 0x53594D42) { // TsSymbol::MAGIC 'SYMB'
+                void* desc = ts_symbol_get_description(kraw);
+                if (desc) {
+                    nameStr = TsString::Concat(
+                        TsString::Concat(TsString::Create("["), (TsString*)desc),
+                        TsString::Create("]"));
+                } else {
+                    nameStr = TsString::Create("");
+                }
+            }
+        }
+    }
+    if (!nameStr) {
+        // Non-symbol key: ToString (string keys pass through; number keys
+        // become their decimal string). ts_string_from_value never throws here
+        // because the symbol case is handled above.
+        nameStr = (TsString*)ts_string_from_value(keyVal);
+    }
+    if (nameStr) ts_closure_set_name(cl, nameStr);
+    return fnVal;
+}
+
 void ts_closure_set_method(TsClosure* closure) {
     if (closure) {
         closure->is_method = true;

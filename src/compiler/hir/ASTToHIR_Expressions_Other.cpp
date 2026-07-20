@@ -911,6 +911,11 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
                 allStatic = false;
                 break;
             }
+            // ECMA-262 B.3.1: the non-computed `__proto__: value` colon form is
+            // NOT an own property — it sets [[Prototype]]. Keep it out of the
+            // flat shape (handled specially in visitPropertyAssignment); the
+            // other static props can still share a flat shape.
+            if (pa->name == "__proto__") continue;
             propNames.push_back(pa->name);
         } else if (auto* spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
             if (spa->name.empty()) {
@@ -1000,6 +1005,12 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
                              builder_.createConstInt(method->isSetter ? 1 : 0)},
                             HIRType::makeVoid());
                     } else {
+                        // ECMA-262 MethodDefinition Evaluation: a concise/
+                        // generator method is anonymous, so SetFunctionName(F,
+                        // propKey) always applies. A Symbol key names it
+                        // "[description]".
+                        builder_.createCall("ts_function_set_name_from_key",
+                                            {funcValue, keyVal}, HIRType::makeAny());
                         builder_.createSetPropDynamic(reloadObj(), keyVal, funcValue);
                     }
                 }
@@ -1070,7 +1081,30 @@ void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
     if (auto* computed = dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
         if (computed->expression && obj) {
             auto keyVal = lowerExpression(computed->expression.get());
+            // ECMA-262 PropertyDefinitionEvaluation: when the value is an
+            // anonymous function/arrow/generator/class, SetFunctionName(F,
+            // propKey) applies even for computed keys (a Symbol key yields
+            // "[description]"). Set it from the runtime key value.
+            bool anonInit = dynamic_cast<ast::ArrowFunction*>(node->initializer.get());
+            if (!anonInit) {
+                if (auto* fe = dynamic_cast<ast::FunctionExpression*>(node->initializer.get()))
+                    anonInit = fe->name.empty();
+                else if (auto* ce = dynamic_cast<ast::ClassExpression*>(node->initializer.get()))
+                    anonInit = ce->name.empty();
+            }
+            if (anonInit && val)
+                builder_.createCall("ts_function_set_name_from_key", {val, keyVal},
+                                    HIRType::makeAny());
             builder_.createSetPropDynamic(obj, keyVal, val);
+        }
+    } else if (node->name == "__proto__") {
+        // ECMA-262 B.3.1: `__proto__: value` (non-computed, identifier or
+        // string-literal key) sets the object's [[Prototype]] when value is
+        // Object/Null, and creates NO own property. A direct [[SetPrototypeOf]]
+        // (not [[Set]]) so it bypasses any inherited __proto__ accessor.
+        if (obj) {
+            builder_.createCall("ts_object_literal_set_proto", {obj, val},
+                                HIRType::makeAny());
         }
     } else {
         // PropertyAssignment has name (string) directly. The empty string is a

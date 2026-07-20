@@ -1471,6 +1471,26 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // proto (boxed)
             .build());
 
+    // ECMA-262 B.3.1: object-literal `__proto__: value` colon form. Sets the
+    // [[Prototype]] when value is Object/Null, else no-op; never creates an own
+    // "__proto__" property. Value is boxed so the runtime can inspect its type.
+    reg.registerLowering("ts_object_literal_set_proto",
+        lowering("ts_object_literal_set_proto")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // proto value (boxed)
+            .build());
+
+    // ECMA-262 SetFunctionName for computed-key NamedEvaluation: name an
+    // anonymous function/method value from its (boxed) property key — a Symbol
+    // key gives "[description]", any other key gives ToString(key).
+    reg.registerLowering("ts_function_set_name_from_key",
+        lowering("ts_function_set_name_from_key")
+            .returnsPtr()
+            .ptrArg()      // function value (boxed)
+            .ptrArg()      // property key (boxed)
+            .build());
+
     reg.registerLowering("ts_object_getPrototypeOf",
         lowering("ts_object_getPrototypeOf")
             .returnsPtr()

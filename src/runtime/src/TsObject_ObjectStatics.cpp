@@ -1235,6 +1235,31 @@ extern "C" {
         return ts_object_setPrototypeOf(obj, proto);
     }
 
+    // ECMA-262 B.3.1 __proto__ Property Names in Object Initializers:
+    // For the non-computed `__proto__: value` colon form in an object literal,
+    // step 7: if Type(propValue) is Object OR Null, perform
+    // object.[[SetPrototypeOf]](propValue); otherwise do nothing. In no case is
+    // an own "__proto__" property created. Because this is a direct
+    // [[SetPrototypeOf]] (NOT [[Set]]), it must bypass any inherited
+    // Object.prototype.__proto__ accessor (the poisoned-object-prototype test).
+    // A cyclic/non-extensible failure is ignored (the object literal never
+    // throws for it); a fresh literal object is always extensible and acyclic.
+    extern bool ts_value_is_object(TsValue* v);
+    TsValue* ts_object_literal_set_proto(TsValue* obj, TsValue* val) {
+        uint64_t nb = val ? nanbox_from_tsvalue_ptr(val) : (uint64_t)NANBOX_UNDEFINED;
+        if (nanbox_is_null(nb)) {
+            // Null -> [[Prototype]] = null.
+            ts_object_setPrototypeOf(obj, val);
+        } else if (ts_value_is_object(val)) {
+            // Object value -> [[Prototype]] = val. (ts_value_is_object is false
+            // for string/symbol primitives, so Type String/Symbol is ignored.)
+            ts_object_setPrototypeOf(obj, val);
+        }
+        // undefined / number / boolean / string / symbol: no own property, no
+        // prototype change.
+        return obj;
+    }
+
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
         // Proxy: route through the setPrototypeOf trap (ES 10.5.2); a
         // trap-less proxy forwards to the target.
