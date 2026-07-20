@@ -162,6 +162,25 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 }
             }
         }
+        // `super[expr](...)` in an OBJECT-LITERAL concise method: resolve the
+        // method through the object's [[HomeObject]] prototype walk and invoke it
+        // with `this` = the current receiver (ECMA-262 13.3.7 + 13.3.6.1).
+        if (dynamic_cast<ast::SuperExpression*>(eaCallee->expression.get()) &&
+            !currentClass_ && objectSuperHomeAvailable()) {
+            auto thisVal = lookupVariable("this");
+            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+            auto keyVal = lowerExpression(eaCallee->argumentExpression.get());
+            if (auto home = lowerSuperHomeObject()) {
+                auto func = builder_.createCall("ts_super_get_computed",
+                    {home, boxValueIfNeeded(keyVal), boxValueIfNeeded(thisVal)},
+                    HIRType::makeAny());
+                builder_.createCall("ts_set_last_call_argc",
+                    {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                lastValue_ = builder_.createCallWithThis(
+                    func, boxValueIfNeeded(thisVal), args, HIRType::makeAny());
+                return;
+            }
+        }
     }
 
     // Handle method call
@@ -346,6 +365,25 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
             lastValue_ = builder_.createCallMethod(obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
             return;
+        }
+
+        // Case super in an OBJECT-LITERAL concise method: `super.m(...)`.
+        // GetSuperBase = [[HomeObject]].[[GetPrototypeOf]](); the resolved method
+        // is invoked with `this` = the current receiver, NOT the super base
+        // (ECMA-262 13.3.7.1 + 13.3.6.1 EvaluateCall, GetThisValue = actualThis).
+        if (superRecv && !currentClass_ && objectSuperHomeAvailable()) {
+            auto thisVal = lookupVariable("this");
+            if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+            if (auto home = lowerSuperHomeObject()) {
+                auto keyStr = builder_.createConstString(propAccess->name);
+                auto func = builder_.createCall("ts_super_get",
+                    {home, keyStr, boxValueIfNeeded(thisVal)}, HIRType::makeAny());
+                builder_.createCall("ts_set_last_call_argc",
+                    {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                lastValue_ = builder_.createCallWithThis(
+                    func, boxValueIfNeeded(thisVal), args, HIRType::makeAny());
+                return;
+            }
         }
 
         // Case 1: Method call on 'this' - we know the class statically

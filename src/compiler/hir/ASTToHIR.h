@@ -704,6 +704,14 @@ private:
     // class's prototype (<Class>.prototype); static methods: the constructor
     // itself. Returns nullptr when not lowering inside a class method.
     std::shared_ptr<HIRValue> lowerSuperHomeObject();
+    // True when an object-literal concise method's [[HomeObject]] is reachable
+    // (bound as a synthetic outer variable by visitObjectLiteralExpression).
+    // Lets the `super` lowering sites fire for object methods where
+    // currentClass_ is null (ECMA-262 13.2.5.5 / 9.2.10).
+    bool objectSuperHomeAvailable();
+    // Synthetic outer-scope variable that carries an object literal to its
+    // concise methods as their [[HomeObject]] (reached via closure capture).
+    static constexpr const char* kObjectSuperHomeVar = "__object_super_home__";
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override;
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override;
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override;
