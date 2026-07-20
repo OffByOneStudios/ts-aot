@@ -509,152 +509,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                     // We can't construct an AST AssignmentExpression here, so
                     // inline the destructure dispatch instead.
                     if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
-                        // ECMA-262 13.15.5.1 early errors: rest element must
-                        // be last and cannot have a default initializer.
-                        for (size_t ri = 0; ri < arrLit->elements.size(); ++ri) {
-                            auto* slot = arrLit->elements[ri].get();
-                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
-                                if (ri + 1 != arrLit->elements.size()) {
-                                    throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
-                                }
-                                if (dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
-                                    throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
-                                }
-                            }
-                        }
-                        // Inline minimal version of the dstr-assign code:
-                        // for each element, extract source[i] (with default
-                        // handling) and assign to the target.
-                        builder_.createCall("ts_destructure_require_object",
-                                            {elemVal}, HIRType::makeVoid());
-                        // Materialize through the iterator protocol so a custom
-                        // iterable is consumed via next() and closed via return()
-                        // (IteratorClose). The raw index access below only works
-                        // for real arrays; real arrays go through their array
-                        // iterator here too -> same values. Mirrors the binding
-                        // path (lowerArrayBindingPattern). Fixes the for-of/dstr
-                        // array-elem-iter-*-close cluster (the element was being
-                        // read as a raw array, so a custom iterable was never
-                        // iterated or closed). An empty `[]` assignment pattern
-                        // still GetIterator+closes (consumeCount 0 -> no next(),
-                        // return() fires), unlike the binding `[]` which doesn't.
-                        {
-                            bool patHasRest = false; int64_t patCount = 0;
-                            for (auto& el : arrLit->elements) {
-                                if (dynamic_cast<ast::SpreadElement*>(el.get())) { patHasRest = true; break; }
-                                patCount++;
-                            }
-                            elemVal = builder_.createCall("ts_destructure_iterate",
-                                { elemVal, builder_.createConstInt(patCount),
-                                  builder_.createConstInt(patHasRest ? 1 : 0) },
-                                HIRType::makeArray(HIRType::makeAny()));
-                        }
-                        int64_t index = 0;
-                        for (auto& slotPtr : arrLit->elements) {
-                            ast::Expression* slot = slotPtr.get();
-                            if (!slot || dynamic_cast<ast::OmittedExpression*>(slot)) {
-                                ++index;
-                                continue;
-                            }
-                            ast::Expression* tgt = slot;
-                            std::shared_ptr<HIRValue> value;
-                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
-                                auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createCallMethod(elemVal, "slice",
-                                    {idxConst}, HIRType::makeAny());
-                                tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
-                            } else {
-                                auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
-                                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
-                                    if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
-                                        // Lazily evaluate the initializer ONLY when the
-                                        // iterated element is undefined (ECMA-262
-                                        // DestructuringAssignmentEvaluation) — the old
-                                        // createSelect ran its side effects eagerly
-                                        // (dstr-array-elem-init-* observe this).
-                                        auto isUndef = builder_.createIsUndefined(value);
-                                        value = boxValueIfNeeded(value);
-                                        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "forof_dstr_dflt");
-                                        builder_.createStore(value, mergeSlot);
-                                        auto* defaultBB = currentFunction_->createBlock("forof_dstr_default");
-                                        auto* mergeBB = currentFunction_->createBlock("forof_dstr_merge");
-                                        builder_.createCondBranch(isUndef, defaultBB, mergeBB);
-                                        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
-                                        // NamedEvaluation: anonymous fn/class initializer
-                                        // takes the assignment-target name.
-                                        std::string savedPCDN = pendingClosureDisplayName_;
-                                        if (auto* tid = dynamic_cast<ast::Identifier*>(assn->left.get())) {
-                                            auto* ie = defExpr;
-                                            bool anon = dynamic_cast<ast::ArrowFunction*>(ie) ||
-                                                        dynamic_cast<ast::ClassExpression*>(ie);
-                                            if (!anon) {
-                                                if (auto* fe = dynamic_cast<ast::FunctionExpression*>(ie))
-                                                    anon = fe->name.empty();
-                                            }
-                                            if (anon) pendingClosureDisplayName_ = tid->name;
-                                        }
-                                        auto defVal = lowerExpression(defExpr);
-                                        pendingClosureDisplayName_ = savedPCDN;
-                                        defVal = boxValueIfNeeded(defVal);
-                                        builder_.createStore(defVal, mergeSlot);
-                                        builder_.createBranch(mergeBB);
-                                        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
-                                        value = builder_.createLoad(HIRType::makeAny(), mergeSlot);
-                                    }
-                                    tgt = dynamic_cast<ast::Expression*>(assn->left.get());
-                                }
-                            }
-                            // Simple identifier assignment (most common
-                            // case in for-of dstr tests). Member/element
-                            // forms are rare but supported via a fallback
-                            // through the assign path.
-                            if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
-                                auto* info = lookupVariableInfo(id->name);
-                                if (info && info->isConst) {
-                                    // ES 13.15.2: destructuring-ASSIGNMENT to a
-                                    // const binding throws TypeError (the raw
-                                    // store below corrupted the const cell).
-                                    builder_.createCall("ts_throw_const_assign",
-                                                        {}, HIRType::makeAny());
-                                } else if (info && info->isAlloca) {
-                                    builder_.createStore(value, info->value, info->elemType);
-                                } else if (info) {
-                                    auto allocaPtr = builder_.createAlloca(value->type, id->name);
-                                    builder_.createStore(value, allocaPtr, value->type);
-                                    info->value = allocaPtr;
-                                    info->elemType = value->type;
-                                    info->isAlloca = true;
-                                } else {
-                                    defineVariable(id->name, value);
-                                }
-                                if (currentFunction_ && isModuleGlobalVar(id->name)) {
-                                    builder_.createStoreGlobal(modVarName(id->name), value);
-                                }
-                            } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
-                                auto obj = lowerExpression(pa->expression.get());
-                                // Private for-of/for-in target brand-checks the receiver.
-                                if (!pa->name.empty() && pa->name[0] == '#') {
-                                    auto pk = builder_.createConstString(resolvePrivateName(pa->name));
-                                    builder_.createCall("ts_object_set_private",
-                                        {obj, pk, boxValueIfNeeded(value)}, HIRType::makeVoid());
-                                } else {
-                                    builder_.createSetPropStatic(obj, resolvePrivateKey(pa->name), value);
-                                }
-                            } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
-                                auto obj = lowerExpression(ea->expression.get());
-                                auto idx = lowerExpression(ea->argumentExpression.get());
-                                builder_.createSetElem(obj, idx, value);
-                            } else if (dynamic_cast<ast::ArrayLiteralExpression*>(tgt) ||
-                                       dynamic_cast<ast::ObjectLiteralExpression*>(tgt)) {
-                                // Nested destructuring target, e.g. `for ([{x}] of ...)`.
-                                // Recurse through the assignment-pattern engine — was
-                                // silently dropped (no require-object TypeError, nested
-                                // vars left unbound).
-                                destructureAssignmentPattern(tgt, boxValueIfNeeded(value));
-                            }
-                            ++index;
-                        }
+                        // Top-level ARRAY assignment pattern: `for ([a, b.c, ...r] of ...)`.
+                        // Route through the shared destructuring-assignment engine (mirrors
+                        // the objLit branch below). It performs the ES 13.15.5.1 early-error
+                        // checks and, for patterns whose targets are member/element
+                        // References, the interleaved IteratorClose-correct lowering
+                        // (ES 8.6.2 / 7.4.6): the target reference is evaluated BEFORE the
+                        // iterator is stepped and the iterator is closed (return()) on an
+                        // abrupt or early-normal completion. Previously a 145-line inline
+                        // copy bulk-materialized every slot up front, violating evaluation
+                        // order and never closing on a throw.
+                        destructureAssignmentPattern(arrLit, boxValueIfNeeded(elemVal));
                     } else if (auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(lhsExpr)) {
                         // Top-level OBJECT assignment pattern: `for ({ x } of ...)`.
                         // Route through the assignment-pattern engine (same as
@@ -752,152 +617,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                     // We can't construct an AST AssignmentExpression here, so
                     // inline the destructure dispatch instead.
                     if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
-                        // ECMA-262 13.15.5.1 early errors: rest element must
-                        // be last and cannot have a default initializer.
-                        for (size_t ri = 0; ri < arrLit->elements.size(); ++ri) {
-                            auto* slot = arrLit->elements[ri].get();
-                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
-                                if (ri + 1 != arrLit->elements.size()) {
-                                    throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
-                                }
-                                if (dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
-                                    throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
-                                }
-                            }
-                        }
-                        // Inline minimal version of the dstr-assign code:
-                        // for each element, extract source[i] (with default
-                        // handling) and assign to the target.
-                        builder_.createCall("ts_destructure_require_object",
-                                            {elemVal}, HIRType::makeVoid());
-                        // Materialize through the iterator protocol so a custom
-                        // iterable is consumed via next() and closed via return()
-                        // (IteratorClose). The raw index access below only works
-                        // for real arrays; real arrays go through their array
-                        // iterator here too -> same values. Mirrors the binding
-                        // path (lowerArrayBindingPattern). Fixes the for-of/dstr
-                        // array-elem-iter-*-close cluster (the element was being
-                        // read as a raw array, so a custom iterable was never
-                        // iterated or closed). An empty `[]` assignment pattern
-                        // still GetIterator+closes (consumeCount 0 -> no next(),
-                        // return() fires), unlike the binding `[]` which doesn't.
-                        {
-                            bool patHasRest = false; int64_t patCount = 0;
-                            for (auto& el : arrLit->elements) {
-                                if (dynamic_cast<ast::SpreadElement*>(el.get())) { patHasRest = true; break; }
-                                patCount++;
-                            }
-                            elemVal = builder_.createCall("ts_destructure_iterate",
-                                { elemVal, builder_.createConstInt(patCount),
-                                  builder_.createConstInt(patHasRest ? 1 : 0) },
-                                HIRType::makeArray(HIRType::makeAny()));
-                        }
-                        int64_t index = 0;
-                        for (auto& slotPtr : arrLit->elements) {
-                            ast::Expression* slot = slotPtr.get();
-                            if (!slot || dynamic_cast<ast::OmittedExpression*>(slot)) {
-                                ++index;
-                                continue;
-                            }
-                            ast::Expression* tgt = slot;
-                            std::shared_ptr<HIRValue> value;
-                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
-                                auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createCallMethod(elemVal, "slice",
-                                    {idxConst}, HIRType::makeAny());
-                                tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
-                            } else {
-                                auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
-                                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
-                                    if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
-                                        // Lazily evaluate the initializer ONLY when the
-                                        // iterated element is undefined (ECMA-262
-                                        // DestructuringAssignmentEvaluation) — the old
-                                        // createSelect ran its side effects eagerly
-                                        // (dstr-array-elem-init-* observe this).
-                                        auto isUndef = builder_.createIsUndefined(value);
-                                        value = boxValueIfNeeded(value);
-                                        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "forof_dstr_dflt");
-                                        builder_.createStore(value, mergeSlot);
-                                        auto* defaultBB = currentFunction_->createBlock("forof_dstr_default");
-                                        auto* mergeBB = currentFunction_->createBlock("forof_dstr_merge");
-                                        builder_.createCondBranch(isUndef, defaultBB, mergeBB);
-                                        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
-                                        // NamedEvaluation: anonymous fn/class initializer
-                                        // takes the assignment-target name.
-                                        std::string savedPCDN = pendingClosureDisplayName_;
-                                        if (auto* tid = dynamic_cast<ast::Identifier*>(assn->left.get())) {
-                                            auto* ie = defExpr;
-                                            bool anon = dynamic_cast<ast::ArrowFunction*>(ie) ||
-                                                        dynamic_cast<ast::ClassExpression*>(ie);
-                                            if (!anon) {
-                                                if (auto* fe = dynamic_cast<ast::FunctionExpression*>(ie))
-                                                    anon = fe->name.empty();
-                                            }
-                                            if (anon) pendingClosureDisplayName_ = tid->name;
-                                        }
-                                        auto defVal = lowerExpression(defExpr);
-                                        pendingClosureDisplayName_ = savedPCDN;
-                                        defVal = boxValueIfNeeded(defVal);
-                                        builder_.createStore(defVal, mergeSlot);
-                                        builder_.createBranch(mergeBB);
-                                        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
-                                        value = builder_.createLoad(HIRType::makeAny(), mergeSlot);
-                                    }
-                                    tgt = dynamic_cast<ast::Expression*>(assn->left.get());
-                                }
-                            }
-                            // Simple identifier assignment (most common
-                            // case in for-of dstr tests). Member/element
-                            // forms are rare but supported via a fallback
-                            // through the assign path.
-                            if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
-                                auto* info = lookupVariableInfo(id->name);
-                                if (info && info->isConst) {
-                                    // ES 13.15.2: destructuring-ASSIGNMENT to a
-                                    // const binding throws TypeError (the raw
-                                    // store below corrupted the const cell).
-                                    builder_.createCall("ts_throw_const_assign",
-                                                        {}, HIRType::makeAny());
-                                } else if (info && info->isAlloca) {
-                                    builder_.createStore(value, info->value, info->elemType);
-                                } else if (info) {
-                                    auto allocaPtr = builder_.createAlloca(value->type, id->name);
-                                    builder_.createStore(value, allocaPtr, value->type);
-                                    info->value = allocaPtr;
-                                    info->elemType = value->type;
-                                    info->isAlloca = true;
-                                } else {
-                                    defineVariable(id->name, value);
-                                }
-                                if (currentFunction_ && isModuleGlobalVar(id->name)) {
-                                    builder_.createStoreGlobal(modVarName(id->name), value);
-                                }
-                            } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
-                                auto obj = lowerExpression(pa->expression.get());
-                                // Private for-of/for-in target brand-checks the receiver.
-                                if (!pa->name.empty() && pa->name[0] == '#') {
-                                    auto pk = builder_.createConstString(resolvePrivateName(pa->name));
-                                    builder_.createCall("ts_object_set_private",
-                                        {obj, pk, boxValueIfNeeded(value)}, HIRType::makeVoid());
-                                } else {
-                                    builder_.createSetPropStatic(obj, resolvePrivateKey(pa->name), value);
-                                }
-                            } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
-                                auto obj = lowerExpression(ea->expression.get());
-                                auto idx = lowerExpression(ea->argumentExpression.get());
-                                builder_.createSetElem(obj, idx, value);
-                            } else if (dynamic_cast<ast::ArrayLiteralExpression*>(tgt) ||
-                                       dynamic_cast<ast::ObjectLiteralExpression*>(tgt)) {
-                                // Nested destructuring target, e.g. `for ([{x}] of ...)`.
-                                // Recurse through the assignment-pattern engine — was
-                                // silently dropped (no require-object TypeError, nested
-                                // vars left unbound).
-                                destructureAssignmentPattern(tgt, boxValueIfNeeded(value));
-                            }
-                            ++index;
-                        }
+                        // Top-level ARRAY assignment pattern: `for ([a, b.c, ...r] of ...)`.
+                        // Route through the shared destructuring-assignment engine (mirrors
+                        // the objLit branch below). It performs the ES 13.15.5.1 early-error
+                        // checks and, for patterns whose targets are member/element
+                        // References, the interleaved IteratorClose-correct lowering
+                        // (ES 8.6.2 / 7.4.6): the target reference is evaluated BEFORE the
+                        // iterator is stepped and the iterator is closed (return()) on an
+                        // abrupt or early-normal completion. Previously a 145-line inline
+                        // copy bulk-materialized every slot up front, violating evaluation
+                        // order and never closing on a throw.
+                        destructureAssignmentPattern(arrLit, boxValueIfNeeded(elemVal));
                     } else if (auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(lhsExpr)) {
                         // Top-level OBJECT assignment pattern: `for ({ x } of ...)`.
                         // Route through the assignment-pattern engine (same as

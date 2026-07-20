@@ -367,6 +367,17 @@ void envDefine(TsMap* env, const std::string& name, TsValue* v, bool isConst) {
     if (isConst) env->Set(key("\x01c:" + name), nanbox_to_tagged(jsBool(true)));
 }
 
+// A var / function binding created by non-strict eval's EvalDeclarationInstantiation
+// is created with CreateMutableBinding(N, true) — the deletable flag is set — so a
+// subsequent `delete N` removes it (ES 19.2.1.3; language/eval-code var-env-*-delete).
+// Ordinary function var bindings, let/const, and parameters are NOT deletable.
+void envMarkDeletable(TsMap* env, const std::string& name) {
+    env->Set(key("\x01d:" + name), nanbox_to_tagged(jsBool(true)));
+}
+bool envIsDeletable(TsMap* env, const std::string& name) {
+    return env->Has(key("\x01d:" + name));
+}
+
 bool envHasOwn(TsMap* env, const std::string& name) {
     return env->Has(key(name));
 }
@@ -883,6 +894,7 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
                 return thrown(ex);
         } else if (!envHasOwn(target, name)) {
             envDefine(target, name, jsUndefined(), false);
+            envMarkDeletable(target, name);  // eval var: CreateMutableBinding(N,true)
         }
     }
     for (auto* fd : fns) {
@@ -898,6 +910,7 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
             if (!guardSet(globalThis, boxStr(fd->name), fn, &ex)) return thrown(ex);
         } else {
             envDefine(target, fd->name, fn, false);
+            envMarkDeletable(target, fd->name);  // eval fn: deletable var binding
         }
     }
 
@@ -924,6 +937,7 @@ Cpl hoistInto(std::vector<ast::StmtPtr>& body, TsMap* env, TsValue* thisV,
                 }
             } else if (!envHasOwn(target, name)) {
                 envDefine(target, name, jsUndefined(), false);
+                envMarkDeletable(target, name);  // B.3.3.3 promoted var: deletable
             }
             target->Set(key("\x01x:" + name), nanbox_to_tagged(jsBool(true)));
         }
@@ -1535,7 +1549,26 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
             return normal(jsBool(out));
         }
         if (auto* id = dynamic_cast<ast::Identifier*>(target)) {
-            // delete on a bare name: only a global property can be deleted.
+            // delete on a bare name. A binding created by non-strict eval
+            // (var / block-fn / Annex B.3.3.3 promotion) is deletable — remove
+            // it so a later closure that reads the name throws ReferenceError
+            // (language/eval-code var-env-*-new-delete). A non-deletable env
+            // binding (let/const/param/ordinary var) is left untouched; the
+            // legacy globalThis path handles genuine global properties and the
+            // vacuously-true delete of an unresolved name.
+            for (TsMap* e = env; e; e = envParent(e)) {
+                if (envHasOwn(e, id->name)) {
+                    if (envIsDeletable(e, id->name)) {
+                        e->Delete(key(id->name));
+                        e->Delete(key("\x01d:" + id->name));
+                        // Tombstone: a no-initializer `var x;` re-executed later
+                        // must NOT resurrect the deleted binding.
+                        e->Set(key("\x01dx:" + id->name), nanbox_to_tagged(jsBool(true)));
+                        return normal(jsBool(true));
+                    }
+                    break;  // found a non-deletable binding: fall to legacy path
+                }
+            }
             bool out = false; TsValue* ex = nullptr;
             if (!guardDelete(globalThis, boxStr(id->name), &out, &ex)) return thrown(ex);
             return normal(jsBool(out));
@@ -2196,8 +2229,17 @@ Cpl execVarDecl(ast::VariableDeclaration* vd, TsMap* env, TsValue* thisV, bool s
                 if (!guardSet(globalThis, boxStr(id->name), v, &ex)) return thrown(ex);
             }
         } else {
-            if (vd->initializer || !envHasOwn(target, id->name))
+            // `var x;` with no initializer is a runtime no-op: the binding was
+            // created at declaration instantiation (hoistInto). Do NOT resurrect
+            // it if it was `delete`d earlier in the same eval — a later closure
+            // reading the name must throw ReferenceError (language/eval-code
+            // var-env-var-init-local-new-delete). Only an initializer assigns.
+            // The safety net for an un-hoisted var (should not happen; hoistInto
+            // walks nested blocks) is kept but gated on the initializer path.
+            if (vd->initializer)
                 envDefine(target, id->name, v, false);
+            else if (!envHasOwn(target, id->name) && !target->Has(key("\x01dx:" + id->name)))
+                envDefine(target, id->name, jsUndefined(), false);
         }
         return normal();
     }

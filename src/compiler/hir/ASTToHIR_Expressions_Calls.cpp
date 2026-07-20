@@ -1475,6 +1475,48 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     HIRType::makeAny());
                 return;
             }
+            // SLOPPY direct eval lexically inside a REAL user function (not the
+            // top-level synthetic/module-init wrappers): ES 19.2.1.3 step 6 —
+            // the eval's VariableEnvironment is the CALLER's function var
+            // environment, NOT the global one. Route through the tree-walking
+            // interpreter's direct path (fresh function-scope var env, no
+            // globalThis leakage) so an Annex B.3.3.3 promoted block-level
+            // `function f` creates the F var binding in that FUNCTION scope and
+            // does NOT become a global binding (annexB eval-code/direct
+            // func-init: `f` must throw ReferenceError outside the eval). At the
+            // genuine program top level the caller var env IS the global one, so
+            // keep the global (indirect-style) routing there.
+            //
+            // NARROWED to SIMPLE-parameter-list functions only. Per ES 10.2.11
+            // (FunctionDeclarationInstantiation) a NON-simple parameter list
+            // (default / rest / destructuring / computed key) gets a SEPARATE
+            // parameter environment distinct from the body var environment; a
+            // direct eval in that parameter list instantiates into the parameter
+            // environment, not the function var scope. Our single-var-scope
+            // interpreter path cannot model that split, and evals nested in a
+            // destructuring default / computed key are lowered without the
+            // param-init eval context armed — so restricting to simple-param
+            // functions (which have NO parameter initializers, hence every eval
+            // is in the body) keeps the func-init fix while leaving param-env
+            // eval (scope-param-rest-elem-var, eval-param-env-*) on its prior
+            // path. firstNonSimpleParamIndex/hasRestParam are fully computed
+            // before any body or parameter lowering runs.
+            bool simpleParamList =
+                currentFunction_ &&
+                currentFunction_->firstNonSimpleParamIndex == SIZE_MAX &&
+                !currentFunction_->hasRestParam;
+            bool inRealUserFunction =
+                currentFunction_ &&
+                currentFunction_->name != "__synthetic_user_main" &&
+                currentFunction_->name != "user_main" &&
+                currentFunction_->name.rfind("__module_init", 0) != 0;
+            if (inRealUserFunction && simpleParamList) {
+                lastValue_ = builder_.createCall(
+                    "ts_direct_eval_value",
+                    {evalArg, builder_.createConstInt(0)},
+                    HIRType::makeAny());
+                return;
+            }
             lastValue_ = builder_.createCall("ts_indirect_eval_value",
                                              {evalArg}, HIRType::makeAny());
             return;

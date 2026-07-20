@@ -3475,6 +3475,113 @@ extern "C" {
         return dst;
     }
 
+    // ===== Interleaved array-destructuring IteratorClose support =====
+    //
+    // The bulk helper ts_destructure_iterate above steps next() for every
+    // pattern slot UP FRONT, which violates ES 8.6.2 (a target Reference must
+    // be evaluated BEFORE the iterator is stepped for that element) and cannot
+    // IteratorClose on an abrupt completion produced by generated target-ref /
+    // assignment code. The HIR lowering (destructureAssignmentPattern) uses
+    // the three helpers below to step the iterator ONE element at a time, with
+    // the target-ref evaluation interleaved and a try region for close-on-throw.
+
+    // ES 7.2.x GetIterator, specialised for array destructuring. Mirrors the
+    // iterable check in ts_destructure_iterate but RETURNS the iterator (boxed)
+    // so the caller can step it incrementally. Throws TypeError when the source
+    // is not iterable (no callable @@iterator / no callable `next`).
+    void* ts_destructure_get_iterator(void* source) {
+        TsValue* iter = ts::ts_iterator_get((TsValue*)source);
+        bool isIterable = false;
+        void* rawIter = iter ? ts_value_get_object(iter) : nullptr;
+        if (rawIter && (uintptr_t)rawIter >= 0x1000 &&
+            (uintptr_t)rawIter < 0x0000800000000000ULL) {
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            TsValue* nx = ts_object_get_property(rawIter, "next");
+            if (nx) {
+                TsValue nv = nanbox_to_tagged(nx);
+                isIterable = (nv.type == ValueType::OBJECT_PTR ||
+                              nv.type == ValueType::FUNCTION_PTR) && nv.ptr_val;
+            }
+        }
+        if (!isIterable) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "source is not iterable"));
+            return nullptr;  // unreachable (ts_throw longjmps)
+        }
+        return iter;
+    }
+
+    // One IteratorStep for the interleaved destructuring path: call next() with
+    // ZERO arguments (as `for-of` does) and return the raw result. The result's
+    // object-ness is validated inside ts_iterator_next (ES 7.4.3), which throws
+    // TypeError for a primitive result.
+    void* ts_destructure_next(void* iterBoxed) {
+        return ts::ts_iterator_next((TsValue*)iterBoxed, nullptr);
+    }
+
+    // ES 7.4.6 IteratorClose with a NORMAL completion: call iterator.return();
+    // if present and it yields a non-Object throw TypeError; a return() that
+    // itself throws propagates. Used when a fixed-length array pattern finishes
+    // before the iterator is exhausted (iteratorRecord.[[done]] is false).
+    void ts_destructure_close_normal(void* iterBoxed) {
+        TsValue* iter = (TsValue*)iterBoxed;
+        if (!iter) return;
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+        void* rawIter = ts_value_get_object(iter);
+        if (!rawIter) rawIter = iter;
+        if ((uintptr_t)rawIter < 0x1000) return;
+        TsValue* retFn = ts_object_get_property(rawIter, "return");
+        if (!retFn) return;
+        TsValue rf = nanbox_to_tagged(retFn);
+        if (!((rf.type == ValueType::OBJECT_PTR ||
+               rf.type == ValueType::FUNCTION_PTR) && rf.ptr_val))
+            return;
+        TsValue* res = ts_call_with_this_0(retFn, iter);
+        TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+        bool isObject = (rv.type == ValueType::OBJECT_PTR ||
+                         rv.type == ValueType::ARRAY_PTR ||
+                         rv.type == ValueType::FUNCTION_PTR) && rv.ptr_val != nullptr;
+        if (!isObject) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator result return() is not an object"));
+        }
+    }
+
+    // ES 7.4.6 IteratorClose with a THROW completion: call iterator.return()
+    // but DISCARD its result and SWALLOW any error it raises — the original
+    // throw wins (step 6/7: "If innerResult is an abrupt completion ... return
+    // completion"). Used by the destructuring handler on an abrupt completion.
+    void ts_destructure_close_swallow(void* iterBoxed) {
+        TsValue* iter = (TsValue*)iterBoxed;
+        if (!iter) return;
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        void* rawIter = ts_value_get_object(iter);
+        if (!rawIter) rawIter = iter;
+        if ((uintptr_t)rawIter < 0x1000) return;
+        TsValue* retFn = ts_object_get_property(rawIter, "return");
+        if (!retFn) return;
+        TsValue rf = nanbox_to_tagged(retFn);
+        if (!((rf.type == ValueType::OBJECT_PTR ||
+               rf.type == ValueType::FUNCTION_PTR) && rf.ptr_val))
+            return;
+        // Guard the return() call so a throw from it is swallowed. Same idiom
+        // as the Array.from mapFn IteratorClose above: Frame=0 on WIN64 and NO
+        // pop on the catch branch (the throw path unwinds the handler itself).
+        extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+        void* hbuf = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)hbuf;
+        if (setjmp(*env) != 0) {
+            ts_set_exception(nullptr);  // discard return()'s throw
+            return;
+        }
+#ifdef _WIN64
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+        ts_call_with_this_0(retFn, iter);
+        ts_pop_exception_handler();
+    }
+
     bool ts_array_is_array(void* value) {
         if (!value) return false;
 
