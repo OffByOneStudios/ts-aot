@@ -709,6 +709,11 @@ private:
     // Lets the `super` lowering sites fire for object methods where
     // currentClass_ is null (ECMA-262 13.2.5.5 / 9.2.10).
     bool objectSuperHomeAvailable();
+    // True when the current class method is static, so its super [[HomeObject]]
+    // is the constructor object (whose [[Prototype]] this compiler does not wire
+    // for the null-base case). The super WRITE path uses this to keep non-derived
+    // static methods on the legacy throwing path (Object.setPrototypeOf(C, null)).
+    bool superHomeIsStatic();
     // Synthetic outer-scope variable that carries an object literal to its
     // concise methods as their [[HomeObject]] (reached via closure capture).
     static constexpr const char* kObjectSuperHomeVar = "__object_super_home__";

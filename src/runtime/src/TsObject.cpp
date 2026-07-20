@@ -879,6 +879,7 @@ extern "C" {
     TsValue* ts_object_getPrototypeOf(TsValue* obj);              // TsGlobals.cpp
     TsValue* ts_object_get_property(void* obj, const char* keyStr); // below
     void ts_object_set_property(void* obj, void* key, void* value); // below
+    void ts_object_set_property_strict(void* obj, void* key, void* value); // below
     TsValue* ts_to_property_key_spec(TsValue* key);               // below
     void* ts_error_create_typed(const char* type, const char* message);
 
@@ -913,18 +914,33 @@ extern "C" {
     // base.[[Set]](key, val, thisVal): setter-aware chain walk with the ORIGINAL
     // receiver; if no setter is found, ordinary [[Set]] creates/updates an own
     // data property on the RECEIVER (thisVal), never on the base.
+    //
+    // ECMA-262 13.3.7.1 (SuperProperty evaluation → PutValue) + 6.2.5.5: when
+    // base.[[Set]] returns false and the SuperReference is STRICT, PutValue
+    // throws a TypeError. [[Set]] fails for a set-less accessor (10.1.9.2
+    // OrdinarySetWithOwnDescriptor step 5.b) or when the ordinary write to the
+    // receiver is rejected (non-writable data property, frozen/non-extensible
+    // receiver). Sloppy code silently no-ops in both cases.
     static void super_set_impl(TsValue* baseV, const char* key,
-                               void* val, void* thisVal) {
+                               void* val, void* thisVal, int64_t strict) {
         void* raw = ts_value_get_object(baseV);
         if (!raw) raw = baseV;
         if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053 /*TsMap MAPS*/) {
             int rejected = 0;
             if (dispatch_map_chain_set((TsMap*)raw, key, (TsValue*)thisVal,
-                                       (TsValue*)val, &rejected))
+                                       (TsValue*)val, &rejected)) {
+                if (rejected && strict)
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot assign to read only property of object"));
                 return;  // setter invoked (or set-less accessor rejected)
+            }
         }
         TsValue* keyV = ts_value_make_string(TsString::GetInterned(key));
-        ts_object_set_property(thisVal, keyV, val);
+        // Ordinary [[Set]] on the receiver. In strict code route through the
+        // strict-write protocol so a rejected write (frozen / non-extensible /
+        // non-writable receiver) throws TypeError from set_dynamic's clean frame.
+        if (strict) ts_object_set_property_strict(thisVal, keyV, val);
+        else        ts_object_set_property(thisVal, keyV, val);
     }
 
     static const char* super_key_cstr(void* keyVal) {
@@ -965,8 +981,10 @@ extern "C" {
         return super_get_impl(baseV, super_key_cstr(pk), thisVal);
     }
 
-    // super.<name> = val WRITE (static key).
-    void ts_super_set(void* homeObj, void* keyStr, void* val, void* thisVal) {
+    // super.<name> = val WRITE (static key). `strict` is the SuperReference's
+    // strict flag (ES 13.3.7.1): non-zero => a rejected [[Set]] throws TypeError.
+    void ts_super_set(void* homeObj, void* keyStr, void* val, void* thisVal,
+                      int64_t strict) {
         bool nullish = false;
         TsValue* baseV = super_base_of(homeObj, &nullish);
         if (nullish) {
@@ -974,11 +992,12 @@ extern "C" {
                 "Cannot set property of null or undefined super base"));
             return;
         }
-        super_set_impl(baseV, super_key_cstr(keyStr), val, thisVal);
+        super_set_impl(baseV, super_key_cstr(keyStr), val, thisVal, strict);
     }
 
     // super[<expr>] = val WRITE (computed key). GetSuperBase before ToPropertyKey.
-    void ts_super_set_computed(void* homeObj, void* keyVal, void* val, void* thisVal) {
+    void ts_super_set_computed(void* homeObj, void* keyVal, void* val,
+                               void* thisVal, int64_t strict) {
         bool nullish = false;
         TsValue* baseV = super_base_of(homeObj, &nullish);
         TsValue* pk = ts_to_property_key_spec((TsValue*)keyVal);  // may throw
@@ -989,11 +1008,16 @@ extern "C" {
         }
         void* pkraw = ts_value_get_object(pk);
         if (pkraw && *(uint32_t*)pkraw == 0x53594D42 /*SYMB*/) {
-            extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
-            ts_object_set_dynamic((TsValue*)thisVal, pk, (TsValue*)val);
+            // Symbol receiver write: honor the strict-write protocol too so a
+            // rejected write throws under strict (ES 13.3.7.1 + 6.2.5.5).
+            if (strict) ts_object_set_property_strict((void*)thisVal, (void*)pk, (void*)val);
+            else {
+                extern void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);
+                ts_object_set_dynamic((TsValue*)thisVal, pk, (TsValue*)val);
+            }
             return;
         }
-        super_set_impl(baseV, super_key_cstr(pk), val, thisVal);
+        super_set_impl(baseV, super_key_cstr(pk), val, thisVal, strict);
     }
 }
 
