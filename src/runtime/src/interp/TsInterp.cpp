@@ -2818,7 +2818,7 @@ bool evalCodeContainsBanned(ast::Node* node, EvalBan kind) {
 }
 
 TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
-                       Cpl* abrupt) {
+                       Cpl* abrupt, const char* pnamesUtf8 = nullptr) {
     // bit0 (param-init) / bit3 (field-init): eval code is FUNCTION code —
     // parse with new.target / super-property valid at toplevel (bit1 of the
     // parse mode; ES 19.2.1.1).
@@ -2849,21 +2849,53 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
         // asserts the eval RUNS and new.target reads undefined) — the
         // outside-functions ban is a parse-goal concern, not a walker one.
     }
-    if (!prog->isStrict && (flags & 2)) {
+    // ES 19.2.1.3 EvalDeclarationInstantiation step 5 (sloppy direct eval only):
+    // the eval body's VarDeclaredNames must not hoist over a like-named binding
+    // that lies on the running context's lexEnv -> varEnv walk. For direct eval
+    // inside a PARAMETER initializer (bit0), that walk crosses (a) the function's
+    // implicit 'arguments' binding (non-arrow => bit1) and (b) the enclosing
+    // function's PARAMETER bindings — a non-simple parameter list gives the body
+    // a separate var env, so a var/function declaration in the eval that collides
+    // with a parameter name is an early SyntaxError before any body executes.
+    if (!prog->isStrict && (flags & 1)) {
         std::vector<std::string> vars;
         std::vector<ast::FunctionDeclaration*> fns;
         for (auto& s : prog->body) hoistCollect(s.get(), vars, fns);
         collectTopLevelFns(prog->body, fns);
-        bool declaresArguments = false;
-        for (auto& n : vars)
-            if (n == "arguments") { declaresArguments = true; break; }
-        for (auto* fd : fns)
-            if (fd && fd->name == "arguments") declaresArguments = true;
-        if (declaresArguments) {
-            *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
-                "Cannot declare 'arguments' in direct eval code within a "
-                "parameter initializer");
-            return nullptr;
+        // (a) bit1: an 'arguments' binding is on the walk (step 5.d).
+        if (flags & 2) {
+            bool declaresArguments = false;
+            for (auto& n : vars)
+                if (n == "arguments") { declaresArguments = true; break; }
+            for (auto* fd : fns)
+                if (fd && fd->name == "arguments") declaresArguments = true;
+            if (declaresArguments) {
+                *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
+                    "Cannot declare 'arguments' in direct eval code within a "
+                    "parameter initializer");
+                return nullptr;
+            }
+        }
+        // (b) enclosing parameter names (step 5.f). pnamesUtf8 is a
+        // "\x01"-delimited, "\x01"-terminated list, e.g. "\x01a\x01b\x01".
+        if (pnamesUtf8 && pnamesUtf8[0]) {
+            std::string haystack(pnamesUtf8);
+            auto collides = [&](const std::string& nm) {
+                std::string needle = std::string("\x01") + nm + std::string("\x01");
+                return haystack.find(needle) != std::string::npos;
+            };
+            const std::string* hit = nullptr;
+            for (auto& n : vars) if (collides(n)) { hit = &n; break; }
+            if (!hit)
+                for (auto* fd : fns)
+                    if (fd && collides(fd->name)) { hit = &fd->name; break; }
+            if (hit) {
+                std::string msg = "Identifier '" + *hit +
+                                  "' has already been declared";
+                *errOut = (TsValue*)ts_error_create_typed("SyntaxError",
+                                                          msg.c_str());
+                return nullptr;
+            }
         }
     }
     // Local var scope (fn-scope root, no \x01g marker): eval var declarations
@@ -2991,6 +3023,32 @@ extern "C" TsValue* ts_direct_eval_value(TsValue* arg, int64_t flags) {
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
     TsValue* r = paramEvalImpl(src ? src : "", flags, &err, &abrupt);
+    if (err) ts_throw(err);
+    if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
+    return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
+// Direct eval in a sloppy PARAMETER initializer that also passes the enclosing
+// function's parameter names (pnamesArg = a "\x01"-delimited/terminated string).
+// Enables the ES 19.2.1.3 step 5.f early-error check: an eval body var/function
+// declaration hoisting over a like-named parameter binding => SyntaxError. This
+// frame holds no destructor-owning locals (longjmp-stdstring rule) — the name
+// comparison happens inside paramEvalImpl, which returns normally via errOut.
+extern "C" TsValue* ts_direct_eval_value_pnames(TsValue* arg, int64_t flags,
+                                                TsValue* pnamesArg) {
+    if (!arg) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* sraw = ts_value_get_string(arg);
+    if (!sraw) return arg;
+    const char* src = ((TsString*)sraw)->ToUtf8();
+    const char* pnames = nullptr;
+    if (pnamesArg) {
+        void* praw = ts_value_get_string(pnamesArg);
+        if (praw) pnames = ((TsString*)praw)->ToUtf8();
+    }
+    TsValue* err = nullptr;
+    Cpl abrupt;
+    abrupt.k = Cpl::Normal;
+    TsValue* r = paramEvalImpl(src ? src : "", flags, &err, &abrupt, pnames);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;

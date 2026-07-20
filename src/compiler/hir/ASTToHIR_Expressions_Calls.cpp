@@ -1427,6 +1427,38 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // env, never the global). Owner check keeps nested function bodies
             // lowered inside a default expression on the plain path.
             if (activeEvalFlags_ != 0 && evalFlagsOwner_ == currentFunction_) {
+                // ES 19.2.1.3 step 5.f: a SLOPPY param-initializer direct eval
+                // whose body var/function-declares a name matching an enclosing
+                // PARAMETER is an early SyntaxError. Pass the parameter names as a
+                // "\x01"-delimited/terminated string so the interpreter can throw
+                // before running the body. Strict eval (bit2) gets its own var
+                // scope and never performs this walk, so only arm it when sloppy
+                // and in a param-init context (bit0).
+                bool paramInitSloppy =
+                    (activeEvalFlags_ & 1) && !(activeEvalFlags_ & 4) && !strictCode_
+                    && currentFunction_;
+                if (paramInitSloppy) {
+                    std::string pnames;
+                    for (auto& pr : currentFunction_->params) {
+                        const std::string& nm = pr.first;
+                        if (nm == "__closure__" || nm == "this") continue;
+                        // Skip compiler-synthesized param slots (__argN__ etc.).
+                        if (nm.size() >= 2 && nm[0] == '_' && nm[1] == '_') continue;
+                        pnames += '\x01';
+                        pnames += nm;
+                    }
+                    if (!pnames.empty()) {
+                        pnames += '\x01';
+                        auto pnamesVal =
+                            boxValueIfNeeded(builder_.createConstString(pnames));
+                        lastValue_ = builder_.createCall(
+                            "ts_direct_eval_value_pnames",
+                            {evalArg, builder_.createConstInt(activeEvalFlags_),
+                             pnamesVal},
+                            HIRType::makeAny());
+                        return;
+                    }
+                }
                 lastValue_ = builder_.createCall(
                     "ts_direct_eval_value",
                     {evalArg, builder_.createConstInt(activeEvalFlags_)},
