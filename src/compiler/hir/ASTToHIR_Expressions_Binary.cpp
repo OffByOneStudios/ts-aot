@@ -1828,7 +1828,16 @@ void ASTToHIR::assignDestructureName(const std::string& name,
                 {nameStr, boxValueIfNeeded(value)}, HIRType::makeVoid());
             return;
         }
-        defineVariable(name, value);
+        // ES 13.15.5.4 / 6.2.5.6 PutValue: a NON-STRICT destructuring-assignment
+        // to an unresolvable Reference creates a property on the GLOBAL object,
+        // NOT a block-local binding. `defineVariable` created a binding scoped to
+        // the current block, so a read after the block threw ReferenceError while
+        // the top-level case worked. Mirror the plain-assignment implicit-global
+        // path (~1467): give the name real module-global storage so reads persist
+        // beyond the enclosing block.
+        moduleGlobalVarsByModule_[name].insert(currentModulePath_);
+        module_->globals[modVarName(name)] = HIRType::makeAny();
+        builder_.createStoreGlobal(modVarName(name), value);
     }
     if (isModuleGlobalVar(name)) {
         builder_.createStoreGlobal(modVarName(name), value);

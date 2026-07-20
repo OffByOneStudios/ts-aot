@@ -2112,6 +2112,77 @@ extern "C" {
         return a->Includes(value, (size_t)fi);
     }
 
+    // 2-arg %TypedArray%/Array .includes(searchElement, fromIndex). fromIndex is
+    // passed BOXED (not pre-coerced) so the ES step order holds: `len` is read and
+    // the len==0 short-circuit runs BEFORE ToIntegerOrInfinity(fromIndex) — a
+    // throwing/resizing valueOf must not fire on an empty view, and a TypedArray's
+    // INITIAL length must be captured before a coercion can shrink the buffer
+    // (mirrors ts_array_indexOf_from_coerced).
+    extern TsValue* ts_ta_get_boxed(TsTypedArray* taIn, size_t idxIn);
+    bool ts_array_includes_from_coerced(void* arr, int64_t value, TsValue* fromIndex) {
+        void* raw = ts_nanbox_safe_unbox(arr);
+        if (!raw) raw = arr;
+        if (TsTypedArray* ta = asTypedArray(raw)) {
+            // ES 23.2.3.15 %TypedArray%.prototype.includes step 2: ValidateTypedArray
+            // at ENTRY throws TypeError on a detached buffer. (An out-of-bounds
+            // resizable view is already rejected by the method-access chokepoint;
+            // a detach that happens LATER, during fromIndex coercion, does NOT
+            // throw — its OOB slots simply read as undefined below.)
+            if (ta->IsDetachedBuffer()) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot perform %TypedArray%.prototype.includes on a detached ArrayBuffer"));
+                return false;  // unreachable
+            }
+            // Step 3-4: read len, then len==0 -> false BEFORE coercing fromIndex.
+            int64_t len = (int64_t)ta->GetLength();
+            if (len == 0) return false;
+            // Step 5: n = ToIntegerOrInfinity(fromIndex) — MAY resize/detach.
+            double fd = ts_to_index_number_or(fromIndex, 0.0);  // may throw
+            int64_t from;
+            if (fd == std::numeric_limits<double>::infinity()) return false;  // +Inf
+            else if (fd == -std::numeric_limits<double>::infinity() || fd != fd) from = 0;
+            else from = (int64_t)fd;
+            if (from < 0) { from = len + from; if (from < 0) from = 0; }
+            // Decode searchElement (SameValueZero, NO coercion of the element).
+            uint64_t snb = (uint64_t)value;
+            // undefined arrives as the raw 0x0A sentinel or a nanbox-undefined.
+            bool searchUndef = snb == 10 || snb == 0 || nanbox_is_undefined(snb);
+            bool searchNum = nanbox_is_number(snb);
+            double searchVal = searchNum ? nanbox_to_number(snb) : 0.0;
+            bool searchNaN = searchNum && (searchVal != searchVal);
+            void* sp = nanbox_is_ptr(snb) ? nanbox_to_ptr(snb) : nullptr;
+            bool searchBig = sp && *(uint32_t*)sp == 0x42494749;  // TsBigInt magic
+            bool isBigView = (ta->GetType() == TypedArrayType::BigInt64 ||
+                              ta->GetType() == TypedArrayType::BigUint64);
+            for (int64_t k = from; k < len; k++) {
+                // IntegerIndexedElementGet: a slot past the CURRENT (possibly
+                // shrunk) length, or on a now-detached buffer, reads as undefined.
+                bool oob = ta->IsDetachedBuffer() || (size_t)k >= ta->GetLength();
+                if (oob) {
+                    if (searchUndef) return true;  // SameValueZero(undefined,undefined)
+                    continue;
+                }
+                if (searchUndef) continue;  // a live numeric slot never equals undefined
+                if (isBigView) {
+                    if (!searchBig) continue;
+                    if (ta->Get((size_t)k) == ts_to_number((TsValue*)value)) return true;
+                    continue;
+                }
+                if (!searchNum) continue;
+                double v = ta->Get((size_t)k);
+                if (searchNaN) { if (v != v) return true; }   // SameValueZero: NaN~NaN
+                else if (v == searchVal) return true;         // +0~-0 both true
+            }
+            return false;
+        }
+        // Non-TypedArray receiver: preserve the ES 23.1.3.15 len==0 short-circuit
+        // before coercion, then run the ordinary array path.
+        if (raw && *(uint32_t*)raw == 0x41525259 /*ARRY*/ &&
+            ((TsArray*)raw)->Length() == 0) return false;
+        double fi = ts_to_index_number_or(fromIndex, 0.0);  // may throw
+        return ts_array_includes_from(arr, value, fi);
+    }
+
     void* ts_array_at(void* arr, int64_t index) {
         if (!arr) return ts_value_make_undefined();
         // Unbox if the receiver is a boxed TsValue*
@@ -2807,6 +2878,17 @@ extern "C" {
                     uint32_t m16 = *(uint32_t*)((char*)resRaw + 16);
                     if (m16 == TsTypedArray::MAGIC) {
                         TsTypedArray* ta = (TsTypedArray*)resRaw;
+                        // ES 23.2.4.2 TypedArrayCreate step 3a: when the argument
+                        // list is a single Number (the count), the freshly built
+                        // view's [[ArrayLength]] must be >= that count, else
+                        // TypeError. A species ctor returning a length-tracking
+                        // view over a buffer that was resized to 0 (length < n)
+                        // must reject here rather than silently short-copying.
+                        if (ta->GetLength() < n) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "TypedArraySpeciesCreate: created TypedArray is too small"));
+                            return nullptr;
+                        }
                         size_t copyN = std::min(n, ta->GetLength());
                         for (size_t i = 0; i < copyN; i++) {
                             // ts_array_set_v is BigInt-aware (a BigInt element
