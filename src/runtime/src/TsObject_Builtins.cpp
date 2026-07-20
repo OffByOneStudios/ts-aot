@@ -1902,6 +1902,20 @@ extern "C" {
             return ts_value_make_undefined();
         return ts_value_make_double(ta->Get(index));
     }
+    // Live TypedArray iterator support (ES 23.1.5.1 CreateArrayIterator, TA
+    // branch). The iterator re-derives the view's CURRENT length and OOB state
+    // on every step: ts_ta_iter_length gives the live length (a length-tracking
+    // view backed by a resized RAB reflects the new size); ts_ta_iter_is_oob is
+    // true when the buffer is detached or the fixed-extent view is out of bounds,
+    // in which case the .next() step must throw TypeError (ValidateTypedArray).
+    size_t ts_ta_iter_length(void* ta) {
+        return ta ? ((TsTypedArray*)ta)->GetLength() : 0;
+    }
+    int ts_ta_iter_is_oob(void* ta) {
+        if (!ta) return 1;
+        TsTypedArray* t = (TsTypedArray*)ta;
+        return (t->IsDetachedBuffer() || t->IsOutOfBounds()) ? 1 : 0;
+    }
     TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (!ta) return ts_value_make_undefined();

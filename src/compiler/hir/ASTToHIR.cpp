@@ -236,16 +236,39 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
         // Note: We include all module init functions (including the main file)
         // because file-level variables need to be shared across functions.
-        // Helper to register a single name as a module global
-        auto registerModuleGlobalName = [&](const std::string& name, std::shared_ptr<HIRType> globalType) {
-            // Skip compiler-synthesized `__module_init_*`, `__synthetic_*`, and
-            // `exports` (handled separately). The CJS-style globals `__filename`
-            // and `__dirname` (injected by the Monomorphizer for user modules)
-            // ARE registered as module globals so inner functions can read them
-            // via @__modvar_X. Without this exemption, user_main reading
-            // `__filename` would see undefined.
+        // A `__`-prefixed name that the compiler / Monomorphizer injects as a
+        // toplevel binding (NOT a user variable). User source may legitimately
+        // declare `__`-prefixed vars (test262 uses __condition/__str/__evaluated);
+        // those must NOT be treated as synthesized. Keep this in sync with the
+        // Monomorphizer's injected names.
+        auto isSynthesizedGlobalName = [](const std::string& n) {
+            static const char* kPrefixes[] = {
+                "__module_init", "__module_obj", "__module_res", "__mi_err",
+                "__synthetic", "__cjs_", "__import_meta", "__dflt_export",
+                "__ts_main", "__ts_install", "__modvar_", "__getter_", "__arg"
+            };
+            for (const char* p : kPrefixes)
+                if (n.rfind(p, 0) == 0) return true;
+            return false;
+        };
+        // Helper to register a single name as a module global.
+        // Skip compiler-synthesized `__module_init_*`, `__synthetic_*`, and
+        // `exports` (handled separately). The CJS-style globals `__filename`
+        // and `__dirname` (injected by the Monomorphizer for user modules)
+        // ARE registered as module globals so inner functions can read them
+        // via @__modvar_X. Without this exemption, user_main reading
+        // `__filename` would see undefined.
+        // forceUserVar: a genuine user `var __x` under eval-taint bypasses the
+        // blanket `__` skip (but genuinely-synthesized names stay skipped) so
+        // eval'd code and compiled code share the binding via globalThis
+        // (ES 19.2.1.3 EvalDeclarationInstantiation / 9.1.1.4 SetMutableBinding).
+        auto registerModuleGlobalName = [&](const std::string& name,
+                                            std::shared_ptr<HIRType> globalType,
+                                            bool forceUserVar = false) {
             if (name == "exports") return;
-            if (name.find("__") == 0 && name != "__filename" && name != "__dirname") return;
+            if (name.find("__") == 0 && name != "__filename" && name != "__dirname") {
+                if (!forceUserVar || isSynthesizedGlobalName(name)) return;
+            }
             moduleGlobalVarsByModule_[name].insert(currentModulePath_);
             module_->globals[modVarName(name)] = globalType;
         };
@@ -287,20 +310,26 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
                 // Simple variable: const x = ...
-                // Skip compiler-synthesized names but allow the CJS-style globals
-                // __filename and __dirname (injected by the Monomorphizer).
-                if (ident->name == "exports") return;
-                if (ident->name.find("__") == 0 &&
-                    ident->name != "__filename" && ident->name != "__dirname") return;
                 // EVAL-001 §11 eval-taint deopt: main-module toplevel `var`s
                 // become globalThis-backed properties (typed Any — globalThis
                 // values are nanboxed) so eval'd writes/reads and compiled
                 // code observe the same binding. let/const stay lexical slots
                 // (eval cannot redeclare them). Imported modules keep slots
                 // (ES-module vars are not globalThis properties).
-                if (evalTaint_ && currentModulePath_.empty() &&
+                bool userEvalGlobal = evalTaint_ && currentModulePath_.empty() &&
                     varDecl->varKind == ast::VarKind::Var &&
-                    ident->name != "__filename" && ident->name != "__dirname") {
+                    ident->name != "__filename" && ident->name != "__dirname" &&
+                    !isSynthesizedGlobalName(ident->name);
+                // Skip compiler-synthesized names but allow the CJS-style globals
+                // __filename and __dirname (injected by the Monomorphizer). A
+                // genuine user `var __x` under eval-taint is NOT skipped — it
+                // must become a shared globalThis-backed binding (test262 uses
+                // __-prefixed names like __condition/__str/__evaluated).
+                if (ident->name == "exports") return;
+                if (ident->name.find("__") == 0 &&
+                    ident->name != "__filename" && ident->name != "__dirname" &&
+                    !userEvalGlobal) return;
+                if (userEvalGlobal) {
                     globalType = HIRType::makeAny();
                     module_->globalObjectVars[modVarName(ident->name)] = ident->name;
                     // Flip the read gate so reads inside __module_init_* go
@@ -309,7 +338,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         .insert(currentModulePath_);
                 }
                 moduleVarDecls_[ident->name] = varDecl;
-                registerModuleGlobalName(ident->name, globalType);
+                registerModuleGlobalName(ident->name, globalType, userEvalGlobal);
                 // Module-level let/const: mark for TDZ seeding + checked reads
                 // (ANY-typed only, matching the phase-5 local sentinel rule).
                 if ((varDecl->varKind == ast::VarKind::Let ||
@@ -994,11 +1023,25 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             if (auto* asx = dynamic_cast<ast::AsExpression*>(node)) { scanIds(asx->expression.get(), modPath); return; }
             if (auto* nn = dynamic_cast<ast::NonNullExpression*>(node)) { scanIds(nn->expression.get(), modPath); return; }
         };
+        // A parameter DEFAULT expression is part of the inner spec's scope
+        // too (ECMA-262 §10.2.11 FunctionDeclarationInstantiation evaluates
+        // Initializers in the callee context). A write there to a module var
+        // (`m(_ = probeParams = function(){...}))`) lands in __modvar_x, so
+        // module_init's later read must take the LoadGlobal path — same
+        // rationale as the body scan above. Without this the write is lost.
+        auto scanParamDefaults = [&](const std::vector<std::unique_ptr<ast::Parameter>>& params,
+                                     const std::string& modPath) {
+            for (auto& p : params) {
+                if (p && p->initializer) scanIds(p->initializer.get(), modPath);
+            }
+        };
         for (const auto& spec : specializations) {
             if (spec.originalName.find("__module_init_") == 0) continue;
             if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+                scanParamDefaults(funcNode->parameters, spec.modulePath);
                 for (auto& s : funcNode->body) scanIds(s.get(), spec.modulePath);
             } else if (auto* methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+                scanParamDefaults(methodNode->parameters, spec.modulePath);
                 for (auto& s : methodNode->body) scanIds(s.get(), spec.modulePath);
             }
         }
@@ -1020,6 +1063,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             for (auto& memberPtr : classExpr->members) {
                 auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr.get());
                 if (!md || !md->hasBody) continue;
+                scanParamDefaults(md->parameters, currentModulePath_);
                 for (auto& s : md->body) scanIds(s.get(), currentModulePath_);
             }
         }

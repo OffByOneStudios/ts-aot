@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string>
 #include <cstring>
+#include <cmath>
 
 // Cross-TU runtime symbols (declared at file scope per runtime-safety rules;
 // block-scope `extern "C"` is illegal here).
@@ -68,6 +69,10 @@ const char* TsBigInt::ToString(int radix) const {
     mp_radix_size(&value, radix, &size);
     char* str = (char*)ts_alloc(size);
     mp_to_radix(&value, str, size, NULL, radix);
+    // ECMA-262 uses lowercase digits (a-z) for radices > 10; libtommath emits
+    // uppercase. Lowercase in place (sign and 0-9 are untouched).
+    for (char* c = str; *c; ++c)
+        if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
     return str;
 }
 
@@ -256,9 +261,24 @@ TsValue* ts_bigint_toString_native(void* ctx, int argc, TsValue** argv) {
     TsBigInt* bi = requireBigIntOrThrow(ctx, "toString");
     if (!bi) return ts_value_make_undefined();  // unreachable (threw)
     int radix = 10;
+    // ES 21.2.3.3 BigInt.prototype.toString([radix]): radix undefined -> 10;
+    // otherwise ToIntegerOrInfinity(radix) and a value < 2 or > 36 throws a
+    // RangeError (a fractional radix truncates toward zero first).
     if (argc >= 1 && argv && argv[0]) {
-        double r = ts_to_number(argv[0]);
-        if (r >= 2 && r <= 36) radix = (int)r;
+        uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+        if (!nanbox_is_undefined(nb)) {
+            double r = ts_to_number(argv[0]);
+            double ri;
+            if (r != r) ri = 0.0;                                    // NaN -> 0
+            else if (r == INFINITY || r == -INFINITY) ri = r;        // stays out of range
+            else ri = (double)(int64_t)r;                            // trunc toward zero
+            if (ri < 2 || ri > 36) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "toString() radix must be an integer between 2 and 36"));
+                return ts_value_make_undefined();  // unreachable (threw)
+            }
+            radix = (int)ri;
+        }
     }
     return ts_value_make_string(TsString::Create(bi->ToString(radix)));
 }

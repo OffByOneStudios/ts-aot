@@ -1326,6 +1326,10 @@ static TsValue* ts_iterator_next(void* context, int argc, TsValue** argv) {
 // ============================================================================
 
 extern "C" void* ts_get_call_this();
+// Live TypedArray iterator step helpers (defined in TsObject_Builtins.cpp).
+extern "C" size_t ts_ta_iter_length(void* ta);
+extern "C" int ts_ta_iter_is_oob(void* ta);
+extern "C" TsValue* ts_ta_get_boxed(void* ta, size_t index);
 
 static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv);
 static TsValue* ts_array_iterator_proto_iter_self(void* ctx, int argc, TsValue** argv);
@@ -2290,6 +2294,98 @@ static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv
     }
     TsMap* iter = (TsMap*)rawCtx;
 
+    // TypedArray iterator branch (ES 23.1.5.1 CreateArrayIterator, TA path).
+    // A TA iterator carries __ta_iter_obj (the live view) instead of a
+    // snapshotted __iter_items array. Re-derive the view's CURRENT length and
+    // out-of-bounds state each step.
+    {
+        TsValue taKey; taKey.type = ValueType::STRING_PTR;
+        taKey.ptr_val = TsString::GetInterned("__ta_iter_obj");
+        TsValue taVal = iter->Get(taKey);
+        // __ta_iter_obj is only ever a live TypedArray pointer (or absent).
+        // Its round-tripped tag type isn't guaranteed to be OBJECT_PTR, so gate
+        // on presence + a valid heap pointer rather than the tag.
+        if (iter->Has(taKey) && taVal.ptr_val &&
+            (uintptr_t)taVal.ptr_val > 0x1000 &&
+            (uintptr_t)taVal.ptr_val < 0x0000800000000000ULL) {
+            void* ta = taVal.ptr_val;
+
+            TsValue kindKey; kindKey.type = ValueType::STRING_PTR;
+            kindKey.ptr_val = TsString::GetInterned("__ta_iter_kind");
+            TsValue kindVal = iter->Get(kindKey);
+            int kind = (kindVal.type == ValueType::NUMBER_INT) ? (int)kindVal.i_val : 1;
+
+            TsValue idxKey; idxKey.type = ValueType::STRING_PTR;
+            idxKey.ptr_val = TsString::GetInterned("__iter_index");
+            TsValue idxVal = iter->Get(idxKey);
+            int64_t index = (idxVal.type == ValueType::NUMBER_INT) ? idxVal.i_val : 0;
+
+            TsMap* result = TsMap::Create();
+            TsValue dKey; dKey.type = ValueType::STRING_PTR; dKey.ptr_val = TsString::Create("done");
+            TsValue vKey; vKey.type = ValueType::STRING_PTR; vKey.ptr_val = TsString::Create("value");
+            auto make_done = [&]() -> TsValue* {
+                TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = 1;
+                result->Set(dKey, dv);
+                TsValue uv; uv.type = ValueType::UNDEFINED; uv.i_val = 0;
+                result->Set(vKey, uv);
+                return ts_value_make_object(result);
+            };
+
+            // Once the iterator has completed (ES 23.1.5.1 abstract closure
+            // returns), every subsequent next() yields {done:true} WITHOUT
+            // re-validating the view — a later resize that grows or invalidates
+            // the buffer must neither resurrect values nor throw.
+            TsValue doneKey; doneKey.type = ValueType::STRING_PTR;
+            doneKey.ptr_val = TsString::GetInterned("__ta_iter_done");
+            TsValue doneVal = iter->Get(doneKey);
+            if (doneVal.type == ValueType::NUMBER_INT && doneVal.i_val) return make_done();
+
+            // Each live step performs ValidateTypedArray: a detached /
+            // out-of-bounds view throws a TypeError mid-iteration.
+            if (ts_ta_iter_is_oob(ta)) {
+                extern void* ts_error_create_typed(const char* type, const char* message);
+                extern void ts_throw(TsValue* err);
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArray iterator step on an out-of-bounds TypedArray"));
+                return ts_value_make_undefined();
+            }
+
+            int64_t len = (int64_t)ts_ta_iter_length(ta);
+            if (index >= len) {
+                TsValue latch; latch.type = ValueType::NUMBER_INT; latch.i_val = 1;
+                iter->Set(doneKey, latch);
+                return make_done();
+            }
+
+            TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = 0;
+            result->Set(dKey, dv);
+
+            // The iterator-result `value` slot stores a boxed value as its raw
+            // nanbox bits under type OBJECT_PTR (matching the plain-array
+            // iterator convention above), so it round-trips through
+            // nanbox_from_tagged unchanged for numbers, bigints and objects.
+            TsValue vv; vv.type = ValueType::OBJECT_PTR;
+            if (kind == 0) {
+                // keys: value is the index (a Number).
+                vv.i_val = (int64_t)(uintptr_t)ts_value_make_int(index);
+            } else if (kind == 2) {
+                // entries: value is the [index, element] pair.
+                TsArray* pair = (TsArray*)ts_array_create();
+                pair->Push((int64_t)(uintptr_t)ts_value_make_int(index));
+                pair->Push((int64_t)(uintptr_t)ts_ta_get_boxed(ta, (size_t)index));
+                vv.i_val = (int64_t)(uintptr_t)ts_value_make_object(pair);
+            } else {
+                // values: value is the element.
+                vv.i_val = (int64_t)(uintptr_t)ts_ta_get_boxed(ta, (size_t)index);
+            }
+            result->Set(vKey, vv);
+
+            TsValue newIndex; newIndex.type = ValueType::NUMBER_INT; newIndex.i_val = index + 1;
+            iter->Set(idxKey, newIndex);
+            return ts_value_make_object(result);
+        }
+    }
+
     // Read state: items TsArray, index, kind (0=keys, 1=values, 2=entries).
     TsValue itemsKey; itemsKey.type = ValueType::STRING_PTR;
     itemsKey.ptr_val = TsString::GetInterned("__iter_items");
@@ -2370,6 +2466,36 @@ void* ts_create_array_iterator(void* items) {
 
 void* ts_create_map_iterator(void* items) {
     return (void*)ts_create_iterator_with_proto((TsArray*)items, getMapIteratorPrototype());
+}
+
+// ES 23.1.5.1 CreateArrayIterator, TypedArray branch. Unlike the plain-array
+// iterator (which snapshots a materialized `items` array), a TypedArray
+// iterator holds a LIVE reference to the view (`__ta_iter_obj`) plus a kind
+// (0=keys, 1=values, 2=entries). Its .next() (ts_array_iterator_proto_next,
+// TA branch) re-reads the view's current length and out-of-bounds state each
+// step, so resizable-buffer grow/shrink mid-iteration is observed and an
+// out-of-bounds view throws TypeError. The prototype is %ArrayIteratorPrototype%
+// (identical to `[][Symbol.iterator]()`), as the spec requires.
+extern "C" void* ts_create_typedarray_iterator(void* ta, int kind) {
+    TsMap* iter = TsMap::Create();
+    iter->SetPrototype(getArrayIteratorPrototype());
+
+    TsValue objKey; objKey.type = ValueType::STRING_PTR;
+    objKey.ptr_val = TsString::GetInterned("__ta_iter_obj");
+    TsValue objVal; objVal.type = ValueType::OBJECT_PTR; objVal.ptr_val = ta;
+    iter->Set(objKey, objVal);
+
+    TsValue kindKey; kindKey.type = ValueType::STRING_PTR;
+    kindKey.ptr_val = TsString::GetInterned("__ta_iter_kind");
+    TsValue kindVal; kindVal.type = ValueType::NUMBER_INT; kindVal.i_val = kind;
+    iter->Set(kindKey, kindVal);
+
+    TsValue indexKey; indexKey.type = ValueType::STRING_PTR;
+    indexKey.ptr_val = TsString::GetInterned("__iter_index");
+    TsValue indexVal; indexVal.type = ValueType::NUMBER_INT; indexVal.i_val = 0;
+    iter->Set(indexKey, indexVal);
+
+    return ts_value_make_object(iter);
 }
 
 void* ts_create_set_iterator(void* items) {
