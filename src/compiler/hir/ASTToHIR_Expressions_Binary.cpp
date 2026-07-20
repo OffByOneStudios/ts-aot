@@ -1805,6 +1805,44 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 }
             }
         }
+        // ES 8.6.2 / 7.4.6: when a pattern element (or the rest) targets a
+        // member/element Reference, that reference must be evaluated BEFORE the
+        // iterator is stepped for it, and an abrupt completion during element
+        // evaluation must IteratorClose (call return()). The bulk
+        // ts_destructure_iterate path steps every slot up front and cannot do
+        // either. Route only those patterns through the interleaved lowering so
+        // the ubiquitous identifier-target case (`[a,b]=x`) keeps the proven
+        // fast path (identifier/nested targets never throw before the step, and
+        // the bulk helper already closes on a normal early finish).
+        //
+        // EXCLUSION: the interleaved path builds a setjmp-based try region, which
+        // cannot span a generator/async SUSPENSION point. A `yield`/`await` inside
+        // a target Reference (e.g. `for await ([ x[yield] ] of it)` in an async
+        // generator) would longjmp-corrupt the handler across the suspend/resume
+        // boundary. Such a target can only appear when the current function is a
+        // generator or async function, so restrict the interleaved path to
+        // NON-generator, NON-async functions; those contexts keep the previous
+        // bulk ts_destructure_iterate path (which handled them before this change).
+        bool suspendable = currentFunction_ &&
+                           (currentFunction_->isGenerator || currentFunction_->isAsync);
+        if (!suspendable) {
+            auto targetNeedsRefEval = [](ast::Expression* t) -> bool {
+                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(t))
+                    t = dynamic_cast<ast::Expression*>(assn->left.get());
+                if (auto* sp = dynamic_cast<ast::SpreadElement*>(t))
+                    t = dynamic_cast<ast::Expression*>(sp->expression.get());
+                return dynamic_cast<ast::PropertyAccessExpression*>(t) ||
+                       dynamic_cast<ast::ElementAccessExpression*>(t);
+            };
+            bool needsInterleave = false;
+            for (auto& e : arrLit->elements) {
+                if (e && targetNeedsRefEval(e.get())) { needsInterleave = true; break; }
+            }
+            if (needsInterleave) {
+                destructureArrayPatternInterleaved(arrLit, rhs);
+                return;
+            }
+        }
         builder_.createCall("ts_destructure_require_object", {rhs},
                             HIRType::makeVoid());
         int64_t consumeCount = 0;
@@ -2055,6 +2093,230 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
         }
         return;
     }
+}
+
+void ASTToHIR::destructureArrayPatternInterleaved(
+        ast::ArrayLiteralExpression* arrLit, std::shared_ptr<HIRValue> rhs) {
+    // ES 8.6.2 DestructuringAssignmentEvaluation for ArrayAssignmentPattern +
+    // ES 7.4.6 IteratorClose. GetIterator once, then step the iterator ONE
+    // element at a time with each target Reference evaluated BEFORE its step; a
+    // synthesized try region IteratorCloses (calls return()) on an abrupt or
+    // early-normal completion.
+    builder_.createCall("ts_destructure_require_object", {rhs}, HIRType::makeVoid());
+    auto iterBoxed = builder_.createCall("ts_destructure_get_iterator", {rhs},
+                                         HIRType::makeAny());
+    auto iterAlloca = builder_.createAlloca(HIRType::makeAny(), "dstr.iter");
+    builder_.createStore(iterBoxed, iterAlloca);
+    auto doneAlloca = builder_.createAlloca(HIRType::makeBool(), "dstr.done");
+    builder_.createStore(builder_.createConstBool(false), doneAlloca);
+
+    auto* bodyBB  = currentFunction_->createBlock("dstr.body");
+    auto* catchBB = currentFunction_->createBlock("dstr.catch");
+    auto* afterBB = currentFunction_->createBlock("dstr.after");
+
+    auto isExc = builder_.createSetupTry(catchBB);
+    builder_.createCondBranch(isExc, catchBB, bodyBB);
+
+    builder_.setInsertPoint(bodyBB); currentBlock_ = bodyBB;
+    auto iter = builder_.createLoad(HIRType::makeAny(), iterAlloca);
+
+    // Reference-part capture: member/element targets evaluate their base (and
+    // element key) BEFORE the step; identifier/nested targets are handled after
+    // the value is obtained (no observable pre-evaluation for those).
+    struct RefPart {
+        int kind = 0;  // 0=ident 1=private 2=member 3=element 4=nested
+        ast::Expression* target = nullptr;
+        std::shared_ptr<HIRValue> obj;
+        std::shared_ptr<HIRValue> key;
+        std::string name;
+    };
+    auto evalRefPart = [&](ast::Expression* target) -> RefPart {
+        RefPart rp; rp.target = target;
+        if (dynamic_cast<ast::Identifier*>(target)) { rp.kind = 0; return rp; }
+        if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
+            rp.obj = lowerExpression(pa->expression.get());
+            if (!pa->name.empty() && pa->name[0] == '#') {
+                rp.kind = 1; rp.name = resolvePrivateName(pa->name);
+            } else {
+                rp.kind = 2; rp.name = resolvePrivateKey(pa->name);
+            }
+            return rp;
+        }
+        if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(target)) {
+            rp.kind = 3;
+            rp.obj = lowerExpression(ea->expression.get());
+            rp.key = lowerExpression(ea->argumentExpression.get());
+            return rp;
+        }
+        rp.kind = 4;  // nested array/object pattern
+        return rp;
+    };
+    auto performAssign = [&](const RefPart& rp, std::shared_ptr<HIRValue> value) {
+        switch (rp.kind) {
+            case 0:
+                assignDestructureName(
+                    dynamic_cast<ast::Identifier*>(rp.target)->name, value);
+                break;
+            case 1:
+                builder_.createCall("ts_object_set_private",
+                    {rp.obj, builder_.createConstString(rp.name),
+                     boxValueIfNeeded(value)}, HIRType::makeVoid());
+                break;
+            case 2:
+                builder_.createSetPropStatic(rp.obj, rp.name, value);
+                break;
+            case 3:
+                builder_.createSetElem(rp.obj, rp.key, value);
+                break;
+            case 4:
+                destructureAssignmentPattern(rp.target, boxValueIfNeeded(value));
+                break;
+        }
+    };
+    // Emit one done-guarded IteratorStep, returning the element value (undefined
+    // when the iterator was/just became done). Updates doneAlloca: set true
+    // BEFORE next() so a throw FROM next() leaves done=true (spec: no close),
+    // then false once next() returns a non-done result.
+    auto emitStep = [&]() -> std::shared_ptr<HIRValue> {
+        auto valSlot = builder_.createAlloca(HIRType::makeAny(), "dstr.elval");
+        builder_.createStore(builder_.createConstUndefined(), valSlot);
+        auto* stepBB = currentFunction_->createBlock("dstr.step");
+        auto* liveBB = currentFunction_->createBlock("dstr.live");
+        auto* eldoneBB = currentFunction_->createBlock("dstr.eldone");
+        auto* mrgBB  = currentFunction_->createBlock("dstr.elmerge");
+        auto d0 = builder_.createLoad(HIRType::makeBool(), doneAlloca);
+        builder_.createCondBranch(d0, mrgBB, stepBB);
+        builder_.setInsertPoint(stepBB); currentBlock_ = stepBB;
+        builder_.createStore(builder_.createConstBool(true), doneAlloca);
+        auto result = builder_.createCall("ts_destructure_next", {iter},
+                                          HIRType::makeAny());
+        builder_.createStore(builder_.createConstBool(false), doneAlloca);
+        auto doneV = builder_.createGetPropStatic(result, "done", HIRType::makeAny());
+        builder_.createCondBranch(doneV, eldoneBB, liveBB);
+        builder_.setInsertPoint(eldoneBB); currentBlock_ = eldoneBB;
+        builder_.createStore(builder_.createConstBool(true), doneAlloca);
+        builder_.createBranch(mrgBB);
+        builder_.setInsertPoint(liveBB); currentBlock_ = liveBB;
+        auto v = builder_.createGetPropStatic(result, "value", HIRType::makeAny());
+        builder_.createStore(boxValueIfNeeded(v), valSlot);
+        builder_.createBranch(mrgBB);
+        builder_.setInsertPoint(mrgBB); currentBlock_ = mrgBB;
+        return builder_.createLoad(HIRType::makeAny(), valSlot);
+    };
+
+    for (auto& elemPtr : arrLit->elements) {
+        ast::Expression* elem = elemPtr.get();
+        if (!elem || dynamic_cast<ast::OmittedExpression*>(elem)) {
+            emitStep();  // elision still steps the iterator
+            continue;
+        }
+        if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem)) {
+            // AssignmentRestElement: evaluate target ref FIRST, then consume the
+            // remainder of the iterator into a fresh array, then PutValue.
+            auto* tgtExpr = dynamic_cast<ast::Expression*>(spread->expression.get());
+            RefPart rp = evalRefPart(tgtExpr);
+            auto arr = builder_.createCall("ts_array_create", {},
+                          HIRType::makeArray(HIRType::makeAny(), false));
+            auto* rcondBB = currentFunction_->createBlock("dstr.rcond");
+            auto* rstepBB = currentFunction_->createBlock("dstr.rstep");
+            auto* rpushBB = currentFunction_->createBlock("dstr.rpush");
+            auto* rdoneBB = currentFunction_->createBlock("dstr.rdone");
+            auto* rendBB  = currentFunction_->createBlock("dstr.rend");
+            builder_.createBranch(rcondBB);
+            builder_.setInsertPoint(rcondBB); currentBlock_ = rcondBB;
+            auto d = builder_.createLoad(HIRType::makeBool(), doneAlloca);
+            builder_.createCondBranch(d, rendBB, rstepBB);
+            builder_.setInsertPoint(rstepBB); currentBlock_ = rstepBB;
+            builder_.createStore(builder_.createConstBool(true), doneAlloca);
+            auto result = builder_.createCall("ts_destructure_next", {iter},
+                                              HIRType::makeAny());
+            builder_.createStore(builder_.createConstBool(false), doneAlloca);
+            auto doneV = builder_.createGetPropStatic(result, "done", HIRType::makeAny());
+            builder_.createCondBranch(doneV, rdoneBB, rpushBB);
+            builder_.setInsertPoint(rdoneBB); currentBlock_ = rdoneBB;
+            builder_.createStore(builder_.createConstBool(true), doneAlloca);
+            builder_.createBranch(rendBB);
+            builder_.setInsertPoint(rpushBB); currentBlock_ = rpushBB;
+            auto v = builder_.createGetPropStatic(result, "value", HIRType::makeAny());
+            builder_.createCall("ts_array_push", {arr, boxValueIfNeeded(v)},
+                                HIRType::makeVoid());
+            builder_.createBranch(rcondBB);
+            builder_.setInsertPoint(rendBB); currentBlock_ = rendBB;
+            performAssign(rp, arr);
+            continue;
+        }
+        // AssignmentElement (with optional default initializer).
+        ast::Expression* target = elem;
+        ast::Expression* defaultExpr = nullptr;
+        if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(elem)) {
+            defaultExpr = dynamic_cast<ast::Expression*>(assn->right.get());
+            target = dynamic_cast<ast::Expression*>(assn->left.get());
+        }
+        // 1. Evaluate the target Reference (member/element base+key) FIRST.
+        RefPart rp = evalRefPart(target);
+        // 2. IteratorStep.
+        auto value = emitStep();
+        // 3. Default initializer when value is undefined (lazy — a skipped
+        //    side-effecting default must not run).
+        if (defaultExpr) {
+            auto isUndef = builder_.createIsUndefined(value);
+            auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr.dflt");
+            builder_.createStore(boxValueIfNeeded(value), mergeSlot);
+            auto* defBB = currentFunction_->createBlock("dstr.default");
+            auto* mBB   = currentFunction_->createBlock("dstr.dmerge");
+            builder_.createCondBranch(isUndef, defBB, mBB);
+            builder_.setInsertPoint(defBB); currentBlock_ = defBB;
+            std::string savedPCDN = pendingClosureDisplayName_;
+            if (rp.kind == 0) {
+                if (dynamic_cast<ast::ArrowFunction*>(defaultExpr) ||
+                    dynamic_cast<ast::FunctionExpression*>(defaultExpr) ||
+                    dynamic_cast<ast::ClassExpression*>(defaultExpr)) {
+                    pendingClosureDisplayName_ =
+                        dynamic_cast<ast::Identifier*>(target)->name;
+                }
+            }
+            auto defVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+            pendingClosureDisplayName_ = savedPCDN;
+            builder_.createStore(defVal, mergeSlot);
+            builder_.createBranch(mBB);
+            builder_.setInsertPoint(mBB); currentBlock_ = mBB;
+            value = builder_.createLoad(HIRType::makeAny(), mergeSlot);
+        }
+        // 4. Assign.
+        performAssign(rp, value);
+    }
+
+    // Normal completion: pop the handler, then IteratorClose if not done.
+    builder_.createPopHandler();
+    {
+        auto* ncloseBB = currentFunction_->createBlock("dstr.nclose");
+        auto d = builder_.createLoad(HIRType::makeBool(), doneAlloca);
+        builder_.createCondBranch(d, afterBB, ncloseBB);
+        builder_.setInsertPoint(ncloseBB); currentBlock_ = ncloseBB;
+        auto it = builder_.createLoad(HIRType::makeAny(), iterAlloca);
+        builder_.createCall("ts_destructure_close_normal", {it}, HIRType::makeVoid());
+        builder_.createBranch(afterBB);
+    }
+
+    // Abrupt completion (throw during element evaluation / assignment):
+    // IteratorClose swallowing return()'s own throw, then rethrow.
+    builder_.setInsertPoint(catchBB); currentBlock_ = catchBB;
+    auto exc = builder_.createGetException();
+    builder_.createClearException();
+    {
+        auto* acloseBB  = currentFunction_->createBlock("dstr.aclose");
+        auto* rethrowBB = currentFunction_->createBlock("dstr.rethrow");
+        auto d = builder_.createLoad(HIRType::makeBool(), doneAlloca);
+        builder_.createCondBranch(d, rethrowBB, acloseBB);
+        builder_.setInsertPoint(acloseBB); currentBlock_ = acloseBB;
+        auto it = builder_.createLoad(HIRType::makeAny(), iterAlloca);
+        builder_.createCall("ts_destructure_close_swallow", {it}, HIRType::makeVoid());
+        builder_.createBranch(rethrowBB);
+        builder_.setInsertPoint(rethrowBB); currentBlock_ = rethrowBB;
+        builder_.createThrow(exc);
+    }
+
+    builder_.setInsertPoint(afterBB); currentBlock_ = afterBB;
 }
 
 

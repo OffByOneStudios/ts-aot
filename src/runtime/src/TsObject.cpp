@@ -8859,19 +8859,33 @@ void* ts_create_arguments_from_params(
                 "Function.prototype.toString called on incompatible receiver"));
             return ts_value_make_string(TsString::Create(""));  // unreachable
         }
+        // ECMA-262 20.2.3.5 emits either the exact source text or a
+        // NativeFunction: `function <get|set>? <IdentifierName>? ( … ) { [native code] }`
+        // (see test262 harness nativeFunctionMatcher.js). A private method's
+        // stored name is `#f`, but `#f` is NOT a valid IdentifierName, so
+        // `function #f() {…}` is rejected by the grammar. Drop the identifier
+        // portion for private names (keeping any get/set accessor prefix) so the
+        // native form stays grammar-valid, e.g. `function () { [native code] }`.
+        auto nativeFnName = [](const std::string& n) -> std::string {
+            std::string prefix, id = n;
+            if (n.rfind("get ", 0) == 0) { prefix = "get "; id = n.substr(4); }
+            else if (n.rfind("set ", 0) == 0) { prefix = "set "; id = n.substr(4); }
+            if (!id.empty() && id[0] == '#') id.clear();
+            return prefix + id;
+        };
         if (ctx) {
             // ctx may be TsFunction* or TsClosure* - check magic to determine type
             TsObject* obj = (TsObject*)ctx;
             if (obj->magic == TsFunction::MAGIC) {
                 TsFunction* func = (TsFunction*)ctx;
                 if (func->name) {
-                    std::string result = "function " + std::string(func->name->ToUtf8()) + "() { [native code] }";
+                    std::string result = "function " + nativeFnName(func->name->ToUtf8()) + "() { [native code] }";
                     return ts_value_make_string(TsString::Create(result.c_str()));
                 }
             } else if (obj->magic == 0x434C5352) { // TsClosure CLSR
                 TsClosure* closure = (TsClosure*)ctx;
                 if (closure->name) {
-                    std::string result = "function " + std::string(closure->name->ToUtf8()) + "() { [native code] }";
+                    std::string result = "function " + nativeFnName(closure->name->ToUtf8()) + "() { [native code] }";
                     return ts_value_make_string(TsString::Create(result.c_str()));
                 }
             }

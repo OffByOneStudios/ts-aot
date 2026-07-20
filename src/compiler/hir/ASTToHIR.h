@@ -747,6 +747,16 @@ private:
     void destructureAssignmentPattern(ast::Expression* lhs,
                                       std::shared_ptr<HIRValue> rhs);
 
+    // IteratorClose-correct array-ASSIGNMENT pattern lowering. Steps the
+    // iterator ONE element at a time with the target Reference evaluated BEFORE
+    // each step (ES 8.6.2) and a synthesized try region that IteratorCloses on
+    // an abrupt or early-normal completion (ES 7.4.6). Used in place of the
+    // bulk ts_destructure_iterate path when a pattern element/rest target is a
+    // member/element Reference whose evaluation is observable (may throw before
+    // the iterator is stepped). Returns after fully lowering the pattern.
+    void destructureArrayPatternInterleaved(ast::ArrayLiteralExpression* arrLit,
+                                            std::shared_ptr<HIRValue> rhs);
+
     // Assign a value to a bare variable by name (the identifier/shorthand
     // target path shared by both destructuring-assignment branches).
     void assignDestructureName(const std::string& name,
