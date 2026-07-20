@@ -767,8 +767,16 @@ private:
     // bulk ts_destructure_iterate path when a pattern element/rest target is a
     // member/element Reference whose evaluation is observable (may throw before
     // the iterator is stepped). Returns after fully lowering the pattern.
+    // suspendSafe: the enclosing function is a generator/async function, so a
+    // `yield`/`await` inside a target Reference (`[ x[yield] ] = it`) SUSPENDS
+    // during element evaluation. A setjmp-based try region cannot span that
+    // suspend/resume boundary (the buffer lives on a torn-down frame), so when
+    // suspendSafe is set we drop the abrupt-completion (throw) close region and
+    // keep only the reference-before-step ordering and the normal-completion
+    // IteratorClose (both are plain control flow, safe across a suspend).
     void destructureArrayPatternInterleaved(ast::ArrayLiteralExpression* arrLit,
-                                            std::shared_ptr<HIRValue> rhs);
+                                            std::shared_ptr<HIRValue> rhs,
+                                            bool suspendSafe = false);
 
     // Assign a value to a bare variable by name (the identifier/shorthand
     // target path shared by both destructuring-assignment branches).

@@ -2283,22 +2283,21 @@ extern "C" {
             if (!r0) r0 = (void*)obj;
             if (r0 == g_object_proto_map) g_object_proto_dirty = true;
         }
-        // Proxy: route through the defineProperty trap (ES 10.5.6) when
-        // present (or revoked). A trap-less proxy keeps the legacy define-
-        // on-the-proxy behavior (our ordinary define can't reach an Array
-        // target; the concat/filter/map species tests define accessors on a
-        // trap-less array-target proxy).
+        // Proxy: ALWAYS route through the defineProperty trap (ES 10.5.6). A
+        // trap-less proxy's [[DefineOwnProperty]] forwards to
+        // target.[[DefineOwnProperty]] (10.5.6 step 6), recursing when the
+        // target is itself a proxy — the trap method's no-trap fallback does
+        // exactly that. Defining on the proxy's own backing map instead left
+        // the target untouched (trap-is-undefined / -missing / -null).
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
                 if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("defineProperty")) {
-                        if (!px->definePropertyTrap(prop, descriptor)) {
-                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                                "'defineProperty' on proxy: trap returned falsish"));
-                        }
-                        return obj;
+                    if (!px->definePropertyTrap(prop, descriptor)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "'defineProperty' on proxy: trap returned falsish"));
                     }
+                    return obj;
                 }
             }
         }
@@ -3813,15 +3812,17 @@ extern "C" {
     }
 
     static TsValue* ts_object_getOwnPropertyDescriptor_impl(TsValue* obj, TsValue* prop) {
-        // Proxy: route through the getOwnPropertyDescriptor trap (ES 10.5.5)
-        // when present (or revoked); trap-less proxies keep legacy behavior.
+        // Proxy: ALWAYS route through the getOwnPropertyDescriptor trap
+        // (ES 10.5.5). A trap-less proxy's [[GetOwnProperty]] must forward to
+        // target.[[GetOwnProperty]] (10.5.5 step 6), which the trap method's
+        // no-trap fallback does (recursing when the target is itself a proxy) —
+        // reading the proxy's own TsMap slots instead silently dropped every
+        // own property of the target (trap-is-undefined / -missing / -null).
         {
             void* raw0 = obj ? ts_value_get_object(obj) : nullptr;
             if (raw0 && *(uint32_t*)((char*)raw0 + 16) == 0x4D415053) {
-                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0)) {
-                    if (px->revoked || px->getTrap("getOwnPropertyDescriptor"))
-                        return px->getOwnPropertyDescriptorTrap(prop);
-                }
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw0))
+                    return px->getOwnPropertyDescriptorTrap(prop);
             }
         }
         ts_proxy_throw_if_revoked(obj);  // revoked proxy -> TypeError

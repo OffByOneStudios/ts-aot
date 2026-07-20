@@ -2175,7 +2175,10 @@ void ASTToHIR::emitDeferredStaticInits() {
         // initializer resolves to the class-qualified storage key.
         auto savedPrivStack = privateClassStack_;
         privateClassStack_ = init.privSnapshot;
-        auto initVal = lowerExpression(init.initExpr);
+        // A null initExpr marks a declared-but-uninitialized static private field
+        // (`static #x;`): install `undefined` so the class's static brand exists.
+        auto initVal = init.initExpr ? lowerExpression(init.initExpr)
+                                     : builder_.createConstUndefined();
         builder_.createStore(initVal, init.globalPtr, init.propType);
         // Mirror the initialized value onto the constructor closure as an own
         // property, so static fields are reachable through a non-literal-name

@@ -4887,6 +4887,50 @@ void* ts_create_arguments_from_params(
     // (The compiler emits this only for genuine `.#name` private access, so the
     // string key `obj["#x"]` keeps its non-throwing dynamic-get behavior.)
     extern "C" bool ts_object_has_property(void* objArg, void* keyArg);
+
+    // ES 15.7 static PrivateBrandCheck: a STATIC private member's [[Brand]] is
+    // the exact declaring class constructor F. F owns the member in its own
+    // property map; a subclass D reaches F's static members only through the
+    // [[Prototype]] chain (TsMap::GetPrototype) and an arbitrary object never
+    // has them — neither carries F's brand. So `D.f()` -> `this.#g()` and
+    // `C.m.call({})` must TypeError. Probe ONLY the constructor's OWN property
+    // map (never the prototype chain) for any of the three storage forms.
+    static bool clsr_owns_static_private(void* raw, const char* privKey) {
+        if (!raw || !privKey) return false;
+        if ((uintptr_t)raw < 0x1000 || (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return false;
+        if (*(uint32_t*)((char*)raw + 16) != 0x434C5352 /*CLSR*/) return false;
+        TsClosure* clo = (TsClosure*)raw;
+        TsMap* props = clo->properties;
+        if (!props) return false;
+        std::string base(privKey);
+        const std::string forms[3] = {
+            std::string(1, static_cast<char>(0x01)) + base,  // field / method
+            std::string("__getter_") + base,                 // accessor get
+            std::string("__setter_") + base,                 // accessor set
+        };
+        for (const auto& f : forms) {
+            TsValue kv; kv.type = ValueType::STRING_PTR;
+            kv.ptr_val = TsString::GetInterned(f.c_str());
+            if (props->Has(kv)) return true;
+        }
+        return false;
+    }
+    // Throw the static-private brand TypeError (compiler-emitted before a
+    // lexically-resolved static accessor/method dispatch whose runtime `this`
+    // may be foreign). No-op when the receiver legitimately owns the member.
+    extern "C" void ts_static_private_brand_check(void* recv, void* keyName) {
+        void* raw = ts_value_get_object((TsValue*)recv);
+        if (!raw) raw = recv;
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)keyName);
+        const char* key = ks ? ks->ToUtf8() : nullptr;
+        if (!key) return;
+        if (clsr_owns_static_private(raw, key)) return;
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Cannot access static private member %s from an object whose class did not declare it", key);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     TsValue* ts_object_get_private(void* obj, void* keyName) {
         void* rawObj = ts_value_get_object((TsValue*)obj);
         if (!rawObj) rawObj = obj;
@@ -4894,6 +4938,23 @@ void* ts_create_arguments_from_params(
         const char* key = ks ? ks->ToUtf8() : nullptr;
         if (!key || key[0] != '#') {
             return ts_object_get_property(rawObj, key ? key : "");
+        }
+        // STATIC private read (`C.#x`, `this.#g()` inside a static method): the
+        // receiver is the class constructor (CLSR). ES 15.7 brand: only the exact
+        // declaring class F owns it — a subclass D reaches F's static members via
+        // the [[Prototype]] chain (so the normal get below would return the
+        // INHERITED value) and an arbitrary object never has it. Own-probe first;
+        // a brand miss is a TypeError, not the inherited/undefined value.
+        if (rawObj && (uintptr_t)rawObj >= 0x1000 &&
+            (uintptr_t)rawObj <= 0x00007FFFFFFFFFFFULL &&
+            *(uint32_t*)((char*)rawObj + 16) == 0x434C5352 /*CLSR*/) {
+            if (!clsr_owns_static_private(rawObj, key)) {
+                char msg[160];
+                snprintf(msg, sizeof(msg),
+                    "Cannot read static private member %s from an object whose class did not declare it", key);
+                ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+                return ts_value_make_undefined();
+            }
         }
         // Read normally first: the regular get path does the hidden-field retry
         // ("\x01#x" field / "\x01#m" method) and invokes a private getter
@@ -4982,12 +5043,47 @@ void* ts_create_arguments_from_params(
             return;
         }
         // A class constructor (TsClosure/TsFunction) is the receiver for STATIC
-        // private members (`C.#x = v`) whose hidden-field storage the presence
-        // check below can't see — never brand-throw on a constructor; fall through
-        // to the normal mangled-key set so static private writes keep working.
+        // private members (`C.#x = v`). Their hidden storage lives in the ctor's
+        // own property map. ES 15.7 brand: only the exact declaring class F owns
+        // it — `D.#x = v` (D extends C, so D reaches C's static slot only via the
+        // [[Prototype]] chain) and a foreign receiver must TypeError. Own-probe
+        // the constructor before writing; a valid own write falls through.
         if (rawObj) {
             uint32_t m16 = *(uint32_t*)((char*)rawObj + 16);
-            if (m16 == 0x434C5352 /*CLSR*/ || m16 == 0x46554E43 /*FUNC*/) {
+            if (m16 == 0x434C5352 /*CLSR*/) {
+                TsClosure* clo = (TsClosure*)rawObj;
+                TsMap* props = clo->properties;
+                auto ownHas = [&](const std::string& k)->bool {
+                    if (!props) return false;
+                    TsValue kv; kv.type = ValueType::STRING_PTR;
+                    kv.ptr_val = TsString::GetInterned(k.c_str());
+                    return props->Has(kv);
+                };
+                std::string setterKey = std::string("__setter_") + key;   // accessor set half
+                std::string getterKey = std::string("__getter_") + key;   // accessor get half
+                if (ownHas(fieldKey)) {                    // static data field write
+                    ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(fieldKey.c_str())), value);
+                    return;
+                }
+                if (ownHas(setterKey)) {                   // static accessor with a setter
+                    ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(key)), value);
+                    return;
+                }
+                if (ownHas(getterKey)) {                   // getter-only accessor -> no setter
+                    char msg[160];
+                    snprintf(msg, sizeof(msg),
+                        "Cannot write to private accessor %s which has no setter", key);
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+                    return;
+                }
+                // Not owned by this constructor (subclass/foreign receiver): brand miss.
+                char msg[160];
+                snprintf(msg, sizeof(msg),
+                    "Cannot write static private member %s to an object whose class did not declare it", key);
+                ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+                return;
+            }
+            if (m16 == 0x46554E43 /*FUNC*/) {
                 ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(fieldKey.c_str())), value);
                 return;
             }
@@ -9278,6 +9374,16 @@ void* ts_create_arguments_from_params(
             return ts_value_make_bool(false);
         }
 
+        // Proxy [[HasOwnProperty]] is defined via [[GetOwnProperty]] (ES 10.5.5 /
+        // 7.3.12 HasOwnProperty). A trap-less proxy must consult the TARGET's own
+        // property (recursing when the target is itself a proxy) through the
+        // getOwnPropertyDescriptor trap method — reading the proxy's own (empty)
+        // backing map reported false for every real own property of the target.
+        if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)obj)) {
+            TsValue* d = px->getOwnPropertyDescriptorTrap(argv[0]);
+            return ts_value_make_bool(d && !ts_value_is_undefined(d));
+        }
+
         // Get the property key as TsValue and check if the property exists
         TsValue* keyVal = argv[0];
         TsValue keyTV = nanbox_to_tagged(keyVal);
@@ -9625,6 +9731,26 @@ void* ts_create_arguments_from_params(
         if (!ctx || argc == 0) return ts_value_make_bool(false);
         void* obj = ts_nanbox_safe_unbox(ctx);
         if (!obj) return ts_value_make_bool(false);
+
+        // Proxy [[GetOwnProperty]]-based enumerability (ES 10.5.5): a trap-less
+        // proxy reports the TARGET's own descriptor's [[Enumerable]] (recursing
+        // when the target is itself a proxy). Reading the proxy's own (empty)
+        // backing map reported false for every enumerable own property of the
+        // target (isEnumerable in test262's propertyHelper depends on this).
+        {
+            uint32_t pieM16 = *(uint32_t*)((char*)obj + 16);
+            if (pieM16 == 0x4D415053 /*MAPS*/) {
+                if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)obj)) {
+                    TsValue* d = px->getOwnPropertyDescriptorTrap(argv[0]);
+                    if (!d || ts_value_is_undefined(d))
+                        return ts_value_make_bool(false);
+                    void* dRaw = ts_value_get_object(d);
+                    TsValue* en = dRaw ? ts_object_get_property(dRaw, "enumerable")
+                                       : nullptr;
+                    return ts_value_make_bool(en && ts_value_to_bool(en));
+                }
+            }
+        }
 
         TsValue* keyVal = argv[0];
         if (!keyVal) return ts_value_make_bool(false);
