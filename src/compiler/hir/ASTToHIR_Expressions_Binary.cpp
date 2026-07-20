@@ -1489,16 +1489,27 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // the runtime SuperProperty set — base.[[Set]](name, rhs, this). A base-class
     // setter runs with the current `this`; absent a setter, an own data property
     // is created on `this` (the receiver), never on the super base.
+    // A super WRITE routes through the runtime SuperProperty set for a
+    // non-derived INSTANCE method too: its [[HomeObject]] is C.prototype and
+    // GetSuperBase is Object.prototype (a non-null base per ES 13.3.7.1), so an
+    // ordinary OrdinarySet on the receiver is required — the legacy null-base
+    // path wrongly threw "Cannot set properties of null". Non-derived STATIC
+    // methods keep the legacy path: their home is the constructor object, whose
+    // [[Prototype]] this compiler does not wire, so the runtime cannot reproduce
+    // the null-base TypeError after Object.setPrototypeOf(C, null). (`extends
+    // null` is indistinguishable in the AST but has no super-write test; its
+    // super READ still takes the legacy throwing path unchanged.)
     if (propAccess &&
         dynamic_cast<ast::SuperExpression*>(propAccess->expression.get()) &&
-        ((currentClass_ && currentClass_->baseClass) ||
-         (!currentClass_ && objectSuperHomeAvailable()))) {
+        (currentClass_ ? (currentClass_->baseClass || !superHomeIsStatic())
+                       : objectSuperHomeAvailable())) {
         if (auto home = lowerSuperHomeObject()) {
             auto thisVal = lookupVariable("this");
             if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
             auto keyStr = builder_.createConstString(propAccess->name);
             builder_.createCall("ts_super_set",
-                {home, keyStr, boxValueIfNeeded(rhs), boxValueIfNeeded(thisVal)},
+                {home, keyStr, boxValueIfNeeded(rhs), boxValueIfNeeded(thisVal),
+                 builder_.createConstInt(strictCode_ ? 1 : 0)},
                 HIRType::makeVoid());
             lastValue_ = rhs;
             return;
@@ -1674,15 +1685,16 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // `super[expr] = rhs` WRITE: runtime SuperProperty set with a computed key.
     if (elemAccess &&
         dynamic_cast<ast::SuperExpression*>(elemAccess->expression.get()) &&
-        ((currentClass_ && currentClass_->baseClass) ||
-         (!currentClass_ && objectSuperHomeAvailable()))) {
+        (currentClass_ ? (currentClass_->baseClass || !superHomeIsStatic())
+                       : objectSuperHomeAvailable())) {
         auto keyVal = lowerExpression(elemAccess->argumentExpression.get());
         if (auto home = lowerSuperHomeObject()) {
             auto thisVal = lookupVariable("this");
             if (!thisVal) thisVal = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
             builder_.createCall("ts_super_set_computed",
                 {home, boxValueIfNeeded(keyVal), boxValueIfNeeded(rhs),
-                 boxValueIfNeeded(thisVal)}, HIRType::makeVoid());
+                 boxValueIfNeeded(thisVal),
+                 builder_.createConstInt(strictCode_ ? 1 : 0)}, HIRType::makeVoid());
             lastValue_ = rhs;
             return;
         }

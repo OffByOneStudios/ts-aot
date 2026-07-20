@@ -246,6 +246,31 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // ts_super_set(home, key, val, this, strict:i64) -> void and
+    // ts_super_set_computed(home, keyVal, val, this, strict:i64) -> void.
+    // The trailing strict flag is an i64; the generic all-ptr lowering would
+    // box it into a TsValue* (always non-zero) and mislink, forcing strict
+    // semantics even in sloppy code (ES 13.3.7.1 strict-only TypeError).
+    if (funcName == "ts_super_set" || funcName == "ts_super_set_computed") {
+        llvm::Value* a1 = getOperandValue(inst->operands[1]);
+        llvm::Value* a2 = getOperandValue(inst->operands[2]);
+        llvm::Value* a3 = getOperandValue(inst->operands[3]);
+        llvm::Value* a4 = getOperandValue(inst->operands[4]);
+        llvm::Value* a5 = getOperandValue(inst->operands[5]);
+        if (a5->getType()->isPointerTy())
+            a5 = builder_->CreatePtrToInt(a5, builder_->getInt64Ty());
+        else if (a5->getType()->isDoubleTy())
+            a5 = builder_->CreateFPToSI(a5, builder_->getInt64Ty());
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), getGCPtrTy(),
+              builder_->getInt64Ty() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        builder_->CreateCall(ft, fn.getCallee(), { a1, a2, a3, a4, a5 });
+        return;
+    }
+
     // ts_super_builtin_call(this, nameStr, argc:i64, a0) -> void. Mixed
     // i64 param — the generic lowering would declare all-ptr and mislink.
     if (funcName == "ts_super_builtin_call") {

@@ -179,14 +179,18 @@ static bool functionIsStaticClassMember(HIRFunction* fn, HIRClass* cls) {
     return false;
 }
 
+bool ASTToHIR::superHomeIsStatic() {
+    return currentMethodIsStatic_ ||
+        functionIsStaticClassMember(currentFunction_, currentClass_);
+}
+
 std::shared_ptr<HIRValue> ASTToHIR::lowerSuperHomeObject() {
     if (currentClass_) {
         // The constructor closure carries the class's static shape and, via its
         // "prototype" property, the instance home object. Both are installed by the
         // deferred class-prototype pass before any method runs.
         auto ctor = builder_.createLoadFunction(currentClass_->name + "_constructor");
-        bool inStatic = currentMethodIsStatic_ ||
-            functionIsStaticClassMember(currentFunction_, currentClass_);
+        bool inStatic = superHomeIsStatic();
         if (inStatic) {
             // Static method [[HomeObject]] is the constructor object itself; its
             // [[Prototype]] is the base constructor (ES 15.7.14 static inheritance).
