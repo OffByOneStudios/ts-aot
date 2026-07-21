@@ -495,6 +495,7 @@ struct ClassDeclaration : Statement {
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
     bool isAbstract = false;
     bool isStruct = false;
+    bool isFunctionScoped = false;  // Declared inside a function body (nested/local class)
     std::shared_ptr<ts::Type> resolvedType;  // Resolved ClassType from analyzer
     std::string getKind() const override { return "ClassDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitClassDeclaration(this); }

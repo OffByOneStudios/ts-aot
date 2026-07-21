@@ -1606,6 +1606,17 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         }
         mdParamIdx++;
 
+        // ECMA-262 rest element on an object-literal concise method
+        // (`{ m(...args){} }`): set the flag + physical index so the closure
+        // rest-index is emitted and the runtime with-receiver dispatch packs
+        // the trailing args into an Array. Without this, `obj.m(...args)` bound
+        // the rest name to a single value.
+        if (param->isRest) {
+            func->hasRestParam = true;
+            func->restParamIndex = func->params.size();
+            if (paramType->kind != HIRTypeKind::Array)
+                paramType = HIRType::makeArray(paramType, false);
+        }
         func->params.push_back({paramName, paramType});
     }
 

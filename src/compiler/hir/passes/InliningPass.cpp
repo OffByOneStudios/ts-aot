@@ -184,6 +184,18 @@ bool InliningPass::shouldInline(const HIRFunction& caller, const HIRFunction& ca
         return false;
     }
 
+    // Never inline a callee that carries a closure context (captures enclosing
+    // variables). Its body reads captured cells through the __closure__ param
+    // (LoadCapture -> ts_closure_get_cell); inlining substitutes the param but
+    // does not thread the closure environment, so each capture folds to a
+    // constant (undefined/0) -> silently wrong values. Nested-class capturing
+    // constructors are called BY NAME (X_constructor) and would otherwise be
+    // inlined here, dropping their captures.
+    if (!callee.captures.empty() ||
+        (!callee.params.empty() && callee.params[0].first == "__closure__")) {
+        return false;
+    }
+
     // Never inline generator functions - they have special calling semantics
     // Calling a generator returns a generator object, not the actual return value
     if (callee.isGenerator) {

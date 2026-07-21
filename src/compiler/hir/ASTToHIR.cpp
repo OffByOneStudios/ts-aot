@@ -2030,7 +2030,34 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             if (!hasTerminator()) {
-                if (methPtr->returnType->kind == HIRTypeKind::Void) {
+                // Milestone C: a FIELDLESS derived constructor with a DYNAMIC /
+                // builtin base (no compiler-known baseClass) may have REBOUND
+                // `this` inside super(...) to a branded base instance
+                // (ts_super_dynamic_construct). RETURN that `this` so the `new`
+                // site (ts_construct_select) uses the branded object, not the
+                // eager flat one. The function signature must be value-returning
+                // or HIRToLLVM emits `ret void` and the branded object is dropped
+                // -> every branded Temporal accessor throws "not a Temporal.X".
+                std::shared_ptr<HIRValue> thisRet;
+                if (methodNode->name == "constructor" && !methodNode->isStatic) {
+                    ast::ClassDeclaration* clsNode = nullptr;
+                    if (spec.classType)
+                        if (auto ct2 = std::dynamic_pointer_cast<ts::ClassType>(spec.classType))
+                            clsNode = ct2->node;
+                    if (clsNode && !clsNode->baseClass.empty()) {
+                        HIRClass* hc = nullptr;
+                        for (auto& cls : module_->classes)
+                            if (cls && cls->name == clsNode->name) { hc = cls.get(); break; }
+                        bool dynBaseFieldless = hc && !hc->baseClass &&
+                            !hc->baseBuiltinName.empty() &&
+                            (!hc->shape || hc->shape->propertyOffsets.empty());
+                        if (dynBaseFieldless) thisRet = lookupVariable("this");
+                    }
+                }
+                if (thisRet) {
+                    methPtr->returnType = HIRType::makeAny();
+                    builder_.createReturn(thisRet);
+                } else if (methPtr->returnType->kind == HIRTypeKind::Void) {
                     builder_.createReturnVoid();
                 } else {
                     auto undef = builder_.createConstUndefined();
@@ -2226,6 +2253,36 @@ void ASTToHIR::emitDeferredStaticInits() {
         }
     }
     emitDeferredStaticInitsTail();
+}
+
+void ASTToHIR::emitDynamicHeritageLink(HIRClass* hirClass,
+                                       std::shared_ptr<HIRValue> ctorVal,
+                                       std::shared_ptr<HIRValue> proto) {
+    if (!hirClass || hirClass->baseClass || hirClass->baseBuiltinName.empty())
+        return;
+    if (!ctorVal || !proto) return;
+    // Dotted heritage (`extends Temporal.Duration`): resolve the FIRST segment
+    // as an identifier, then member-access the rest — a dotted string is not a
+    // resolvable name. A bare name resolves as a variable/param/builtin; an
+    // unresolvable name yields undefined and ts_class_link_dynamic_base falls
+    // back to the name-based builtin link.
+    const std::string& hn = hirClass->baseBuiltinName;
+    size_t dot = hn.find('.');
+    ast::Identifier heritageId;
+    heritageId.name = (dot == std::string::npos) ? hn : hn.substr(0, dot);
+    visitIdentifier(&heritageId);
+    auto cur = boxValueIfNeeded(lastValue_);
+    while (dot != std::string::npos) {
+        size_t next = hn.find('.', dot + 1);
+        std::string seg = (next == std::string::npos)
+            ? hn.substr(dot + 1) : hn.substr(dot + 1, next - dot - 1);
+        cur = boxValueIfNeeded(builder_.createGetPropStatic(
+            cur, seg, HIRType::makeAny()));
+        dot = next;
+    }
+    auto baseNameC = builder_.createConstString(hn);
+    builder_.createCall("ts_class_link_dynamic_base",
+        {ctorVal, proto, cur, baseNameC}, HIRType::makeVoid());
 }
 
 void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritage) {

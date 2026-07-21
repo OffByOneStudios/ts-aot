@@ -75,7 +75,29 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
         // early-returns the raw fn for the __getter_/__setter_/__method_
         // prefixes, so trampolineFunc == fn here) and statics / free functions
         // (first param is not "this").
+        bool isCtor = false;
         if (!isClassMethod && trampolineFunc && trampolineFunc != fn && hirModule_) {
+            // A class CONSTRUCTOR is also `this`-first with a trampoline. It
+            // MUST be marked is_method — ts_function_call_with_this and
+            // ts_new_from_constructor dispatch its (closure, this, ...args)
+            // physical signature Convention-B (this-first); without the flag
+            // they route Convention-A and `this`/arg0 shift (Promise-subclass
+            // hook saw executor in the `this` slot; `new c.B()` ran the ctor
+            // with this=undefined -> "Cannot set properties of undefined").
+            // But it must NOT get no_prototype: that clears is_constructor, so
+            // a class VALUE (`let q = C`, or `class X extends
+            // <param-holding-a-class>`) fails IsConstructor — the dynamic-
+            // heritage link then throws "Class extends value is not a
+            // constructor" for a perfectly good class. So: is_method yes,
+            // no_prototype no (see the !isCtor guard below).
+            for (const auto& cls : hirModule_->classes) {
+                std::string cn = cls->constructor ? cls->constructor->name
+                                                  : (cls->name + "_constructor");
+                if (cn == funcName) { isCtor = true; break; }
+                if (cls->constructor && cls->constructor->mangledName == funcName) {
+                    isCtor = true; break;
+                }
+            }
             for (const auto& hirFn : hirModule_->functions) {
                 if ((hirFn->name == funcName || hirFn->mangledName == funcName)
                     && !hirFn->params.empty()
@@ -101,7 +123,7 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                     if (hirFn->name == funcName || hirFn->mangledName == funcName) {
                         methodIsGenerator = hirFn->isGenerator; break;
                     }
-            if (!methodIsGenerator) {
+            if (!methodIsGenerator && !isCtor) {
                 auto npFn = module_->getOrInsertFunction("ts_closure_set_no_prototype", setMethodFt);
                 builder_->CreateCall(setMethodFt, npFn.getCallee(), { gcPtrToRaw(closure) });
             }

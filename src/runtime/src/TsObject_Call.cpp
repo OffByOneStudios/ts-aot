@@ -153,6 +153,35 @@ extern "C" {
                                         TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
         return ((Fn11)closure->func_ptr)(closure, thisArg, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
     }
+
+    // Method (this-first) counterpart of ts_rest_pack_and_call. A method closure's
+    // physical params are (closure, this, a1..aN); the rest element occupies the
+    // user-arg slot at rest_param_index. Build the rest TsArray from
+    // argv[restIdx..argc-1], place it at that slot, pad the remaining user slots
+    // with undefined, and dispatch through the this-first trampoline. Without
+    // this, with-receiver dispatch (`obj.m(...)`, `obj[k](...)`) dropped every
+    // arg past the first for a rest-param method — ECMA-262 §8.6.3
+    // IteratorBindingInitialization requires the rest binding to receive ALL
+    // trailing arguments packed into an Array.
+    static TsValue* ts_rest_pack_and_call_method(TsClosure* closure, TsValue* thisArg,
+                                                 int argc, TsValue** argv) {
+        int restIdx = closure->rest_param_index;
+        TsValue* u = ts_value_make_undefined();
+        TsValue* finalArgs[10] = { u, u, u, u, u, u, u, u, u, u };
+        int leading = restIdx < 10 ? restIdx : 10;
+        for (int i = 0; i < leading; i++)
+            finalArgs[i] = (i < argc && argv) ? argv[i] : u;
+        if (restIdx >= 0 && restIdx < 10) {
+            int restCount = argc > restIdx ? (argc - restIdx) : 0;
+            TsArray* restArr = TsArray::Create((size_t)(restCount > 0 ? restCount : 0));
+            for (int i = 0; i < restCount; i++)
+                if (argv[restIdx + i]) restArr->Push((int64_t)argv[restIdx + i]);
+            finalArgs[restIdx] = (TsValue*)ts_value_make_object(restArr);
+        }
+        return call_closure_padded10_method(closure, thisArg,
+            finalArgs[0], finalArgs[1], finalArgs[2], finalArgs[3], finalArgs[4],
+            finalArgs[5], finalArgs[6], finalArgs[7], finalArgs[8], finalArgs[9]);
+    }
     // Exact-arity dispatch for functions declared with 11..16 params: call
     // Fn<arity> with EXACTLY arity args so the call matches the compiled
     // function's LLVM signature (closure + arity params). The <=10 path is
@@ -400,13 +429,18 @@ extern "C" {
         if (closure) {
             void* fp = closure->func_ptr;
             if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
-            // A non-method rest-param closure needs argument PACKING — the
-            // padded10 call below passes raw args and the rest array never
-            // materializes (`obj.m = (...args) => {}; obj.m(1)` saw args
-            // undefined). ts_rest_pack_and_call builds the rest array;
-            // thisArg propagates via ts_call_this_value (set above).
-            if (!closure->is_method && closure->rest_param_index >= 0) {
-                TsValue* result = ts_rest_pack_and_call(closure, argc, argv);
+            // A rest-param closure needs argument PACKING — the padded10 call
+            // below passes raw args and the rest array never materializes
+            // (`obj.m = (...args) => {}; obj.m(1)` saw args undefined). Method
+            // closures (this-first trampoline: `obj.m(...args)`,
+            // `obj[k](...args)`, object-literal concise methods) previously fell
+            // through this guard and lost every arg past the first — pack them
+            // via the this-first packer. Non-method closures use the Convention-A
+            // packer; thisArg propagates via ts_call_this_value (set above).
+            if (closure->rest_param_index >= 0) {
+                TsValue* result = closure->is_method
+                    ? ts_rest_pack_and_call_method(closure, thisArg, argc, argv)
+                    : ts_rest_pack_and_call(closure, argc, argv);
                 ts_call_this_value = savedThis;
                 return result;
             }
@@ -1159,6 +1193,102 @@ extern "C" {
         return thisObj;  // unreachable
     }
 
+    // Milestone C — dynamic/exotic base derived-class `super(...)`.
+    //
+    // A class `class Sub extends <runtime-value> { constructor(){ super(...a); } }`
+    // whose base is a Temporal-family constructor needs a GENUINE branded base
+    // instance created from the SUPER-call arguments (which may differ from the
+    // `new Sub()` arguments), then bound as the derived `this`. The eager flat
+    // instance the compiler pre-allocates is NOT a branded TsDuration/TsInstant/
+    // …, so every branded method throws "not a Temporal.X" (subclassing
+    // "ignored"). ES 15.7.14 / 10.2.2: in a derived constructor `this` is bound
+    // by SuperCall to base.[[Construct]](args, newTarget).
+    //
+    // Uses the ambient new.target (set by the `new` site) to find the base by
+    // walking new.target's [[Prototype]] chain — mirrors the same walk in
+    // ts_new_from_constructor_impl's Temporal-subclass block, but keyed on the
+    // SUPER args. On a Temporal match: build the branded instance, relink its
+    // [[Prototype]] to newTarget.prototype (so `instanceof Sub` and the branded
+    // proto chain both hold), and return it. For any NON-Temporal base returns
+    // `oldThis` unchanged so ordinary/flat super semantics are preserved.
+    TsValue* ts_super_dynamic_construct(TsValue* oldThis, TsValue* argsArray) {
+        extern void* ts_get_new_target();
+        extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+        extern TsValue* ts_object_getPrototypeOf(TsValue* obj);
+
+        void* ntBoxed = ts_get_new_target();
+        TsValue* newTarget = (TsValue*)ntBoxed;
+        if (!newTarget || ts_value_is_undefined(newTarget)) return oldThis;
+        void* rawCtor = ts_value_get_object(newTarget);
+        if (!rawCtor) return oldThis;
+
+        extern void* ts_temporal_get_plaintime_ctor();
+        extern TsValue* ts_temporal_plaintime_construct(int, TsValue**);
+        extern void* ts_temporal_get_duration_ctor();
+        extern TsValue* ts_temporal_duration_construct(int, TsValue**);
+        extern void* ts_temporal_get_plaindate_ctor();
+        extern TsValue* ts_temporal_plaindate_construct(int, TsValue**);
+        extern void* ts_temporal_get_plainyearmonth_ctor();
+        extern TsValue* ts_temporal_plainyearmonth_construct(int, TsValue**);
+        extern void* ts_temporal_get_plainmonthday_ctor();
+        extern TsValue* ts_temporal_plainmonthday_construct(int, TsValue**);
+        extern void* ts_temporal_get_plaindatetime_ctor();
+        extern TsValue* ts_temporal_plaindatetime_construct(int, TsValue**);
+        extern void* ts_temporal_get_instant_ctor();
+        extern TsValue* ts_temporal_instant_construct(int, TsValue**);
+        extern void* ts_temporal_get_zoneddatetime_ctor();
+        extern TsValue* ts_temporal_zoneddatetime_construct(int, TsValue**);
+        struct TemporalCtor { void* (*getter)(); TsValue* (*construct)(int, TsValue**); };
+        const TemporalCtor kTemporalCtors[] = {
+            { ts_temporal_get_plaintime_ctor,      ts_temporal_plaintime_construct },
+            { ts_temporal_get_duration_ctor,       ts_temporal_duration_construct },
+            { ts_temporal_get_plaindate_ctor,      ts_temporal_plaindate_construct },
+            { ts_temporal_get_plainyearmonth_ctor, ts_temporal_plainyearmonth_construct },
+            { ts_temporal_get_plainmonthday_ctor,  ts_temporal_plainmonthday_construct },
+            { ts_temporal_get_plaindatetime_ctor,  ts_temporal_plaindatetime_construct },
+            { ts_temporal_get_instant_ctor,        ts_temporal_instant_construct },
+            { ts_temporal_get_zoneddatetime_ctor,  ts_temporal_zoneddatetime_construct },
+        };
+        TsValue* (*chosen)(int, TsValue**) = nullptr;
+        // Walk newTarget's [[Prototype]] chain (Sub.__proto__ === Temporal.X for
+        // `class Sub extends Temporal.X`, linked by ts_class_link_dynamic_base).
+        TsValue* cur = ts_object_getPrototypeOf(newTarget);
+        for (int hops = 0; hops < 64 && cur && !chosen &&
+             !ts_value_is_undefined(cur) && !ts_value_is_null(cur); hops++) {
+            void* curRaw = ts_value_get_object(cur);
+            if (curRaw) {
+                for (const auto& e : kTemporalCtors) {
+                    void* g = e.getter(); if (!g) continue;
+                    void* gRaw = ts_value_get_object((TsValue*)g);
+                    if (!gRaw) gRaw = g;
+                    if (curRaw == g || curRaw == gRaw) { chosen = e.construct; break; }
+                }
+            }
+            cur = ts_object_getPrototypeOf(cur);
+        }
+        if (!chosen) return oldThis;  // non-Temporal base: keep ordinary `this`
+
+        // Extract the SUPER-call arguments (packed by the compiler, iterator
+        // protocol already applied for `super(...iterable)`).
+        extern void* ts_value_get_element(void* param, int64_t index);
+        int64_t argc = argsArray ? ts_value_length(argsArray) : 0;
+        if (argc < 0) argc = 0;
+        if (argc > 1024) argc = 1024;
+        std::vector<TsValue*> argv((size_t)argc, nullptr);
+        for (int64_t i = 0; i < argc; ++i)
+            argv[(size_t)i] = (TsValue*)ts_value_get_element(argsArray, i);
+        TsValue* inst = chosen((int)argc, argc ? argv.data() : nullptr);   // may throw RangeError
+        void* instRaw = inst ? ts_value_get_object(inst) : nullptr;
+        if (!inst || !instRaw) return oldThis;
+        // Relink instance -> newTarget.prototype (the subclass prototype whose own
+        // [[Prototype]] is Temporal.X.prototype, so branded methods stay reachable).
+        TsValue* protoVal = ts_object_get_dynamic(newTarget,
+            ts_value_make_string(TsString::Create("prototype")));
+        if (protoVal && !ts_value_is_undefined(protoVal) && !ts_value_is_null(protoVal))
+            ts_native_object_set_proto(instRaw, protoVal);
+        return inst;
+    }
+
     TsValue* ts_new_from_constructor_0(TsValue* constructorFn) {
         return ts_new_from_constructor(constructorFn, 0, nullptr);
     }
@@ -1284,12 +1414,14 @@ extern "C" {
             // so route fixed-arity method closures through them. A rest param still needs
             // the packing ts_function_call provides, so only take this path with no rest.
             if (closure->rest_param_index >= 0 && closure->is_method) {
-                // Rest-param METHODS still need ts_rest_pack_and_call's
-                // packing; invoke it directly with the slot already holding
-                // thisArg — routing through the receiver-less dispatcher
-                // would hit OrdinaryCallBindThis and clobber the explicit
-                // receiver with undefined.
-                result = ts_rest_pack_and_call(closure, argc, argv);
+                // Rest-param METHODS need the this-first packer: their physical
+                // params are (closure, this, a1..aN), so the rest array must be
+                // placed in a user-arg slot AFTER the receiver. The Convention-A
+                // packer (ts_rest_pack_and_call) would drop the array into the
+                // `this` slot. Invoke directly with thisArg so the receiver is
+                // preserved (routing through the receiver-less dispatcher would
+                // hit OrdinaryCallBindThis and clobber it with undefined).
+                result = ts_rest_pack_and_call_method(closure, thisArg, argc, argv);
             } else {
                 // Honor is_method (Convention B: this-first) for ALL arities;
                 // call_dispatch_with_this also covers plain closures and

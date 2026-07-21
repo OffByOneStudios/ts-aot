@@ -580,6 +580,16 @@ struct HIRClass {
     // links C.prototype -> Builtin.prototype at runtime via
     // ts_class_link_builtin_base so `new C() instanceof Builtin` holds.
     std::string baseBuiltinName;
+
+    // Nested-class variable capture (class declared inside a function whose
+    // constructor references enclosing-function variables). When true, the
+    // constructor's HIR signature is (__closure__, this, ...args): a closure
+    // carrying the captured cells is threaded as physical arg 0. `new C()`
+    // sites must load that closure (built at the class-definition site) and
+    // pass it first. Gated strictly on function-scoped classes whose ctor
+    // actually captures, so top-level and non-capturing classes keep the
+    // legacy [this, ...args] ABI byte-for-byte.
+    bool ctorCapturesEnclosing = false;
 };
 
 //==============================================================================

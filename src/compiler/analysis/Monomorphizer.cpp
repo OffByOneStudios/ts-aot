@@ -4,6 +4,7 @@
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <set>
+#include <cctype>
 #include <iostream>
 #include <filesystem>
 
@@ -114,6 +115,44 @@ static std::unique_ptr<ast::Statement> makeComputedInstallTrigger(const std::str
     auto stmt = std::make_unique<ast::ExpressionStatement>();
     stmt->expression = std::move(call);
     return stmt;
+}
+
+// Milestone C — build a synthetic `__ts_link_dynamic_heritage("ClassName")`
+// statement. Injected into __module_init at a top-level class declaration's
+// SOURCE position so `class X extends B` (B a runtime variable) links its
+// prototype chain AFTER B is initialized — the hoisted pre-module_init class
+// flush evaluates the heritage while B is still uninitialized, so its
+// name-based link no-ops. ASTToHIR intercepts this call and re-runs the
+// value-based dynamic-heritage link in the live source scope.
+static std::unique_ptr<ast::Statement> makeDynamicHeritageTrigger(const std::string& className) {
+    auto call = std::make_unique<ast::CallExpression>();
+    auto callee = std::make_unique<ast::Identifier>();
+    callee->name = "__ts_link_dynamic_heritage";
+    call->callee = std::move(callee);
+    auto arg = std::make_unique<ast::StringLiteral>();
+    arg->value = className;
+    call->arguments.push_back(std::move(arg));
+    auto stmt = std::make_unique<ast::ExpressionStatement>();
+    stmt->expression = std::move(call);
+    return stmt;
+}
+
+// A class heritage clause is a DYNAMIC/runtime base (needs source-position
+// value linking) when its base expression is a bare identifier that is NOT a
+// user class declared in this program — i.e. a variable/param/imported binding
+// (`class X extends B`). A dotted builtin (`Temporal.X`) resolves at the
+// hoisted flush by name, and a user-class base links statically, so neither
+// needs the trigger. Conservative: only plain identifiers qualify.
+static bool heritageIsRuntimeIdentifier(ast::ClassDeclaration* cd,
+                                        const std::set<std::string>& userClassNames) {
+    if (!cd || cd->baseClass.empty()) return false;
+    const std::string& b = cd->baseClass;
+    // Reject dotted / call / non-identifier heritage text (Temporal.X, mix(A)).
+    for (char c : b)
+        if (!(std::isalnum((unsigned char)c) || c == '_' || c == '$')) return false;
+    if (b.empty() || std::isdigit((unsigned char)b[0])) return false;
+    // A user-class base links statically; only non-class identifiers are dynamic.
+    return userClassNames.find(b) == userClassNames.end();
 }
 
 // Forward declarations for require() rewriting
@@ -723,6 +762,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         for (size_t si = 0; si < module->ast->body.size(); si++) {
             SPDLOG_DEBUG("[RAW] stmt[{}] kind={}", si, module->ast->body[si]->getKind());
         }
+        // Milestone C — collect user-class names in this module so a dynamic
+        // heritage clause (`extends B`) can be told apart from a static
+        // user-class base (`extends UserClass`, which links statically).
+        std::set<std::string> userClassNames;
+        for (auto& stmt : module->ast->body)
+            if (auto* cd = dynamic_cast<ast::ClassDeclaration*>(stmt.get()))
+                if (!cd->name.empty()) userClassNames.insert(cd->name);
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
             SPDLOG_DEBUG("[MONO-BODY]   stmt kind={}", kind);
@@ -783,6 +829,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         }
                         if (identComputed && !cd->name.empty())
                             moduleInit->body.push_back(makeComputedInstallTrigger(cd->name));
+                        // Milestone C: a top-level `class X extends B` whose base
+                        // is a runtime identifier (variable/param/import, not a
+                        // user class) links its prototype chain AT this source
+                        // position — after B is initialized — via a value-based
+                        // trigger. The hoisted flush's name link no-ops for a
+                        // non-builtin name, so without this `new X() instanceof
+                        // B` is false.
+                        if (!cd->name.empty() &&
+                            heritageIsRuntimeIdentifier(cd, userClassNames))
+                            moduleInit->body.push_back(makeDynamicHeritageTrigger(cd->name));
                     }
                 }
                 // `let C = class { [ident]... }` — a class EXPRESSION (kept in newBody
@@ -2625,6 +2681,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         // Skip generic classes here
         if (!ct->typeParameters.empty()) continue;
+
+        // Function-scoped (nested/local) classes are lowered INLINE at their
+        // declaration site (visitClassDeclaration -> emitSingleClassSetup) with
+        // the enclosing function's scope present, so their constructor/methods
+        // can capture enclosing variables. Re-lowering them here would emit a
+        // second, TOP-LEVEL (scope-less) "<Class>_constructor" that captures
+        // nothing and REPLACES the correct inline body (same symbol name),
+        // dropping every enclosing-variable capture. Skip so the inline
+        // capture-aware lowering is the sole constructor/method body.
+        if (classDecl->isFunctionScoped) continue;
 
         SPDLOG_DEBUG("[MONO] Processing local class: {} methods={}", ct->name, classDecl->members.size());
 
