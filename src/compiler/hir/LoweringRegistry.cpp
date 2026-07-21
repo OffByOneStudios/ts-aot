@@ -1124,6 +1124,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // string
             .ptrArg()      // separator
+            .ptrArg()      // limit (boxed; null when caller passes no 2nd arg)
             .build());
 
     reg.registerLowering("ts_string_normalize",
@@ -1584,6 +1585,15 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // str
             .ptrArg()      // regexp
+            .build());
+
+    // search returns a boxed value (index in the common case, or an arbitrary
+    // @@search result). ptr return mirrors ts_string_match_regexp.
+    reg.registerLowering("ts_string_search",
+        lowering("ts_string_search")
+            .returnsPtr()
+            .ptrArg()      // str
+            .ptrArg()      // searchValue
             .build());
 
     reg.registerLowering("ts_string_matchAll_regexp",
