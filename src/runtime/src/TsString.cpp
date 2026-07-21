@@ -1745,27 +1745,60 @@ extern "C" {
                                    bool hasExtra, TsValue** out,
                                    TsValue* origThis = nullptr);
 
-    void* ts_string_split(void* str, void* separator) {
+    // ECMA-262 22.1.3.23 String.prototype.split ( separator, limit ).
+    // `limit` is a boxed TsValue* (or nullptr — the compiler's typed fast path
+    // pads a missing 2nd argument with null). The optional limit truncates the
+    // result to at most ToUint32(limit) elements (step 6); undefined => no cap.
+    // The @@split method (step 2) receives (O, limit) with this = separator.
+    void* ts_string_split(void* str, void* separator, void* limit) {
         {
             TsValue* out = nullptr;
+            // step 2: GetMethod(separator, @@split). Forward the ORIGINAL limit
+            // (undefined when the caller passed none) as the 2nd @@split arg.
             if (ts_string_symbol_dispatch("[Symbol.split]", (TsValue*)separator,
-                                          ts_ensure_flat(str), nullptr, true, &out))
+                                          ts_ensure_flat(str),
+                                          (TsValue*)limit, true, &out))
                 return out;
         }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        // Per ECMA-262 22.1.3.21 step 11: if separator is undefined, return
-        // a single-element array containing S.
-        uint64_t sepNb = (uint64_t)(uintptr_t)separator;
-        if (!separator || sepNb == NANBOX_UNDEFINED) {
+
+        // step 6: resolve the element cap. ToUint32(limit); undefined => no cap.
+        // ToNumber(Symbol) / BigInt->Number throw (ts_to_number performs that);
+        // NaN/Infinity map to 0. A negative value (ToUint32 wraps huge) is
+        // treated as "no cap", mirroring the prior ts_string_split_native logic.
+        bool hasLimit = false;
+        int64_t limitCount = 0;
+        {
+            uint64_t lnb = (uint64_t)(uintptr_t)limit;
+            if (limit && lnb != NANBOX_UNDEFINED &&
+                !nanbox_is_undefined(nanbox_from_tsvalue_ptr((TsValue*)limit))) {
+                extern double ts_to_number(TsValue* v);
+                double limD = ts_to_number((TsValue*)limit);
+                int64_t lim = (limD != limD || std::isinf(limD)) ? 0 : (int64_t)limD;
+                if (lim >= 0) { hasLimit = true; limitCount = lim; }
+            }
+        }
+        auto capped = [&](TsArray* arr) -> void* {
+            if (hasLimit && arr && arr->Length() > limitCount)
+                arr->SetLength((size_t)limitCount);
+            return arr;
+        };
+        auto wholeString = [&]() -> void* {
             TsArray* arr = TsArray::Create();
             arr->Push((int64_t)ts_value_make_string(s));
-            return arr;
+            return capped(arr);
+        };
+
+        // Per ECMA-262 22.1.3.23 step 3: if separator is undefined, return a
+        // single-element array containing S (still subject to the limit cap).
+        uint64_t sepNb = (uint64_t)(uintptr_t)separator;
+        if (!separator || sepNb == NANBOX_UNDEFINED) {
+            return wholeString();
         }
-        // Per ECMA-262 22.1.3.21 step 4: if separator has @@split (i.e. is a
-        // RegExp), call RegExp.prototype[@@split]. Detect regex by unboxing.
+        // A RegExp separator delegates to RegExp.prototype[@@split].
         if (TsRegExp* re = unboxRegExp(separator)) {
-            return s->Split(re);
+            return capped((TsArray*)s->Split(re));
         }
         // A NaN-boxed primitive separator (number/bool/null) is NOT a heap
         // pointer; ts_ensure_flat would dereference it and crash. This path is
@@ -1782,23 +1815,20 @@ extern "C" {
             } else if (nanbox_is_double(sepNb)) {
                 sepStr = (TsString*)ts_number_to_string(nanbox_to_double(sepNb), 10);
             }
-            if (sepStr) return s->Split(sepStr);
-            // Unknown primitive: fall back to [S] (non-crashing).
-            TsArray* arr = TsArray::Create();
-            arr->Push((int64_t)ts_value_make_string(s));
-            return arr;
+            if (sepStr) return capped((TsArray*)s->Split(sepStr));
+            return wholeString();  // Unknown primitive: [S] (non-crashing).
         }
         TsString* sep = ts_ensure_flat(separator);
         if (!sep) {
-            // separator is some non-string, non-undefined value (e.g. number,
-            // null). Per spec: ToString(separator). For now, fall back to
-            // returning [S] to avoid crash; full ToString implementation is
-            // a separate fix.
-            TsArray* arr = TsArray::Create();
-            arr->Push((int64_t)ts_value_make_string(s));
-            return arr;
+            // Non-string, non-RegExp heap separator (a BigInt, or an Object whose
+            // @@split was absent/null): ES 22.1.3.23 step 14 R = ? ToString(sep).
+            // Use the hook-invoking spec ToString so a user toString runs (the
+            // cstm-split-is-null variant) and a BigInt yields its decimal digits.
+            extern void* ts_to_string_spec(TsValue* v);
+            sep = (TsString*)ts_to_string_spec((TsValue*)separator);
         }
-        return s->Split(sep);
+        if (!sep) return wholeString();
+        return capped((TsArray*)s->Split(sep));
     }
 
     void* ts_string_trim(void* str) {
@@ -2187,8 +2217,13 @@ extern "C" {
         if (!arg || nb == NANBOX_UNDEFINED) {
             pat = TsString::Create("");
         } else {
-            extern void* ts_string_from_value(TsValue* val);
-            pat = (TsString*)ts_string_from_value((TsValue*)arg);
+            // ES RegExpCreate -> RegExpInitialize: P = ? ToString(pattern).
+            // Hook-invoking spec ToString so an Object arg (whose @@match/@@search
+            // was absent or null) runs its user toString (cstm-*-is-null variants)
+            // and reaches ToPrimitive(string) toString-first (valueOf untouched);
+            // BigInt/number/boolean/string coerce identically to the plain path.
+            extern void* ts_to_string_spec(TsValue* val);
+            pat = (TsString*)ts_to_string_spec((TsValue*)arg);
         }
         if (!pat) return nullptr;
         extern void* ts_regexp_create(void* pattern, void* flags);
@@ -2207,7 +2242,12 @@ extern "C" {
         }
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        return s->Match(coerceArgToRegExp(regexp));
+        // ES 22.1.3.13: a non-matching coerced RegExp yields `null`. Return a
+        // BOXED null (not raw nullptr) so the typed fast path's value has
+        // typeof "object" / `=== null` semantics — the RegExp-arg path reaches
+        // the same null through RegExp.prototype[@@match] (boxed) above.
+        void* mres = s->Match(coerceArgToRegExp(regexp));
+        return mres ? mres : (void*)ts_value_make_null();
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
@@ -2249,11 +2289,21 @@ extern "C" {
         return s->Search(coerceArgToRegExp(regexp));
     }
 
-    // Untyped String.prototype.search dispatch — receiver is raw, the
-    // arg may be a regex or a string (which the spec coerces to a regex).
-    // Mirrors ts_string_match's untyped wrapper.
+    // String.prototype.search — backs the compiler's typed `str.search(x)` fast
+    // path. Returns a BOXED value (not a raw index): ES 22.1.3.20 step 2 runs
+    // GetMethod(searchValue, @@search) and, if present, returns that method's
+    // result VERBATIM (cstm-search-invocation's @@search returns an object) —
+    // coercing it to a numeric index would lose it. Only the non-dispatch path
+    // yields the numeric match index (boxed).
     void* ts_string_search(void* str, void* arg) {
-        int64_t idx = ts_string_search_regexp(str, arg);
+        {
+            TsValue* out = nullptr;
+            if (ts_string_symbol_dispatch("[Symbol.search]", (TsValue*)arg,
+                                          ts_ensure_flat(str), nullptr, false, &out))
+                return out;
+        }
+        TsString* s = ts_ensure_flat(str);
+        int64_t idx = s ? s->Search(coerceArgToRegExp(arg)) : -1;
         return ts_value_make_int(idx);
     }
 
@@ -2456,8 +2506,13 @@ extern "C" {
                     return flatStr->Replace(flatPattern, flatRepl);
                 }
             }
-            // Try extracting as string directly
-            void* strPattern = ts_value_get_string((TsValue*)pattern);
+            // ES 22.1.3.19 step 7: searchString = ? ToString(searchValue).
+            // Hook-invoking ToString (ToPrimitive string-hint: toString first,
+            // valueOf untouched) so an Object searchValue whose @@replace was
+            // absent/null coerces via its user toString (cstm-replace-is-null)
+            // instead of ts_value_get_string, which would invoke valueOf.
+            extern void* ts_to_string_spec(TsValue* val);
+            void* strPattern = ts_to_string_spec((TsValue*)pattern);
             if (strPattern) {
                 TsString* flatPattern = ts_ensure_flat(strPattern);
                 if (replIsCallback) {

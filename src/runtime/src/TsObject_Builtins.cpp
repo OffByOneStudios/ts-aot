@@ -285,29 +285,15 @@ extern "C" {
         // array of the whole string. Also covers `argc == 0`. Everything else
         // (RegExp, string, or a primitive to be ToString'd) is delegated to
         // ts_string_split, which is the single robust separator-coercion site
-        // (it also backs the compiler's typed `str.split(x)` fast path).
+        // (it also backs the compiler's typed `str.split(x)` fast path) and
+        // now applies the optional `limit` (ToUint32 truncation, step 6) itself.
+        void* limitArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* resultArr;
         if (argc < 1 || !argv || !argv[0] ||
             ts_value_is_undefined((TsValue*)argv[0])) {
-            resultArr = ts_string_split(str, nullptr);
+            resultArr = ts_string_split(str, nullptr, limitArg);
         } else {
-            resultArr = ts_string_split(str, (void*)argv[0]);
-        }
-        // ECMA-262 22.1.3.23: the optional `limit` truncates the result to at
-        // most `limit` elements (`'a-b-c'.split('-', 2)` === ['a','b']). The
-        // limit was previously ignored; lodash `_.split(str, sep, limit)`
-        // forwards it to String.prototype.split.
-        if (argc >= 2 && argv[1] && !ts_value_is_undefined((TsValue*)argv[1]) && resultArr) {
-            // ECMA-262 22.1.3.23 step 6: limit goes through ToUint32, whose
-            // ToNumber step THROWS a TypeError on a Symbol (BigInt->Number throws
-            // too). Coerce via ts_to_number first so a non-coercible limit throws;
-            // ToUint32(NaN/Infinity) == 0 (limit 0 -> empty array).
-            double limD = ts_to_number((TsValue*)argv[1]);
-            int64_t limit = (limD != limD || std::isinf(limD)) ? 0 : (int64_t)limD;
-            if (limit >= 0) {
-                TsArray* arr = (TsArray*)resultArr;
-                if (arr->Length() > limit) arr->SetLength((size_t)limit);
-            }
+            resultArr = ts_string_split(str, (void*)argv[0], limitArg);
         }
         return ts_value_make_object(resultArr);
     }
@@ -614,14 +600,14 @@ extern "C" {
             }
         }
 
-        // Pattern is a string. ECMA-262 22.1.3.18: a non-RegExp searchValue is
-        // ToString'd, so "xfalse".replace(false, ..) searches "false" -- coerce a
-        // primitive via ts_string_from_value instead of leaving the raw nanbox.
-        void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern && argv[0]) {
-            extern void* ts_string_from_value(TsValue* val);
-            pattern = ts_string_from_value((TsValue*)argv[0]);
-        }
+        // Pattern is a string. ECMA-262 22.1.3.19 step 7: searchString =
+        // ? ToString(searchValue). Use the hook-invoking spec ToString so an
+        // Object searchValue (whose @@replace was absent/null) runs its user
+        // toString (cstm-replace-is-null) via ToPrimitive(string) — toString
+        // first, valueOf untouched — and a primitive (number/bigint/boolean)
+        // coerces to its digits/"true"/"false" rather than leaving a raw nanbox.
+        extern void* ts_to_string_spec(TsValue* val);
+        void* pattern = argv[0] ? ts_to_string_spec((TsValue*)argv[0]) : nullptr;
 
         if (replIsCallback) {
             TsString* strPattern = (TsString*)pattern;
@@ -771,7 +757,12 @@ extern "C" {
         // shared ts_string_match_regexp choke point, so both this prototype
         // wrapper and the compiler's typed `str.match(x)` fast path get it.
         void* result = ts_string_match_regexp(str, regexp);
-        return result ? ts_value_make_object(result) : (TsValue*)ts_value_make_null();
+        if (!result) return (TsValue*)ts_value_make_null();
+        // ts_string_match_regexp now returns a BOXED null on no-match (not raw
+        // nullptr); don't re-box that as an object. A real match array is a raw
+        // object pointer that still needs boxing.
+        if (ts_value_is_null((TsValue*)result)) return (TsValue*)result;
+        return ts_value_make_object(result);
     }
     TsValue* ts_string_search_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
