@@ -285,29 +285,15 @@ extern "C" {
         // array of the whole string. Also covers `argc == 0`. Everything else
         // (RegExp, string, or a primitive to be ToString'd) is delegated to
         // ts_string_split, which is the single robust separator-coercion site
-        // (it also backs the compiler's typed `str.split(x)` fast path).
+        // (it also backs the compiler's typed `str.split(x)` fast path) and
+        // now applies the optional `limit` (ToUint32 truncation, step 6) itself.
+        void* limitArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* resultArr;
         if (argc < 1 || !argv || !argv[0] ||
             ts_value_is_undefined((TsValue*)argv[0])) {
-            resultArr = ts_string_split(str, nullptr);
+            resultArr = ts_string_split(str, nullptr, limitArg);
         } else {
-            resultArr = ts_string_split(str, (void*)argv[0]);
-        }
-        // ECMA-262 22.1.3.23: the optional `limit` truncates the result to at
-        // most `limit` elements (`'a-b-c'.split('-', 2)` === ['a','b']). The
-        // limit was previously ignored; lodash `_.split(str, sep, limit)`
-        // forwards it to String.prototype.split.
-        if (argc >= 2 && argv[1] && !ts_value_is_undefined((TsValue*)argv[1]) && resultArr) {
-            // ECMA-262 22.1.3.23 step 6: limit goes through ToUint32, whose
-            // ToNumber step THROWS a TypeError on a Symbol (BigInt->Number throws
-            // too). Coerce via ts_to_number first so a non-coercible limit throws;
-            // ToUint32(NaN/Infinity) == 0 (limit 0 -> empty array).
-            double limD = ts_to_number((TsValue*)argv[1]);
-            int64_t limit = (limD != limD || std::isinf(limD)) ? 0 : (int64_t)limD;
-            if (limit >= 0) {
-                TsArray* arr = (TsArray*)resultArr;
-                if (arr->Length() > limit) arr->SetLength((size_t)limit);
-            }
+            resultArr = ts_string_split(str, (void*)argv[0], limitArg);
         }
         return ts_value_make_object(resultArr);
     }
@@ -614,14 +600,14 @@ extern "C" {
             }
         }
 
-        // Pattern is a string. ECMA-262 22.1.3.18: a non-RegExp searchValue is
-        // ToString'd, so "xfalse".replace(false, ..) searches "false" -- coerce a
-        // primitive via ts_string_from_value instead of leaving the raw nanbox.
-        void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern && argv[0]) {
-            extern void* ts_string_from_value(TsValue* val);
-            pattern = ts_string_from_value((TsValue*)argv[0]);
-        }
+        // Pattern is a string. ECMA-262 22.1.3.19 step 7: searchString =
+        // ? ToString(searchValue). Use the hook-invoking spec ToString so an
+        // Object searchValue (whose @@replace was absent/null) runs its user
+        // toString (cstm-replace-is-null) via ToPrimitive(string) — toString
+        // first, valueOf untouched — and a primitive (number/bigint/boolean)
+        // coerces to its digits/"true"/"false" rather than leaving a raw nanbox.
+        extern void* ts_to_string_spec(TsValue* val);
+        void* pattern = argv[0] ? ts_to_string_spec((TsValue*)argv[0]) : nullptr;
 
         if (replIsCallback) {
             TsString* strPattern = (TsString*)pattern;
@@ -771,7 +757,12 @@ extern "C" {
         // shared ts_string_match_regexp choke point, so both this prototype
         // wrapper and the compiler's typed `str.match(x)` fast path get it.
         void* result = ts_string_match_regexp(str, regexp);
-        return result ? ts_value_make_object(result) : (TsValue*)ts_value_make_null();
+        if (!result) return (TsValue*)ts_value_make_null();
+        // ts_string_match_regexp now returns a BOXED null on no-match (not raw
+        // nullptr); don't re-box that as an object. A real match array is a raw
+        // object pointer that still needs boxing.
+        if (ts_value_is_null((TsValue*)result)) return (TsValue*)result;
+        return ts_value_make_object(result);
     }
     TsValue* ts_string_search_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
@@ -3846,6 +3837,11 @@ extern "C" {
     }
     // RegExp.prototype.compile (Annex B B.2.3.1): recompile `this` in place from
     // a new pattern/flags, then return `this`.
+    // RegExpInitialize validators exposed from TsRegExp.cpp (POD-frame, no throw).
+    extern "C" bool ts_regexp_flags_valid(const char* flags);
+    extern "C" bool ts_regexp_pattern_valid(const char* pattern,
+        const char* flags, char* msgBuf, size_t msgLen);
+    extern "C" void ts_regexp_require_lastindex_writable_c(void* re);
     extern "C" TsValue* ts_regexp_compile_native(void* ctx, int argc, TsValue** argv) {
         // B.2.5.1 step 2: `this` must be an Object with a [[RegExpMatcher]]
         // slot — anything else (undefined/null/number/plain object) is a
@@ -3861,29 +3857,71 @@ extern "C" {
         }
         TsRegExp* re = (TsRegExp*)raw;
         extern void* ts_string_from_value(TsValue* val);
-        // POD frame (SMELL-002): the receiver throw above and the Symbol
-        // coercion throws below longjmp; std::string locals here were in
-        // the unconstructed-at-throw crash class. TsString* is POD-safe.
+        extern TsValue* ts_to_primitive(TsValue* val, int hint);
+        // Hook-invoking ToString: ToPrimitive(string hint) runs a user toString/
+        // valueOf (propagating a thrown error) then stringify — ts_string_from_value
+        // alone returns "[object Object]" for ordinary objects and never calls the
+        // hook. Symbols throw TypeError in the stringify step (test262
+        // pattern/flags-to-string-err). POD frame (SMELL-002): only TsString*/bool
+        // locals, so the longjmp on throw unwinds cleanly.
+        auto toStr = [&](TsValue* v) -> TsString* {
+            return (TsString*)ts_string_from_value(ts_to_primitive(v, /*string*/2));
+        };
         TsString* patS = nullptr;
         TsString* flS = nullptr;
         bool flagsGiven = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]));
         if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
             void* praw = ts_value_get_object(argv[0]);
             if (!praw) praw = (void*)argv[0];
-            // A RegExp source argument: reuse its source (and flags if none given).
+            // B.2.5.1 step 3: pattern is a RegExp instance — reuse its
+            // [[OriginalSource]] and [[OriginalFlags]]. If flags is also
+            // provided, that is a TypeError (step 3.a).
             if (praw && (uintptr_t)praw > 0x1000 && *(uint32_t*)praw == 0x52454758 /* REGX */) {
+                if (flagsGiven) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "RegExp.prototype.compile: flags must not be provided "
+                        "when the pattern is a RegExp"));
+                    return (TsValue*)ts_value_make_undefined();
+                }
                 TsRegExp* src = (TsRegExp*)praw;
                 patS = src->GetSource();
+                flS = src->GetFlags();
             } else {
-                patS = (TsString*)ts_string_from_value((TsValue*)argv[0]);
+                // RegExpInitialize step 1: P = ToString(pattern); then (step 2)
+                // F = ToString(flags). ToString ordering is observable.
+                patS = toStr((TsValue*)argv[0]);
+                if (flagsGiven) {
+                    flS = toStr((TsValue*)argv[1]);
+                }
             }
-        }
-        if (flagsGiven) {
-            flS = (TsString*)ts_string_from_value((TsValue*)argv[1]);
+        } else if (flagsGiven) {
+            // pattern is undefined (empty source) but flags provided.
+            flS = toStr((TsValue*)argv[1]);
         }
         const char* patC = (patS && patS->ToUtf8()) ? patS->ToUtf8() : "";
         const char* flC = (flS && flS->ToUtf8()) ? flS->ToUtf8() : "";
+        // RegExpInitialize (22.2.3.4) validates flags then the pattern BEFORE
+        // mutating the receiver. An invalid flag set / pattern throws a
+        // SyntaxError and leaves `this` unchanged (test262 flags-string-invalid,
+        // pattern-string-invalid).
+        if (!ts_regexp_flags_valid(flC)) {
+            ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+                "Invalid flags supplied to RegExp.prototype.compile"));
+            return (TsValue*)ts_value_make_undefined();
+        }
+        {
+            char msg[256];
+            if (!ts_regexp_pattern_valid(patC, flC, msg, sizeof(msg))) {
+                ts_throw((TsValue*)ts_error_create_typed("SyntaxError", msg));
+                return (TsValue*)ts_value_make_undefined();
+            }
+        }
         re->Recompile(patC, flC);
+        // RegExpInitialize step 12: Set(obj,"lastIndex",0,true). The source/flags
+        // are already updated (steps 8-11); the final lastIndex set throws a
+        // TypeError when a defineProperty made lastIndex non-writable, leaving the
+        // stored lastIndex value intact (test262 pattern-regexp-immutable-lastindex).
+        ts_regexp_require_lastindex_writable_c(re);
         return (TsValue*)ts_value_make_object(re);
     }
 

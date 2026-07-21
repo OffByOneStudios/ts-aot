@@ -1305,6 +1305,24 @@ static bool validateRegExpPatternRuntime(const char* pattern, const char* flags,
 }
 
 extern "C" {
+    // POD-frame validation wrappers exposed for RegExp.prototype.compile
+    // (implemented in TsObject_Builtins.cpp). Mirror the RegExp-constructor
+    // validation (ECMA-262 22.2.3.4 RegExpInitialize) without touching any
+    // std-container frame, so the caller can ts_throw the SyntaxError cleanly.
+    bool ts_regexp_flags_valid(const char* flags) {
+        return validateRegExpFlags(flags);
+    }
+    bool ts_regexp_pattern_valid(const char* pattern, const char* flags,
+                                 char* msgBuf, size_t msgLen) {
+        return validateRegExpPatternRuntime(pattern, flags, msgBuf, msgLen);
+    }
+    // RegExpInitialize step 12: Set(obj,"lastIndex",0,true) — throws TypeError
+    // when a defineProperty made lastIndex non-writable. Exposed so compile can
+    // enforce it after the source/flags update (POD frame; ts_throw longjmps).
+    void ts_regexp_require_lastindex_writable_c(void* re) {
+        regexp_require_lastindex_writable(re);
+    }
+
     // Returns the raw TsRegExp* if `pattern` unboxes to a RegExp instance
     // (REGX magic), else nullptr. POD-only, never throws.
     static TsRegExp* regexp_instance_or_null(void* pattern) {

@@ -1679,11 +1679,7 @@ static TsValue* make_iter_helper(int kind, TsValue* src, TsValue* fn, double n) 
     TsValue cv; cv.type = ValueType::NUMBER_DBL; cv.d_val = 0; ih_set(it, "__ihc", cv);
     return ts_value_make_object(it);
 }
-static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
-    if (!ctx) ctx = ts_get_call_this();
-    void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
-    TsMap* it = (TsMap*)raw;
-    if (ih_get(it, "__ihdone").i_val) return ih_make_result(nullptr, true);
+static TsValue* iter_helper_proto_next_impl(TsMap* it) {
     int kind = (int)ih_get(it, "__ihk").i_val;
     TsValue srcT = ih_get(it, "__ihs"); TsValue* src = nanbox_from_tagged(srcT);
     TsValue* srcNext = nanbox_from_tagged(ih_get(it, "__ihnext"));  // cached once at creation
@@ -1803,6 +1799,46 @@ static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
         return ih_make_result(ih_res_value(res), false);
     }
     setDone(); return ih_make_result(nullptr, true);
+}
+// %IteratorHelperPrototype%.next (ES 27.1.4.3.1): GeneratorResume(this,undefined,
+// "Iterator Helper") -> GeneratorValidate (ES 27.5.3.2): if the helper generator
+// state is "executing", throw a TypeError (throws-when-generator-is-running); if
+// "completed", return {value:undefined,done:true}. We model the executing state
+// with __ihrunning and guarantee it is cleared (and the helper marked completed)
+// on ANY abrupt exit, so a later next() after a throw returns done rather than a
+// spurious running-TypeError.
+static TsValue* iter_helper_proto_next(void* ctx, int argc, TsValue** argv) {
+    (void)argc; (void)argv;
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+    TsMap* it = (TsMap*)raw;
+    // state == executing -> TypeError (checked before "completed" because map/
+    // filter/flatMap set __ihdone transiently while the user callback runs, and a
+    // re-entrant next() during that window must throw, not report exhaustion).
+    if (ih_get(it, "__ihrunning").i_val) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator Helper is already running"));
+        return ih_make_result(nullptr, true);
+    }
+    if (ih_get(it, "__ihdone").i_val) return ih_make_result(nullptr, true);
+    { TsValue r; r.type = ValueType::BOOLEAN; r.i_val = 1; ih_set(it, "__ihrunning", r); }
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) != 0) {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        { TsValue d; d.type = ValueType::BOOLEAN; d.i_val = 1; ih_set(it, "__ihdone", d); }
+        { TsValue z; z.type = ValueType::BOOLEAN; z.i_val = 0; ih_set(it, "__ihrunning", z); }
+        ts_throw(exc ? exc : ts_value_make_undefined());
+        return ih_make_result(nullptr, true);  // unreachable
+    }
+#ifdef _WIN64
+    ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+    TsValue* r = iter_helper_proto_next_impl(it);
+    ts_pop_exception_handler();
+    { TsValue z; z.type = ValueType::BOOLEAN; z.i_val = 0; ih_set(it, "__ihrunning", z); }
+    return r;
 }
 // ============================================================================
 // %WrapForValidIteratorPrototype% (ES 27.1.3.1.1) — the [[Prototype]] of the
@@ -2101,6 +2137,91 @@ static TsValue* iter_flatMap_native(void* ctx, int argc, TsValue** argv) {
 // etc.) must NOT have their own @@iterator (tests assert hasOwnProperty is false
 // and that the chain reaches %IteratorPrototype%). GC-rooted/immortal-tenured.
 static TsMap* g_iterator_prototype = nullptr;
+// ES 27.1.4.x: %Iterator.prototype% "constructor" and @@toStringTag are ACCESSOR
+// properties. Their setters share SetterThatIgnoresPrototypeProperties (spec
+// helper): reject a non-object receiver; reject the home object (%Iterator.prototype%)
+// itself with a TypeError (emulating assignment to a non-writable data property in
+// strict mode); otherwise define/overwrite an OWN property on the receiver. Defining
+// an own property (rather than an ordinary [[Set]]) is what keeps the inherited
+// accessor from re-entering when the receiver has no own property (weird-setter.js).
+extern "C" void ts_iterproto_setter_ignoring(const char* propKey, void* thisCtx,
+                                             int argc, TsValue** argv) {
+    TsValue* thisV = (TsValue*)(thisCtx ? thisCtx : ts_value_make_undefined());
+    if (!ts_value_is_object(thisV)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Iterator.prototype accessor set on a non-object receiver"));
+        return;
+    }
+    void* raw = ts_value_get_object(thisV); if (!raw) raw = thisV;
+    if (raw == (void*)getIteratorPrototype()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot set property on %Iterator.prototype%"));
+        return;
+    }
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    // CreateDataProperty / Set -> define an own {value, writable, enumerable,
+    // configurable} data property directly on the receiver (bypasses the
+    // inherited accessor setter).
+    TsMap* desc = TsMap::Create();
+    auto skey = [](const char* s) { TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned(s); return k; };
+    TsValue btrue; btrue.type = ValueType::BOOLEAN; btrue.i_val = 1;
+    desc->Set(skey("value"), nanbox_to_tagged(v));
+    desc->Set(skey("writable"), btrue);
+    desc->Set(skey("enumerable"), btrue);
+    desc->Set(skey("configurable"), btrue);
+    TsValue* key = ts_value_make_string(TsString::GetInterned(propKey));
+    ts_object_defineProperty(thisV, key, ts_value_make_object(desc));
+}
+// get @@toStringTag() -> "Iterator" (ignores the receiver, ES 27.1.4.2).
+static TsValue* iterproto_toStringTag_getter(void* ctx, int argc, TsValue** argv) {
+    return ts_value_make_string(TsString::Create("Iterator"));
+}
+static TsValue* iterproto_toStringTag_setter(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    ts_iterproto_setter_ignoring("[Symbol.toStringTag]", ctx, argc, argv);
+    return ts_value_make_undefined();
+}
+// Install a get/set accessor pair on `map` under `propKey`, following the
+// __getter_/__setter_ hidden-slot convention that getOwnPropertyDescriptor
+// reports as an accessor { get, set, enumerable:false, configurable:true }.
+static void iterproto_install_accessor(TsMap* map, const char* propKey,
+                                       const char* getName, void* getFn,
+                                       const char* setName, void* setFn) {
+    auto mkfn = [](void* nativeFn, const char* fname, int arity) -> TsValue* {
+        TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+        TsFunction* func = (TsFunction*)fn;
+        func->name = TsString::Create(fname);
+        func->arity = arity;
+        func->is_constructor = false;
+        if (!func->properties) func->properties = TsMap::Create();
+        TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+        func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR; lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+        func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+        return fn;
+    };
+    TsValue gv; gv.type = ValueType::FUNCTION_PTR; gv.ptr_val = mkfn(getFn, getName, 0);
+    TsValue sv; sv.type = ValueType::FUNCTION_PTR; sv.ptr_val = mkfn(setFn, setName, 1);
+    std::string gkey = std::string("__getter_") + propKey;
+    std::string skey = std::string("__setter_") + propKey;
+    TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(gkey.c_str());
+    map->SetWithAttrs(gk, gv, 0);
+    TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(skey.c_str());
+    map->SetWithAttrs(sk, sv, 0);
+    // Outward-facing placeholder: enumerable:false, configurable:true.
+    TsValue pk; pk.type = ValueType::STRING_PTR; pk.ptr_val = TsString::GetInterned(propKey);
+    TsValue pv; pv.type = ValueType::UNDEFINED;
+    map->SetWithAttrs(pk, pv, TsHashTable::ATTR_CONFIGURABLE);
+}
+// Exported so TsGlobals.cpp can install the %Iterator.prototype%.constructor
+// accessor (its getter must return the wrapped %Iterator% function object).
+extern "C" void ts_install_iterproto_accessor(void* mapRaw, const char* propKey,
+        const char* getName, void* getFn, const char* setName, void* setFn) {
+    if (!mapRaw) return;
+    iterproto_install_accessor((TsMap*)mapRaw, propKey, getName, getFn, setName, setFn);
+}
 TsMap* getIteratorPrototype() {
     if (!g_iterator_prototype) {
         ts_gc_push_tenure();
@@ -2118,17 +2239,14 @@ TsMap* getIteratorPrototype() {
         ts_map_addMethod_local(proto, "take",    (void*)iter_take_native, 1);
         ts_map_addMethod_local(proto, "drop",    (void*)iter_drop_native, 1);
         ts_map_addMethod_local(proto, "flatMap", (void*)iter_flatMap_native, 1);
-        // ES2025 27.1.4.2: %IteratorPrototype%[@@toStringTag] = "Iterator"
-        // { writable:false, enumerable:false, configurable:true }. Every built-in
-        // iterator inherits it, so after a per-kind proto tag is deleted,
-        // Object.prototype.toString falls back to "[object Iterator]".
-        {
-            TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
-            tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
-            TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
-            tagVal.ptr_val = TsString::Create("Iterator");
-            proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
-        }
+        // ES 27.1.4.2: %Iterator.prototype%[@@toStringTag] is an ACCESSOR whose
+        // get returns "Iterator" and whose set is SetterThatIgnoresPrototypeProperties
+        // ({ enumerable:false, configurable:true }). Object.prototype.toString runs
+        // the getter (via ts_object_get_dynamic), so every inheriting iterator still
+        // reports "[object Iterator]" when it has no nearer @@toStringTag.
+        iterproto_install_accessor(proto, "[Symbol.toStringTag]",
+            "get [Symbol.toStringTag]", (void*)iterproto_toStringTag_getter,
+            "set [Symbol.toStringTag]", (void*)iterproto_toStringTag_setter);
         g_iterator_prototype = proto;
         ts_gc_pop_tenure();
         ts_gc_register_root((void**)&g_iterator_prototype);

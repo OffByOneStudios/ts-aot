@@ -118,7 +118,7 @@ extern "C" {
     void* ts_string_fromCodePoint(void* codePointsArray);
     void* ts_string_raw(void* templateObj, void* substitutionsArray);
     void* ts_string_at(void* str, int64_t index);
-    void* ts_string_split(void* str, void* separator);
+    void* ts_string_split(void* str, void* separator, void* limit);
     void* ts_string_split_regexp(void* str, void* regexp);
     void* ts_string_trim(void* str);
     void* ts_string_trimStart(void* str);

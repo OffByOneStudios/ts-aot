@@ -819,6 +819,8 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
     gk.ptr_val = TsString::GetInterned((std::string("__getter_") + key).c_str());
     TsValue sk; sk.type = ValueType::STRING_PTR;
     sk.ptr_val = TsString::GetInterned((std::string("__setter_") + key).c_str());
+    TsValue dk; dk.type = ValueType::STRING_PTR;
+    dk.ptr_val = TsString::GetInterned(key);
     TsMap* pm = start;
     int guard = 0;
     while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
@@ -833,6 +835,16 @@ static bool dispatch_map_chain_getter(TsMap* start, const char* key,
             *out = ts_value_make_undefined();
             return true;
         }
+        // ES OrdinaryGet: a DATA property at THIS level shadows any accessor
+        // getter on a FARTHER prototype — the first own property found wins.
+        // Bail (no getter) so the caller's data-lookup fallback resolves it.
+        // Without this, an inherited accessor (e.g. %Iterator.prototype%
+        // [@@toStringTag]) wrongly overrode a nearer data property (e.g.
+        // %ArrayIteratorPrototype%'s "Array Iterator" tag). This mirrors the
+        // interleaved getter-then-data order already used by resolve_map_chain_get.
+        // Note: an accessor's own outward placeholder is served by the getter
+        // check above, so this only fires for genuine data properties.
+        if (pm->Has(dk)) return false;
         pm = pm->GetPrototype();
         if (pm && *(uint32_t*)pm == 0x41525259 /*ARRY proto: stop*/) pm = nullptr;
     }

@@ -290,8 +290,11 @@ void BuiltinRegistry::registerStringMethods() {
     methodTable_[{HIRTypeKind::String, "matchAll"}] =
         MethodResolution::makeRuntimeCall("ts_string_matchAll_regexp", 1);
 
+    // search returns whatever @@search yields (an index in the common case, but
+    // an arbitrary value when a user @@search is present), so the result is
+    // boxed/`any` rather than a raw int — mirrors match's ptr-returning path.
     methodTable_[{HIRTypeKind::String, "search"}] =
-        MethodResolution::makeRuntimeCall("ts_string_search", 1, intType);
+        MethodResolution::makeRuntimeCall("ts_string_search", 1);
 }
 
 void BuiltinRegistry::registerStringStaticMethods() {
