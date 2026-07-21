@@ -448,14 +448,17 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
 
             result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
         }
-        // Zero-arg push returns the CURRENT length (S15.4.4.7 `x.push()`),
-        // not an unset/garbage result.
-        if (inst->result && !result) {
-            llvm::FunctionType* lft = llvm::FunctionType::get(
+        // Zero-arg push still performs Set(O,"length",len,true) (ES 23.1.3.23
+        // step 6), which throws a TypeError on a frozen / non-writable-length
+        // array. When no value operands were emitted (result==null), call
+        // ts_array_push_zero to run that guard and return the (unchanged)
+        // length — so `x.push()` is not silently elided on such receivers.
+        if (!result) {
+            llvm::FunctionType* zft = llvm::FunctionType::get(
                 builder_->getInt64Ty(), { getGCPtrTy() }, false);
-            llvm::FunctionCallee lfn =
-                module_->getOrInsertFunction("ts_array_length", lft);
-            result = builder_->CreateCall(lft, lfn.getCallee(), { obj });
+            llvm::FunctionCallee zfn =
+                module_->getOrInsertFunction("ts_array_push_zero", zft);
+            result = builder_->CreateCall(zft, zfn.getCallee(), { obj });
         }
         if (inst->result && result) {
             setValue(inst->result, result);
@@ -501,14 +504,17 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             }
             result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
         }
-        // Zero-arg unshift returns the CURRENT length (S15.4.4.13
-        // `x.unshift()`), not an unset result.
-        if (inst->result && !result) {
-            llvm::FunctionType* lft = llvm::FunctionType::get(
+        // Zero-arg unshift still performs Set(O,"length",len,true) (ES
+        // 23.1.3.35 step 4.f), which throws a TypeError on a frozen /
+        // non-writable-length array. When no value operands were emitted
+        // (result==null), call ts_array_unshift_zero to run that guard and
+        // return the (unchanged) length.
+        if (!result) {
+            llvm::FunctionType* zft = llvm::FunctionType::get(
                 builder_->getInt64Ty(), { getGCPtrTy() }, false);
-            llvm::FunctionCallee lfn =
-                module_->getOrInsertFunction("ts_array_length", lft);
-            result = builder_->CreateCall(lft, lfn.getCallee(), { obj });
+            llvm::FunctionCallee zfn =
+                module_->getOrInsertFunction("ts_array_unshift_zero", zft);
+            result = builder_->CreateCall(zft, zfn.getCallee(), { obj });
         }
         if (inst->result && result) {
             setValue(inst->result, result);

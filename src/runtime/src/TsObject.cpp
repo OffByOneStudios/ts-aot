@@ -8416,6 +8416,148 @@ void* ts_create_arguments_from_params(
         return ts_value_make_string((void*)s);
     }
 
+    // Proxy-observable property operations (route Proxy traps and ts_throw on
+    // abrupt completion) used by the JSON.parse reviver walk below.
+    TsValue* ts_reflect_get(void* target, void* prop, void* receiver);
+    int64_t  ts_reflect_deleteProperty(void* target, void* prop);
+    int64_t  ts_reflect_defineProperty(void* target, void* prop, void* descriptor);
+    TsValue* ts_reflect_ownKeys(void* target);
+    double   ts_to_number(TsValue* v);
+
+    // ECMA-262 7.3.5 CreateDataPropertyOrThrow with a fully-populated data
+    // descriptor, routed through [[DefineOwnProperty]] (ts_reflect_defineProperty)
+    // so a Proxy `defineProperty` trap fires (and its abrupt completion
+    // propagates) — reviver-{object,array}-define-prop-err rely on this. For an
+    // ordinary object/array this creates/overwrites an own enumerable data
+    // property, exactly as the spec requires.
+    static void json_reviver_create_data_property(TsValue* target, TsValue* key,
+                                                  TsValue* value) {
+        TsMap* descMap = TsMap::Create();
+        TsValue* descBoxed = ts_value_make_object(descMap);
+        ts_object_set_property((void*)descBoxed,
+            (void*)ts_value_make_string(TsString::Create("value")), (void*)value);
+        ts_object_set_property((void*)descBoxed,
+            (void*)ts_value_make_string(TsString::Create("writable")),
+            (void*)ts_value_make_bool(true));
+        ts_object_set_property((void*)descBoxed,
+            (void*)ts_value_make_string(TsString::Create("enumerable")),
+            (void*)ts_value_make_bool(true));
+        ts_object_set_property((void*)descBoxed,
+            (void*)ts_value_make_string(TsString::Create("configurable")),
+            (void*)ts_value_make_bool(true));
+        ts_reflect_defineProperty((void*)target, (void*)key, (void*)descBoxed);
+    }
+
+    // ECMA-262 25.5.1.1 InternalizeJSONProperty. `holder`, `name` (a String
+    // key) and `reviver` (a callable) are boxed values (nanbox pointers). Every
+    // property access uses the Proxy-observable Reflect ops so an abrupt
+    // completion from a user get/delete/defineProperty/ownKeys trap, from
+    // ToLength on a hostile `length`, or from the reviver call ITSELF propagates
+    // by ts_throw longjmp — this frame is POD-only (no non-POD C++ locals live
+    // across a throwing call), so the unwind is well-defined and the throw lands
+    // at the caller's JS try/catch. Returns the (possibly reviver-substituted)
+    // boxed value for `name`.
+    static TsValue* json_internalize_property(TsValue* holder, TsValue* name,
+                                              TsValue* reviver) {
+        // val = ? Get(holder, name)
+        TsValue* val = ts_reflect_get((void*)holder, (void*)name, (void*)holder);
+
+        uint64_t vnb = val ? nanbox_from_tsvalue_ptr(val) : 0;
+        if (val && nanbox_is_ptr(vnb)) {
+            void* raw = nanbox_to_ptr(vnb);
+            if (raw && (uintptr_t)raw > 0x1000) {
+                if (ts_array_is_array(raw)) {
+                    // len = ? ToLength(? Get(val, "length"))
+                    TsValue* lenKey = ts_value_make_string(TsString::Create("length"));
+                    TsValue* lenV = ts_reflect_get((void*)val, (void*)lenKey, (void*)val);
+                    double lenD = lenV ? ts_to_number(lenV) : 0.0;
+                    int64_t len = 0;
+                    if (lenD > 0.0) {
+                        len = (lenD > 9007199254740991.0) ? 9007199254740991LL
+                                                          : (int64_t)lenD;
+                    }
+                    for (int64_t i = 0; i < len; ++i) {
+                        char buf[24];
+                        snprintf(buf, sizeof(buf), "%lld", (long long)i);
+                        TsValue* pk = ts_value_make_string(TsString::Create(buf));
+                        TsValue* newElem =
+                            json_internalize_property(val, pk, reviver);
+                        uint64_t nenb = newElem ? nanbox_from_tsvalue_ptr(newElem) : 0;
+                        if (!newElem || nanbox_is_undefined(nenb)) {
+                            ts_reflect_deleteProperty((void*)val, (void*)pk);  // ? Delete
+                        } else {
+                            json_reviver_create_data_property(val, pk, newElem);
+                        }
+                    }
+                } else {
+                    // keys = ? EnumerableOwnPropertyNames(val, key). ownKeys is
+                    // Proxy-observable; iterate own string keys in order.
+                    TsValue* keysV = ts_reflect_ownKeys(raw);
+                    void* keysRaw = keysV ? ts_value_get_object(keysV) : nullptr;
+                    if (keysRaw && *(uint32_t*)keysRaw == 0x41525259 /* ARRY */) {
+                        TsArray* keys = (TsArray*)keysRaw;
+                        int64_t n = keys->Length();
+                        for (int64_t i = 0; i < n; ++i) {
+                            uint64_t knb = (uint64_t)keys->Get((size_t)i);
+                            if (!nanbox_is_ptr(knb)) continue;  // skip symbol keys
+                            void* kp = nanbox_to_ptr(knb);
+                            if (!kp || *(uint32_t*)kp != TsString::MAGIC) continue;
+                            TsValue* pk = ts_value_make_string((TsString*)kp);
+                            TsValue* newElem =
+                                json_internalize_property(val, pk, reviver);
+                            uint64_t nenb =
+                                newElem ? nanbox_from_tsvalue_ptr(newElem) : 0;
+                            if (!newElem || nanbox_is_undefined(nenb)) {
+                                ts_reflect_deleteProperty((void*)val, (void*)pk);
+                            } else {
+                                json_reviver_create_data_property(val, pk, newElem);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // return ? Call(reviver, holder, [name, val])
+        if (!val) val = ts_value_make_undefined();
+        return ts_call_with_this_2(reviver, holder, name, val);
+    }
+
+    void* ts_json_parse(void* json_str);  // TsJSON.cpp
+
+    // ECMA-262 25.5.1 JSON.parse ( text [ , reviver ] ) step 7: if `reviver` is
+    // callable, wrap the parsed value in a fresh holder { "": unfiltered } and
+    // recursively InternalizeJSONProperty with Proxy-observable ops. Otherwise
+    // return `parsed` unchanged (fast path — no behavior change). `parsed` is a
+    // boxed value (nanbox pointer); `reviverBoxed` is the reviver argument.
+    static TsValue* json_run_reviver(void* parsed, TsValue* reviverBoxed) {
+        if (parsed && reviverBoxed) {
+            uint64_t rnb = nanbox_from_tsvalue_ptr(reviverBoxed);
+            if (nanbox_is_ptr(rnb)) {
+                void* rfn = nanbox_to_ptr(rnb);
+                if (rfn && ts_is_closure(rfn)) {
+                    TsMap* rootMap = TsMap::Create();
+                    TsValue* rootBoxed = ts_value_make_object(rootMap);
+                    TsValue* emptyKey = ts_value_make_string(TsString::Create(""));
+                    // CreateDataPropertyOrThrow(root, "", unfiltered)
+                    ts_object_set_property((void*)rootBoxed, (void*)emptyKey, parsed);
+                    return json_internalize_property(rootBoxed, emptyKey, reviverBoxed);
+                }
+            }
+        }
+        return (TsValue*)parsed;
+    }
+
+    // Direct-lowered target for `JSON.parse(text, reviver)` (2+ args). The
+    // BuiltinResolutionPass routes the 2-arg call here (see resolveGlobalBuiltin);
+    // the 1-arg call still lowers to ts_json_parse. `text` and `reviver` are
+    // boxed values (nanbox pointers).
+    void* ts_json_parse_reviver(void* text, void* reviver) {
+        void* parsed = ts_json_parse(text);
+        if (!parsed) return nullptr;  // ts_json_parse already raised a SyntaxError
+        return (void*)json_run_reviver(parsed, (TsValue*)reviver);
+    }
+
     TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -8424,6 +8566,8 @@ void* ts_create_arguments_from_params(
 
         void* parsed = ts_json_parse((void*)s);
         if (!parsed) return ts_value_make_undefined();
+
+        if (argc >= 2 && argv[1]) return json_run_reviver(parsed, argv[1]);
         return (TsValue*)parsed;
     }
 
