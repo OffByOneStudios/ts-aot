@@ -1753,7 +1753,7 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
         // freshly-allocated `this`. POD frame only (ts_throw longjmps).
         if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL) {
             static const char* const kRequiresNew[] = {
-                "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy",
+                "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy", "Iterator",
                 "ArrayBuffer", "DataView", "WeakRef", "FinalizationRegistry",
                 "PlainTime", "Duration", "PlainDate", "PlainYearMonth",
                 "PlainMonthDay", "PlainDateTime", "Instant", "ZonedDateTime",
@@ -4558,27 +4558,50 @@ static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
 
 extern "C" void* getIteratorPrototypeBoxed();  // TsMap.cpp — %IteratorPrototype%
 extern "C" void* ts_iterator_from(void* arg);  // TsMap.cpp
+extern "C" void ts_iterproto_setter_ignoring(const char*, void*, int, TsValue**);  // TsMap.cpp
+void* ts_get_global_Iterator();  // forward decl (defined just below)
+// get %Iterator.prototype%.constructor -> %Iterator% (ES 27.1.4.1).
+static TsValue* iterproto_constructor_getter(void* ctx, int argc, TsValue** argv) {
+    return ts_value_make_object(ts_get_global_Iterator());
+}
+static TsValue* iterproto_constructor_setter(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    ts_iterproto_setter_ignoring("constructor", ctx, argc, argv);
+    return ts_value_make_undefined();
+}
 void* ts_get_global_Iterator() {
     TenureScope _tenure;
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = makeSimpleConstructorGlobal("Iterator");
-        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
-        addMethod(cached, "concat", (void*)iterator_concat_native, 0);
-        addMethod(cached, "from", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        TsMap* ctor = makeSimpleConstructorGlobal("Iterator");
+        addMethod(ctor, "concat", (void*)iterator_concat_native, 0);
+        addMethod(ctor, "from", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
               return (TsValue*)ts_iterator_from((argc>=1&&argv)?(void*)argv[0]:(void*)ts_value_make_undefined());
           }, 1);
+        // ECMA-262 27.1.3.1: the Iterator constructor is a real callable/constructor
+        // function object — `typeof Iterator === "function"`, own length 0 / name
+        // "Iterator", [[Prototype]] === Function.prototype (constructor.js, length.js,
+        // name.js, proto.js). Promote the TsMap to a TsFunction; plain-call
+        // `Iterator()` is rejected via kRequiresNew (an abstract constructor).
+        cached = wrapAsCallable(ctor, "Iterator", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // ECMA-262 27.1.3.3: Iterator.prototype IS %IteratorPrototype% (which now
         // carries the iterator-helper methods), not a fresh object. Overwrite the
-        // ctor's "prototype" slot and link %IteratorPrototype%.constructor = Iterator.
+        // ctor's "prototype" slot and link %IteratorPrototype%.constructor = Iterator
+        // (the wrapped function object is the identity user code observes).
         TsMap* iterProto = (TsMap*)ts_value_get_object((TsValue*)getIteratorPrototypeBoxed());
         if (iterProto) {
             TsValue pk; pk.type = ValueType::STRING_PTR; pk.ptr_val = TsString::GetInterned("prototype");
             TsValue pv; pv.type = ValueType::OBJECT_PTR; pv.ptr_val = iterProto;
-            cached->SetWithAttrs(pk, pv, 0);  // {writable:false,enumerable:false,configurable:false}
-            TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
-            TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = cached;
-            iterProto->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            ctor->SetWithAttrs(pk, pv, 0);  // {writable:false,enumerable:false,configurable:false}
+            // ES 27.1.4.1: %Iterator.prototype%.constructor is an ACCESSOR whose get
+            // returns %Iterator% and whose set is SetterThatIgnoresPrototypeProperties
+            // ({ enumerable:false, configurable:true }), not a data property.
+            extern void ts_install_iterproto_accessor(void*, const char*, const char*,
+                                                      void*, const char*, void*);
+            ts_install_iterproto_accessor((void*)iterProto, "constructor",
+                "get constructor", (void*)iterproto_constructor_getter,
+                "set constructor", (void*)iterproto_constructor_setter);
         }
     }
     return cached;
