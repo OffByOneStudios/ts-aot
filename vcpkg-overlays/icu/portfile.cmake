@@ -1,22 +1,45 @@
+string(REGEX MATCH "^[0-9]*" ICU_VERSION_MAJOR "${VERSION}")
+string(REPLACE "." "_" VERSION2 "${VERSION}")
+string(REPLACE "." "-" VERSION3 "${VERSION}")
+
+# ts-aot only links Release ICU (the compiler+runtime are built Release), and this
+# vcpkg's vcpkg-make does not forward its computed install prefix to ICU 77.1's
+# configure (ICU falls back to /usr/local and both configs would collide under
+# <packages>/usr/local). Build release-only and pass the prefix ourselves below.
+set(VCPKG_BUILD_TYPE release)
+# Release-only intentionally produces no debug binaries.
+set(VCPKG_POLICY_MISMATCHED_NUMBER_OF_BINARIES enabled)
+
+# msys-style path (E:/ -> /E/) of the install dir, used as the configure --prefix
+# so `make install DESTDIR=<packages>` lands under <packages><installed_dir>, which
+# vcpkg_make_install then relocates to the package root.
+set(_icu_msys_installed "${CURRENT_INSTALLED_DIR}")
+if(CMAKE_HOST_WIN32)
+    string(REGEX REPLACE "^([a-zA-Z]):/" "/\\1/" _icu_msys_installed "${_icu_msys_installed}")
+endif()
+
 vcpkg_download_distfile(
     ARCHIVE
-    URLS "https://github.com/unicode-org/icu/releases/download/release-${VERSION}/icu4c-${VERSION}-sources.tgz"
-    FILENAME "icu4c-${VERSION}-sources.tgz"
-    SHA512 04A49455E1489030C520A4BFD2664FA2171E7938D08F2ACDBBCB1FDA976639FD8B1F0704F2EEC89BA59A7B6D118CEAAB6EC5A096E40D9085A0895D91CE225245
+    URLS "https://github.com/unicode-org/icu/releases/download/release-${VERSION3}/icu4c-${VERSION2}-src.tgz"
+    FILENAME "icu4c-${VERSION2}-src.tgz"
+    SHA512 a47d6d9c327d037a05ea43d1d1a06b2fd757cc02a94f7c1a238f35cfc3dfd4ab78d0612790f3a3cca0292c77412a9c2c15c8f24b718f79a857e007e66f07e7cd
 )
 
 vcpkg_extract_source_archive(SOURCE_PATH
     ARCHIVE "${ARCHIVE}"
     PATCHES
-        disable-static-prefix.patch # https://gitlab.kitware.com/cmake/cmake/-/issues/16617; also mingw.
-        fix_bsd_and_solaris.patch
+        disable-escapestr-tool.patch
+        remove-MD-from-configure.patch
         fix_parallel_build_on_windows.patch
-        fix-python-path-with-spaces.patch
-        mh-darwin.patch
-        mh-mingw.patch
-        mh-msys-msvc.patch
-        subdirs.patch
+        fix-extra.patch
+        mingw-dll-install.patch
+        disable-static-prefix.patch # https://gitlab.kitware.com/cmake/cmake/-/issues/16617; also mingw.
+        fix-win-build.patch
         vcpkg-cross-data.patch
+        darwin-rpath.patch
+        # mingw-strict-ansi.diff dropped: it backports unicode-org/icu#3003 which is
+        # already merged in ICU 77.1, so the patch no longer applies to putil.cpp.
+        cleanup_msvc.patch
 )
 
 vcpkg_find_acquire_program(PYTHON3)
@@ -26,7 +49,7 @@ vcpkg_list(SET CONFIGURE_OPTIONS)
 vcpkg_list(SET BUILD_OPTIONS)
 
 if(VCPKG_TARGET_IS_EMSCRIPTEN)
-    vcpkg_list(APPEND CONFIGURE_OPTIONS --disable-extras icu_cv_host_frag=mh-linux)
+    vcpkg_list(APPEND CONFIGURE_OPTIONS --disable-extras)
     vcpkg_list(APPEND BUILD_OPTIONS "\"PKGDATA_OPTS=--without-assembly -O ../data/icupkg.inc\"")
 elseif(VCPKG_TARGET_IS_UWP)
     vcpkg_list(APPEND CONFIGURE_OPTIONS --disable-extras ac_cv_func_tzset=no ac_cv_func__tzset=no)
@@ -40,8 +63,16 @@ elseif(VCPKG_TARGET_IS_OSX AND VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
     endif()
 endif()
 
-if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
-    list(APPEND CONFIGURE_OPTIONS ac_cv_lib_m_floor=no)
+if(VCPKG_TARGET_IS_WINDOWS)
+    list(APPEND CONFIGURE_OPTIONS --enable-icu-build-win)
+    # ICU 75+ requires C++17 (nested-namespace-definition, auto in non-type template
+    # params in uversion.h/localpointer.h). The MSVC/cygwin build config (mh-msys-msvc)
+    # does not set a C++ standard and MSVC still defaults to C++14, so force it here.
+    # This threads through vcpkg-make as "-Xcompiler -std:c++17"; cl honours -std:c++17.
+    # vcpkg requires VCPKG_C_FLAGS and VCPKG_CXX_FLAGS to be set together, so also
+    # define C flags with a benign, C-valid option (-utf-8, already used by ICU).
+    string(APPEND VCPKG_C_FLAGS " -utf-8")
+    string(APPEND VCPKG_CXX_FLAGS " -utf-8 -std:c++17")
 endif()
 
 if("tools" IN_LIST FEATURES)
@@ -61,7 +92,7 @@ endif()
 
 vcpkg_make_configure(
     SOURCE_PATH "${SOURCE_PATH}/source"
-    # AUTORECONF # needs Autoconf version 2.72
+    AUTORECONF
     OPTIONS
         ${CONFIGURE_OPTIONS}
         --disable-samples
@@ -70,6 +101,15 @@ vcpkg_make_configure(
     OPTIONS_RELEASE
         --disable-debug
         --enable-release
+        # Passed here (not via vcpkg-make's default opts, which don't reach ICU's
+        # configure on this toolchain) so ICU installs to the vcpkg-expected layout.
+        "--prefix=${_icu_msys_installed}"
+        "--bindir=\\\${prefix}/tools/${PORT}/bin"
+        "--sbindir=\\\${prefix}/tools/${PORT}/sbin"
+        "--libdir=\\\${prefix}/lib"
+        "--mandir=\\\${prefix}/share/${PORT}"
+        "--docdir=\\\${prefix}/share/${PORT}"
+        "--datarootdir=\\\${prefix}/share/${PORT}"
     OPTIONS_DEBUG
         --enable-debug
         --disable-release
@@ -114,29 +154,26 @@ file(REMOVE_RECURSE
 file(GLOB CROSS_COMPILE_DEFS "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/config/icucross.*")
 file(INSTALL ${CROSS_COMPILE_DEFS} DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}/config")
 
-if(VCPKG_TARGET_IS_WINDOWS)
-    string(REGEX MATCH "^[0-9]*" ICU_VERSION_MAJOR "${VERSION}")
-    file(GLOB RELEASE_DLLS "${CURRENT_PACKAGES_DIR}/lib/*icu*${ICU_VERSION_MAJOR}.dll")
-    file(COPY ${RELEASE_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}/bin")
+file(GLOB RELEASE_DLLS "${CURRENT_PACKAGES_DIR}/lib/*icu*${ICU_VERSION_MAJOR}.dll")
+file(COPY ${RELEASE_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}/bin")
 
-    # copy dlls
-    file(GLOB RELEASE_DLLS "${CURRENT_PACKAGES_DIR}/lib/*icu*${ICU_VERSION_MAJOR}.dll")
-    file(COPY ${RELEASE_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/bin")
-    if(NOT VCPKG_BUILD_TYPE)
-        file(GLOB DEBUG_DLLS "${CURRENT_PACKAGES_DIR}/debug/lib/*icu*${ICU_VERSION_MAJOR}.dll")
-        file(COPY ${DEBUG_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/debug/bin")
-    endif()
-
-    # remove any remaining dlls in /lib
-    file(GLOB DUMMY_DLLS "${CURRENT_PACKAGES_DIR}/lib/*.dll" "${CURRENT_PACKAGES_DIR}/debug/lib/*.dll")
-    if(DUMMY_DLLS)
-        file(REMOVE ${DUMMY_DLLS})
-    endif()
-
-    vcpkg_copy_pdbs()
+# copy dlls
+file(GLOB RELEASE_DLLS "${CURRENT_PACKAGES_DIR}/lib/*icu*${ICU_VERSION_MAJOR}.dll")
+file(COPY ${RELEASE_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/bin")
+if(NOT VCPKG_BUILD_TYPE)
+    file(GLOB DEBUG_DLLS "${CURRENT_PACKAGES_DIR}/debug/lib/*icu*${ICU_VERSION_MAJOR}.dll")
+    file(COPY ${DEBUG_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/debug/bin")
 endif()
 
+# remove any remaining dlls in /lib
+file(GLOB DUMMY_DLLS "${CURRENT_PACKAGES_DIR}/lib/*.dll" "${CURRENT_PACKAGES_DIR}/debug/lib/*.dll")
+if(DUMMY_DLLS)
+    file(REMOVE ${DUMMY_DLLS})
+endif()
+
+vcpkg_copy_pdbs()
 vcpkg_fixup_pkgconfig()
+
 set(cxx_link_libraries "")
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
     block(PROPAGATE cxx_link_libraries)
