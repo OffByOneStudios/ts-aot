@@ -2859,6 +2859,24 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
+    // `class C extends Temporal.PlainDate {}` (any of the 8 Temporal types):
+    // unlike Map/Set (empty-then-populate via super()), a Temporal instance is
+    // a fixed-layout branded struct that needs its constructor ARGS at creation
+    // time. So route a FIELDLESS Temporal subclass through the runtime
+    // [[Construct]] path (ts_new_from_constructor), where ts_temporal_construct
+    // _subclass builds a genuine BRANDED instance from the args and relinks its
+    // [[Prototype]] to C.prototype. Without this the flat-alloc + inline-ctor
+    // path below yields an unbranded object and every Temporal accessor throws
+    // "called on an object that is not a Temporal.X" (subclassing "ignored").
+    if (hirClass && hirClass->baseBuiltinName.rfind("Temporal.", 0) == 0 &&
+        (!hirClass->shape || hirClass->shape->propertyOffsets.empty())) {
+        auto constructorVal = lowerExpression(node->expression.get());
+        if (constructorVal) {
+            lastValue_ = builder_.createConstruct(constructorVal, args, HIRType::makeAny());
+            return;
+        }
+    }
+
     // Create new object with the correct type
     std::shared_ptr<HIRValue> newObj;
     // `class MySet extends Set {}` (and Map/WeakSet/WeakMap/Array): the

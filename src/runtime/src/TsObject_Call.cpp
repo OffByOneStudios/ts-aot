@@ -999,6 +999,89 @@ extern "C" {
                 return pinst;
         }
 
+        // A user class `extends Temporal.PlainDate` (or any of the 8 Temporal
+        // types): the direct-identity dispatch above only fires when the
+        // constructor IS the Temporal global itself, so a subclass falls to the
+        // generic path -> a plain TsMap with no Temporal magic (+16) / internal
+        // ISO slots. Every branded Temporal method then throws (subclassing is
+        // "ignored"). Mirror ts_promise_construct_subclass: walk C's
+        // [[Prototype]] chain for one of the Temporal ctor globals; on a match,
+        // build a genuine BRANDED instance via the type's *_construct, then
+        // relink its [[Prototype]] to C.prototype so instanceof / getPrototypeOf
+        // see the subclass. ES 2024 Temporal: OrdinaryCreateFromConstructor must
+        // yield an object carrying the base type's internal slots.
+        {
+            extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+            extern TsValue* ts_object_getPrototypeOf(TsValue* obj);
+            void* rawCtor = ts_value_get_object(constructorFn);
+            if (rawCtor) {
+                extern void* ts_temporal_get_plaintime_ctor();
+                extern TsValue* ts_temporal_plaintime_construct(int, TsValue**);
+                extern void* ts_temporal_get_duration_ctor();
+                extern TsValue* ts_temporal_duration_construct(int, TsValue**);
+                extern void* ts_temporal_get_plaindate_ctor();
+                extern TsValue* ts_temporal_plaindate_construct(int, TsValue**);
+                extern void* ts_temporal_get_plainyearmonth_ctor();
+                extern TsValue* ts_temporal_plainyearmonth_construct(int, TsValue**);
+                extern void* ts_temporal_get_plainmonthday_ctor();
+                extern TsValue* ts_temporal_plainmonthday_construct(int, TsValue**);
+                extern void* ts_temporal_get_plaindatetime_ctor();
+                extern TsValue* ts_temporal_plaindatetime_construct(int, TsValue**);
+                extern void* ts_temporal_get_instant_ctor();
+                extern TsValue* ts_temporal_instant_construct(int, TsValue**);
+                extern void* ts_temporal_get_zoneddatetime_ctor();
+                extern TsValue* ts_temporal_zoneddatetime_construct(int, TsValue**);
+                struct TemporalCtor { void* (*getter)(); TsValue* (*construct)(int, TsValue**); };
+                const TemporalCtor kTemporalCtors[] = {
+                    { ts_temporal_get_plaintime_ctor,      ts_temporal_plaintime_construct },
+                    { ts_temporal_get_duration_ctor,       ts_temporal_duration_construct },
+                    { ts_temporal_get_plaindate_ctor,      ts_temporal_plaindate_construct },
+                    { ts_temporal_get_plainyearmonth_ctor, ts_temporal_plainyearmonth_construct },
+                    { ts_temporal_get_plainmonthday_ctor,  ts_temporal_plainmonthday_construct },
+                    { ts_temporal_get_plaindatetime_ctor,  ts_temporal_plaindatetime_construct },
+                    { ts_temporal_get_instant_ctor,        ts_temporal_instant_construct },
+                    { ts_temporal_get_zoneddatetime_ctor,  ts_temporal_zoneddatetime_construct },
+                };
+                TsValue* (*chosen)(int, TsValue**) = nullptr;
+                // Walk C's [[Prototype]] chain (C.__proto__ === Temporal.X for a
+                // `class C extends Temporal.X`, set by ts_class_link_builtin_base).
+                TsValue* cur = ts_object_getPrototypeOf(constructorFn);
+                for (int hops = 0; hops < 64 && cur && !chosen &&
+                     !ts_value_is_undefined(cur) && !ts_value_is_null(cur); hops++) {
+                    void* curRaw = ts_value_get_object(cur);
+                    if (curRaw && curRaw != rawCtor) {  // skip C itself (direct new handled above)
+                        for (const auto& e : kTemporalCtors) {
+                            void* g = e.getter(); if (!g) continue;
+                            void* gRaw = ts_value_get_object((TsValue*)g);
+                            if (!gRaw) gRaw = g;
+                            if (curRaw == g || curRaw == gRaw) { chosen = e.construct; break; }
+                        }
+                    }
+                    cur = ts_object_getPrototypeOf(cur);
+                }
+                if (chosen) {
+                    TsValue* inst = chosen(argc, argv);
+                    void* instRaw = inst ? ts_value_get_object(inst) : nullptr;
+                    if (inst && instRaw) {
+                        // Relink instance -> C.prototype (the subclass prototype
+                        // whose own [[Prototype]] is Temporal.X.prototype, so the
+                        // branded methods remain reachable up the chain).
+                        TsValue* protoVal = ts_object_get_dynamic(constructorFn,
+                            ts_value_make_string(TsString::Create("prototype")));
+                        if (protoVal && !ts_value_is_undefined(protoVal) &&
+                            !ts_value_is_null(protoVal))
+                            ts_native_object_set_proto(instRaw, protoVal);
+                        // Run C's own constructor body for its side effects (field
+                        // inits etc.); super() to a Temporal base is a no-op in our
+                        // lowering, so this does not re-brand.
+                        if (ts_is_callable((void*)constructorFn))
+                            ts_function_call_with_this(constructorFn, inst, argc, argv);
+                        return inst;
+                    }
+                }
+            }
+        }
+
         // 1. Create a new TsMap object
         TsMap* newObj = TsMap::Create();
 
