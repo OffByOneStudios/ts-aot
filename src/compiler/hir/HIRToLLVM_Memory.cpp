@@ -1965,6 +1965,18 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
         }
         result = builder_->CreateCall(fn, {arr, val});
     }
+    // Zero-arg push still performs Set(O,"length",len,true) (ES 23.1.3.23
+    // step 6), which throws a TypeError on a frozen / non-writable-length
+    // array. With no value operands the loop above emits nothing, so route
+    // through ts_array_push_zero to run that guard and return the (unchanged)
+    // length — `x.push()` must not be silently elided on such receivers.
+    if (!result) {
+        llvm::FunctionType* zft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { getGCPtrTy() }, false);
+        llvm::FunctionCallee zfn =
+            module_->getOrInsertFunction("ts_array_push_zero", zft);
+        result = builder_->CreateCall(zft, zfn.getCallee(), { arr });
+    }
     if (inst->result && result) {
         setValue(inst->result, result);
     }

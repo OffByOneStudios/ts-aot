@@ -1407,6 +1407,15 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // json string
             .build());
 
+    // JSON.parse(text, reviver) — the 2-arg form routes here (BuiltinResolutionPass
+    // + resolveGlobalBuiltin argCount>=2) so the reviver reaches the runtime.
+    reg.registerLowering("ts_json_parse_reviver",
+        lowering("ts_json_parse_reviver")
+            .returnsBoxed()
+            .ptrArg()      // json string
+            .ptrArg()      // reviver (boxed callable)
+            .build());
+
     reg.registerLowering("ts_json_stringify",
         lowering("ts_json_stringify")
             .returnsPtr()

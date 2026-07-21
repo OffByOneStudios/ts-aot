@@ -128,11 +128,16 @@ private:
             val = boxValue(val, lowerer, &inst->operands[i]);
             result = builder.CreateCall(ft, fn.getCallee(), { arr, val });
         }
-        // Zero-arg push returns current length — produce it via a fallback call
-        // path. In practice callers always pass at least one arg.
+        // Zero-arg push still performs Set(O,"length",len,true) (ES 23.1.3.23
+        // step 6), which throws a TypeError on a frozen / non-writable-length
+        // array. Route through ts_array_push_zero so the guard runs and the
+        // (unchanged) length is returned — not silently elided.
         if (!result) {
-            // Fallback: just return 0 (no push happened). Shouldn't occur.
-            result = llvm::ConstantInt::get(builder.getInt64Ty(), 0);
+            llvm::FunctionType* zft = llvm::FunctionType::get(
+                builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            llvm::FunctionCallee zfn =
+                module.getOrInsertFunction("ts_array_push_zero", zft);
+            result = builder.CreateCall(zft, zfn.getCallee(), { arr });
         }
         return result;
     }
@@ -156,8 +161,16 @@ private:
             val = boxValue(val, lowerer, &inst->operands[i - 1]);
             result = builder.CreateCall(ft, fn.getCallee(), { arr, val });
         }
+        // Zero-arg unshift still performs Set(O,"length",len,true) (ES
+        // 23.1.3.35 step 4.f), which throws a TypeError on a frozen /
+        // non-writable-length array. Route through ts_array_unshift_zero so
+        // the guard runs and the (unchanged) length is returned.
         if (!result) {
-            result = llvm::ConstantInt::get(builder.getInt64Ty(), 0);
+            llvm::FunctionType* zft = llvm::FunctionType::get(
+                builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            llvm::FunctionCallee zfn =
+                module.getOrInsertFunction("ts_array_unshift_zero", zft);
+            result = builder.CreateCall(zft, zfn.getCallee(), { arr });
         }
         return result;
     }

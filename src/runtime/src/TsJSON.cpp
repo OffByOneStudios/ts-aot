@@ -118,6 +118,11 @@ static TsValue* json_call_guarded_1(TsValue* fn, TsValue* thisV,
 }
 
 static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited);
+static int json_wrapper_num_or_str(void* raw, double* num, TsString** str);
+// ECMA-262 25.5.2.2 SerializeJSONProperty step 4: unwrap a primitive wrapper
+// object (new Number/String/Boolean) to its primitive JSON form. Defined below
+// (after json_wrapper_num_or_str); forward-declared here for ts_to_json_internal.
+static bool json_unwrap_primitive_wrapper(void* p, nlohmann::ordered_json& out);
 
 static nlohmann::ordered_json ts_value_to_json(TsValue v, std::set<void*>& visited) {
     switch (v.type) {
@@ -259,6 +264,19 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                     return out;
                 }
             }
+        }
+    }
+
+    // ECMA-262 25.5.2.2 SerializeJSONProperty step 4-5: a Number/String/Boolean
+    // wrapper object (new Number(x) / new String(x) / new Boolean(x)) serializes
+    // as its underlying primitive (ToNumber / ToString / [[BooleanData]]), NOT
+    // as a plain object. This runs AFTER toJSON (step 2) but before the generic
+    // object serialization below, so `JSON.stringify(new Number(5))` yields "5"
+    // instead of leaking the hidden data slot as `{"__NumberData":5}`.
+    {
+        nlohmann::ordered_json wrapped;
+        if (json_unwrap_primitive_wrapper(p, wrapped)) {
+            return wrapped;
         }
     }
 
@@ -416,6 +434,71 @@ static int json_wrapper_num_or_str(void* raw, double* num, TsString** str) {
         }
     }
     return 0;
+}
+
+// Format a double as its JSON number form (whole numbers as integers, e.g.
+// 8.5 -> 8.5, 10.0 -> 10). Non-finite values (NaN/Infinity) become JSON null,
+// matching the primitive-number path (nlohmann also dumps these as null).
+static nlohmann::ordered_json json_num_to_json(double d) {
+    if (!std::isfinite(d)) return nullptr;
+    double intPart;
+    if (std::modf(d, &intPart) == 0.0 &&
+        d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+        return (int64_t)d;
+    }
+    return d;
+}
+
+// ECMA-262 25.5.2.2 SerializeJSONProperty step 4: if `p` is a Number/String/
+// Boolean wrapper object (new Number(x) / new String(x) / new Boolean(x)),
+// fill `out` with its primitive JSON form (ToNumber / ToString /
+// [[BooleanData]]) and return true. Handles BOTH runtime representations: the
+// dedicated TsNumberObject/TsStringObject/TsBooleanObject (vtable at 0, magic
+// at offset 16) and TsMap/flat-backed objects carrying a hidden
+// __NumberData/__StringData/__BooleanData own slot. Only own-slot / internal
+// reads are performed (no user getters/valueOf), and a Proxy is never probed.
+static bool json_unwrap_primitive_wrapper(void* p, nlohmann::ordered_json& out) {
+    if (!p || (uintptr_t)p <= 0x1000) return false;
+    uint32_t magic0 = *(uint32_t*)p;
+    uint32_t magic16 = *(uint32_t*)((char*)p + 16);
+
+    // Dedicated wrapper classes.
+    if (magic16 == TsNumberObject::MAGIC) {
+        out = json_num_to_json(((TsNumberObject*)p)->value);
+        return true;
+    }
+    if (magic16 == TsStringObject::MAGIC) {
+        TsString* s = ((TsStringObject*)p)->value;
+        out = s ? std::string(s->ToUtf8()) : std::string();
+        return true;
+    }
+    if (magic16 == TsBooleanObject::MAGIC) {
+        out = ((TsBooleanObject*)p)->value;
+        return true;
+    }
+
+    // TsMap/flat-backed wrappers with a hidden data slot. Only probe map-like
+    // (non-Proxy) or flat objects; a dynamic_cast is only well-defined on the
+    // polymorphic TsMap family, and a Proxy's get trap must not be tripped.
+    bool isMapLike = (magic16 == 0x4D415053);  // TsMap
+    bool isFlat = (magic0 == FLAT_MAGIC);
+    if (!isMapLike && !isFlat) return false;
+    if (isMapLike && dynamic_cast<TsProxy*>((TsObject*)p) != nullptr) return false;
+
+    double wn = 0.0; TsString* ws = nullptr;
+    int wk = json_wrapper_num_or_str(p, &wn, &ws);
+    if (wk == 1) { out = json_num_to_json(wn); return true; }
+    if (wk == 2) { out = ws ? std::string(ws->ToUtf8()) : std::string(); return true; }
+
+    // Boolean wrapper: __BooleanData slot (json_wrapper_num_or_str covers only
+    // Number/String). A plain object without the slot yields boxed undefined,
+    // which fails the bool check below, so this is safe on arbitrary objects.
+    TsValue* bv = ts_object_get_property(p, "__BooleanData");
+    if (bv) {
+        uint64_t bb = nanbox_from_tsvalue_ptr(bv);
+        if (nanbox_is_bool(bb)) { out = nanbox_to_bool(bb); return true; }
+    }
+    return false;
 }
 
 // ECMA-262 25.5.2 step 5: compute the `gap` string from the `space` argument.

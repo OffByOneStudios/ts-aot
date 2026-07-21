@@ -1120,6 +1120,23 @@ extern "C" {
         return 0;
     }
 
+    // Zero-argument push()/unshift(). No element is appended, but ES 23.1.3.23
+    // step 6 (push) / ES 23.1.3.35 step 4.f (unshift) still perform
+    // Set(O, "length", len, true), which is REJECTED — throwing a TypeError —
+    // on a frozen array or one whose "length" is non-writable. The fast-path
+    // codegen elides the per-element ts_array_push loop entirely when there are
+    // zero value operands, so these dedicated entries preserve the mandatory
+    // length-Set throw and return the (unchanged) length.
+    extern int64_t ts_array_length(void* arr);
+    int64_t ts_array_push_zero(void* arr) {
+        arr_require_len_writable(arr, "push");
+        return ts_array_length(arr);
+    }
+    int64_t ts_array_unshift_zero(void* arr) {
+        arr_require_len_writable(arr, "unshift");
+        return ts_array_length(arr);
+    }
+
     void* ts_array_pop(void* arr) {
         arr_require_len_writable(arr, "pop");
         return (void*)((TsArray*)arr)->Pop();

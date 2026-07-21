@@ -762,6 +762,15 @@ MethodResolution BuiltinRegistry::resolveMethod(HIRTypeKind receiverType,
 BuiltinResolution BuiltinRegistry::resolveGlobalBuiltin(const std::string& globalName,
                                                          const std::string& methodName,
                                                          int argCount) const {
+    // ECMA-262 25.5.1 JSON.parse ( text [ , reviver ] ): the 2-arg form must
+    // pass the reviver to the runtime. The single-arg lowering of ts_json_parse
+    // drops extra operands, so route the reviver call to a distinct 2-arg
+    // runtime entry point instead.
+    if (globalName == "JSON" && methodName == "parse" && argCount >= 2) {
+        return BuiltinResolution::makeRuntimeCall("ts_json_parse_reviver",
+                                                  HIRType::makeAny());
+    }
+
     auto it = globalTable_.find({globalName, methodName});
     if (it != globalTable_.end()) {
         return it->second;
