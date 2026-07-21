@@ -3991,6 +3991,19 @@ void* ts_get_global_Temporal() {
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); ts_gc_register_root(&g_temporal_plaintime_ctor); } }
         setProtoStringTag(cached, "Temporal");
 
+        // ECMA-262 Temporal proposal: each <Type>.prototype.constructor is an
+        // OWN data property { value: <Type>, [[Writable]]: true,
+        // [[Enumerable]]: false, [[Configurable]]: true }. Without it,
+        // getOwnPropertyDescriptor / prototype/constructor.js walks the chain to
+        // Object.prototype.constructor and reports the wrong callable.
+        auto setTemporalCtorProp = [](TsMap* proto, void* fn) {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned("constructor");
+            TsValue v; v.type = ValueType::FUNCTION_PTR; v.ptr_val = fn;
+            proto->SetWithAttrs(k, v,
+                TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        };
+
         // ---- Temporal.PlainTime ----
         TsMap* ptCtor = makeSimpleConstructorGlobal("PlainTime");
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
@@ -4022,6 +4035,7 @@ void* ts_get_global_Temporal() {
         addMethod(ptCtor, "from",    (void*)ts_temporal_plaintime_from_native, 1);
         addMethod(ptCtor, "compare", (void*)ts_temporal_plaintime_compare_native, 2);
         g_temporal_plaintime_ctor = ptFn;
+        setTemporalCtorProp(ptProto, ptFn);
         TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
         TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;
         cached->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE);
@@ -4056,6 +4070,7 @@ void* ts_get_global_Temporal() {
         addMethod(duProto, "round",    (void*)ts_temporal_duration_round_native, 1);
         void* duFn = wrapAsCallable(duCtor, "Duration", 0);
         g_temporal_duration_ctor = duFn;
+        setTemporalCtorProp(duProto, duFn);
         ts_gc_register_root(&g_temporal_duration_ctor);
         addMethod(duCtor, "from", (void*)ts_temporal_duration_from_native, 1);
         addMethod(duCtor, "compare", (void*)ts_temporal_duration_compare_native, 2);
@@ -4101,6 +4116,7 @@ void* ts_get_global_Temporal() {
         addMethod(pdProto, "toPlainMonthDay",  (void*)ts_temporal_plaindate_toPlainMonthDay_native, 0);
         void* pdFn = wrapAsCallable(pdCtor, "PlainDate", 3);
         g_temporal_plaindate_ctor = pdFn;
+        setTemporalCtorProp(pdProto, pdFn);
         ts_gc_register_root(&g_temporal_plaindate_ctor);
         addMethod(pdCtor, "from",    (void*)ts_temporal_plaindate_from_native, 1);
         addMethod(pdCtor, "compare", (void*)ts_temporal_plaindate_compare_native, 2);
@@ -4135,6 +4151,7 @@ void* ts_get_global_Temporal() {
         addMethod(ymProto, "subtract", (void*)ts_temporal_plainyearmonth_subtract_native, 1);
         void* ymFn = wrapAsCallable(ymCtor, "PlainYearMonth", 2);
         g_temporal_plainyearmonth_ctor = ymFn;
+        setTemporalCtorProp(ymProto, ymFn);
         ts_gc_register_root(&g_temporal_plainyearmonth_ctor);
         addMethod(ymCtor, "from",    (void*)ts_temporal_plainyearmonth_from_native, 1);
         addMethod(ymCtor, "compare", (void*)ts_temporal_plainyearmonth_compare_native, 2);
@@ -4157,6 +4174,7 @@ void* ts_get_global_Temporal() {
         addMethod(mdProto, "toPlainDate", (void*)ts_temporal_plainmonthday_toPlainDate_native, 1);
         void* mdFn = wrapAsCallable(mdCtor, "PlainMonthDay", 2);
         g_temporal_plainmonthday_ctor = mdFn;
+        setTemporalCtorProp(mdProto, mdFn);
         ts_gc_register_root(&g_temporal_plainmonthday_ctor);
         addMethod(mdCtor, "from", (void*)ts_temporal_plainmonthday_from_native, 1);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainMonthDay");
@@ -4208,6 +4226,7 @@ void* ts_get_global_Temporal() {
         addMethod(dtProto, "toZonedDateTime", (void*)ts_temporal_plaindatetime_toZonedDateTime_native, 1);
         void* dtFn = wrapAsCallable(dtCtor, "PlainDateTime", 3);
         g_temporal_plaindatetime_ctor = dtFn;
+        setTemporalCtorProp(dtProto, dtFn);
         ts_gc_register_root(&g_temporal_plaindatetime_ctor);
         addMethod(dtCtor, "from",    (void*)ts_temporal_plaindatetime_from_native, 1);
         addMethod(dtCtor, "compare", (void*)ts_temporal_plaindatetime_compare_native, 2);
@@ -4235,6 +4254,7 @@ void* ts_get_global_Temporal() {
         addMethod(inProto, "toZonedDateTimeISO", (void*)ts_temporal_instant_toZonedDateTimeISO_native, 1);
         void* inFn = wrapAsCallable(inCtor, "Instant", 1);
         g_temporal_instant_ctor = inFn;
+        setTemporalCtorProp(inProto, inFn);
         ts_gc_register_root(&g_temporal_instant_ctor);
         addMethod(inCtor, "from",                  (void*)ts_temporal_instant_from_native, 1);
         addMethod(inCtor, "fromEpochNanoseconds",  (void*)ts_temporal_instant_fromEpochNs_native, 1);
@@ -4261,6 +4281,11 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(zdProto, "daysInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"daysInYear"); });
         addAccessorGetter(zdProto, "monthsInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"monthsInYear"); });
         addAccessorGetter(zdProto, "inLeapYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"inLeapYear"); });
+        // era/eraYear are defined on ZonedDateTime.prototype like the other calendar
+        // getters (sec-get-temporal.zoneddatetime.prototype.era{,year}): brand-check the
+        // receiver (TypeError otherwise) and return undefined for the ISO 8601 calendar.
+        addAccessorGetter(zdProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"era"); });
+        addAccessorGetter(zdProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"eraYear"); });
         addAccessorGetter(zdProto, "hour", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"hour"); });
         addAccessorGetter(zdProto, "minute", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"minute"); });
         addAccessorGetter(zdProto, "second", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"second"); });
@@ -4299,6 +4324,7 @@ void* ts_get_global_Temporal() {
         addMethod(zdProto, "with",            (void*)ts_temporal_zdt_with_native, 1);
         void* zdFn = wrapAsCallable(zdCtor, "ZonedDateTime", 2);
         g_temporal_zoneddatetime_ctor = zdFn;
+        setTemporalCtorProp(zdProto, zdFn);
         ts_gc_register_root(&g_temporal_zoneddatetime_ctor);
         addMethod(zdCtor, "compare", (void*)ts_temporal_zdt_compare_native, 2);
         addMethod(zdCtor, "from", (void*)ts_temporal_zdt_from_native, 1);

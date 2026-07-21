@@ -2309,8 +2309,8 @@ static void instant_ns_string(TsInstant* it, char* buf, size_t n){
     format_epoch_ns_pair(it->epoch_ms, it->sub_ns, buf, n);
 }
 TsValue TsInstant::GetPropertyVirtual(const char* key){
-    if(strcmp(key,"epochMilliseconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms; return r; }
-    if(strcmp(key,"epochSeconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms/1000; return r; }
+    if(strcmp(key,"epochMilliseconds")==0){ int64_t em=epoch_ms; if(sub_ns<0) em-=1; /* FLOOR: storage truncates toward zero */ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=em; return r; }
+    if(strcmp(key,"epochSeconds")==0){ int64_t em=epoch_ms; if(sub_ns<0) em-=1; int64_t se=em/1000; if(em<0 && em%1000!=0) se-=1; /* floor(epochNs/1e9) */ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=se; return r; }
     if(strcmp(key,"epochNanoseconds")==0){ char b[40]; instant_ns_string(this,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
     if(strcmp(key,"epochMicroseconds")==0){ int64_t em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL + sn/1000); return r; }
     TsValue u; u.type=ValueType::UNDEFINED; u.i_val=0; return u;
@@ -2334,9 +2334,12 @@ static bool ns_string_to_ms_sub(const char* s, int64_t* ms, int* sub){
     if(len==0||*q) return false;
     // last 6 digits -> sub_ns, the rest -> ms
     int subDigits = len>=6?6:len;
+    // The last (up to) 6 digits ARE the sub-second nanosecond value directly, low-order
+    // aligned: for len<6 the whole number is < 1ms and subv already equals it (ms=0).
+    // (A previous "pad to 6 digits" loop multiplied small magnitudes by 10^(6-len),
+    // turning epochNs 1001n into sub_ns 100100 — a factor-100 error observable in the
+    // microsecond/nanosecond fields, e.g. ZonedDateTime balance-negative-time-units.)
     int64_t subv=0; for(int i=len-subDigits;i<len;i++) subv=subv*10+(p[i]-'0');
-    // pad if fewer than 6 (small magnitudes): subv is the low digits, ms=0
-    for(int i=subDigits;i<6;i++) subv*=10;  // shouldn't happen for len>=6
     int64_t msv=0; for(int i=0;i<len-6;i++){ msv=msv*10+(p[i]-'0'); if(msv> 9000000000000000LL) return false; }
     if(len<=6){ msv=0; }
     *ms = neg ? -msv : msv;
@@ -2614,8 +2617,8 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
         return mkInt((s1-s0)/3600000LL);
     }
     if(strcmp(key,"monthCode")==0){ char b[8]; snprintf(b,sizeof(b),"M%02d",M); return mkStr(b); }
-    if(strcmp(key,"epochMilliseconds")==0) return mkInt(epoch_ms);
-    if(strcmp(key,"epochSeconds")==0) return mkInt(epoch_ms/1000);
+    if(strcmp(key,"epochMilliseconds")==0){ int64_t em=epoch_ms; if(sub_ns<0) em-=1; /* FLOOR toward -inf for pre-epoch sub-ms */ return mkInt(em); }
+    if(strcmp(key,"epochSeconds")==0){ int64_t em=epoch_ms; if(sub_ns<0) em-=1; int64_t se=em/1000; if(em<0 && em%1000!=0) se-=1; return mkInt(se); }
     if(strcmp(key,"offsetNanoseconds")==0) return mkInt((int64_t)zdt_eff_offset(this)*NS_PER_MINUTE);
     if(strcmp(key,"timeZoneId")==0){ if(zone_name[0]) return mkStr(zone_name); if(is_utc) return mkStr("UTC"); char tb[8]; zdt_offset_string(zdt_eff_offset(this),tb,sizeof(tb)); return mkStr(tb); }
     if(strcmp(key,"offset")==0){ char b[8]; zdt_offset_string(zdt_eff_offset(this),b,sizeof(b)); return mkStr(b); }
