@@ -827,6 +827,11 @@ static TsDuration* as_duration(void* raw) {
     return (*(uint32_t*)((char*)raw + 16) == TsDuration::MAGIC) ? (TsDuration*)raw : nullptr;
 }
 
+// Overflow-safe duration-time helpers (defined later, used by the date/datetime add paths
+// which appear earlier in the file).
+static int64_t dur_time_days_trunc(TsDuration* d);
+static void add_dur_time_to_day(int64_t baseNs, TsDuration* d, int sign, int64_t* outCarryDays, int64_t* outRemNs);
+
 // ToIntegerIfIntegral: finite + integral, else RangeError.
 static int64_t duration_field(TsValue* v, bool* ok) {
     if (!v || ts_value_is_undefined(v)) return 0;
@@ -835,6 +840,15 @@ static int64_t duration_field(TsValue* v, bool* ok) {
     if (d != d || std::isinf(d) || d != std::trunc(d)) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError",
             "Temporal.Duration: components must be integers"));
+        *ok = false; return 0;
+    }
+    // A component whose magnitude reaches 2^63 cannot be stored in int64 and is far
+    // outside any valid Duration (IsValidDuration bounds every component well below
+    // this); casting such a double to int64 is undefined behaviour (e.g. Number.MAX_VALUE
+    // would otherwise wrap to garbage and slip past the range check). Reject it here.
+    if (std::fabs(d) >= 9223372036854775808.0) {   // >= 2^63
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Temporal.Duration: a component is out of range"));
         *ok = false; return 0;
     }
     return (int64_t)d;
@@ -855,6 +869,15 @@ static bool duration_same_sign(int64_t* f) {
 // components {y,mo,w,d,h,mi,s,ms,us,ns}.
 static bool duration_in_range(int64_t* f) {
     for (int i = 0; i < 3; i++) if (f[i] >= 4294967296LL || f[i] <= -4294967296LL) return false;
+    // Same-sign components never cancel, so any single coarse component exceeding its
+    // 2^53-second equivalent already makes the duration invalid. Rejecting those here
+    // also keeps the exact int64 second total below from overflowing (days*86400 etc.).
+    static const int64_t MAXD=104249991374LL, MAXH=2501999792983LL,
+                         MAXMIN=150119987579016LL, MAXS=9007199254740991LL;
+    if (f[3] > MAXD   || f[3] < -MAXD)   return false;
+    if (f[4] > MAXH   || f[4] < -MAXH)   return false;
+    if (f[5] > MAXMIN || f[5] < -MAXMIN) return false;
+    if (f[6] > MAXS   || f[6] < -MAXS)   return false;
     // The total nanoseconds must satisfy abs(ns) <= 2^53*1e9 - 1, i.e. the whole-
     // second total must satisfy abs(seconds) <= 2^53-1. Compute the integer second
     // count (with carry from the ms/us/ns components) exactly to avoid double
@@ -3527,8 +3550,7 @@ TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
     if(_ovrej){ int64_t ty=pd->iso_year+d->years, tm=pd->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     // Time units balance to whole days (truncating) for a date-only result.
-    int64_t _tns=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
-    int64_t _xd=_tns/NS_PER_DAY;
+    int64_t _xd=dur_time_days_trunc(d);
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days+_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
@@ -3538,8 +3560,7 @@ TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     if(_ovrej){ int64_t ty=pd->iso_year-d->years, tm=pd->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
-    int64_t _tns=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
-    int64_t _xd=_tns/NS_PER_DAY;
+    int64_t _xd=dur_time_days_trunc(d);
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days-_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
@@ -3608,6 +3629,34 @@ static int64_t dur_time_ns(TsDuration* d){
     return d->hours*NS_PER_HOUR + d->minutes*NS_PER_MINUTE + d->seconds*NS_PER_SECOND
         + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
 }
+// Whole days contributed by a duration's time units, truncated toward zero — without
+// forming the full nanosecond total (hours*NS_PER_HOUR overflows int64 at the max
+// duration, e.g. PT2400000000H = 8.64e21 ns). Components are same-sign (IsValidDuration),
+// so the second-granularity quotient equals trunc(totalNs / NS_PER_DAY) exactly.
+static int64_t dur_time_days_trunc(TsDuration* d){
+    int64_t dsec = (int64_t)d->hours*3600 + (int64_t)d->minutes*60 + (int64_t)d->seconds;
+    int64_t carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+    int64_t subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+    dsec += carrySec + subNs/1000000000LL;
+    return dsec/86400;
+}
+// Add a time-only duration to a wall-clock time-of-day (baseNs in [0,NS_PER_DAY)) and
+// split into a whole-day carry (floor) + ns remainder in [0,NS_PER_DAY), overflow-free
+// via a (days, sub-day-ns) split. Matches the old `t=base+dur_time_ns; carry=floor(t/DAY)`.
+static void add_dur_time_to_day(int64_t baseNs, TsDuration* d, int sign, int64_t* outCarryDays, int64_t* outRemNs){
+    const int64_t DAY=NS_PER_DAY;
+    int64_t dsec = (int64_t)d->hours*3600 + (int64_t)d->minutes*60 + (int64_t)d->seconds;
+    int64_t carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+    int64_t subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+    dsec += carrySec + subNs/1000000000LL; subNs %= 1000000000LL;
+    int64_t ddays = dsec/86400;
+    int64_t drem  = (dsec%86400)*1000000000LL + subNs;   // |drem| < DAY
+    int64_t carry = sign*ddays;
+    int64_t rem   = baseNs + sign*drem;                  // in (-DAY, 2*DAY)
+    while(rem>=DAY){ rem-=DAY; carry++; }
+    while(rem<0){ rem+=DAY; carry--; }
+    *outCarryDays=carry; *outRemNs=rem;
+}
 extern "C" {
 // Temporal.Now.instant() — the current instant.
 TsValue* ts_temporal_now_instant_native(void* ctx,int argc,TsValue** argv){
@@ -3664,9 +3713,8 @@ static TsPlainDateTime* coerce_plaindatetime_arg(TsValue* v){
     return as_plaindatetime(ts_nanbox_safe_unbox(c));
 }
 static TsValue* pdt_add(TsPlainDateTime* dt, TsDuration* d, int sign){
-    const int64_t DAY=NS_PER_DAY;
-    int64_t t = pdt_time_ns(dt) + sign*dur_time_ns(d);
-    int64_t carry = t/DAY; int64_t rem=t%DAY; if(rem<0){rem+=DAY;carry--;}
+    const int64_t DAY=NS_PER_DAY; (void)DAY;
+    int64_t carry, rem; add_dur_time_to_day(pdt_time_ns(dt), d, sign, &carry, &rem);
     int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     int h=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int mi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
@@ -3831,9 +3879,15 @@ static TsValue* duration_from_ms_sub(int64_t ms, int64_t subNs, const std::strin
     return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*msr, sign*us, sign*ns));
 }
 static void instant_add_time(int64_t ems,int esub, TsDuration* d, int sign, int64_t* oms, int* osub){
-    int64_t addNs = dur_time_ns(d);
-    int64_t newMs = ems + sign*(addNs/1000000LL);
-    int64_t newSub = (int64_t)esub + sign*(addNs%1000000LL);
+    // Accumulate the duration's time in (milliseconds, sub-ms nanoseconds) space rather
+    // than forming a single int64 nanosecond total: at the representable-range boundary the
+    // ns total reaches 8.64e21 (e.g. add(PT2400000000H)), which overflows int64. In ms-space
+    // the largest term hours*3600000 stays within int64 for every valid time-only duration.
+    int64_t addMs  = d->hours*3600000LL + d->minutes*60000LL + d->seconds*1000LL + d->milliseconds;
+    int64_t addSub = d->microseconds*1000LL + d->nanoseconds;
+    addMs += addSub/1000000LL; addSub %= 1000000LL;
+    int64_t newMs = ems + sign*addMs;
+    int64_t newSub = (int64_t)esub + sign*addSub;
     newMs += newSub/1000000LL; newSub %= 1000000LL;
     if(newMs>0 && newSub<0){ newMs--; newSub+=1000000LL; } else if(newMs<0 && newSub>0){ newMs++; newSub-=1000000LL; }
     *oms=newMs; *osub=(int)newSub;
@@ -3929,10 +3983,9 @@ TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
 // the epoch (no DST transitions to worry about).
 static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign, bool reject=false){
     const int64_t DAY=NS_PER_DAY;
-    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
-    int64_t timeNs = ((((int64_t)h*60+mi)*60+s)*NS_PER_SECOND) + (int64_t)ms*1000000LL + (int64_t)us*1000LL + ns;
-    timeNs += sign*dur_time_ns(d);
-    int64_t carry = timeNs/DAY; int64_t rem=timeNs%DAY; if(rem<0){rem+=DAY;carry--;}
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); (void)DAY;
+    int64_t baseNs = ((((int64_t)h*60+mi)*60+s)*NS_PER_SECOND) + (int64_t)ms*1000000LL + (int64_t)us*1000LL + ns;
+    int64_t carry, rem; add_dur_time_to_day(baseNs, d, sign, &carry, &rem);
     int nY,nM,nD; add_iso_date(Y,M,D, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &nY,&nM,&nD, reject);
     if(!iso_date_valid(nY,nM,nD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     int nh=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int nmi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
@@ -4401,12 +4454,13 @@ TsValue* ts_temporal_plainyearmonth_since_native(void* ctx,int argc,TsValue** ar
 }
 static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     // Lower (time) units balance into whole days (largestUnit "day", truncating).
-    int64_t timeNs = (int64_t)d->hours*NS_PER_HOUR + (int64_t)d->minutes*NS_PER_MINUTE
-        + (int64_t)d->seconds*NS_PER_SECOND + (int64_t)d->milliseconds*1000000LL
-        + (int64_t)d->microseconds*1000LL + d->nanoseconds;
-    int64_t timeDays = timeNs/NS_PER_DAY;
+    int64_t timeDays = dur_time_days_trunc(d);
     int64_t y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=(d->days+timeDays)*neg;
-    int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
+    // Per AddDurationToYearMonth: the reference day is chosen from the ORIGINAL duration's
+    // sign (DurationSign), not the post-balance date components. A negative duration whose
+    // time units truncate to zero days (e.g. {seconds:-1}) is still sign<0, so it uses the
+    // last day of the month — which for the maximum representable month is out of range.
+    int sign = d->Sign()*neg; if(sign==0) sign=1;
     int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
     // The intermediate date at the reference day must itself be representable: at
     // the min year-month, day 1 (-271821-04-01) is before the minimum date, so even
