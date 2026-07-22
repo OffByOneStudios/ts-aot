@@ -314,6 +314,9 @@ TsValue* TsGenerator::next(TsValue* value) {
 
     ctx->yielded = false;
     ctx->resumedValue = value;
+    // A prior gen.throw()/gen.return() that longjmp'd out of the impl can
+    // leave a stale abrupt resumeMode; a plain next() is always mode 0.
+    ctx->resumeMode = 0;
 
     // ECMA-262: `this` inside a generator body must be the receiver at the
     // time the generator was created, not the receiver of the .next() call.
@@ -736,6 +739,8 @@ TsValue* ts_async_generator_yield_star(TsValue* iterable) {
 // state-machine support), so this is the simplified semantics: mark done
 // and produce {value, done:true}. For TsMap-based iterators (custom
 // iterables), forward to their .return method if present.
+static TsValue* gen_resume_abrupt(ts::TsGenerator* gen, int mode, TsValue* arg); // defined below
+
 TsValue* Generator_return(TsValue* genVal, TsValue* value) {
     if (!genVal) return create_generator_result(TsValue(), true);
     void* raw = ts_value_get_object(genVal);
@@ -751,6 +756,13 @@ TsValue* Generator_return(TsValue* genVal, TsValue* value) {
 
     if (ts_is_unchecked<TsGenerator>(raw)) {
         TsGenerator* gen = (TsGenerator*)raw;
+        // Suspended inside a yield*: forward the return completion to the
+        // delegate iterator (ES 27.5.3.7 received.[[Type]] return) instead of
+        // completing the generator without consulting it.
+        if (!gen->done && gen->ctx && gen->ctx->delegateIterator &&
+            gen->ctx->resumeFn) {
+            return gen_resume_abrupt(gen, AGEN_MODE_RETURN, value);
+        }
         gen->done = true;
         TsValue v = value ? nanbox_to_tagged(value) : TsValue();
         return create_generator_result(v, true);
@@ -805,6 +817,14 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
 
     if (ts_is_unchecked<TsGenerator>(raw)) {
         TsGenerator* gen = (TsGenerator*)raw;
+        // Suspended inside a yield*: forward the throw completion to the
+        // delegate iterator (ES 27.5.3.7 received.[[Type]] throw) — inner
+        // throw() results re-yield or complete the yield*; a missing throw
+        // method closes the iterator and raises TypeError inside the body.
+        if (!gen->done && gen->ctx && gen->ctx->delegateIterator &&
+            gen->ctx->resumeFn) {
+            return gen_resume_abrupt(gen, AGEN_MODE_THROW, exception);
+        }
         gen->done = true;
         ts_throw(exception);
         return ts_value_make_undefined();
@@ -1284,6 +1304,148 @@ TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
     // yield path) and the generator stays suspended inside the yield*.
     return create_generator_result(
         value ? nanbox_to_tagged(value) : TsValue(), resDone);
+}
+
+// SYNC-generator twin of ts_agen_delegate_resume: forward a gen.throw()/
+// gen.return() completion to the yield* delegate iterator per ES 27.5.3.7
+// (Yield* evaluation, received.[[Type]] throw / return branches):
+//   throw:  b.i   GetMethod(iterator, "throw");
+//           b.ii  if callable: innerResult = Call(throw, iterator, [value]);
+//                 non-object result -> TypeError; done -> the yield* completes
+//                 with the value (body continues); not done -> re-yield.
+//           b.iii else: IteratorClose(iterator, NORMAL completion) — close
+//                 errors PROPAGATE — then throw TypeError (protocol violation).
+//   return: c.ii  GetMethod(iterator, "return"); if undefined the GENERATOR
+//                 completes with the received value (no close);
+//           c.vi  else innerResult = Call(return, iterator, [value]);
+//                 non-object -> TypeError; done -> the generator completes
+//                 with innerResult's value; not done -> re-yield.
+// Returns a fresh iteration-result object routed through the lowered yield*
+// done-check, or NULL when the GENERATOR itself completes — in that case
+// ctx->yielded/yieldedValue already carry the completion for the driver
+// (gen_resume_abrupt below). Thrown completions ts_throw under the re-armed
+// user handlers of the current impl invocation, landing in the body's
+// try/catch around the yield* (or propagating out of gen.throw()).
+TsValue* ts_gen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
+                                int mode, TsValue* arg) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    extern void ts_iterator_close_strict(TsValue* iter);
+
+    void* raw = iterator ? ts_value_get_object(iterator) : nullptr;
+    {
+        TsValue* realIter = nullptr; TsValue* cachedNext = nullptr;
+        if (agen_unwrap_iter_record(iterator, &realIter, &cachedNext)) {
+            iterator = realIter;
+            raw = ts_value_get_object(iterator);
+        }
+    }
+    bool isLegacyArray = raw && *(uint32_t*)raw == 0x41525259; // "ARRY"
+
+    TsValue* method = nullptr;
+    if (raw && !isLegacyArray) {
+        method = ts_object_get_property(
+            raw, mode == AGEN_MODE_THROW ? "throw" : "return");
+    }
+    bool hasMethod = method && agen_is_callable(method);
+    // Generator-object delegates surface next/return/throw through the
+    // Generator_* built-ins, not own properties (see ts_agen_delegate_resume).
+    bool isGenObject = raw && !isLegacyArray &&
+        (ts_is_unchecked<TsGenerator>(raw) ||
+         ts_is_unchecked<TsAsyncGenerator>(raw));
+
+    auto completeGenerator = [&](TsValue* v) {
+        if (ctx) {
+            ctx->delegateIndex = 0;
+            ctx->delegateIterator = nullptr;
+            ctx->yielded = false;
+            ctx->yieldedValue = v ? nanbox_to_tagged(v) : TsValue();
+        }
+    };
+
+    if (!hasMethod && !isGenObject) {
+        if (mode == AGEN_MODE_RETURN) {
+            // 27.5.3.7.c.iii: return method undefined -> the generator
+            // completes with the received value; the iterator is NOT closed.
+            completeGenerator(arg);
+            return nullptr;
+        }
+        // THROW with no throw method: IteratorClose(iterator, normal) — the
+        // return-getter/call/result errors propagate, replacing the TypeError
+        // (star-rhs-iter-thrw-violation-rtrn-{get,call}-err) — then the
+        // protocol-violation TypeError.
+        if (raw && !isLegacyArray) {
+            ts_iterator_close_strict(iterator);
+        }
+        if (ctx) { ctx->delegateIndex = 0; ctx->delegateIterator = nullptr; }
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "The iterator does not provide a 'throw' method"));
+        return ts_value_make_undefined();
+    }
+
+    TsValue* res;
+    if (hasMethod) {
+        res = ts_call_with_this_1(method, iterator,
+                                  arg ? arg : ts_value_make_undefined());
+    } else if (ts_is_unchecked<TsGenerator>(raw)) {
+        // Sync generator delegate built-ins: Generator_throw ts_throws an
+        // uncaught exception (never returns); Generator_return produces the
+        // {value, done:true} result handled below.
+        res = (mode == AGEN_MODE_THROW) ? Generator_throw(iterator, arg)
+                                        : Generator_return(iterator, arg);
+    } else {
+        res = (mode == AGEN_MODE_THROW) ? AsyncGenerator_throw(iterator, arg)
+                                        : AsyncGenerator_return(iterator, arg);
+    }
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    if (!resRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator result is not an object"));
+        return ts_value_make_undefined();
+    }
+
+    bool resDone = ts_iterator_result_done(res);
+    TsValue* value = ts_iterator_result_value(res);
+
+    if (mode == AGEN_MODE_RETURN && resDone) {
+        // Return-completion with done: the generator completes with the
+        // result's value (finally unwinding inside the body is the known
+        // generator-resume limitation, matching Generator_return).
+        completeGenerator(value);
+        return nullptr;
+    }
+
+    // THROW results (done or not) and RETURN-not-done results flow back into
+    // the lowered done-check: done -> the yield* completes with the value and
+    // the body continues; not done -> the value is re-yielded and the
+    // generator stays suspended inside the yield*.
+    return create_generator_result(
+        value ? nanbox_to_tagged(value) : TsValue(), resDone);
+}
+
+// Drive a suspended-inside-yield* sync generator with an abrupt completion
+// (gen.throw / gen.return). Mirrors TsGenerator::next but sets resumeMode so
+// the lowered yield*-resume dispatch forwards to ts_gen_delegate_resume.
+// POD-only frame: a forwarded throw longjmps past this function.
+static TsValue* gen_resume_abrupt(TsGenerator* gen, int mode, TsValue* arg) {
+    AsyncContext* ctx = gen->ctx;
+    ctx->yielded = false;
+    ctx->resumedValue = arg;
+    ctx->resumeMode = mode;
+    void* savedThis = ts_get_call_this();
+    if (ctx->thisValue) {
+        ts_set_call_this(ctx->thisValue);
+    }
+    // Same pre-set as next(): a throw longjmps past this frame and the
+    // generator must read as completed afterwards (ES 27.5.3.3).
+    gen->done = true;
+    ctx->resumeFn(ctx);
+    ts_set_call_this(savedThis);
+    ctx->resumeMode = 0;
+    if (ctx->yielded) {
+        gen->done = false;  // re-suspended inside the yield*
+        return create_generator_result(ctx->yieldedValue, false);
+    }
+    return create_generator_result(ctx->yieldedValue, true);
 }
 
 TsValue* ts_async_generator_yield(TsValue* value) {
