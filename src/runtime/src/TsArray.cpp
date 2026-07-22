@@ -2407,6 +2407,17 @@ extern "C" {
     TsValue* ts_array_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
         extern void* ts_get_call_this();
         if (!ctx) ctx = ts_get_call_this();
+        // ES 23.1.3.32 step 1: ToObject(this) — a nullish receiver throws
+        // TypeError (methods-called-as-functions calls it bare).
+        {
+            uint64_t nb = ctx ? nanbox_from_tsvalue_ptr((TsValue*)ctx)
+                              : NANBOX_UNDEFINED;
+            if (!ctx || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Array.prototype.toLocaleString called on null or undefined"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
         return ts_value_make_string((TsString*)ts_array_toLocaleString(ctx));
     }
 

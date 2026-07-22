@@ -1794,6 +1794,29 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
                     "Chaining cycle detected for promise"));
             return;
         }
+        // ES 27.2.1.3.2 steps 9-14: resolving with a promise whose
+        // [[Prototype]] is NOT %Promise.prototype% (a subclass instance —
+        // native side-map proto set) must be OBSERVABLE: Get its "then" and
+        // enqueue a PromiseResolveThenableJob that calls it as a method, so
+        // the species-aware then wrapper runs (the finally subclass-*-count
+        // tests count that construction). Plain intrinsic promises keep the
+        // internal fast adoption below (V8-style unobservable fast path).
+        {
+            extern void* ts_native_object_get_proto(void* obj);
+            extern TsValue* ts_object_get_property(void* o, const char* k);
+            if (ts_native_object_get_proto((void*)other)) {
+                TsValue* thenFn = ts_object_get_property((void*)other, "then");
+                if (thenFn && agen_is_callable(thenFn)) {
+                    auto job = static_cast<PromiseThenableJob*>(
+                        ts_alloc(sizeof(PromiseThenableJob)));
+                    job->promise = promise;
+                    job->thenable = nanbox_to_tagged((TsValue*)other);
+                    job->thenFn = nanbox_to_tagged(thenFn);
+                    ts_queue_microtask(ts_promise_thenable_microtask, job);
+                    return;
+                }
+            }
+        }
         TsValue onFulfilled;
         onFulfilled.type = ValueType::OBJECT_PTR;
         TsFunction* f1 = new (ts_alloc(sizeof(TsFunction))) TsFunction(
@@ -1930,12 +1953,18 @@ TsValue* ts_promise_catch(TsValue* promise, TsValue* onRejected) {
 
 extern "C" TsValue* ts_promise_static_resolve_spec(TsValue* C, TsValue* x);
 extern "C" void* ts_get_global_Promise();
+extern "C" TsValue* ts_species_constructor_std(void* exemplar, void* defaultCtor);
 
 // ES 27.2.5.3 thenFinally/catchFinally: result = Call(onFinally);
-// p2 = PromiseResolve(%Promise%, result) — a thenable result is AWAITED
-// (its rejection overrides the passthrough; observable-then-calls reads
-// p2's patched then); then Invoke(p2, "then", «thunk») where the thunk
-// passes the original value through / rethrows the original reason.
+// p2 = PromiseResolve(C, result) where C is the SpeciesConstructor captured
+// by finally (step 3) — a thenable result is AWAITED (its rejection
+// overrides the passthrough; observable-then-calls reads p2's patched
+// then); then Invoke(p2, "then", «thunk») where the thunk passes the
+// original value through / rethrows the original reason.
+struct FinallyCtx {
+    TsValue* onF;  // onFinally (callable)
+    TsValue* C;    // SpeciesConstructor(promise, %Promise%) from finally()
+};
 static TsValue* finally_value_thunk(void* ctx, int, TsValue**) {
     return ctx ? (TsValue*)ctx : ts_value_make_undefined();
 }
@@ -1943,10 +1972,13 @@ static TsValue* finally_thrower(void* ctx, int, TsValue**) {
     ts_throw(ctx ? (TsValue*)ctx : ts_value_make_undefined());
     return ts_value_make_undefined();  // unreachable
 }
-static TsValue* finally_chain(TsValue* onF, TsValue* passthrough, bool rethrow) {
+static TsValue* finally_chain(FinallyCtx* fc, TsValue* passthrough, bool rethrow) {
     TsValue* result = ts_function_call_with_this(
-        onF, ts_value_make_undefined(), 0, nullptr);
-    TsValue* C = (TsValue*)ts_get_global_Promise();
+        fc->onF, ts_value_make_undefined(), 0, nullptr);
+    // ES 27.2.5.3 Then/Catch Finally step 7: PromiseResolve(C, result) with
+    // the CAPTURED species constructor (subclass finally mints subclass
+    // promises — the subclass-*-count tests count these constructions).
+    TsValue* C = fc->C ? fc->C : (TsValue*)ts_get_global_Promise();
     TsValue* p2 = ts_promise_static_resolve_spec(
         C, result ? result : ts_value_make_undefined());
     void* p2raw = p2 ? ts_value_get_object(p2) : nullptr;
@@ -1963,18 +1995,18 @@ static TsValue* finally_chain(TsValue* onF, TsValue* passthrough, bool rethrow) 
     return ts_function_call_with_this(thenM, p2, 1, args);
 }
 static TsValue* finally_then_wrapper(void* ctx, int argc, TsValue** argv) {
-    TsValue* onF = (TsValue*)ctx;
+    FinallyCtx* fc = (FinallyCtx*)ctx;
     TsValue* value = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                     : ts_value_make_undefined();
-    if (!onF || !agen_is_callable(onF)) return value;
-    return finally_chain(onF, value, false);
+    if (!fc || !fc->onF || !agen_is_callable(fc->onF)) return value;
+    return finally_chain(fc, value, false);
 }
 static TsValue* finally_catch_wrapper(void* ctx, int argc, TsValue** argv) {
-    TsValue* onF = (TsValue*)ctx;
+    FinallyCtx* fc = (FinallyCtx*)ctx;
     TsValue* reason = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : ts_value_make_undefined();
-    if (!onF || !agen_is_callable(onF)) { ts_throw(reason); return reason; }
-    return finally_chain(onF, reason, true);
+    if (!fc || !fc->onF || !agen_is_callable(fc->onF)) { ts_throw(reason); return reason; }
+    return finally_chain(fc, reason, true);
 }
 
 TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
@@ -1989,6 +2021,11 @@ TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
     }
     void* recvRaw = ts_value_get_object(promise);
     if (!recvRaw) recvRaw = (void*)promise;
+    // ES 27.2.5.3 step 3: C = ? SpeciesConstructor(promise, %Promise%) —
+    // computed unconditionally BEFORE the Invoke's "then" Get (step 7); the
+    // "constructor"/@@species reads are observable and a throwing getter
+    // propagates out of finally.
+    TsValue* C = ts_species_constructor_std(recvRaw, ts_get_global_Promise());
     TsValue* thenM = ts_object_get_property(recvRaw, "then");  // may throw
     if (!thenM || !agen_is_callable(thenM)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -1998,8 +2035,12 @@ TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
     TsValue* thenFin;
     TsValue* catchFin;
     if (onFinally && agen_is_callable(onFinally)) {
-        thenFin = spec_make_native1((void*)finally_then_wrapper, (void*)onFinally, 1);
-        catchFin = spec_make_native1((void*)finally_catch_wrapper, (void*)onFinally, 1);
+        // Steps 5-6: Then/Catch Finally closures capture C and onFinally.
+        FinallyCtx* fc = (FinallyCtx*)ts_alloc(sizeof(FinallyCtx));
+        fc->onF = onFinally;
+        fc->C = C;
+        thenFin = spec_make_native1((void*)finally_then_wrapper, (void*)fc, 1);
+        catchFin = spec_make_native1((void*)finally_catch_wrapper, (void*)fc, 1);
     } else {
         // Non-callable onFinally passes through verbatim (spec step 3).
         thenFin = onFinally ? onFinally : ts_value_make_undefined();
@@ -2067,6 +2108,7 @@ extern "C" void ts_promise_run_executor_on(void* promiseRaw, TsValue* executor) 
             "Promise resolver is not a function"));
         return;  // unreachable (ts_throw longjmps)
     }
+    promise->executorRan = true;
     TsValue* resolveArg = make_promise_settle_fn(
         (void*)ts_promise_resolve_wrapper, promise);
     TsValue* rejectArg = make_promise_settle_fn(
@@ -2101,6 +2143,16 @@ extern "C" void ts_promise_run_executor_on(void* promiseRaw, TsValue* executor) 
 // the *-ctx-ctor tests, and a direct `new Sub(executor)`.
 extern "C" void ts_native_object_set_proto(void* obj, TsValue* proto);
 extern "C" void* ts_native_object_get_proto(void* obj);
+
+// Allocation half of the compiled `new C(...)` path for `class C extends
+// Promise` (ts_subclass_builtin_alloc in TsGlobals.cpp): the instance must
+// BE a branded TsPromise so inherited then/catch/finally and await see a
+// real promise receiver. The executor runs later via super(executor) ->
+// ts_super_builtin_call -> ts_promise_run_executor_on.
+extern "C" void* ts_promise_alloc_for_subclass() {
+    return (void*)ts_promise_create();
+}
+
 extern "C" TsValue* ts_promise_construct_subclass(TsValue* constructorFn,
                                                   int argc, TsValue** argv) {
     if (!constructorFn) return nullptr;
@@ -2128,15 +2180,20 @@ extern "C" TsValue* ts_promise_construct_subclass(TsValue* constructorFn,
         ts_native_object_set_proto((void*)p, protoVal);
 
     // Run C's own constructor for its observable side effects (field inits,
-    // callCount, capturing the executor). `super(executor)` inside it is a
-    // no-op for a builtin base in our lowering — the executor runs below.
+    // callCount, capturing the executor). A USER constructor's compiled
+    // `super(executor)` lowering (ts_super_builtin_call "Promise") runs the
+    // executor on the instance itself and stamps executorRan.
     if (ts_is_callable((void*)constructorFn))
         ts_function_call_with_this(constructorFn, thisArg, argc, argv);
 
     // ES 27.2.3.1 steps 3-11: run the executor (argv[0]) on the promise — the
-    // effect of the base Promise constructor invoked by super().
-    TsValue* executor = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
-    ts_promise_run_executor_on((void*)p, executor);
+    // effect of the base Promise constructor invoked by super(). Skipped when
+    // the constructor's own super() already ran it (the executor runs exactly
+    // once; a capability executor throws TypeError on a second invocation).
+    if (!p->executorRan) {
+        TsValue* executor = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        ts_promise_run_executor_on((void*)p, executor);
+    }
     return thisArg;
 }
 

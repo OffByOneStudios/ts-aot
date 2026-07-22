@@ -99,6 +99,12 @@ struct TsPromise : public TsObject {
     PromiseState state = PromiseState::Pending;
     TsValue value; // Result or Error
     bool handled = false;
+    // Set once ts_promise_run_executor_on has run the executor on this
+    // instance (the effect of `super(executor)` in a Promise subclass ctor).
+    // ts_promise_construct_subclass consults it so the executor is not run
+    // a second time after a user constructor whose compiled super() lowering
+    // already ran it (ES 27.2.3.1 runs the executor exactly once).
+    bool executorRan = false;
 
     // Callbacks
     struct Callback {
