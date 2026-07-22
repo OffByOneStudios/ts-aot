@@ -48,6 +48,10 @@ extern "C" TsValue* ts_species_constructor_std(void* exemplar, void* defaultCtor
 extern "C" TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
 extern "C" void* ts_date_now_string();
 extern "C" TsValue* ts_new_from_constructor_1(TsValue* ctor, TsValue* arg);
+// Ambient new.target register (defined later in this file) — the
+// wrapAsCallable body consults it to distinguish plain [[Call]] from a
+// generic-[[Construct]] invocation.
+extern "C" void* ts_get_new_target();
 
 // GC-001 Phase C: RAII guard that routes allocations to the old generation for
 // its lifetime (ts_gc_push_tenure/pop). Placed at the entry of every
@@ -1774,13 +1778,20 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
         // TypeError (Map 24.1.1.1, Set 24.2.1.1, WeakMap/WeakSet 24.3/24.4,
         // Promise 27.2.3.1, Proxy 28.2.1.1, ArrayBuffer 25.1.3.1, DataView
         // 25.3.2.1, WeakRef 26.1.1.1, FinalizationRegistry 26.2.1.1, and
-        // all Temporal constructors). This body is reached with ctx==name
-        // ONLY on a plain call: every construct path (compiler `new` fast
-        // paths, ts_new_from_constructor identity/name dispatch,
-        // Reflect.construct) resolves these builtins BEFORE the wrapper
-        // body runs, and the generic construct path overrides ctx with the
-        // freshly-allocated `this`. POD frame only (ts_throw longjmps).
-        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL) {
+        // all Temporal constructors). POD frame only (ts_throw longjmps).
+        //
+        // NewTarget guard: with keep_context pinning ctx to the name, this
+        // body now sees the name even when invoked FROM the generic
+        // [[Construct]] path (Reflect.construct(DataView, args, newTarget)
+        // reaches it for DataView/WeakRef/FinalizationRegistry, which have
+        // no identity dispatch in ts_new_from_constructor_impl). Before
+        // keep_context, the construct path's ctx override masked the name
+        // and the body fell through to undefined, letting the generic path
+        // keep the newtarget-derived instance — so throw ONLY when the
+        // ambient new.target register is clear (a genuine plain call; the
+        // register is set for the whole construct invocation).
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            ts_value_is_undefined((TsValue*)ts_get_new_target())) {
             static const char* const kRequiresNew[] = {
                 "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy", "Iterator",
                 "ArrayBuffer", "DataView", "WeakRef", "FinalizationRegistry",
