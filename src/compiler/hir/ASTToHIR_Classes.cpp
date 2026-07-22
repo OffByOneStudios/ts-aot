@@ -55,6 +55,189 @@ bool stmtMightCallSuper(ast::Statement* s) {
     return true;   // loops/try/decls/etc.: assume they might
 }
 
+// Collect every identifier NAME referenced anywhere in an AST subtree, into
+// `out`. Used to over-approximate the free variables of a nested-class
+// constructor body so we can decide whether it captures enclosing-function
+// variables (each collected name is checked against isCapturedVariable). We
+// deliberately recurse into nested function/arrow bodies and their default
+// initializers: a nested closure referencing an outer variable produces a
+// TRANSITIVE capture on the enclosing constructor, which must also be threaded.
+// Over-approximation is safe — a name that is not actually captured just yields
+// an unused closure cell; the accurate capture set comes from pendingCaptures_
+// after real lowering.
+static void collectReferencedIdentifiers(ast::Node* node,
+                                         std::set<std::string>& out) {
+    if (!node) return;
+    if (auto* ident = dynamic_cast<ast::Identifier*>(node)) {
+        if (!ident->name.empty()) out.insert(ident->name);
+        return;
+    }
+    // Recurse via the generic kind dispatch mirroring containsArgumentsIdentifier's
+    // coverage. Statements:
+    if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
+        for (auto& s : block->statements) collectReferencedIdentifiers(s.get(), out);
+        return;
+    }
+    if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
+        collectReferencedIdentifiers(expr->expression.get(), out); return;
+    }
+    if (auto* ret = dynamic_cast<ast::ReturnStatement*>(node)) {
+        collectReferencedIdentifiers(ret->expression.get(), out); return;
+    }
+    if (auto* ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
+        collectReferencedIdentifiers(ifStmt->condition.get(), out);
+        collectReferencedIdentifiers(ifStmt->thenStatement.get(), out);
+        collectReferencedIdentifiers(ifStmt->elseStatement.get(), out);
+        return;
+    }
+    if (auto* whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
+        collectReferencedIdentifiers(whileStmt->condition.get(), out);
+        collectReferencedIdentifiers(whileStmt->body.get(), out);
+        return;
+    }
+    if (auto* forStmt = dynamic_cast<ast::ForStatement*>(node)) {
+        collectReferencedIdentifiers(forStmt->initializer.get(), out);
+        collectReferencedIdentifiers(forStmt->condition.get(), out);
+        collectReferencedIdentifiers(forStmt->incrementor.get(), out);
+        collectReferencedIdentifiers(forStmt->body.get(), out);
+        return;
+    }
+    if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
+        collectReferencedIdentifiers(forOf->expression.get(), out);
+        collectReferencedIdentifiers(forOf->body.get(), out);
+        return;
+    }
+    if (auto* forIn = dynamic_cast<ast::ForInStatement*>(node)) {
+        collectReferencedIdentifiers(forIn->expression.get(), out);
+        collectReferencedIdentifiers(forIn->body.get(), out);
+        return;
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+        collectReferencedIdentifiers(sw->expression.get(), out);
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
+                collectReferencedIdentifiers(cc->expression.get(), out);
+                for (auto& s : cc->statements) collectReferencedIdentifiers(s.get(), out);
+            }
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get()))
+                for (auto& s : dc->statements) collectReferencedIdentifiers(s.get(), out);
+        }
+        return;
+    }
+    if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
+        for (auto& s : tryStmt->tryBlock) collectReferencedIdentifiers(s.get(), out);
+        if (tryStmt->catchClause)
+            for (auto& s : tryStmt->catchClause->block) collectReferencedIdentifiers(s.get(), out);
+        for (auto& s : tryStmt->finallyBlock) collectReferencedIdentifiers(s.get(), out);
+        return;
+    }
+    if (auto* throwStmt = dynamic_cast<ast::ThrowStatement*>(node)) {
+        collectReferencedIdentifiers(throwStmt->expression.get(), out); return;
+    }
+    if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) {
+        collectReferencedIdentifiers(varDecl->initializer.get(), out); return;
+    }
+    if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(node)) {
+        collectReferencedIdentifiers(labeled->statement.get(), out); return;
+    }
+    // Nested functions: recurse into bodies + param defaults (transitive capture).
+    if (auto* fnDecl = dynamic_cast<ast::FunctionDeclaration*>(node)) {
+        for (auto& p : fnDecl->parameters)
+            if (p) collectReferencedIdentifiers(p->initializer.get(), out);
+        for (auto& s : fnDecl->body) collectReferencedIdentifiers(s.get(), out);
+        return;
+    }
+    if (auto* fnExpr = dynamic_cast<ast::FunctionExpression*>(node)) {
+        for (auto& p : fnExpr->parameters)
+            if (p) collectReferencedIdentifiers(p->initializer.get(), out);
+        for (auto& s : fnExpr->body) collectReferencedIdentifiers(s.get(), out);
+        return;
+    }
+    if (auto* arrow = dynamic_cast<ast::ArrowFunction*>(node)) {
+        for (auto& p : arrow->parameters)
+            if (p) collectReferencedIdentifiers(p->initializer.get(), out);
+        collectReferencedIdentifiers(arrow->body.get(), out);
+        return;
+    }
+    // Expressions
+    if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
+        collectReferencedIdentifiers(call->callee.get(), out);
+        for (auto& a : call->arguments) collectReferencedIdentifiers(a.get(), out);
+        return;
+    }
+    if (auto* newExpr = dynamic_cast<ast::NewExpression*>(node)) {
+        collectReferencedIdentifiers(newExpr->expression.get(), out);
+        for (auto& a : newExpr->arguments) collectReferencedIdentifiers(a.get(), out);
+        return;
+    }
+    if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node)) {
+        collectReferencedIdentifiers(bin->left.get(), out);
+        collectReferencedIdentifiers(bin->right.get(), out);
+        return;
+    }
+    if (auto* assign = dynamic_cast<ast::AssignmentExpression*>(node)) {
+        collectReferencedIdentifiers(assign->left.get(), out);
+        collectReferencedIdentifiers(assign->right.get(), out);
+        return;
+    }
+    if (auto* cond = dynamic_cast<ast::ConditionalExpression*>(node)) {
+        collectReferencedIdentifiers(cond->condition.get(), out);
+        collectReferencedIdentifiers(cond->whenTrue.get(), out);
+        collectReferencedIdentifiers(cond->whenFalse.get(), out);
+        return;
+    }
+    if (auto* prefix = dynamic_cast<ast::PrefixUnaryExpression*>(node)) {
+        collectReferencedIdentifiers(prefix->operand.get(), out); return;
+    }
+    if (auto* postfix = dynamic_cast<ast::PostfixUnaryExpression*>(node)) {
+        collectReferencedIdentifiers(postfix->operand.get(), out); return;
+    }
+    if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) {
+        // Recurse into the object only; the property NAME is not a variable ref.
+        collectReferencedIdentifiers(prop->expression.get(), out); return;
+    }
+    if (auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node)) {
+        collectReferencedIdentifiers(elem->expression.get(), out);
+        collectReferencedIdentifiers(elem->argumentExpression.get(), out);
+        return;
+    }
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
+        for (auto& e : arr->elements) collectReferencedIdentifiers(e.get(), out);
+        return;
+    }
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
+        for (auto& p : obj->properties)
+            if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(p.get()))
+                collectReferencedIdentifiers(pa->initializer.get(), out);
+        return;
+    }
+    if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(node)) {
+        for (auto& span : tmpl->spans) collectReferencedIdentifiers(span.expression.get(), out);
+        return;
+    }
+    if (auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(node)) {
+        collectReferencedIdentifiers(paren->expression.get(), out); return;
+    }
+    if (auto* spread = dynamic_cast<ast::SpreadElement*>(node)) {
+        collectReferencedIdentifiers(spread->expression.get(), out); return;
+    }
+    if (auto* del = dynamic_cast<ast::DeleteExpression*>(node)) {
+        collectReferencedIdentifiers(del->expression.get(), out); return;
+    }
+    if (auto* await_ = dynamic_cast<ast::AwaitExpression*>(node)) {
+        collectReferencedIdentifiers(await_->expression.get(), out); return;
+    }
+    if (auto* yield_ = dynamic_cast<ast::YieldExpression*>(node)) {
+        collectReferencedIdentifiers(yield_->expression.get(), out); return;
+    }
+    if (auto* asExpr = dynamic_cast<ast::AsExpression*>(node)) {
+        collectReferencedIdentifiers(asExpr->expression.get(), out); return;
+    }
+    if (auto* nonNull = dynamic_cast<ast::NonNullExpression*>(node)) {
+        collectReferencedIdentifiers(nonNull->expression.get(), out); return;
+    }
+}
+
 static bool computedKeyReferencesBinding(ast::Expression* e) {
     if (!e) return false;
     std::string k = e->getKind();
@@ -223,6 +406,67 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
         // chain to the builtin at runtime.
         if (!hirClass->baseClass) hirClass->baseBuiltinName = node->baseClass;
     }
+
+    // Nested-class constructor capture pre-scan (Milestone A). A class declared
+    // inside a function whose CONSTRUCTOR (or a field initializer that runs in
+    // the constructor) references an enclosing-function variable must thread a
+    // closure carrying those cells as the ctor's hidden physical arg 0. Decide
+    // NOW (before lowering the ctor) whether to prepend `__closure__` to the
+    // ctor signature. Detection is a conservative over-approximation: any
+    // referenced identifier that resolves to an outer-function binding. The
+    // ACCURATE capture set comes from pendingCaptures_ after real lowering, so
+    // a false positive here only yields an unused closure cell. Gated strictly
+    // on function-scoped classes lowered inside a genuine nested function, so
+    // top-level and non-capturing classes keep the legacy [this, ...args] ABI.
+    bool nestedCaptureCtx = node->isFunctionScoped && currentFunction_ &&
+        !(currentFunction_->name.rfind("__module_init_", 0) == 0 ||
+          currentFunction_->name == "user_main" ||
+          currentFunction_->name == "__synthetic_user_main");
+    bool ctorMayCapture = false;
+    if (nestedCaptureCtx) {
+        // The constructor's own function scope is not pushed yet, so
+        // isCapturedVariable() (which is relative to currentFunction_ == the
+        // ENCLOSING function) can't answer "does the ctor capture X". Instead:
+        // a name the ctor references is a capture iff it resolves to a binding
+        // in the currently-active (enclosing / outer) scope chain AND is not
+        // bound locally by the constructor (params, this/arguments/super, or a
+        // var/let/const/function declared in the ctor body). lookupVariableInfo
+        // searches only lexical scopes (not globals/builtins), so a bare
+        // reference to a builtin or the class name is not misdetected.
+        std::set<std::string> refs;
+        std::set<std::string> localNames = {"this", "arguments", "super"};
+        for (auto& m : node->members) {
+            if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
+                if (md->name == "constructor" && !md->isStatic && md->hasBody) {
+                    for (auto& s : md->body) collectReferencedIdentifiers(s.get(), refs);
+                    for (auto& p : md->parameters) {
+                        if (!p) continue;
+                        collectReferencedIdentifiers(p->initializer.get(), refs);
+                        if (auto* id = dynamic_cast<ast::Identifier*>(p->name.get()))
+                            localNames.insert(id->name);
+                    }
+                    std::vector<std::string> hv, hf;
+                    for (auto& s : md->body) collectHoistedVarNames(s.get(), hv, &hf);
+                    for (auto& n : hv) localNames.insert(n);
+                    std::set<std::string> lex;
+                    collectTopLevelLexicalNames(md->body, lex);
+                    for (auto& n : lex) localNames.insert(n);
+                }
+            } else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get())) {
+                // Non-static field initializers run inside the constructor.
+                if (!pd->isStatic && pd->initializer)
+                    collectReferencedIdentifiers(pd->initializer.get(), refs);
+            }
+        }
+        for (const auto& nm : refs) {
+            if (localNames.count(nm)) continue;
+            if (lookupVariableInfo(nm) != nullptr) { ctorMayCapture = true; break; }
+        }
+    }
+    // Captures snapshotted from the constructor's pendingCaptures_ after its
+    // body is lowered (explicit ctor) or after the synthesized default ctor.
+    // Drives the cell-carrier closure built at the class-definition site.
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> ctorCaptureSnapshot;
 
     // Create class shape (layout of instance properties)
     auto shape = std::make_shared<HIRShape>();
@@ -398,8 +642,22 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             std::string methodFuncName = computeClassMethodFuncName(
                 node->name, methodDef, isComputedName, computedAccessorSeq, methodKey);
 
+            // Nested-class constructor capture (Milestone A): thread a closure
+            // carrying captured enclosing-function cells as the ctor's hidden
+            // physical arg 0. Prepend `__closure__` BEFORE `this` so the HIR
+            // signature is (__closure__, this, ...args); HIRToLLVM maps
+            // params[0]=="__closure__" to closureParam_ and the by-name `new`
+            // site passes [closure, this, ...args] positionally. Only the
+            // instance constructor of a capturing function-scoped class.
+            bool prependCtorClosure = ctorMayCapture && !methodDef->isStatic &&
+                                      methodDef->name == "constructor";
+
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
+            // Prepend `__closure__` as params[0] for a capturing nested ctor,
+            // BEFORE the `this` param pushed below -> (__closure__, this, ...args).
+            if (prependCtorClosure)
+                func->params.push_back({"__closure__", HIRType::makePtr()});
             func->isAsync = methodDef->isAsync;
             func->isGenerator = methodDef->isGenerator;
             func->sourceLine = methodDef->line;
@@ -477,6 +735,22 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
                 }
+                // ECMA-262 rest element: mark the HIRFunction so the construct
+                // site (visitNewExpression) and the closure rest-index
+                // (HIRToLLVM_Closures -> ts_closure_set_rest_index, consumed by
+                // the runtime rest packers) both know this method/ctor's last
+                // param collects trailing args into an Array. Class methods and
+                // constructors previously skipped this (only free functions set
+                // it), so `constructor(...a){super(...a)}` and `obj.m(...args)`
+                // bound the rest name to a single value. restParamIndex is the
+                // PHYSICAL index in func->params (this/__closure__ included), to
+                // match HIRToLLVM_Closures' user-index computation.
+                if (param->isRest) {
+                    func->hasRestParam = true;
+                    func->restParamIndex = func->params.size();
+                    if (paramType->kind != HIRTypeKind::Array)
+                        paramType = HIRType::makeArray(paramType, false);
+                }
                 func->params.push_back({paramName, paramType});
             }
 
@@ -551,7 +825,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // ECMA-262 parameter TDZ (preseedParamTDZ): later/self param
             // reads inside a default throw ReferenceError.
             preseedParamTDZ(func.get(), methodDef->parameters);
-            size_t ccArgTypeOffset = methodDef->isStatic ? 0 : 1;
+            size_t ccArgTypeOffset = (methodDef->isStatic ? 0 : 1) +
+                                     (prependCtorClosure ? 1 : 0);
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
@@ -785,7 +1060,48 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Add implicit return if no terminator
             if (!hasTerminator()) {
-                builder_.createReturnVoid();
+                // Milestone C: a FIELDLESS derived ctor with a DYNAMIC/builtin
+                // base may have REBOUND `this` in super(...) to a branded base
+                // instance (ts_super_dynamic_construct). Return that `this` so
+                // the `new` site (ts_construct_select) uses the branded object,
+                // not the eager flat one. Non-Temporal bases return the
+                // unchanged flat `this` — a harmless self-select.
+                bool dynBaseFieldlessCtor = methodDef->name == "constructor" &&
+                    !methodDef->isStatic && !hirClass->baseClass &&
+                    !node->baseClass.empty();
+                if (dynBaseFieldlessCtor) {
+                    for (auto& m : node->members)
+                        if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get()))
+                            if (!pd->isStatic) { dynBaseFieldlessCtor = false; break; }
+                }
+                auto thisRet = dynBaseFieldlessCtor ? lookupVariable("this") : nullptr;
+                if (thisRet) {
+                    // The ctor now RETURNS `this` (possibly rebound to a branded
+                    // base instance by ts_super_dynamic_construct). The function
+                    // signature must be value-returning or HIRToLLVM emits `ret
+                    // void` and the branded object is dropped — ts_construct_select
+                    // then receives `undefined` and keeps the eager flat object,
+                    // so every branded accessor throws "not a Temporal.X".
+                    func->returnType = HIRType::makeAny();
+                    builder_.createReturn(thisRet);
+                } else {
+                    builder_.createReturnVoid();
+                }
+            }
+
+            // Nested-class ctor capture snapshot (Milestone A): copy the
+            // constructor's accumulated captures onto the HIRFunction (so
+            // HIRToLLVM resolves each LoadCapture against captures[] and the
+            // __closure__ param feeds closureParam_) and remember them for
+            // the cell-carrier closure built at the class-definition site
+            // below. Runs while pendingCaptures_ still holds this ctor's
+            // captures (flsScope.reset() clears them).
+            if (prependCtorClosure && methodDef->name == "constructor" &&
+                !methodDef->isStatic) {
+                for (const auto& cap : pendingCaptures_) {
+                    func->captures.push_back({cap.name, cap.type});
+                    ctorCaptureSnapshot.push_back({cap.name, cap.type});
+                }
             }
 
             popScope();
@@ -857,7 +1173,13 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             std::string ctorName = node->name + "_constructor";
             auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
 
+            // Nested-class capture (Milestone A): a capturing field
+            // initializer runs in this synthesized ctor; thread a closure
+            // carrying the cells as hidden physical arg 0.
+            bool prependCtorClosure = ctorMayCapture;
             // 'this' is the first parameter
+            if (prependCtorClosure)
+                defaultCtor->params.push_back({"__closure__", HIRType::makePtr()});
             defaultCtor->params.push_back({"this", HIRType::makeObject()});
             // ECMA-262 15.7.14: the implicit constructor of a DERIVED class is
             // `constructor(...args){ super(...args); }` — it forwards its
@@ -895,8 +1217,9 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             currentBlock_ = ctorBlock;
             pushScope();
 
-            // Define 'this' in scope
-            auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeObject(), "this");
+            // Define 'this' in scope (index shifts to 1 when __closure__ leads)
+            uint32_t defThisIdx = prependCtorClosure ? 1u : 0u;
+            auto thisValue = std::make_shared<HIRValue>(defThisIdx, HIRType::makeObject(), "this");
             defineVariable("this", thisValue);
 
             // Call super(...args) if we have a base class, forwarding the
@@ -904,7 +1227,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             if (hirClass->baseClass && hirClass->baseClass->constructor) {
                 std::vector<std::shared_ptr<HIRValue>> superArgs;
                 superArgs.push_back(thisValue);
-                for (size_t pi = 1; pi < defaultCtor->params.size(); ++pi) {
+                for (size_t pi = (size_t)defThisIdx + 1; pi < defaultCtor->params.size(); ++pi) {
                     superArgs.push_back(std::make_shared<HIRValue>(
                         static_cast<uint32_t>(pi), defaultCtor->params[pi].second,
                         defaultCtor->params[pi].first));
@@ -945,6 +1268,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // Return void
             builder_.createReturnVoid();
 
+            // Nested-class ctor capture snapshot (Milestone A), default ctor.
+            if (prependCtorClosure) {
+                for (const auto& cap : pendingCaptures_) {
+                    defaultCtor->captures.push_back({cap.name, cap.type});
+                    ctorCaptureSnapshot.push_back({cap.name, cap.type});
+                }
+            }
+
             popScope();
             currentFunction_ = savedFunc;
             currentMethodIsStatic_ = savedMethodStatic;
@@ -965,6 +1296,64 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Generate decorator static init function if class has any decorators
     // (class decorators, method decorators, property decorators, or parameter decorators)
     generateClassDecoratorStaticInit(node->name, node->decorators, node->members);
+
+    // Nested-class constructor capture (Milestone A): build a cell-carrier
+    // closure over the enclosing-function variables the constructor captured,
+    // and record it so `new <Class>()` sites thread it as the ctor's hidden
+    // physical arg 0. The closure is PURELY a capture-cell carrier — class
+    // identity, .prototype, and vtable dispatch continue through the existing
+    // per-class cached closure, so only the constructor call is affected.
+    // Condition mirrors the __closure__-prepend decision (ctorMayCapture), NOT
+    // the snapshot, so the ctor signature (with __closure__) and every `new`
+    // site (which passes a closure) stay in lock-step even if the accurate
+    // capture set turned out empty — a 0-cell closure is harmless.
+    if (nestedCaptureCtx && hirClass->constructor && ctorMayCapture) {
+        const std::string& ctorName = hirClass->constructor->name;
+        auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+        for (const auto& pp : hirClass->constructor->params)
+            closureFuncType->paramTypes.push_back(pp.second);
+        closureFuncType->returnType = hirClass->constructor->returnType;
+        std::vector<std::shared_ptr<HIRValue>> captureValues;
+        for (const auto& cap : ctorCaptureSnapshot) {
+            const std::string& capName = cap.first;
+            const auto& capType = cap.second;
+            size_t scopeIndex = 0;
+            if (isCapturedVariable(capName, &scopeIndex)) {
+                // Transitively captured: the enclosing function ALSO captures
+                // this var — propagate + alias the parent cell.
+                registerCapture(capName, capType, scopeIndex);
+                currentFunction_->hasClosure = true;
+                bool already = false;
+                for (const auto& ec : currentFunction_->captures)
+                    if (ec.first == capName) { already = true; break; }
+                if (!already) currentFunction_->captures.push_back({capName, capType});
+                captureValues.push_back(builder_.createLoadCapture(capName, capType));
+            } else {
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    std::shared_ptr<HIRValue> val;
+                    if (info->isAlloca && info->elemType)
+                        val = builder_.createLoad(info->elemType, info->value);
+                    else
+                        val = info->value;
+                    captureValues.push_back(val);
+                } else {
+                    captureValues.push_back(builder_.createConstNull());
+                }
+            }
+        }
+        std::vector<std::string> capFromParent;
+        for (const auto& cap : ctorCaptureSnapshot) {
+            size_t idx = 0;
+            capFromParent.push_back(
+                isCapturedVariable(cap.first, &idx) ? cap.first : std::string());
+        }
+        auto closureVal = builder_.createMakeClosure(
+            ctorName, captureValues, closureFuncType, &capFromParent);
+        finishClosure(ctorName, closureVal, ctorCaptureSnapshot);
+        fnScopedCtorClosure_[node->name] = closureVal;
+        hirClass->ctorCapturesEnclosing = true;
+    }
 
     // Defer class-prototype install: emitDeferredStaticInits at user_main
     // entry will create a real prototype object holding all instance
@@ -1090,9 +1479,13 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 builder_.createCall("ts_object_setPrototypeOf",
                     {ctorVal, baseCtorVal}, HIRType::makeVoid());
             } else if (!hirClass->baseBuiltinName.empty()) {
-                auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
-                builder_.createCall("ts_class_link_builtin_base",
-                    {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+                // Milestone C: resolve the heritage VALUE (variable/param or
+                // builtin) at this source position and link dynamically, so
+                // `class Z extends Base` (Base a runtime value) links its proto
+                // chain — the old name-only ts_class_link_builtin_base no-oped
+                // for a non-builtin name, leaving `new Z() instanceof Base`
+                // false. Falls back to the name link for unresolvable names.
+                emitDynamicHeritageLink(hirClass, ctorVal, proto);
             }
         }
         // Install static methods on the constructor for dynamic access.
@@ -1422,6 +1815,22 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                         param->initializer.get()});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
+                }
+                // ECMA-262 rest element: mark the HIRFunction so the construct
+                // site (visitNewExpression) and the closure rest-index
+                // (HIRToLLVM_Closures -> ts_closure_set_rest_index, consumed by
+                // the runtime rest packers) both know this method/ctor's last
+                // param collects trailing args into an Array. Class methods and
+                // constructors previously skipped this (only free functions set
+                // it), so `constructor(...a){super(...a)}` and `obj.m(...args)`
+                // bound the rest name to a single value. restParamIndex is the
+                // PHYSICAL index in func->params (this/__closure__ included), to
+                // match HIRToLLVM_Closures' user-index computation.
+                if (param->isRest) {
+                    func->hasRestParam = true;
+                    func->restParamIndex = func->params.size();
+                    if (paramType->kind != HIRTypeKind::Array)
+                        paramType = HIRType::makeArray(paramType, false);
                 }
                 func->params.push_back({paramName, paramType});
             }
@@ -1985,9 +2394,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             builder_.createCall("ts_object_setPrototypeOf",
                 {ctorVal, baseCtorVal}, HIRType::makeVoid());
         } else if (!hirClass->baseBuiltinName.empty()) {
-            auto baseNameC = builder_.createConstString(hirClass->baseBuiltinName);
-            builder_.createCall("ts_class_link_builtin_base",
-                {ctorVal, proto, baseNameC}, HIRType::makeVoid());
+            // Milestone C: resolve the heritage VALUE at this source position and
+            // link dynamically so `class Z extends Base` (Base a runtime param/
+            // var) links its proto chain — the old name-only builtin link no-oped
+            // for a non-builtin name.
+            emitDynamicHeritageLink(hirClass, ctorVal, proto);
         }
     }
     // Install static methods on the constructor itself so dynamic-dispatch

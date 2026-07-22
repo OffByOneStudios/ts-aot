@@ -48,11 +48,35 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     {packed, boxValueIfNeeded(args[i])}, HIRType::makeInt64());
             }
         }
-        auto calleeVal = lowerExpression(node->callee.get());
-        auto undef = builder_.createConstUndefined();
+        // ECMA-262 12.3.6 EvaluateCall: for a METHOD callee (`obj.m(...args)` /
+        // `obj[k](...args)`) the receiver `obj` is the `this` binding. The old
+        // code passed `undefined`, so every spread method call ran with the
+        // wrong `this` (`arr.push(...items)` -> "called on null or undefined";
+        // `dur[m](...a)` -> "not a Temporal.X"). Evaluate the receiver ONCE and
+        // thread it as thisArg; `super.m(...)` keeps the legacy path (its home-
+        // object receiver is resolved elsewhere, and `super` has no value here).
+        std::shared_ptr<HIRValue> calleeVal;
+        std::shared_ptr<HIRValue> thisArg;
+        if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+            if (!dynamic_cast<ast::SuperExpression*>(pa->expression.get())) {
+                thisArg = boxValueIfNeeded(lowerExpression(pa->expression.get()));
+                calleeVal = builder_.createGetPropStatic(thisArg, pa->name, HIRType::makeAny());
+            }
+        } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node->callee.get())) {
+            if (!dynamic_cast<ast::SuperExpression*>(ea->expression.get())) {
+                thisArg = boxValueIfNeeded(lowerExpression(ea->expression.get()));
+                auto keyVal = boxValueIfNeeded(lowerExpression(ea->argumentExpression.get()));
+                calleeVal = builder_.createCall("ts_object_get_dynamic",
+                    {thisArg, keyVal}, HIRType::makeAny());
+            }
+        }
+        if (!calleeVal) {
+            calleeVal = lowerExpression(node->callee.get());
+            thisArg = builder_.createConstUndefined();
+        }
         lastValue_ = builder_.createCall(
             "ts_function_apply",
-            {boxValueIfNeeded(calleeVal), undef, packed},
+            {boxValueIfNeeded(calleeVal), thisArg, packed},
             HIRType::makeAny());
         return;
     }
@@ -126,6 +150,54 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
         // If base class has no explicit constructor (e.g., abstract class),
         // super() is a no-op - just continue with the derived class constructor
+        lastValue_ = builder_.createConstUndefined();
+        return;
+    }
+
+    // Milestone C — `super(...)` for a DYNAMIC / builtin base (no compiler-known
+    // baseClass, heritage resolved at runtime: `class Sub extends <value>` where
+    // the value is a param/var/dotted-builtin like `Temporal.PlainDate`). ES
+    // 15.7.14 / 10.2.2: in a derived constructor SuperCall binds `this` to
+    // base.[[Construct]](superArgs, newTarget). For a Temporal-family base the
+    // eager flat `this` is not branded, so we build a genuine branded instance
+    // from the SUPER args (ts_super_dynamic_construct, keyed on the ambient
+    // new.target's [[Prototype]] chain) and REBIND `this` to it — the ctor then
+    // returns that branded `this` (see the fieldless-derived implicit-return and
+    // the `new` site's ts_construct_select). Scoped to FIELDLESS subclasses: a
+    // compiled-field subclass keeps flat-slot layout and its legacy path.
+    if (superExpr && currentClass_ && !currentClass_->baseClass &&
+        !currentClass_->baseBuiltinName.empty() &&
+        (!currentClass_->shape || currentClass_->shape->propertyOffsets.empty())) {
+        // Pack the SUPER arguments (iterator protocol for `super(...iterable)`).
+        auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
+        auto packed = builder_.createCall("ts_array_create", {}, anyArr);
+        for (size_t i = 0; i < node->arguments.size(); ++i) {
+            if (dynamic_cast<ast::SpreadElement*>(node->arguments[i].get()))
+                packed = builder_.createCall("ts_array_spread_into",
+                    {packed, boxValueIfNeeded(args[i])}, anyArr);
+            else
+                builder_.createCall("ts_array_push",
+                    {packed, boxValueIfNeeded(args[i])}, HIRType::makeInt64());
+        }
+        auto oldThis = lookupVariable("this");
+        if (!oldThis) oldThis = builder_.createConstNull();
+        // Branded base [[Construct]] from super args (no-op → oldThis for a
+        // non-Temporal base). Rebinding keeps the branded object as `this`.
+        auto newThis = builder_.createCall("ts_super_dynamic_construct",
+            {boxValueIfNeeded(oldThis), packed}, HIRType::makeAny());
+        // Builtin base initialization for a FIELDLESS user-ctor subclass of
+        // Set/WeakSet/Error-family — mirrors the synthetic-ctor path
+        // (ts_super_builtin_call); a no-op for Temporal / non-builtin heritage.
+        auto baseNameC = builder_.createConstString(currentClass_->baseBuiltinName);
+        auto argcC = builder_.createCall("ts_array_length", {packed}, HIRType::makeInt64());
+        std::shared_ptr<HIRValue> a0 = node->arguments.empty()
+            ? builder_.createConstUndefined()
+            : builder_.createGetElem(packed, builder_.createConstInt(0));
+        builder_.createCall("ts_super_builtin_call",
+            {newThis, baseNameC, argcC, a0}, HIRType::makeVoid());
+        // Rebind `this` in the ctor scope so subsequent `this.x` reads and the
+        // implicit `return this` observe the (possibly branded) instance.
+        defineVariable("this", newThis);
         lastValue_ = builder_.createConstUndefined();
         return;
     }
@@ -1141,6 +1213,32 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         auto ctorVal = builder_.createLoadFunction(hc->name + "_constructor");
                         auto proto = builder_.createGetPropStatic(ctorVal, "prototype", HIRType::makeAny());
                         emitComputedAccessorInstalls(hc, proto, ctorVal);
+                    }
+                }
+            }
+            lastValue_ = builder_.createConstUndefined();
+            return;
+        }
+        // Milestone C — synthetic dynamic-heritage link trigger (injected by the
+        // Monomorphizer into __module_init at a top-level class's SOURCE
+        // position). A top-level `class X extends B` (B a runtime var/param) has
+        // its prototype/methods hoisted to the pre-module_init flush, but the
+        // heritage variable B is not yet initialized there, so the name-based
+        // link no-ops. Re-run the VALUE-based link HERE — after B's assignment,
+        // before any `new X()` — resolving B in the live source scope.
+        if (ident->name == "__ts_link_dynamic_heritage") {
+            if (!node->arguments.empty()) {
+                if (auto* lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
+                    std::string resolved = lit->value;
+                    auto vIt = variableToClassName_.find(lit->value);
+                    if (vIt != variableToClassName_.end()) resolved = vIt->second;
+                    HIRClass* hc = nullptr;
+                    for (auto& c : module_->classes) if (c && c->name == resolved) { hc = c.get(); break; }
+                    if (hc && !hc->baseClass && !hc->baseBuiltinName.empty()) {
+                        auto ctorVal = builder_.createLoadFunction(
+                            hc->constructor ? hc->constructor->name : hc->name + "_constructor");
+                        auto proto = builder_.createGetPropStatic(ctorVal, "prototype", HIRType::makeAny());
+                        emitDynamicHeritageLink(hc, ctorVal, proto);
                     }
                 }
             }
@@ -2868,8 +2966,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // [[Prototype]] to C.prototype. Without this the flat-alloc + inline-ctor
     // path below yields an unbranded object and every Temporal accessor throws
     // "called on an object that is not a Temporal.X" (subclassing "ignored").
+    // Only the SYNTHETIC-ctor case (no user constructor, or an implicit one that
+    // forwards `new` args straight to super) may use the new-args [[Construct]]
+    // shortcut. A USER constructor with `super(...ownArgs)` (Milestone C) must
+    // build the branded base from the SUPER arguments — which differ from the
+    // `new Sub()` arguments — via ts_super_dynamic_construct + ts_construct_select
+    // below; routing it here would construct from the wrong (new-call) args.
     if (hirClass && hirClass->baseBuiltinName.rfind("Temporal.", 0) == 0 &&
-        (!hirClass->shape || hirClass->shape->propertyOffsets.empty())) {
+        (!hirClass->shape || hirClass->shape->propertyOffsets.empty()) &&
+        (!hirClass->constructor || hirClass->hasSyntheticCtor)) {
         auto constructorVal = lowerExpression(node->expression.get());
         if (constructorVal) {
             lastValue_ = builder_.createConstruct(constructorVal, args, HIRType::makeAny());
@@ -2965,11 +3070,52 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         // match the constructor's declared arity — verifier rejects extras
         // and missing args are undefined.
         HIRFunction* ctor = hirClass->constructor;
-        size_t expectedUserArgs = ctor->params.empty() ? 0 : ctor->params.size() - 1;
+        // Nested-class constructor capture (Milestone A): a function-scoped
+        // class whose ctor captures enclosing variables has the signature
+        // (__closure__, this, ...args). Thread the cell-carrier closure built
+        // at the class-definition site as physical arg 0; `this` and the user
+        // args follow. Leading non-user slots are 2 (closure + this) vs the
+        // usual 1 (this).
+        bool ctorHasClosure = hirClass->ctorCapturesEnclosing;
+        size_t leadingSlots = ctorHasClosure ? 2 : 1;
+        size_t expectedUserArgs = ctor->params.size() > leadingSlots
+            ? ctor->params.size() - leadingSlots : 0;
         std::vector<std::shared_ptr<HIRValue>> ctorArgs;
+        if (ctorHasClosure) {
+            auto ccIt = fnScopedCtorClosure_.find(className);
+            std::shared_ptr<HIRValue> ctorClosure =
+                (ccIt != fnScopedCtorClosure_.end()) ? ccIt->second : nullptr;
+            if (!ctorClosure) ctorClosure = builder_.createConstNull();
+            ctorArgs.push_back(ctorClosure);  // hidden __closure__ (physical arg 0)
+        }
         ctorArgs.push_back(newObj);  // 'this' is the new object
         if (ctor->hasRestParam) {
-            for (auto& arg : args) ctorArgs.push_back(arg);
+            // ECMA-262 FunctionDeclarationInstantiation: a constructor whose
+            // last param is a rest element expects that param PRE-PACKED into a
+            // single Array slot (identical to the direct-call convention at
+            // ~2145). Pushing the trailing `new` args positionally bound the
+            // rest name to a single value, so `super(...rest)` GetIterator saw a
+            // non-iterable ("value is not iterable"). The rest param is always
+            // the LAST declared param, so the count of fixed user params before
+            // it is expectedUserArgs-1.
+            size_t restUserIndex = expectedUserArgs > 0 ? expectedUserArgs - 1 : 0;
+            for (size_t i = 0; i < restUserIndex; ++i) {
+                if (i < args.size()) ctorArgs.push_back(args[i]);
+                else ctorArgs.push_back(builder_.createConstUndefined());
+            }
+            // Build the rest array with the SAME GC-proper idiom the direct-call
+            // path uses (~2145): createNewArrayBoxed returns an addrspace(1) GC
+            // array; ts_array_create returns a raw addrspace(0) ptr and mixing it
+            // into the addrspace(1) ctor-arg slot emits an "Invalid bitcast".
+            size_t restArgsCount = (args.size() > restUserIndex)
+                ? args.size() - restUserIndex : 0;
+            auto lenVal = builder_.createConstInt(static_cast<int64_t>(restArgsCount));
+            auto restArray = builder_.createNewArrayBoxed(lenVal, HIRType::makeAny());
+            for (size_t i = restUserIndex; i < args.size(); ++i) {
+                auto idxVal = builder_.createConstInt(static_cast<int64_t>(i - restUserIndex));
+                builder_.createSetElem(restArray, idxVal, args[i]);
+            }
+            ctorArgs.push_back(restArray);
         } else {
             for (size_t i = 0; i < expectedUserArgs; ++i) {
                 if (i < args.size()) ctorArgs.push_back(args[i]);
@@ -3004,7 +3150,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         auto ntCtorVal = builder_.createLoadFunction(ctor->name);
         auto prevNT = builder_.createCall("ts_set_new_target",
             {ntCtorVal}, HIRType::makeAny());
-        if (hirClass->baseClass && ctorIsJs) {
+        // Milestone C: a FIELDLESS derived class with a DYNAMIC/builtin base
+        // (no compiler-known baseClass) may REBIND `this` inside super(...) to a
+        // branded base instance and RETURN it (see the dynamic-base implicit
+        // `return this` in ASTToHIR_Classes). Capture the ctor result so the
+        // branded object — not the eager flat `this` — becomes the `new` value.
+        bool dynBaseFieldless = !hirClass->baseClass &&
+            !hirClass->baseBuiltinName.empty() &&
+            (!hirClass->shape || hirClass->shape->propertyOffsets.empty());
+        if ((hirClass->baseClass && ctorIsJs) || dynBaseFieldless) {
             // The ctor's returnType may not be finalized here (its body lowers
             // later), so we always request an Any result; HIRToLLVM materializes
             // `undefined` when the emitted ctor turns out to be void, so

@@ -9,6 +9,10 @@ using namespace ast;
 
 void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Track all ClassDeclarations for codegen (including local classes inside functions)
+    // A class declared while functionDepth>0 is function-scoped (nested/local); its
+    // constructor/heritage/methods may capture enclosing variables and must NOT be
+    // re-lowered scope-less at top level by the Monomorphizer.
+    node->isFunctionScoped = (functionDepth > 0);
     classDeclarations.push_back(node);
 
     auto classType = std::make_shared<ClassType>(node->name);

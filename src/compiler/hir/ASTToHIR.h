@@ -207,6 +207,13 @@ private:
     };
     std::vector<CaptureInfo> pendingCaptures_;
 
+    // Nested-class constructor capture: the closure value (carrying captured
+    // cells) built at a function-scoped class's definition site, keyed by
+    // class name. `new C()` sites load this and thread it as the ctor's hidden
+    // physical arg 0. Valid only within the enclosing function's HIR (an SSA
+    // value), which is exactly where the `new` sites live.
+    std::map<std::string, std::shared_ptr<HIRValue>> fnScopedCtorClosure_;
+
     // The scope index where the current nested function begins (for capture detection)
     size_t currentFunctionScopeStart_ = 0;
 
@@ -562,6 +569,18 @@ private:
     // enclosing function so try/catch sees them (ES ClassDefinitionEvaluation).
     void emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritage = false);
     void emitDeferredStaticInitsTail();  // static blocks etc. (split from flush)
+
+    // Milestone C — link a class with a DYNAMIC/exotic base to its heritage
+    // VALUE at runtime: resolve `hirClass->baseBuiltinName` as an identifier
+    // (dotted member-access for `extends Temporal.X`), then
+    // ts_class_link_dynamic_base to set proto.[[Proto]] = base.prototype and
+    // ctor.[[Proto]] = base — validating IsConstructor. Used by the class-
+    // expression trailer and the source-position top-level link so a runtime
+    // variable/param base (`class extends B`) works, not just static builtins.
+    // Must be emitted where the heritage identifier is in scope and initialized.
+    void emitDynamicHeritageLink(HIRClass* hirClass,
+                                 std::shared_ptr<HIRValue> ctorVal,
+                                 std::shared_ptr<HIRValue> proto);
 
     // Deferred decorator invocations - classes with decorators need static init functions
     struct DeferredDecorator {
