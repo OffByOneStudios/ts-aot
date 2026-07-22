@@ -1906,6 +1906,9 @@ extern "C" {
                 return str;  // unreachable
             }
         }
+        // ''.repeat(2^31) must not loop 2^31 times — an empty (or 0-count)
+        // result is the empty string regardless of n (22.1.3.18 step 5-6).
+        if (slen == 0 || n == 0) return TsString::Create("");
         return s->Repeat((int64_t)n);
     }
 

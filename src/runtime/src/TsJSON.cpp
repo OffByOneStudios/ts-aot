@@ -789,10 +789,12 @@ extern "C" {
         // ECMA-262 25.5.2 steps 11-12 via SerializeJSONProperty step 11:
         // JSON.stringify(undefined), a bare function, or a Symbol at the top
         // level returns undefined (NOT the string "null" / "{}").
-        {
-            uint64_t onb = obj ? (uint64_t)(uintptr_t)obj : 0;
-            if (!obj || nanbox_is_undefined(onb)) return ts_value_make_undefined();
-        }
+        // NOTE: a C-level nullptr is NOT undefined here — internal callers
+        // (util.isDeepStrictEqual, legacy paths) pass nullptr for JS null and
+        // expect the string "null" back; only a genuine NANBOX_UNDEFINED input
+        // takes the undefined path.
+        if (obj && nanbox_is_undefined((uint64_t)(uintptr_t)obj))
+            return ts_value_make_undefined();
         try {
             nlohmann::ordered_json j = ts_to_json(obj);
             if (j.is_discarded()) return ts_value_make_undefined();
