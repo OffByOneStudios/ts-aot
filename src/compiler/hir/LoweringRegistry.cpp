@@ -947,17 +947,17 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_charCodeAt",
-        lowering("ts_string_charCodeAt")
-            .returnsI64()
+        lowering("ts_string_charCodeAt_coerced")
+            .returnsF64()
             .ptrArg()      // string
-            .i64Arg()      // index
+            .boxedArg()    // index - ToIntegerOrInfinity in runtime; OOB -> NaN
             .build());
 
     reg.registerLowering("ts_string_codePointAt",
-        lowering("ts_string_codePointAt")
-            .returnsI64()
+        lowering("ts_string_codePointAt_boxed")
+            .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // index
+            .boxedArg()    // index - ToIntegerOrInfinity; OOB -> undefined
             .build());
 
     reg.registerLowering("ts_string_concat",
@@ -1128,10 +1128,10 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_normalize",
-        lowering("ts_string_normalize")
+        lowering("ts_string_normalize_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .ptrArg()      // form
+            .boxedArg()    // form - ToString + RangeError validation in runtime
             .build());
 
     reg.registerLowering("ts_string_at",

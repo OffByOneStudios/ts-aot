@@ -182,11 +182,16 @@ void BuiltinRegistry::registerStringMethods() {
     methodTable_[{HIRTypeKind::String, "charAt"}] =
         MethodResolution::makeRuntimeCall("ts_string_charAt", 1, stringType);
 
+    // charCodeAt returns a JS Number that can be NaN (out-of-range position,
+    // ECMA-262 22.1.3.3 step 5) — Float64, not Int64.
     methodTable_[{HIRTypeKind::String, "charCodeAt"}] =
-        MethodResolution::makeRuntimeCall("ts_string_charCodeAt", 1, intType);
+        MethodResolution::makeRuntimeCall("ts_string_charCodeAt", 1,
+                                          HIRType::makeFloat64());
 
+    // codePointAt returns Number | undefined (22.1.3.4 step 5) — boxed Any.
     methodTable_[{HIRTypeKind::String, "codePointAt"}] =
-        MethodResolution::makeRuntimeCall("ts_string_codePointAt", 1, intType);
+        MethodResolution::makeRuntimeCall("ts_string_codePointAt", 1,
+                                          HIRType::makeAny());
 
     methodTable_[{HIRTypeKind::String, "at"}] =
         MethodResolution::makeRuntimeCall("ts_string_at", 1, stringType);
@@ -738,8 +743,11 @@ void BuiltinRegistry::registerJSONBuiltins() {
     globalTable_[{"JSON", "parse"}] =
         BuiltinResolution::makeRuntimeCall("ts_json_parse", anyType);
 
+    // stringify returns String | undefined (ECMA-262 25.5.2 — undefined for
+    // an unserializable top-level value), so the static type must be Any.
     globalTable_[{"JSON", "stringify"}] =
-        BuiltinResolution::makeRuntimeCall("ts_json_stringify", stringType);
+        BuiltinResolution::makeRuntimeCall("ts_json_stringify", anyType);
+    (void)stringType;
 }
 
 MethodResolution BuiltinRegistry::resolveMethod(HIRTypeKind receiverType,

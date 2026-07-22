@@ -182,7 +182,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
                 // ES GetIterator step 4: the @@iterator call result must be
                 // an Object (null/number/string/Symbol -> TypeError).
-                return iter_require_object_result(tsCall(boxedFn));
+                return iter_require_object_result(
+                    ts_call_with_this_0(boxedFn, iterable));
             }
             // @@iterator slot present (own data key or computed-accessor
             // slot) but the raw map read found it non-callable: run the
@@ -225,7 +226,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
                 // ES GetIterator step 4: the @@iterator call result must be
                 // an Object (null/number/string/Symbol -> TypeError).
-                return iter_require_object_result(tsCall(boxedFn));
+                return iter_require_object_result(
+                    ts_call_with_this_0(boxedFn, iterable));
             }
             // @@iterator slot present (own data key or computed-accessor
             // slot) but the raw map read found it non-callable: run the

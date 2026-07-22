@@ -3532,8 +3532,10 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             if (strcmp(keyStr, "lastIndexOf") == 0) return makeNamedNativeFunction((void*)ts_string_lastIndexOf_native, strObj, "lastIndexOf", 1);
             if (strcmp(keyStr, "trimStart") == 0) return makeNamedNativeFunction((void*)ts_string_trimStart_native, strObj, "trimStart", 0);
             if (strcmp(keyStr, "trimEnd") == 0) return makeNamedNativeFunction((void*)ts_string_trimEnd_native, strObj, "trimEnd", 0);
-            if (strcmp(keyStr, "trimLeft") == 0) return makeNamedNativeFunction((void*)ts_string_trimStart_native, strObj, "trimLeft", 0);
-            if (strcmp(keyStr, "trimRight") == 0) return makeNamedNativeFunction((void*)ts_string_trimEnd_native, strObj, "trimRight", 0);
+            // AnnexB B.2.3.1/2: trimLeft/trimRight are aliases whose .name is
+            // the canonical "trimStart"/"trimEnd".
+            if (strcmp(keyStr, "trimLeft") == 0) return makeNamedNativeFunction((void*)ts_string_trimStart_native, strObj, "trimStart", 0);
+            if (strcmp(keyStr, "trimRight") == 0) return makeNamedNativeFunction((void*)ts_string_trimEnd_native, strObj, "trimEnd", 0);
             if (strcmp(keyStr, "replaceAll") == 0) return makeNamedNativeFunction((void*)ts_string_replaceAll_native, strObj, "replaceAll", 2);
             if (strcmp(keyStr, "at") == 0) return makeNamedNativeFunction((void*)ts_string_at_native, strObj, "at", 1);
             if (strcmp(keyStr, "concat") == 0) return makeNamedNativeFunction((void*)ts_string_concat_native, strObj, "concat", 1);
@@ -4403,6 +4405,16 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         }
         if (methodReached) {
             // Per ES spec, TypeError when methods exist but return non-primitives.
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert object to primitive value"));
+        }
+        // ECMA-262 7.1.1.1 OrdinaryToPrimitive step 3: if NO candidate method
+        // produced a primitive, throw TypeError. We can only apply this safely
+        // to objects that are EXPLICITLY prototype-less (Object.create(null)):
+        // for them "no valueOf/toString anywhere" is a real user-visible state
+        // (charAt/charCodeAt pos-coerce-err, trim* this-value-cannot-convert).
+        if (magic16 == 0x4D415053 /* TsMap */ &&
+            ((TsMap*)obj)->HasNullPrototype()) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot convert object to primitive value"));
         }
@@ -9719,8 +9731,23 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
     static TsValue* lookupAccessor_impl(void* ctx, TsValue** argv, int argc,
                                         const char* which /* "get" or "set" */) {
         if (!ctx) ctx = ts_get_call_this();
+        // ECMA-262 B.2.2.4/B.2.2.5 step 1: O = ? ToObject(this value) —
+        // __lookupGetter__/__lookupSetter__.call(undefined/null) is a TypeError.
+        if (ctx) {
+            uint64_t ctxNb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(ctxNb) || nanbox_is_undefined(ctxNb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
         if (!ctx) return ts_value_make_undefined();
+        // B.2.2.4/5 step 2: key = ? ToPropertyKey(P) — AFTER the ToObject
+        // above, so a nullish receiver throws BEFORE the key's toString runs
+        // (this-non-obj checks toString was never invoked). This frame is
+        // std::string-free, so the potential ts_throw longjmp is safe.
         TsValue* P = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
+        P = ts_to_property_key_spec(P);
         TsValue* cur = (TsValue*)ctx;
         // Walk the prototype chain: first own descriptor that exists decides —
         // if it's an accessor with the requested half, return it; otherwise undefined.
@@ -9737,13 +9764,11 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         return ts_value_make_undefined();
     }
     TsValue* ts_object_lookupGetter_native(void* ctx, int argc, TsValue** argv) {
-        // ToPropertyKey FIRST, in this std::string-free frame — the key's
-        // toString may throw (B.2.2.4 step 3 via 7.1.19).
-        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
+        // ToPropertyKey now runs inside lookupAccessor_impl AFTER the
+        // ToObject(this) check (B.2.2.4 step order).
         return lookupAccessor_impl(ctx, argv, argc, "get");
     }
     TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv) {
-        if (argc >= 1 && argv && argv[0]) argv[0] = ts_to_property_key_spec(argv[0]);
         return lookupAccessor_impl(ctx, argv, argc, "set");
     }
 

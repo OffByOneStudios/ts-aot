@@ -630,12 +630,23 @@ extern "C" {
     }
     TsValue* ts_string_charAt_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // ECMA-262 22.1.3.2 step 3: position = ? ToIntegerOrInfinity(pos).
+        // ts_to_index_integer runs full ToNumber (string coercion, valueOf/
+        // toString hooks, TypeError on Symbol/BigInt) instead of the silent
+        // ts_value_get_int unbox that returned 0 for objects.
+        extern int64_t ts_to_index_integer(TsValue* v);
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
         return ts_value_make_string((TsString*)ts_string_charAt(str, index));
     }
     TsValue* ts_string_charCodeAt_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // ECMA-262 22.1.3.3: step 3 position = ? ToIntegerOrInfinity(pos);
+        // step 5: if position < 0 or position >= size, return NaN (the old
+        // path returned 0 for out-of-range positions).
+        extern int64_t ts_to_index_integer(TsValue* v);
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
+        if (index < 0 || index >= ts_string_length(str))
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         return ts_value_make_int(ts_string_charCodeAt(str, index));
     }
     TsValue* ts_string_padStart_native(void* ctx, int argc, TsValue** argv) {
@@ -820,12 +831,50 @@ extern "C" {
     }
     TsValue* ts_string_codePointAt_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        return ts_value_make_int(ts_string_codePointAt(str, index));
+        // ECMA-262 22.1.3.4 String.prototype.codePointAt:
+        //   step 3: position = ? ToIntegerOrInfinity(pos) — full coercion, so a
+        //     Symbol/BigInt position or a throwing valueOf propagates;
+        //   step 5: if position < 0 or position >= size, return undefined
+        //     (the old path leaked the -1 sentinel as a number);
+        //   steps 6-8 (CodePointAt): operate on CODE UNITS — a trailing
+        //     surrogate at `position` yields that code unit itself, not the
+        //     ICU char32At() backward-combined pair.
+        extern int64_t ts_to_index_integer(TsValue* v);
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
+        int64_t size = ts_string_length(str);
+        if (index < 0 || index >= size) return ts_value_make_undefined();
+        int64_t first = ts_string_charCodeAt(str, index);
+        if (first >= 0xD800 && first <= 0xDBFF && index + 1 < size) {
+            int64_t second = ts_string_charCodeAt(str, index + 1);
+            if (second >= 0xDC00 && second <= 0xDFFF)
+                return ts_value_make_int((first - 0xD800) * 0x400 + (second - 0xDC00) + 0x10000);
+        }
+        return ts_value_make_int(first);
     }
     TsValue* ts_string_normalize_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* form = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        // ECMA-262 22.1.3.13 String.prototype.normalize:
+        //   step 3: if form is undefined, f = "NFC"; else f = ? ToString(form)
+        //     (throws TypeError on Symbol, runs ToPrimitive hooks — the old
+        //     ts_value_get_string unbox silently coerced);
+        //   step 4: if f is not one of "NFC","NFD","NFKC","NFKD", RangeError.
+        void* form = nullptr;
+        if (argc >= 1 && argv && argv[0] &&
+            !nanbox_is_undefined(nanbox_from_tsvalue_ptr(argv[0]))) {
+            extern void* ts_to_string_spec(TsValue* val);
+            form = ts_to_string_spec(argv[0]);
+        }
+        if (form) {
+            // No std::string locals here: ts_throw longjmps and would skip
+            // their destructors (see longjmp POD-safety rule).
+            TsString* f = ts_ensure_flat(form);
+            const char* fu = f ? f->ToUtf8() : "";
+            if (strcmp(fu, "NFC") != 0 && strcmp(fu, "NFD") != 0 &&
+                strcmp(fu, "NFKC") != 0 && strcmp(fu, "NFKD") != 0) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "The normalization form should be one of NFC, NFD, NFKC, NFKD."));
+            }
+        }
         return ts_value_make_string((TsString*)ts_string_normalize(str, form));
     }
 
