@@ -6989,6 +6989,119 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         ts_function_call_with_this(retFn, iter, 0, nullptr);
     }
 
+    // True when v is an Object in the ES sense (not a heap-boxed primitive).
+    // Shared by the IteratorClose result validation below and mirrors the
+    // magic-tag discrimination in ts_iterator_step_require_object.
+    static bool iter_result_is_object(TsValue* res) {
+        if (!res) return false;
+        uint64_t nb = nanbox_from_tsvalue_ptr(res);
+        if (!nanbox_is_ptr(nb) || nanbox_is_string_ptr(nb)) return false;
+        void* raw = nanbox_to_ptr(nb);
+        if (!raw || (uintptr_t)raw < 0x1000 ||
+            (uintptr_t)raw >= 0x0000800000000000ULL) return false;
+        uint32_t m0 = *(uint32_t*)raw;
+        if (m0 == 0x53594D42 /* TsSymbol */ || m0 == 0x42494749 /* TsBigInt */ ||
+            m0 == 0x53545247 /* TsString */ || m0 == 0x434F4E53 /* TsConsString */)
+            return false;
+        return true;
+    }
+
+    // ECMA-262 7.4.6 IteratorClose with a NON-throw completion (break /
+    // continue / return statements leaving a for-of): full spec semantics —
+    // GetMethod(iterator, "return") errors propagate, a non-callable non-
+    // nullish `return` is a TypeError (GetMethod step 3), errors from the
+    // return() call propagate (step 8), and a non-object call result is a
+    // TypeError (step 9). Kept separate from ts_iterator_close (above), whose
+    // lenient behavior existing runtime callers rely on inside their own
+    // swallow-handlers.
+    void ts_iterator_close_strict(TsValue* iter) {
+        if (!iter) return;
+        uint64_t inb = nanbox_from_tsvalue_ptr(iter);
+        if (!nanbox_is_ptr(inb) || nanbox_is_string_ptr(inb)) return;
+        // Getter-AWARE read (GetMethod step 1 GetV): a literal-form accessor
+        // (`get return() {...}`) must be INVOKED by the read — the raw
+        // ts_object_get_property returns its closure uninvoked, so a getter
+        // returning null/undefined would be misread as a callable method.
+        TsValue* retFn = ts_object_get_dynamic(iter,
+            ts_value_make_string(TsString::Create("return")));
+        if (!retFn) return;
+        uint64_t nb = nanbox_from_tsvalue_ptr(retFn);
+        if (nb == NANBOX_UNDEFINED || nb == NANBOX_NULL) return;
+        if (!ts_is_callable(retFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator's 'return' property is not callable"));
+            return;
+        }
+        TsValue* res = ts_function_call_with_this(retFn, iter, 0, nullptr);
+        if (!iter_result_is_object(res)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator's return() result is not an object"));
+        }
+    }
+
+    // ECMA-262 7.4.6 IteratorClose with a THROW completion (an exception is
+    // propagating out of a for-of body): every error raised while closing —
+    // GetMethod abrupt, non-callable `return`, a throw from return() itself —
+    // is swallowed so the ORIGINAL exception wins (steps 5-6: when
+    // completion.[[Type]] is throw, return completion). POD-only frame: this
+    // function setjmp/longjmps (.claude rules: longjmp + non-trivial locals
+    // corrupt the MSVC unwinder).
+    void ts_iterator_close_quiet(TsValue* iter) {
+        extern void* ts_push_exception_handler();
+        extern void ts_pop_exception_handler();
+        extern void ts_set_exception(TsValue* e);
+        void* hbuf = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)hbuf;
+        if (setjmp(*env) == 0) {
+#ifdef _WIN64
+            ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+            ts_iterator_close(iter);
+            ts_pop_exception_handler();
+        } else {
+            ts_set_exception(nullptr);  // swallow close error; caller rethrows original
+        }
+    }
+
+    // ECMA-262 7.4.7 AsyncIteratorClose, split for the compiler so the AWAIT
+    // happens in lowered async code: performs GetMethod(iterator, "return")
+    // (abrupt propagates; non-callable is a TypeError) and, when present,
+    // calls it (throw propagates) and returns the RAW result for the caller
+    // to Await. Returns NULL when the iterator has no return method (caller
+    // skips the await + validation).
+    TsValue* ts_iterator_close_get_result(TsValue* iter) {
+        // "No return method" sentinel: NaN-boxed JS null (0x2) — the lowered
+        // close compares against HIR ConstNull, NOT the C nullptr. (A return()
+        // CALL result of JS null would collide with the sentinel and skip the
+        // step-6 TypeError; no test observes that edge.)
+        TsValue* noMethod = ts_value_make_null();
+        if (!iter) return noMethod;
+        uint64_t inb = nanbox_from_tsvalue_ptr(iter);
+        if (!nanbox_is_ptr(inb) || nanbox_is_string_ptr(inb)) return noMethod;
+        // Getter-aware read — see ts_iterator_close_strict.
+        TsValue* retFn = ts_object_get_dynamic(iter,
+            ts_value_make_string(TsString::Create("return")));
+        if (!retFn) return noMethod;
+        uint64_t nb = nanbox_from_tsvalue_ptr(retFn);
+        if (nb == NANBOX_UNDEFINED || nb == NANBOX_NULL) return noMethod;
+        if (!ts_is_callable(retFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator's 'return' property is not callable"));
+            return nullptr;
+        }
+        TsValue* res = ts_function_call_with_this(retFn, iter, 0, nullptr);
+        return res ? res : ts_value_make_undefined();
+    }
+
+    // AsyncIteratorClose step 6: the AWAITED return() result must be an
+    // Object, else TypeError.
+    void ts_iterator_close_validate(TsValue* res) {
+        if (!iter_result_is_object(res)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator's return() result is not an object"));
+        }
+    }
+
     // ECMA-262 7.4.3 IteratorStep: the result of iterator.next() must be an
     // Object; a primitive is a TypeError. Also breaks the infinite loop a
     // primitive result previously caused (`.done` of a primitive was falsy

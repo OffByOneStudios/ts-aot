@@ -240,8 +240,35 @@ private:
         // (finallyDepth), and must pop handlers down to the loop's own tryDepth.
         int tryDepth = 0;
         int finallyDepth = 0;
+        // ES 7.4.6 IteratorClose: forofIterStack_ index from which open for-of
+        // iterators must be closed when a break/continue targets this
+        // construct. For a for-of loop this EXCLUDES its own iterator (break
+        // closes it in the loop's closeBlock; continue keeps it open); for
+        // every other loop/switch it is the stack size at entry.
+        int forofCloseFrom = 0;
     };
     std::stack<LoopContext> loopStack_;
+
+    // Open for-of/for-await-of iterators in the CURRENT function, innermost
+    // last (ES 14.7.5.7 / 7.4.6-7.4.7 IteratorClose bookkeeping). iterAlloca
+    // is null for the indexed-array fast path (nothing to close). An abrupt
+    // completion leaving a loop (labeled break/continue crossing it, or a
+    // return statement) must close every crossed iterator, innermost first.
+    struct ForOfIterEntry {
+        std::shared_ptr<HIRValue> iterAlloca;
+        bool isAwait = false;
+        int finallyDepth = 0;  // finallyStack_.size() at loop entry
+    };
+    std::vector<ForOfIterEntry> forofIterStack_;
+    // Emit IteratorClose for open iterators [fromDepth..end), innermost first.
+    // Entries separated from the abrupt statement by an enclosing finally
+    // (entry.finallyDepth < current finallyStack_.size() boundary) are skipped
+    // — their close ordering interleaves with finally dispatch (banked).
+    void emitOpenIteratorCloses(int fromDepth);
+    // One IteratorClose: sync -> ts_iterator_close_strict; for-await ->
+    // GetMethod+call via ts_iterator_close_get_result, Await, then validate
+    // (ES 7.4.7 AsyncIteratorClose).
+    void emitCloseOneIterator(std::shared_ptr<HIRValue> iterVal, bool isAwait);
 
     // Labeled loop targets for labeled break/continue
     std::map<std::string, LoopContext> labeledLoops_;
@@ -265,7 +292,8 @@ private:
     // sizes just OUTSIDE each break-target construct (loop OR switch). An
     // unlabeled `break` inside an enclosing try's finally consults these to
     // decide which finallys to run and how many handlers to pop en route.
-    struct BreakTargetMeta { int tryDepth; int withDepth; int finallyDepth; };
+    struct BreakTargetMeta { int tryDepth; int withDepth; int finallyDepth;
+                             int forofCloseFrom = 0; };
     std::stack<BreakTargetMeta> breakTargetMeta_;
 
     // ES 14.15 TryStatement completion records: a `try { ... } finally { F }`
@@ -1074,6 +1102,7 @@ private:
               switchStack_(std::move(l.switchStack_)),
               breakTargetStack_(std::move(l.breakTargetStack_)),
               breakTargetMeta_(std::move(l.breakTargetMeta_)),
+              forofIterStack_(std::move(l.forofIterStack_)),
               finallyStack_(std::move(l.finallyStack_)),
               completionDestId_(std::move(l.completionDestId_)),
               nextCompletionId_(l.nextCompletionId_),
@@ -1089,6 +1118,7 @@ private:
             l.switchStack_ = {};
             l.breakTargetStack_ = {};
             l.breakTargetMeta_ = {};
+            l.forofIterStack_.clear();
             l.finallyStack_.clear();
             l.completionDestId_.clear();
             l.nextCompletionId_ = 2;
@@ -1107,6 +1137,7 @@ private:
             l_.switchStack_ = std::move(switchStack_);
             l_.breakTargetStack_ = std::move(breakTargetStack_);
             l_.breakTargetMeta_ = std::move(breakTargetMeta_);
+            l_.forofIterStack_ = std::move(forofIterStack_);
             l_.finallyStack_ = std::move(finallyStack_);
             l_.completionDestId_ = std::move(completionDestId_);
             l_.nextCompletionId_ = nextCompletionId_;
@@ -1129,6 +1160,7 @@ private:
         std::stack<SwitchContext> switchStack_;
         std::stack<HIRBlock*> breakTargetStack_;
         std::stack<BreakTargetMeta> breakTargetMeta_;
+        std::vector<ForOfIterEntry> forofIterStack_;
         std::vector<FinallyContext> finallyStack_;
         std::map<HIRBlock*, CompletionDest> completionDestId_;
         int nextCompletionId_;
