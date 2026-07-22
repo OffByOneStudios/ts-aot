@@ -380,6 +380,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
                     if (md->isGetter) pctx.getters.insert(md->name);
                     if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
+                    if (!md->isStatic) pctx.instMembers.insert(md->name);
                 }
             }
         }
@@ -506,6 +507,21 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     shape->propertyOffsets[shapeKey] = propertyOffset;
                     shape->propertyTypes[shapeKey] = propType;
                     propertyOffset++;
+                } else if (auto* fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(
+                               propDef->nameNode.get())) {
+                    // ES ClassFieldDefinitionEvaluation steps 1-2: a computed
+                    // field NAME evaluates (? ToPropertyKey) at class-DEFINITION
+                    // time; its abrupt completion aborts the definition
+                    // (evaluation-error / classelementname-abrupt families).
+                    // keyEvalOnly emits that evaluation in the INLINE setup,
+                    // result discarded; the ctor's instance-init key eval is
+                    // unchanged.
+                    if (fieldCpn->expression) {
+                        HIRClass::ComputedAccessor kev{};
+                        kev.keyExpr = fieldCpn->expression.get();
+                        kev.keyEvalOnly = true;
+                        hirClass->computedAccessors.push_back(kev);
+                    }
                 }
             }
         }
@@ -557,14 +573,37 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 auto globalPtr = builder_.createGlobal(globalName, propType);
                 staticPropertyGlobals_[globalName] = {globalPtr, propType};
 
-                // Defer initialization to user_main
-                if (propDef->initializer) {
+                // A COMPUTED static field (`static [x] = v` / `static [x]`):
+                // route through an isField ComputedAccessor entry — the field
+                // defines on the constructor via ts_class_define_static_field
+                // (ES DefineField / CreateDataPropertyOrThrow: ToPropertyKey
+                // abrupt completions propagate at class-definition time,
+                // "prototype" throws TypeError, no-init defines undefined).
+                // Emission contexts are handled in emitComputedAccessorInstalls
+                // (inline setup / install trigger / non-binding-key flush).
+                ast::ComputedPropertyName* fieldCpnD = nullptr;
+                if (propDef->name == "[computed]")
+                    fieldCpnD = dynamic_cast<ast::ComputedPropertyName*>(
+                        propDef->nameNode.get());
+                if (fieldCpnD && fieldCpnD->expression) {
+                    HIRClass::ComputedAccessor fld{};
+                    fld.keyExpr = fieldCpnD->expression.get();
+                    fld.isStatic = true;
+                    fld.isField = true;
+                    fld.initExpr = propDef->initializer.get();  // null → undefined
+                    fld.keyReadsBinding =
+                        computedKeyReferencesBinding(fieldCpnD->expression.get());
+                    hirClass->computedAccessors.push_back(fld);
+                }
+                // Defer initialization to user_main (non-computed names only —
+                // computed names install via the isField entry above).
+                else if (propDef->initializer) {
                     // Mirror onto the constructor closure (own property) so the
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     node->name + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    nullptr,
                                                     privateClassStack_});
                 } else if (!propDef->name.empty() && propDef->name[0] == '#') {
                     // ES 15.7: a static private field establishes the class's
@@ -918,6 +957,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
+                    // ES2022 InitializeInstanceElements: instance
+                    // private-method brand. Explicit ctors emit field inits
+                    // at entry (existing simplification), so the brand goes
+                    // with them; the precise after-super timing is exercised
+                    // by the synthesized-ctor paths.
+                    emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
@@ -1235,6 +1280,13 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
+            // ES2022 InitializeInstanceElements: stamp the instance
+            // private-method/accessor BRAND right after super() returned
+            // (derived) / at ctor entry (base) — before field initializers,
+            // so `this.#m` during a base-ctor callback (before-super-return
+            // family) correctly lacks the brand and throws TypeError.
+            emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
+
             // Initialize property defaults. Every declared instance
             // field is installed on `this`, with `undefined` for
             // fields without initializers — matches ECMA-262 15.7.
@@ -1461,7 +1513,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
             installClassMember(proto, "constructor", ctorVal);
-            emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+            // In-function trailer = source position: keyEvalOnly field-name
+            // evaluations emit here (abrupt completions must propagate).
+            emitComputedAccessorInstalls(hirClass, proto, ctorVal,
+                                         /*inlineContext=*/true);
             // `extends` linkage (ES 15.7.14): C.prototype.[[Proto]] =
             // Base.prototype (user class or builtin). Mirrors
             // emitDeferredStaticInits — the trailer rebuild would otherwise
@@ -1548,6 +1603,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
                     if (md->isGetter) pctx.getters.insert(md->name);
                     if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
+                    if (!md->isStatic) pctx.instMembers.insert(md->name);
                 }
             }
         }
@@ -1613,6 +1669,21 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     shape->propertyOffsets[shapeKey] = propertyOffset;
                     shape->propertyTypes[shapeKey] = propType;
                     propertyOffset++;
+                } else if (auto* fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(
+                               propDef->nameNode.get())) {
+                    // ES ClassFieldDefinitionEvaluation steps 1-2: a computed
+                    // field NAME evaluates (? ToPropertyKey) at class-DEFINITION
+                    // time; its abrupt completion aborts the definition
+                    // (evaluation-error / classelementname-abrupt families).
+                    // keyEvalOnly emits that evaluation in the INLINE setup,
+                    // result discarded; the ctor's instance-init key eval is
+                    // unchanged.
+                    if (fieldCpn->expression) {
+                        HIRClass::ComputedAccessor kev{};
+                        kev.keyExpr = fieldCpn->expression.get();
+                        kev.keyEvalOnly = true;
+                        hirClass->computedAccessors.push_back(kev);
+                    }
                 }
             }
         }
@@ -1662,35 +1733,37 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 auto globalPtr = builder_.createGlobal(globalName, propType);
                 staticPropertyGlobals_[globalName] = {globalPtr, propType};
 
-                // A computed field name that reads a variable (`static [x] = v`)
-                // can't be evaluated at the hoisted deferred flush (the variable
-                // isn't bound yet). Route it through computedAccessors so it
-                // installs at the source position via the install trigger, like a
-                // computed accessor. Don't ALSO defer it (would double-eval init).
+                // A COMPUTED static field (`static [x] = v` / `static [x]`):
+                // route through an isField ComputedAccessor entry — defines on
+                // the constructor via ts_class_define_static_field (ES
+                // DefineField / CreateDataPropertyOrThrow: ToPropertyKey
+                // abrupt completions propagate at class-definition time,
+                // "prototype" throws TypeError, no-init defines undefined).
+                // Binding-reading keys emit only at source-position contexts
+                // (inline trailer / install trigger); constant keys also at
+                // the hoisted flush — see emitComputedAccessorInstalls.
                 ast::ComputedPropertyName* fieldCpn = nullptr;
                 if (propDef->name == "[computed]")
                     fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get());
-                // A compile-time-constant key (`[1+1]`, `["a"]`) is evaluable at the
-                // hoisted flush, so keep it on the deferred path (proven). A key that
-                // reads a variable or builds a value (`[x]`, `[x &&= 1]`, `[() => {}]`,
-                // `[f()]`) must run at the source position — route it through the
-                // install trigger like a computed accessor (single eval, no deferral).
-                bool runtimeKey = fieldCpn && fieldCpn->expression &&
-                                  computedKeyReferencesBinding(fieldCpn->expression.get());
-                if (runtimeKey && propDef->initializer) {
-                    // {keyExpr, func, isSetter, isStatic, isMethod, moduleLevelBody, isField, initExpr}
-                    hirClass->computedAccessors.push_back(
-                        {fieldCpn->expression.get(), nullptr, false, /*isStatic=*/true,
-                         false, false, /*isField=*/true, propDef->initializer.get()});
+                if (fieldCpn && fieldCpn->expression) {
+                    HIRClass::ComputedAccessor fld{};
+                    fld.keyExpr = fieldCpn->expression.get();
+                    fld.isStatic = true;
+                    fld.isField = true;
+                    fld.initExpr = propDef->initializer.get();  // null → undefined
+                    fld.keyReadsBinding =
+                        computedKeyReferencesBinding(fieldCpn->expression.get());
+                    hirClass->computedAccessors.push_back(fld);
                 }
-                // Defer initialization to user_main
+                // Defer initialization to user_main (non-computed names only —
+                // computed names install via the isField entry above).
                 else if (propDef->initializer) {
                     // Mirror onto the constructor closure (own property) so the
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     className + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    nullptr,
                                                     privateClassStack_});
                 }
                 else if (!propDef->name.empty() && propDef->name[0] == '#') {
@@ -1998,6 +2071,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
+                    // ES2022 InitializeInstanceElements: instance
+                    // private-method brand. Explicit ctors emit field inits
+                    // at entry (existing simplification), so the brand goes
+                    // with them; the precise after-super timing is exercised
+                    // by the synthesized-ctor paths.
+                    emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
@@ -2243,6 +2322,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
+            // ES2022 InitializeInstanceElements: instance private-method
+            // brand right after super() (derived) / at entry (base).
+            emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
+
             // Initialize property defaults. Every declared instance
             // field is installed on `this`, with `undefined` for
             // fields without initializers — matches ECMA-262 15.7.
@@ -2375,8 +2458,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         installClassMember(proto, "constructor", ctorVal);
 
         // Computed-name accessors install inline here (the prototype is rebuilt
-        // at this point, which would clobber a deferred install).
-        emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+        // at this point, which would clobber a deferred install). This trailer
+        // only runs in a function context (= source position), so keyEvalOnly
+        // field-name evaluations emit too.
+        emitComputedAccessorInstalls(hirClass, proto, ctorVal,
+                                     /*inlineContext=*/true);
         // `extends` linkage (ES 15.7.14): C.prototype.[[Proto]] =
         // Base.prototype (user class or builtin). Mirrors
         // emitDeferredStaticInits — the trailer rebuild would otherwise

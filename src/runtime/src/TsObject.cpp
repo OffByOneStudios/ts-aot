@@ -1969,6 +1969,19 @@ void* ts_create_arguments_from_params(
                 // lodash cloneArrayBuffer `new arrayBuffer.constructor(n)` broke.
                 if (magic16 == 0x42554646 && keyStr &&
                     strcmp(keyStr, "constructor") == 0) {
+                    // An OWN "constructor" (ab.constructor = C — the
+                    // ArrayBuffer.prototype.slice species tests) must shadow
+                    // the intrinsic: SpeciesConstructor (ECMA-262 7.3.20)
+                    // starts with Get(O, "constructor"), which is an ordinary
+                    // own-before-prototype lookup.
+                    if (TsMap* ownProps = getNativeProps(obj)) {
+                        TsValue ok; ok.type = ValueType::STRING_PTR;
+                        ok.ptr_val = TsString::GetInterned("constructor");
+                        if (ownProps->Has(ok)) {
+                            TsValue ov = ownProps->Get(ok);
+                            return nanbox_from_tagged(ov);
+                        }
+                    }
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
@@ -3624,6 +3637,21 @@ void* ts_create_arguments_from_params(
                         TsValue* getterFunc = nanbox_from_tagged(getterVal);
                         return invoke_accessor_getter(getterFunc, boxedObj);
                     }
+                    // ES 10.1.8: a setter-ONLY accessor property makes
+                    // [[Get]] return undefined — it must NOT fall through
+                    // to a same-named data slot or the name/length builtins
+                    // (`class D { static set name(_){} }` → D.name is
+                    // undefined, fn-name-static-precedence).
+                    {
+                        std::string setterKey = std::string("__setter_") + keyStr;
+                        TsValue sk2;
+                        sk2.type = ValueType::STRING_PTR;
+                        sk2.ptr_val = TsString::GetInterned(setterKey.c_str());
+                        TsValue setterVal2 = currentMap->Get(sk2);
+                        if (setterVal2.type != ValueType::UNDEFINED) {
+                            return ts_value_make_undefined();
+                        }
+                    }
                     // Check for direct property
                     TsValue val = currentMap->Get(k);
                     if (val.type != ValueType::UNDEFINED) {
@@ -4943,6 +4971,62 @@ void* ts_create_arguments_from_params(
         ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
     }
 
+    // ES2022 INSTANCE private brand (ECMA-262 7.3.28 PrivateMethodOrAccessorAdd,
+    // 7.3.30 PrivateGet step 5, 7.3.31 PrivateSet step 6; InitializeInstanceElements):
+    // a class whose body declares instance private methods/accessors stamps its
+    // brand on each instance at the point field initializers begin — ctor entry
+    // for base classes, right after super() returns for derived. Every private
+    // method/accessor access then verifies the DECLARING class's brand on the
+    // runtime receiver: `.call()` on a foreign object, access before super()
+    // returns, and sibling/super-class instances all lack it -> TypeError.
+    // The brand is a hidden property "\x01@brand@<classId>" — the \x01 prefix
+    // keeps it out of enumeration exactly like private field storage keys.
+    // POD-only frames: ts_throw longjmps, and a live std::string in the frame
+    // corrupts the MSVC unwinder (see longjmp POD-safety rule). Key built in a
+    // stack char buffer: "\x01@brand@<classId>".
+    extern "C" void ts_private_brand_add(void* obj, void* brandName) {
+        void* raw = ts_value_get_object((TsValue*)obj);
+        if (!raw) raw = obj;
+        TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
+        const char* brandId = bs ? bs->ToUtf8() : nullptr;
+        if (!raw || !brandId) return;
+        char keyBuf[192];
+        snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
+        TsValue* existing = ts_object_get_property(raw, keyBuf);
+        if (existing && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(existing))) {
+            // 7.3.28 step 2: adding the same brand twice (return-override
+            // double construction) is a TypeError.
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Cannot initialize private methods of class %s twice on the same object", brandId);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return;
+        }
+        ts_object_set_property(raw, ts_value_make_string(TsString::Create(keyBuf)),
+                               ts_value_make_bool(true));
+    }
+    extern "C" void ts_private_brand_check(void* obj, void* brandName, void* memberName) {
+        TsString* ms = (TsString*)ts_value_get_string((TsValue*)memberName);
+        const char* member = ms ? ms->ToUtf8() : "#member";
+        TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
+        const char* brandId = bs ? bs->ToUtf8() : nullptr;
+        void* raw = ts_value_get_object((TsValue*)obj);
+        if (!raw) raw = obj;
+        bool ok = false;
+        if (raw && brandId &&
+            (uintptr_t)raw >= 0x1000 && (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL) {
+            char keyBuf[192];
+            snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
+            TsValue* v = ts_object_get_property(raw, keyBuf);
+            ok = v && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(v));
+        }
+        if (ok) return;
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Cannot read private member %s from an object whose class did not declare it", member);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     TsValue* ts_object_get_private(void* obj, void* keyName) {
         void* rawObj = ts_value_get_object((TsValue*)obj);
         if (!rawObj) rawObj = obj;
@@ -5739,6 +5823,34 @@ void* ts_create_arguments_from_params(
         // Check if this is a TsClosure and get its properties
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
             TsClosure* closure = (TsClosure*)rawObj;
+            // ES 10.1.8 [[Get]]: an own ACCESSOR property wins over the plain
+            // data slot and over the name/length builtins below. Static class
+            // accessors install as __getter_/__setter_<key> on the ctor
+            // closure — `class C { static get name(){} }` must invoke the
+            // getter for C.name (fn-name/fn-length-static-precedence), and a
+            // setter-ONLY accessor makes [[Get]] return undefined.
+            if (closure->properties && keyStr) {
+                const char* k0 = keyStr->ToUtf8();
+                if (k0) {
+                    std::string gk0 = std::string("__getter_") + k0;
+                    TsValue gkey0;
+                    gkey0.type = ValueType::STRING_PTR;
+                    gkey0.ptr_val = TsString::GetInterned(gk0.c_str());
+                    TsValue getterVal0 = closure->properties->Get(gkey0);
+                    if (getterVal0.type != ValueType::UNDEFINED) {
+                        TsValue* getterFunc = nanbox_from_tagged(getterVal0);
+                        return invoke_accessor_getter(getterFunc, obj);
+                    }
+                    std::string sk0 = std::string("__setter_") + k0;
+                    TsValue skey0;
+                    skey0.type = ValueType::STRING_PTR;
+                    skey0.ptr_val = TsString::GetInterned(sk0.c_str());
+                    TsValue setterVal0 = closure->properties->Get(skey0);
+                    if (setterVal0.type != ValueType::UNDEFINED) {
+                        return ts_value_make_undefined();  // setter-only: no [[Get]]
+                    }
+                }
+            }
             // OWN property shadows the Function.prototype builtins (see the
             // TsFunction branch above) -- e.g. lodash's own `_.bind`.
             if (closure->properties) {
@@ -6691,6 +6803,10 @@ void* ts_create_arguments_from_params(
     // the accessor gets the spec method descriptor {writable, !enumerable,
     // configurable} and is found by the dynamic accessor-dispatch in
     // ts_object_get_prop_v / ts_object_set_dynamic.
+    // ES SetFunctionName from a computed property key (TsClosure.cpp,
+    // C linkage — this TU sits inside the enclosing extern "C" block).
+    TsValue* ts_function_set_name_from_key(TsValue* fnVal, TsValue* keyVal);
+
     static void install_computed_accessor(TsValue* recv, TsValue* key,
                                           TsValue* closure, const char* prefix) {
         if (!recv || !key || !closure) return;
@@ -6702,6 +6818,23 @@ void* ts_create_arguments_from_params(
         TsString* keyStr = ts_property_key_string(key);
         if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
         if (!keyStr) return;
+        // ES SetFunctionName(v, propKey, "get"/"set"): a computed-name
+        // accessor is named at class-definition time — "get "/"set " +
+        // (symbol → "[description]" or ""; else ToString(key)). The
+        // compiler-side displayName only covers literal names
+        // (fn-name-accessor-get/set symbol-keyed cases).
+        ts_function_set_name_from_key(closure, key);  // base (symbol-aware)
+        {
+            void* rawCl = ts_value_get_object(closure);
+            if (rawCl && *(uint32_t*)((char*)rawCl + 16) == 0x434C5352 /*CLSR*/) {
+                TsClosure* cl = (TsClosure*)rawCl;
+                const char* pfx = (prefix[2] == 'g') ? "get " : "set ";
+                TsString* base = cl->name ? cl->name : TsString::Create("");
+                TsString* withPfx =
+                    (TsString*)ts_string_concat(TsString::Create(pfx), base);
+                if (withPfx) ts_closure_set_name(cl, withPfx);
+            }
+        }
         TsString* prefixStr = TsString::Create(prefix);
         TsString* full = (TsString*)ts_string_concat(prefixStr, keyStr);
         if (!full) return;
@@ -6726,8 +6859,39 @@ void* ts_create_arguments_from_params(
         TsString* keyStr = ts_property_key_string(key);
         if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
         if (!keyStr) return;
+        // ES SetFunctionName(v, propKey): computed-name methods are named at
+        // class-definition time — symbol key → "[description]" ("" when the
+        // description is undefined), else ToString(key). The compiler-side
+        // displayName only covers literal names (fn-name-method /
+        // fn-name-gen-method symbol-keyed cases).
+        ts_function_set_name_from_key(closure, key);
         TsValue* keyBoxed = ts_value_make_string(keyStr);
         ts_object_set_method(recv, keyBoxed, closure);
+    }
+
+    // ES ClassDefinitionEvaluation DefineField (static): CreateDataProperty-
+    // OrThrow on the constructor F. F's "prototype" is {writable:false,
+    // configurable:false} (MakeConstructor 10.2.5 step 6), so a computed
+    // static field whose PropName is "prototype" throws TypeError
+    // (fields-computed-name-static-propname-prototype). ToPropertyKey runs
+    // first and may throw via @@toPrimitive/toString/valueOf hooks
+    // (static-classelementname-abrupt-completion). A null/undefined-init
+    // field defines the value undefined. Frame is std::string-free on
+    // purpose — a throwing hook longjmps out (POD-safety rule).
+    void ts_class_define_static_field(TsValue* recv, TsValue* key, TsValue* val) {
+        if (!recv || !key) return;
+        TsValue* pk = ts_to_property_key_spec(key);   // may throw
+        if (!pk) pk = key;
+        TsString* ks = ts_property_key_string(pk);
+        if (ks) {
+            const char* k = ks->ToUtf8();
+            if (k && strcmp(k, "prototype") == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Classes may not have a static property named 'prototype'"));
+                return;
+            }
+        }
+        ts_object_set_dynamic(recv, pk, val ? val : ts_value_make_undefined());
     }
 
     // ============================================================

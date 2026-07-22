@@ -3339,6 +3339,62 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
     }
 }
 
+// SpeciesConstructor (ECMA-262 7.3.20) shared helper, defined in TsArray.cpp.
+extern "C" TsValue* ts_species_constructor_std(void* exemplar, void* defaultCtor);
+
+// ES 27.2.5.4 steps 3-5 species path: when SpeciesConstructor(promise,
+// %Promise%) is NOT the intrinsic Promise, the result promise is minted by
+// NewPromiseCapability(C) and settled through the capability's resolve/
+// reject functions. These bridges run as the internal reaction handlers:
+// call the user handler (when callable) and pipe its result/abrupt
+// completion into the capability (PerformPromiseThen semantics).
+struct ThenBridgeCtx {
+    SpecCapability* cap;
+    TsValue* handler;   // user onFulfilled/onRejected; may be non-callable
+};
+static TsValue* then_bridge_settle(ThenBridgeCtx* c, TsValue* arg,
+                                   bool isReject) {
+    if (!c || !c->cap) return ts_value_make_undefined();
+    TsValue* v = arg ? arg : ts_value_make_undefined();
+    if (c->handler && agen_is_callable(c->handler)) {
+        // POD frame only (ts_throw longjmps).
+        void* hbuf = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)hbuf;
+        TsValue* r = nullptr;
+        if (setjmp(*env) == 0) {
+#ifdef _WIN64
+            ((_JUMP_BUFFER*)env)->Frame = 0;  // register-restore longjmp only
+#endif
+            r = spec_invoke1(c->handler, ts_value_make_undefined(), v);
+            ts_pop_exception_handler();
+        } else {
+            // Handler threw -> reject the capability with the exception.
+            TsValue* exc = ts_get_exception();
+            ts_set_exception(nullptr);
+            spec_invoke1(c->cap->rejectFn, ts_value_make_undefined(),
+                         exc ? exc : ts_value_make_undefined());
+            return ts_value_make_undefined();
+        }
+        spec_invoke1(c->cap->resolveFn, ts_value_make_undefined(),
+                     r ? r : ts_value_make_undefined());
+    } else if (isReject) {
+        // Non-callable onRejected: reject passthrough (Thrower).
+        spec_invoke1(c->cap->rejectFn, ts_value_make_undefined(), v);
+    } else {
+        // Non-callable onFulfilled: fulfill passthrough (Identity).
+        spec_invoke1(c->cap->resolveFn, ts_value_make_undefined(), v);
+    }
+    return ts_value_make_undefined();
+}
+static TsValue* then_bridge_fulfill(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc > 0 && argv && argv[0]) ? argv[0] : nullptr;
+    return then_bridge_settle((ThenBridgeCtx*)ctx, v, false);
+}
+static TsValue* then_bridge_reject(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc > 0 && argv && argv[0]) ? argv[0] : nullptr;
+    return then_bridge_settle((ThenBridgeCtx*)ctx, v, true);
+}
+
 static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsValue* onRejected) {
     // ES 27.2.5.4 step 2: If IsPromise(this) is false, throw a TypeError.
     // `context` is the receiver — a primitive (`then.call(3)`) or a plain
@@ -3352,6 +3408,33 @@ static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsV
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Promise.prototype.then called on a non-Promise"));
         return ts_value_make_undefined();  // unreachable (ts_throw longjmps)
+    }
+    // ES 27.2.5.4 steps 3-4: C = ? SpeciesConstructor(promise, %Promise%).
+    // The "constructor" Get is observable (exactly once; a poisoned getter
+    // throws out of then); a null/non-Object constructor and a
+    // non-constructor @@species throw TypeError inside the helper.
+    void* defC = ts_get_global_Promise();
+    TsValue* C = ts_species_constructor_std((void*)promise, defC);
+    void* CRaw = C ? ts_value_get_object(C) : nullptr;
+    void* defRaw = defC ? ts_value_get_object((TsValue*)defC) : nullptr;
+    bool isDefault = (C == (TsValue*)defC) || (CRaw && defRaw && CRaw == defRaw);
+    if (!isDefault && C) {
+        // Step 5: resultCapability = ? NewPromiseCapability(C) — runs the
+        // custom constructor synchronously; its throws propagate out of then.
+        SpecCapability* cap = (SpecCapability*)ts_alloc(sizeof(SpecCapability));
+        spec_new_capability(C, cap);
+        ThenBridgeCtx* fc = (ThenBridgeCtx*)ts_alloc(sizeof(ThenBridgeCtx));
+        fc->cap = cap;
+        fc->handler = onFulfilled;
+        ThenBridgeCtx* rc = (ThenBridgeCtx*)ts_alloc(sizeof(ThenBridgeCtx));
+        rc->cap = cap;
+        rc->handler = onRejected;
+        TsValue* bf = spec_make_native1((void*)then_bridge_fulfill, fc, 1);
+        TsValue* br = spec_make_native1((void*)then_bridge_reject, rc, 1);
+        // PerformPromiseThen: attach the bridges as reactions; the result is
+        // the capability's promise, NOT the internal chaining promise.
+        promise->then(nanbox_to_tagged(bf), nanbox_to_tagged(br));
+        return cap->promiseObj ? cap->promiseObj : ts_value_make_undefined();
     }
     TsPromise* next = promise->then(onFulfilled ? nanbox_to_tagged(onFulfilled) : TsValue(), onRejected ? nanbox_to_tagged(onRejected) : TsValue());
     return ts_value_make_promise(next);

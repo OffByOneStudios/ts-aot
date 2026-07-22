@@ -36,6 +36,22 @@
 #include <limits>
 #include <cmath>
 #include <cstdio>
+#include <cstring>    // memcpy (ArrayBuffer.prototype.slice species path)
+#include <algorithm>  // std::max/min (slice index clamping)
+
+// SpeciesConstructor (ECMA-262 7.3.20) shared helper, defined in TsArray.cpp.
+extern "C" TsValue* ts_species_constructor_std(void* exemplar, void* defaultCtor);
+// Array [[Call]]/[[Construct]] body (TsObject.cpp) and Date-as-function
+// (TsDate.cpp), used by the wrapAsCallable name dispatch. Block-scope
+// declarations inside the dispatch lambda would take C++ linkage (the lambda
+// operator() is a member function), so declare them here.
+extern "C" TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
+extern "C" void* ts_date_now_string();
+extern "C" TsValue* ts_new_from_constructor_1(TsValue* ctor, TsValue* arg);
+// Ambient new.target register (defined later in this file) — the
+// wrapAsCallable body consults it to distinguish plain [[Call]] from a
+// generic-[[Construct]] invocation.
+extern "C" void* ts_get_new_target();
 
 // GC-001 Phase C: RAII guard that routes allocations to the old generation for
 // its lifetime (ts_gc_push_tenure/pop). Placed at the entry of every
@@ -1740,18 +1756,42 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
             void* sym = ts_symbol_create(descStr);
             return sym ? ts_value_make_object(sym) : ts_value_make_undefined();
         }
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "Array") == 0) {
+            // ECMA-262 23.1.1.1: Array(...) called as a function creates and
+            // initializes a new Array exactly as `new Array(...)` does.
+            // Direct `Array(n)` is a compiler fast path; this is the INDIRECT
+            // path (`var f = Array; f(3)`, `Array.bind(null)(42)`), which
+            // previously fell through to undefined.
+            return ts_array_constructor_native(nullptr, argc, argv);
+        }
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "Date") == 0) {
+            // ECMA-262 21.4.2.1: Date(...) with NewTarget undefined ignores
+            // its arguments and returns ToDateString(now). Direct `Date()` is
+            // a compiler fast path; this is the INDIRECT path.
+            void* s = ts_date_now_string();
+            return s ? ts_value_make_string(s) : ts_value_make_undefined();
+        }
         // ES: most built-in class constructors are not [[Call]]-able —
         // invoking them without `new` (NewTarget undefined) throws
         // TypeError (Map 24.1.1.1, Set 24.2.1.1, WeakMap/WeakSet 24.3/24.4,
         // Promise 27.2.3.1, Proxy 28.2.1.1, ArrayBuffer 25.1.3.1, DataView
         // 25.3.2.1, WeakRef 26.1.1.1, FinalizationRegistry 26.2.1.1, and
-        // all Temporal constructors). This body is reached with ctx==name
-        // ONLY on a plain call: every construct path (compiler `new` fast
-        // paths, ts_new_from_constructor identity/name dispatch,
-        // Reflect.construct) resolves these builtins BEFORE the wrapper
-        // body runs, and the generic construct path overrides ctx with the
-        // freshly-allocated `this`. POD frame only (ts_throw longjmps).
-        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL) {
+        // all Temporal constructors). POD frame only (ts_throw longjmps).
+        //
+        // NewTarget guard: with keep_context pinning ctx to the name, this
+        // body now sees the name even when invoked FROM the generic
+        // [[Construct]] path (Reflect.construct(DataView, args, newTarget)
+        // reaches it for DataView/WeakRef/FinalizationRegistry, which have
+        // no identity dispatch in ts_new_from_constructor_impl). Before
+        // keep_context, the construct path's ctx override masked the name
+        // and the body fell through to undefined, letting the generic path
+        // keep the newtarget-derived instance — so throw ONLY when the
+        // ambient new.target register is clear (a genuine plain call; the
+        // register is set for the whole construct invocation).
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            ts_value_is_undefined((TsValue*)ts_get_new_target())) {
             static const char* const kRequiresNew[] = {
                 "Map", "Set", "WeakMap", "WeakSet", "Promise", "Proxy", "Iterator",
                 "ArrayBuffer", "DataView", "WeakRef", "FinalizationRegistry",
@@ -1792,6 +1832,16 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     func->name = TsString::Create(name);
     func->arity = length;
     func->is_constructor = true;  // [[Construct]] slot
+    // keep_context: the body dispatches by NAME carried in ctx. Receiver-
+    // style calls (`obj.Array = Array; obj.Array(5)`, `Array.call(x, 5)`,
+    // and a bound `Array.bind(null)(42)` whose trampoline re-enters via
+    // ts_function_call_with_this) previously clobbered ctx with the
+    // receiver via maybe_override_context, losing the name — the body then
+    // silently returned undefined. Built-in constructors never use `this`
+    // in [[Call]], so pinning ctx to the name is always correct. The
+    // Temporal-namespace receiver check below stays as a dead fallback; the
+    // kRequiresNew names cover those constructors by name now.
+    func->keep_context = true;
     // Point the function's property bag at the TsMap ctor so existing
     // setup (prototype, name, static methods) is visible via
     // ts_object_get_property(func, key).
@@ -4663,6 +4713,112 @@ void* ts_get_global_Proxy() {
 // an empty object — enough to pass test262's is-a-constructor tests
 // plus .name / .length own-property checks.
 
+// ECMA-262 25.1.6.7 ArrayBuffer.prototype.slice(start, end) — the single
+// spec-shaped implementation behind BOTH dispatch surfaces (the
+// ArrayBuffer.prototype method installed below AND the TsBuffer instance
+// GetPropertyVirtual read in extensions/node/core/src/TsBuffer.cpp; the
+// builtin proto-surface contract requires the two to agree).
+// Steps: receiver brand + detach checks; ToIntegerOrInfinity index clamping
+// (steps 4-11); SpeciesConstructor (steps 13-14); Construct + result
+// validation (steps 15-22: must be a fresh, attached, large-enough
+// ArrayBuffer); byte copy (steps 23-26).
+extern "C" void* ts_get_global_ArrayBuffer();
+extern "C" TsValue* ts_arraybuffer_slice_spec(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    if (!raw) raw = ctx;  // instance-dispatch passes the raw TsBuffer*
+    TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
+    if (!buf) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    if (buf->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Steps 4-11: ToIntegerOrInfinity on start/end (NaN -> 0), negative
+    // indices count from the end, both clamped to [0, len]. Computed in
+    // doubles so +/-Infinity clamps correctly instead of int64 cast UB.
+    double lenD = (double)(int64_t)buf->GetLength();
+    double rs = 0;
+    if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0]))
+        rs = ts_to_number(argv[0]);
+    if (rs != rs) rs = 0;                      // NaN -> +0
+    rs = std::trunc(rs);
+    double firstD = (rs < 0) ? std::max(lenD + rs, 0.0) : std::min(rs, lenD);
+    double re = lenD;
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+        re = ts_to_number(argv[1]);
+    if (re != re) re = 0;                      // NaN -> +0
+    re = std::trunc(re);
+    double finalD = (re < 0) ? std::max(lenD + re, 0.0) : std::min(re, lenD);
+    int64_t first = (int64_t)firstD;
+    int64_t newLen = (int64_t)finalD - first;
+    if (newLen < 0) newLen = 0;
+
+    // Steps 13-14: ctor = ? SpeciesConstructor(O, %ArrayBuffer%).
+    void* defCtor = ts_get_global_ArrayBuffer();
+    TsValue* ctorVal = ts_species_constructor_std((void*)buf, defCtor);
+    if (!ctorVal) return ts_value_make_undefined();  // TypeError thrown
+    void* ctorRaw = ts_value_get_object(ctorVal);
+    void* defRaw = defCtor ? ts_value_get_object((TsValue*)defCtor) : nullptr;
+    bool isDefault = (ctorVal == (TsValue*)defCtor) ||
+                     (ctorRaw && defRaw && ctorRaw == defRaw);
+    if (isDefault) {
+        // Default constructor: allocate directly (bypasses TsBuffer::Slice's
+        // Node-Buffer end<=0 quirk).
+        TsBuffer* out = TsBuffer::Create((size_t)newLen);
+        if (newLen > 0 && buf->GetData() && out->GetData())
+            std::memcpy(out->GetData(), buf->GetData() + first, (size_t)newLen);
+        return ts_value_make_object(out);
+    }
+    // Steps 15-16: new = ? Construct(ctor, «newLen»).
+    TsValue* res = ts_new_from_constructor_1(ctorVal, ts_value_make_int(newLen));
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    TsBuffer* nb = resRaw ? ts_cast<TsBuffer>(resRaw) : nullptr;
+    // Step 17: RequireInternalSlot(new, [[ArrayBufferData]]).
+    if (!nb) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor did not return "
+            "an ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Step 19: IsDetachedBuffer(new) -> TypeError.
+    if (nb->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned a "
+            "detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Step 20: SameValue(new, O) -> TypeError.
+    if (nb == buf) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned the "
+            "receiver"));
+        return ts_value_make_undefined();
+    }
+    // Step 21: new.[[ArrayBufferByteLength]] < newLen -> TypeError.
+    if ((int64_t)nb->GetLength() < newLen) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned an "
+            "ArrayBuffer that is too small"));
+        return ts_value_make_undefined();
+    }
+    // Step 23: re-check the SOURCE for detachment (the constructor may have
+    // detached it).
+    if (buf->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Steps 24-26: copy newLen bytes from O at first into new.
+    if (newLen > 0 && buf->GetData() && nb->GetData())
+        std::memcpy(nb->GetData(), buf->GetData() + first, (size_t)newLen);
+    return res;
+}
+
 void* ts_get_global_ArrayBuffer() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -4791,28 +4947,7 @@ void* ts_get_global_ArrayBuffer() {
             // checked by tests/node/builtin_proto_contract.js; add new
             // methods to BOTH surfaces (or better, only here and let the
             // instance read inherit).
-            addMethod(abProto, "slice", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
-                if (!buf) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                if (buf->IsDetached()) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                int64_t len = (int64_t)buf->GetLength();
-                int64_t start = 0, end = len;
-                if (argc >= 1 && argv[0] && !ts_value_is_undefined(argv[0]))
-                    start = (int64_t)ts_to_number(argv[0]);
-                if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1]))
-                    end = (int64_t)ts_to_number(argv[1]);
-                return ts_value_make_object(buf->Slice(start, end));
-            }, 2);
+            addMethod(abProto, "slice", (void*)ts_arraybuffer_slice_spec, 2);
             {
                 // transfer / transferToFixedLength share one body (ES2024
                 // 25.1.5.4/.5); both detach the receiver and copy min(old,new)

@@ -339,6 +339,9 @@ private:
         std::set<std::string> methods;   // plain methods only — writes TypeError
         std::set<std::string> getters;   // accessor names WITH a getter half
         std::set<std::string> accessors; // accessor names (getter or setter)
+        std::set<std::string> instMembers; // NON-static methods/accessors —
+                                           // these carry the class BRAND
+                                           // (ES2022 PrivateBrandCheck)
     };
     std::vector<PrivateClassCtx> privateClassStack_;
     // Lexical private scope captured at class-visit time, keyed by HIR class
@@ -360,6 +363,35 @@ private:
         }
         return false;
     }
+
+    // ES2022 private BRAND (ECMA-262 7.3.28 PrivateMethodOrAccessorAdd,
+    // 7.3.30 PrivateGet step 5 / 7.3.31 PrivateSet step 6): an INSTANCE
+    // private method/accessor lives on the declaring class's brand — an
+    // object carries the brand only if that class's InitializeInstanceElements
+    // ran on it (ctor entry for base classes; right after super() returns for
+    // derived). Returns the brand id (declaring HIR class name) when #name
+    // resolves to an instance method/accessor; "" for fields (which use
+    // slot-presence semantics), static members, or unresolved names.
+    std::string privateBrandIdOf(const std::string& name) {
+        if (name.empty() || name[0] != '#') return "";
+        for (auto it = privateClassStack_.rbegin();
+             it != privateClassStack_.rend(); ++it) {
+            if (it->fields.count(name) || it->others.count(name))
+                return it->instMembers.count(name) ? it->id : std::string();
+        }
+        return "";
+    }
+    // Emit `ts_private_brand_check(obj, brandId, #name)` before a private
+    // method/accessor access whose runtime receiver may be foreign
+    // (`.call({})`, access before super() returns). No-op for fields/static.
+    void emitPrivateBrandCheck(std::shared_ptr<HIRValue> obj,
+                               const std::string& name);
+    // Emit `ts_private_brand_add(this, brandId)` at the class's
+    // InitializeInstanceElements point when the class body declares any
+    // instance private method/accessor.
+    void emitPrivateBrandAddIfNeeded(std::shared_ptr<HIRValue> thisValue,
+                                     const std::vector<ast::NodePtr>& members,
+                                     const std::string& classId);
 
     std::string resolvePrivateName(const std::string& name) {
         if (name.empty() || name[0] != '#') return name;
@@ -594,10 +626,15 @@ private:
     void emitEnumObject(const std::string& enumName);
 
     // Install a class's computed-name accessors (get/set [expr]) onto the
-    // prototype (instance) / constructor object (static).
+    // prototype (instance) / constructor object (static). inlineContext=true
+    // when emitting at the class's SOURCE POSITION (in-function setup /
+    // class-expression trailer) — the only contexts where keyEvalOnly
+    // computed FIELD-name evaluations (ES ClassFieldDefinitionEvaluation
+    // steps 1-2, abrupt completions propagate) are emitted.
     void emitComputedAccessorInstalls(HIRClass* hirClass,
                                       std::shared_ptr<HIRValue> proto,
-                                      std::shared_ptr<HIRValue> ctorVal);
+                                      std::shared_ptr<HIRValue> ctorVal,
+                                      bool inlineContext = false);
 
     // Generate static init function for a class with decorators
     // (class, method, property, and parameter decorators)

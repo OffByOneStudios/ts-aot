@@ -11,6 +11,11 @@
 #include <cstring>
 #include <new>
 
+// Shared ECMA-262 25.1.6.7 ArrayBuffer.prototype.slice implementation
+// (TsGlobals.cpp) — declared at file scope: a block-scope declaration inside
+// the GetPropertyVirtual lambda would take C++ linkage and fail to link.
+extern "C" TsValue* ts_arraybuffer_slice_spec(void* ctx, int argc, TsValue** argv);
+
 extern "C" double ts_to_number(TsValue* v);
 extern "C" void* ts_to_bigint_spec(TsValue* v);  // spec ToBigInt (ToPrimitive + TypeError); defined in TsGlobals.cpp
 extern "C" TsValue* ts_to_primitive(TsValue* v, int hint);  // ToPrimitive (Primitives.cpp)
@@ -78,33 +83,19 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
             this, FunctionType::COMPILED, 1);
         return v;
     }
-    // ArrayBuffer.prototype.slice(start, end) — returns a new ArrayBuffer
-    // containing a copy of the byte range. ctx is the receiver buffer.
+    // ArrayBuffer.prototype.slice(start, end) — delegate to the single
+    // spec-shaped implementation (ECMA-262 25.1.6.7: ToIntegerOrInfinity
+    // clamping + SpeciesConstructor + result validation) in TsGlobals.cpp,
+    // so the instance-dispatch surface and ArrayBuffer.prototype.slice
+    // agree (builtin proto-surface contract). ctx is the receiver buffer.
     if (strcmp(key, "slice") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
         void* mem = ts_alloc(sizeof(TsFunction));
         v.ptr_val = new (mem) TsFunction(
             (void*)+[](void* ctx, TsValue* startV, TsValue* endV) -> TsValue* {
-                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
-                if (!buf) {
-                    // ECMA-262 RequireInternalSlot([[ArrayBufferData]]): throw on a
-                    // non-ArrayBuffer receiver (was silently returning undefined).
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                if (buf->IsDetached()) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                int64_t len = (int64_t)buf->GetLength();
-                int64_t start = 0, end = len;
-                if (startV && !ts_value_is_undefined(startV)) start = (int64_t)ts_to_number(startV);
-                if (endV && !ts_value_is_undefined(endV)) end = (int64_t)ts_to_number(endV);
-                TsBuffer* sliced = buf->Slice(start, end);
-                return ts_value_make_object(sliced);
+                TsValue* args[2] = { startV, endV };
+                return ts_arraybuffer_slice_spec(ctx, 2, args);
             },
             this, FunctionType::COMPILED, 2);
         return v;
