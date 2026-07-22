@@ -2618,6 +2618,23 @@ void Parser::parseClassHeritageClause(std::string& baseClass,
                 restoreState(saved);
             }
         }
+        // `extends null` (exactly the null literal, then the class body):
+        // a LEGAL heritage per ES 15.7.14 step 6.e (protoParent = null).
+        // Record the literal text "null" as baseClass — `null` is a reserved
+        // word so this can never collide with a user class name — so the HIR
+        // lowering emits the null-heritage link instead of silently treating
+        // the class as base-less. A more complex null-starting heritage
+        // (impossible: null has no members worth calling) still restores.
+        if (!simple && check(TokenKind::KW_null)) {
+            auto nullSaved = saveState();
+            advance();
+            if (check(TokenKind::OpenBrace) || check(TokenKind::KW_implements)) {
+                baseClass = "null";
+                simple = true;
+            } else {
+                restoreState(nullSaved);
+            }
+        }
         if (!simple) {
             // Complex LHS path. Per ECMA-262 ClassHeritage : extends
             // LeftHandSideExpression — only valid LHS starts are Identifier,

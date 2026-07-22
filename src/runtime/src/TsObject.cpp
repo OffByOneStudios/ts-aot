@@ -3555,6 +3555,19 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "constructor") == 0) {
                 // ES 20.2.3: functions inherit Function.prototype.constructor
                 // === Function (own/prototype-chain props checked above win).
+                // An OWN 'constructor' whose stored VALUE is undefined
+                // (`class C { static ['constructor']; }` — CreateDataProperty
+                // with initValue undefined) must still shadow the builtin:
+                // TsMap::Get can't distinguish stored-undefined from absent,
+                // so re-check key PRESENCE with Has before falling back.
+                if (func->properties) {
+                    TsValue ck; ck.type = ValueType::STRING_PTR;
+                    ck.ptr_val = TsString::GetInterned("constructor");
+                    for (TsMap* m = func->properties; m && (uintptr_t)m >= 0x10000 &&
+                         *(uint32_t*)m != 0x41525259 /*ARRY*/; m = m->GetPrototype()) {
+                        if (m->Has(ck)) return ts_value_make_undefined();
+                    }
+                }
                 extern void* ts_get_global_Function();
                 void* g = ts_get_global_Function();
                 if (g) return (TsValue*)g;
@@ -3670,6 +3683,19 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "constructor") == 0) {
                 // ES 20.2.3: functions inherit Function.prototype.constructor
                 // === Function (own/prototype-chain props checked above win).
+                // An OWN 'constructor' whose stored VALUE is undefined
+                // (`class C { static ['constructor']; }` — CreateDataProperty
+                // with initValue undefined) must still shadow the builtin:
+                // TsMap::Get can't distinguish stored-undefined from absent,
+                // so re-check key PRESENCE with Has before falling back.
+                if (closure->properties) {
+                    TsValue ck; ck.type = ValueType::STRING_PTR;
+                    ck.ptr_val = TsString::GetInterned("constructor");
+                    for (TsMap* m = closure->properties; m && (uintptr_t)m >= 0x10000 &&
+                         *(uint32_t*)m != 0x41525259 /*ARRY*/; m = m->GetPrototype()) {
+                        if (m->Has(ck)) return ts_value_make_undefined();
+                    }
+                }
                 extern void* ts_get_global_Function();
                 void* g = ts_get_global_Function();
                 if (g) return (TsValue*)g;
@@ -5741,6 +5767,18 @@ void* ts_create_arguments_from_params(
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "constructor") == 0) {
+                        // An own 'constructor' holding UNDEFINED (static
+                        // ['constructor'] field) shadows the builtin — Get
+                        // above can't tell stored-undefined from absent, so
+                        // re-check presence with Has (see the static-key path).
+                        if (func->properties) {
+                            TsValue ck2; ck2.type = ValueType::STRING_PTR;
+                            ck2.ptr_val = TsString::GetInterned("constructor");
+                            for (TsMap* m2 = func->properties; m2 && (uintptr_t)m2 >= 0x10000 &&
+                                 *(uint32_t*)m2 != 0x41525259 /*ARRY*/; m2 = m2->GetPrototype()) {
+                                if (m2->Has(ck2)) return ts_value_make_undefined();
+                            }
+                        }
                         extern void* ts_get_global_Function();
                         void* g = ts_get_global_Function();
                         if (g) return (TsValue*)g;
@@ -5863,6 +5901,18 @@ void* ts_create_arguments_from_params(
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "constructor") == 0) {
+                        // An own 'constructor' holding UNDEFINED (static
+                        // ['constructor'] field) shadows the builtin — Get
+                        // above can't tell stored-undefined from absent, so
+                        // re-check presence with Has (see the static-key path).
+                        if (closure->properties) {
+                            TsValue ck2; ck2.type = ValueType::STRING_PTR;
+                            ck2.ptr_val = TsString::GetInterned("constructor");
+                            for (TsMap* m2 = closure->properties; m2 && (uintptr_t)m2 >= 0x10000 &&
+                                 *(uint32_t*)m2 != 0x41525259 /*ARRY*/; m2 = m2->GetPrototype()) {
+                                if (m2->Has(ck2)) return ts_value_make_undefined();
+                            }
+                        }
                         extern void* ts_get_global_Function();
                         void* g = ts_get_global_Function();
                         if (g) return (TsValue*)g;
@@ -6129,8 +6179,12 @@ void* ts_create_arguments_from_params(
             }
         }
 
-        // Intercept __proto__ accessor
-        if (keyStr) {
+        // Intercept __proto__ accessor. NOT for module namespace exotics:
+        // ES 10.4.6.8 [[Get]] returns undefined for any non-exported key
+        // (an exported "__proto__" binding is served by the own-data fast
+        // path above), and the B.2.2.1 Object.prototype.__proto__ accessor
+        // is not inherited through a null [[Prototype]].
+        if (keyStr && !map->IsModuleNamespaceAny()) {
             const char* k = keyStr->ToUtf8();
             if (k && strcmp(k, "__proto__") == 0) {
                 TsMap* proto = map->GetPrototype();
@@ -8214,26 +8268,65 @@ void* ts_create_arguments_from_params(
         }
 
         // TsFunction/TsClosure: delete from their properties TsMap,
-        // honoring the configurable attribute per ES spec.
-        if (magic == TsFunction::MAGIC) {
-            TsFunction* func = (TsFunction*)rawMap;
-            if (!func->properties) return 1; // non-existent = true
-            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
-            if (func->properties->Has(kv)) {
-                uint8_t attrs = func->properties->GetPropertyAttrs(kv);
+        // honoring the configurable attribute per ES spec ([[Delete]],
+        // 10.1.10 OrdinaryDelete). The key must go through the SAME
+        // canonicalization as get/set/has (ts_property_key_string): a Symbol
+        // key (e.g. Symbol.species) canonicalizes to its storage string
+        // ("[Symbol.species]" for well-known) — previously the raw Symbol
+        // value was used, Has() missed, and Delete() failed, so
+        // `delete Ctor[Symbol.species]` returned false on every builtin
+        // constructor even though the property is configurable
+        // (<Ctor>/Symbol.species/symbol-species.js verifyConfigurable).
+        // Accessor-backed properties additionally store their getter under
+        // "__getter_<k>" — delete that half too or the accessor stays live.
+        if (magic == TsFunction::MAGIC || magic == 0x434C5352 /* TsClosure */) {
+            TsMap* props = (magic == TsFunction::MAGIC)
+                               ? ((TsFunction*)rawMap)->properties
+                               : ((TsClosure*)rawMap)->properties;
+            if (!props) return 1; // non-existent = true
+            TsString* ks = ts_property_key_string((TsValue*)keyArg);
+            if (!ks) return 0;
+            TsValue kv; kv.type = ValueType::STRING_PTR; kv.ptr_val = ks;
+            bool hadPlain = props->Has(kv);
+            if (hadPlain) {
+                uint8_t attrs = props->GetPropertyAttrs(kv);
                 if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            } else {
+                // Intrinsic `prototype` of a constructor function is
+                // {writable, !enumerable, !configurable} (ES 20.2.4.3 / 10.2.8)
+                // but is not materialized in the properties map — the absent-
+                // key=true rule below must not "delete" it (strict
+                // `delete fn.prototype` throws; Proxy delete forwarding
+                // trap-is-missing-target-is-proxy asserts this).
+                const char* kc0 = ks->ToUtf8();
+                if (kc0 && strcmp(kc0, "prototype") == 0) {
+                    bool hasIntrinsicProto =
+                        (magic == TsFunction::MAGIC) ||
+                        ((TsClosure*)rawMap)->is_constructor;
+                    if (hasIntrinsicProto) return 0;
+                }
             }
-            return func->properties->Delete(kv) ? 1 : 0;
-        }
-        if (magic == 0x434C5352) { // TsClosure
-            TsClosure* cl = (TsClosure*)rawMap;
-            if (!cl->properties) return 1;
-            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
-            if (cl->properties->Has(kv)) {
-                uint8_t attrs = cl->properties->GetPropertyAttrs(kv);
-                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            bool deletedAccessor = false;
+            const char* kc = ks->ToUtf8();
+            if (kc && kc[0] != '\0' && strncmp(kc, "__getter_", 9) != 0 &&
+                strncmp(kc, "__setter_", 9) != 0 && strlen(kc) < 240) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "__getter_%s", kc);
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(buf);
+                snprintf(buf, sizeof(buf), "__setter_%s", kc);
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(buf);
+                bool hasG = props->Has(gk), hasS = props->Has(sk);
+                if ((hasG || hasS) && !hadPlain) {
+                    uint8_t attrs = hasG ? props->GetPropertyAttrs(gk)
+                                         : props->GetPropertyAttrs(sk);
+                    if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                }
+                if (hasG) { props->Delete(gk); deletedAccessor = true; }
+                if (hasS) { props->Delete(sk); deletedAccessor = true; }
             }
-            return cl->properties->Delete(kv) ? 1 : 0;
+            return (props->Delete(kv) || deletedAccessor || !hadPlain) ? 1 : 0;
         }
 
         // TsArray string-keyed side-map: magic is at offset 0.

@@ -1884,6 +1884,8 @@ extern "C" {
     }
 
     extern "C" void* ts_array_species_rematerialize(void* receiver, void* resultRaw);  // fwd (defined below)
+    extern "C" void* ts_array_species_rematerialize_ex(void* receiver, void* resultRaw,
+                                                       int64_t constructLen, int setLength);  // fwd (defined below)
 
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
         if (!arr) return ts_array_create();
@@ -1927,7 +1929,7 @@ extern "C" {
             return result;
         }
         void* result = ((TsArray*)arr)->Slice(start, end);
-        return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
+        return ts_array_species_rematerialize_ex(arr, result, -1, 1);  // ECMA-262 23.1.3.28 slice: ArraySpeciesCreate(O,count) + Set(A,"length",n)
     }
 
     // Small helper: if receiver is a TsTypedArray, return it; else nullptr.
@@ -2062,7 +2064,7 @@ extern "C" {
         // via CreateDataPropertyOrThrow (TypeError on a non-extensible /
         // non-configurable target). The helper fast-rejects a plain array with
         // no own props, so normal flat() pays only a null-check.
-        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->Flat(depth));
+        return ts_array_species_rematerialize_ex(arr, ((TsArray*)arr)->Flat(depth), 0, 0);  // 23.1.3.13 flat: ArraySpeciesCreate(O,0), no length set
     }
 
     // Boxed-depth entry used by the compiler lowering: ES 23.1.3.13 step 3
@@ -2078,7 +2080,7 @@ extern "C" {
             else d = (int64_t)n;                                // negatives clamp in Flat
         }
         // ArraySpeciesCreate(O, 0) + CreateDataPropertyOrThrow (see ts_array_flat).
-        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->Flat(d));
+        return ts_array_species_rematerialize_ex(arr, ((TsArray*)arr)->Flat(d), 0, 0);  // 23.1.3.13 flat: ArraySpeciesCreate(O,0), no length set
     }
 
     // Forward decl — defined further down. Used by the C-level array
@@ -2093,7 +2095,7 @@ extern "C" {
         // ArraySpeciesCreate(O, 0) + CreateDataPropertyOrThrow (see ts_array_flat):
         // validates a custom constructor/@@species and builds the result through
         // it. Fast-rejects a plain array (no own props).
-        return ts_array_species_rematerialize(arr, ((TsArray*)arr)->FlatMap(callback, thisArg));
+        return ts_array_species_rematerialize_ex(arr, ((TsArray*)arr)->FlatMap(callback, thisArg), 0, 0);  // 23.1.3.14 flatMap: ArraySpeciesCreate(O,0), no length set
     }
 
     bool ts_array_includes(void* arr, int64_t value) {
@@ -2504,7 +2506,7 @@ extern "C" {
 
         // ECMA-262 23.1.3.31: the returned removed-elements array is built via
         // ArraySpeciesCreate(O, actualDeleteCount).
-        return ts_array_species_rematerialize(arr, result);
+        return ts_array_species_rematerialize_ex(arr, result, -1, 1);  // 23.1.3.31 splice: ArraySpeciesCreate(O,deleteCount) + Set(A,"length")
     }
 
     extern TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv);
@@ -2960,9 +2962,42 @@ extern "C" {
     // threw a TypeError. Safe to call from the hot typed path: a plain TsArray
     // with no own "constructor" property fast-rejects below before any property
     // lookup, so normal `number[].map(...)` pays only one null check.
-    extern "C" void* ts_array_species_rematerialize(void* receiver, void* resultRaw) {
+    // constructLen: the ArraySpeciesCreate `length` argument — ES 23.1.3.x
+    // differs per method (filter/concat/flat/flatMap pass 0; map passes the
+    // SOURCE length; slice/splice pass the count). -1 means "use the result
+    // length" (legacy behavior; correct for map/slice/splice where the result
+    // length equals the spec argument).
+    // setLength: perform the trailing `Set(A, "length", n, true)` the spec
+    // prescribes for slice (step 12) / splice (step 12) / concat (step 6);
+    // map/filter/flat/flatMap have NO such step (flatMap's result must not
+    // even own a "length" — this-value-ctor-object-species-custom-ctor).
+    extern "C" void* ts_array_species_rematerialize_ex(void* receiver,
+                                                       void* resultRaw,
+                                                       int64_t constructLen,
+                                                       int setLength) {
         TsArray* resultArr = (TsArray*)resultRaw;
         if (!receiver || !resultArr) return resultRaw;
+        // Resolve the ORIGINAL receiver for the species protocol: iteration
+        // methods invoked on an array-like or Proxy receiver run against a
+        // materialized temp TsArray whose originalReceiver points at the real
+        // `O`. ES 23.1.3.x ArraySpeciesCreate(O, len) step 3 consults
+        // IsArray(O) — which tunnels Proxy targets per 7.2.2 step 3 — and
+        // steps 5-7 Get O.constructor[@@species] THROUGH the proxy. Using the
+        // temp hid a custom species behind any proxy wrapper (create-proxy
+        // family). A non-array array-like keeps the default result
+        // (ArraySpeciesCreate step 4: ArrayCreate).
+        {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)receiver);
+            void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : receiver;
+            if (raw && *(uint32_t*)raw == 0x41525259) {   // TsArray::MAGIC
+                TsArray* a = (TsArray*)raw;
+                if (a->originalReceiver && a->originalReceiver != (void*)a) {
+                    if (!ts_array_isArray(a->originalReceiver))
+                        return resultRaw;                  // step 4: ArrayCreate
+                    receiver = a->originalReceiver;
+                }
+            }
+        }
         // Fast reject: a plain TsArray whose only "constructor" is the inherited
         // Array (no own property) uses the default species → skip the protocol.
         {
@@ -2991,7 +3026,8 @@ extern "C" {
         if (ctorVal == (TsValue*)defaultCtor) return resultRaw;  // FAST PATH
 
         int64_t n = resultArr->Length();
-        TsValue* A = ts_new_from_constructor_1(ctorVal, ts_value_make_int(n));
+        int64_t ctorArg = (constructLen >= 0) ? constructLen : n;
+        TsValue* A = ts_new_from_constructor_1(ctorVal, ts_value_make_int(ctorArg));
         if (!A) return resultRaw;                              // degrade gracefully
         // CreateDataPropertyOrThrow: writing an element onto a NON-EXTENSIBLE
         // species result (that doesn't already own the index) must TypeError
@@ -3036,8 +3072,21 @@ extern "C" {
                 ts_value_make_string(TsString::Create(ibuf)),
                 ts_value_make_object(desc));
         }
+        // Trailing Set(A, "length", n, true) — slice/splice/concat only.
+        if (setLength) {
+            extern void ts_object_set_property(void* obj, void* key, void* value);
+            ts_object_set_property((void*)ABoxed,
+                (void*)ts_value_make_string(TsString::GetInterned("length")),
+                (void*)ts_value_make_int(n));
+        }
         void* raw = araw;
         return raw ? raw : resultRaw;
+    }
+
+    // Legacy entry: result-length construct argument, no trailing length set
+    // (map semantics — source length == result length for map).
+    extern "C" void* ts_array_species_rematerialize(void* receiver, void* resultRaw) {
+        return ts_array_species_rematerialize_ex(receiver, resultRaw, -1, 0);
     }
 
     // True when the array has EXOTIC INDEX state that the packed C++ iteration
@@ -3146,7 +3195,7 @@ extern "C" {
             return ts_value_get_object(r);
         if (!array_require_callable(callback, "filter")) return nullptr;
         void* result = ((TsArray*)arr)->Filter(callback, thisArg);
-        return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
+        return ts_array_species_rematerialize_ex(arr, result, 0, 0);  // 23.1.3.8 filter: ArraySpeciesCreate(O,0), no length set
     }
 
     // IsCallable check shared across array methods (forEach/map/filter/...).
@@ -3433,7 +3482,7 @@ extern "C" {
         uintptr_t p = (uintptr_t)raw;
         if (raw && p > 0x1000 && p < 0x0000800000000000ULL &&
             *(uint32_t*)raw == TsArray::MAGIC) {
-            return ts_array_species_rematerialize(arr, result);
+            return ts_array_species_rematerialize_ex(arr, result, 0, 1);  // 23.1.3.2 concat: ArraySpeciesCreate(O,0) + Set(A,"length",n)
         }
         return result;
     }

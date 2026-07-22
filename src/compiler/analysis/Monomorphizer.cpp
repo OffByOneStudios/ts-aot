@@ -1422,7 +1422,17 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             // (defaultLocals records the local each "default" aliases).
             std::string defaultLocal;
             bool defaultIsHoistedFn = false;
-            auto collectExportedNames = [&defaultLocal, &defaultIsHoistedFn](
+            // ES 16.2.3.7: `export default function fn() {}` exports the
+            // NAMED, MUTABLE binding `fn` under "default" ([[LocalName]] is
+            // "fn"). Namespace reads must be LIVE (ES 10.4.6.8 [[Get]] ->
+            // GetBindingValue): a later `fn = 2` anywhere in the module —
+            // including inside the exported function's own body — must be
+            // visible as ns.default === 2. Named default fn decls therefore
+            // take the mutable-local placeholder + __getter_default
+            // treatment (same convention as var/let exports below).
+            bool defaultIsMutableFn = false;
+            auto collectExportedNames = [&defaultLocal, &defaultIsHoistedFn,
+                                         &defaultIsMutableFn](
                                            const std::vector<std::unique_ptr<ast::Statement>>& stmts,
                                            std::vector<std::string>& names) {
                 for (const auto& stmt : stmts) {
@@ -1443,6 +1453,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             // was never populated at all. Name it here.
                             if (funcDecl->name.empty())
                                 funcDecl->name = "__dflt_export";
+                            else
+                                defaultIsMutableFn = true;  // user-named: reassignable
                             defaultLocal = funcDecl->name;
                             defaultIsHoistedFn = true;
                         }
@@ -1478,7 +1490,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
                 assignExpr->left = std::move(exportsAccess);
                 auto nameRef = std::make_unique<ast::Identifier>();
-                nameRef->name = defaultLocal;
+                // Live default (named default fn decl): the data entry is an
+                // UNDEFINED placeholder (enumeration/hasOwnProperty only) so
+                // the __getter_default accessor injected below serves reads —
+                // a real snapshot would shadow it (own data wins over the
+                // getter scan in the dynamic get path).
+                nameRef->name = defaultIsMutableFn ? "undefined" : defaultLocal;
                 assignExpr->right = std::move(nameRef);
                 auto exprStmt = std::make_unique<ast::ExpressionStatement>();
                 exprStmt->expression = std::move(assignExpr);
@@ -1492,6 +1509,39 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         std::move(exprStmt));
                 } else {
                     moduleInit->body.push_back(std::move(exprStmt));
+                }
+                if (defaultIsMutableFn) {
+                    // Live-binding accessor (ES 10.4.6.8 [[Get]] step 12 ->
+                    // GetBindingValue on the [[LocalName]] binding):
+                    //   exports["__getter_default"] = function() { return <fn>; };
+                    // The closure rides the shared-cell capture machinery, so
+                    // it always reads the CURRENT value of the local binding.
+                    auto gAssign = std::make_unique<ast::AssignmentExpression>();
+                    auto gTarget = std::make_unique<ast::ElementAccessExpression>();
+                    auto gExports = std::make_unique<ast::Identifier>();
+                    gExports->name = "exports";
+                    gExports->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    gTarget->expression = std::move(gExports);
+                    auto gKey = std::make_unique<ast::StringLiteral>();
+                    gKey->value = "__getter_default";
+                    gKey->inferredType = std::make_shared<Type>(TypeKind::String);
+                    gTarget->argumentExpression = std::move(gKey);
+                    gTarget->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    gAssign->left = std::move(gTarget);
+
+                    auto gFn = std::make_unique<ast::FunctionExpression>();
+                    auto gRet = std::make_unique<ast::ReturnStatement>();
+                    auto gLocal = std::make_unique<ast::Identifier>();
+                    gLocal->name = defaultLocal;
+                    gRet->expression = std::move(gLocal);
+                    gFn->body.push_back(std::move(gRet));
+                    gAssign->right = std::move(gFn);
+
+                    auto gStmt = std::make_unique<ast::ExpressionStatement>();
+                    gStmt->expression = std::move(gAssign);
+                    moduleInit->body.insert(
+                        moduleInit->body.begin() + (nsExportInsertPos++),
+                        std::move(gStmt));
                 }
             }
 

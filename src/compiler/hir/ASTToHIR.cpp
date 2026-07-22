@@ -2334,6 +2334,17 @@ void ASTToHIR::emitDynamicHeritageLink(HIRClass* hirClass,
     // unresolvable name yields undefined and ts_class_link_dynamic_base falls
     // back to the name-based builtin link.
     const std::string& hn = hirClass->baseBuiltinName;
+    // `extends null` (heritage source text "null"): ES 15.7.14 step 6.e — a
+    // legal null superclass, not a resolvable identifier. Pass a genuine null
+    // VALUE so ts_class_link_dynamic_base takes its null branch (protoParent
+    // = null) instead of misresolving the name.
+    if (hn == "null") {
+        auto nullVal = boxValueIfNeeded(builder_.createConstNull());
+        auto baseNameC0 = builder_.createConstString(hn);
+        builder_.createCall("ts_class_link_dynamic_base",
+            {ctorVal, proto, nullVal, baseNameC0}, HIRType::makeVoid());
+        return;
+    }
     size_t dot = hn.find('.');
     ast::Identifier heritageId;
     heritageId.name = (dot == std::string::npos) ? hn : hn.substr(0, dot);
@@ -2433,12 +2444,20 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
                     // Dotted heritage (`extends Temporal.Duration`): resolve
                     // the FIRST segment as an identifier, then member-access
                     // the rest — a dotted string is not a resolvable name.
+                    // `extends null` is a legal null superclass (ES 15.7.14
+                    // step 6.e), not an identifier — pass a genuine null.
                     const std::string& hn = hirClass->baseBuiltinName;
                     size_t dot = hn.find('.');
+                    std::shared_ptr<HIRValue> cur;
+                    if (hn == "null") {
+                        cur = boxValueIfNeeded(builder_.createConstNull());
+                        dot = std::string::npos;
+                    } else {
                     ast::Identifier heritageId;
                     heritageId.name = (dot == std::string::npos) ? hn : hn.substr(0, dot);
                     visitIdentifier(&heritageId);
-                    auto cur = boxValueIfNeeded(lastValue_);
+                    cur = boxValueIfNeeded(lastValue_);
+                    }
                     while (dot != std::string::npos) {
                         size_t next = hn.find('.', dot + 1);
                         std::string seg = (next == std::string::npos)

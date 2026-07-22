@@ -165,6 +165,17 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // returns that branded `this` (see the fieldless-derived implicit-return and
     // the `new` site's ts_construct_select). Scoped to FIELDLESS subclasses: a
     // compiled-field subclass keeps flat-slot layout and its legacy path.
+    // `super()` in a class whose heritage is the literal `null` (ES 15.7.14
+    // step 6.e: constructorParent = %Function.prototype%, which is NOT a
+    // constructor): SuperCall step 5 IsConstructor(func) is false → TypeError.
+    // Arguments were already evaluated above (step 4 ArgumentListEvaluation
+    // precedes the IsConstructor check).
+    if (superExpr && currentClass_ && !currentClass_->baseClass &&
+        currentClass_->baseBuiltinName == "null") {
+        builder_.createCall("ts_super_null_base_throw", {}, HIRType::makeVoid());
+        lastValue_ = builder_.createConstUndefined();
+        return;
+    }
     if (superExpr && currentClass_ && !currentClass_->baseClass &&
         !currentClass_->baseBuiltinName.empty() &&
         (!currentClass_->shape || currentClass_->shape->propertyOffsets.empty())) {
