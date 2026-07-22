@@ -905,6 +905,22 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         builder_.createCall("ts_set_call_this", {savedThisV2}, HIRType::makeVoid());
                         return;
                     }
+                    // ECMA-262 §15.7.14 step 7 / §10.2.11: a class whose
+                    // heritage is a BUILTIN (`class C extends Promise {}`) has
+                    // C.[[Prototype]] = %Promise% — statics like `C.resolve()`
+                    // are inherited from the builtin and must dispatch
+                    // dynamically through the constructor-object proto walk
+                    // (Promise.resolve with this=C, per 27.2.4.7 step 2's
+                    // `C = this value`). The forward-reference fallback below
+                    // emitted a nonexistent `C_static_resolve` symbol that
+                    // resolved to undefined at runtime.
+                    if (!cls->baseBuiltinName.empty()) {
+                        auto obj = lowerExpression(propAccess->expression.get());
+                        lastValue_ = builder_.createCallMethod(
+                            obj, resolvePrivateName(propAccess->name), args,
+                            HIRType::makeAny());
+                        return;
+                    }
                     // Fallback: For imported classes, staticMethods may not be populated
                     // because the class body is compiled later (via module init specialization).
                     // Emit a forward-reference call using the conventional name.
@@ -3017,7 +3033,7 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         (!hirClass->shape || hirClass->shape->propertyOffsets.empty())) {
         const std::string& b = hirClass->baseBuiltinName;
         if (b == "Set" || b == "Map" || b == "WeakSet" || b == "WeakMap" ||
-            b == "Array") {
+            b == "Array" || b == "Promise") {
             auto baseNameC = builder_.createConstString(b);
             auto ctorVal2 = builder_.createLoadFunction(
                 hirClass->constructor ? hirClass->constructor->name

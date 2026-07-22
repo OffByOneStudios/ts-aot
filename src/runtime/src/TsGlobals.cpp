@@ -8665,12 +8665,17 @@ void* ts_subclass_builtin_alloc(void* nameStr, void* ctorVal) {
     extern void* ts_weakset_create();
     extern void* ts_weakmap_create();
     extern void* ts_array_create();
+    extern void* ts_promise_alloc_for_subclass();
     void* inst = nullptr;
     if (strcmp(n, "Set") == 0)          inst = ts_set_create();
     else if (strcmp(n, "Map") == 0)     inst = ts_map_create_explicit();
     else if (strcmp(n, "WeakSet") == 0) inst = ts_weakset_create();
     else if (strcmp(n, "WeakMap") == 0) inst = ts_weakmap_create();
     else if (strcmp(n, "Array") == 0)   inst = ts_array_create();
+    // `class C extends Promise {}`: the instance must BE a branded TsPromise
+    // (ES 27.2.3.1 OrdinaryCreateFromConstructor with [[PromiseState]] slots)
+    // so inherited then/catch/finally see a real promise receiver.
+    else if (strcmp(n, "Promise") == 0) inst = ts_promise_alloc_for_subclass();
     if (!inst) return nullptr;
     // Link instance -> Subclass.prototype so `x instanceof Subclass` walks
     // (stored under a hidden key in the native-object side map; consumed by
@@ -8713,6 +8718,20 @@ void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0)
         if (!rawThis) rawThis = thisVal;
         if (argc >= 1)
             ts_set_populate_from_iterable(rawThis, (TsValue*)a0);
+        return;
+    }
+    // `class C extends Promise` + `super(executor)`: ES 27.2.3.1 — the base
+    // Promise constructor steps run on the (branded) subclass instance:
+    // non-callable executor throws TypeError (step 2), otherwise the executor
+    // is called with the instance's resolving functions (steps 8-10) and an
+    // executor throw rejects the instance (step 10.a). No-op for a legacy
+    // flat (unbranded) instance, matching the previous lowering.
+    if (strcmp(n, "Promise") == 0) {
+        extern void ts_promise_run_executor_on(void* promiseRaw, TsValue* executor);
+        void* rawThis = ts_value_get_object((TsValue*)thisVal);
+        if (!rawThis) rawThis = thisVal;
+        ts_promise_run_executor_on(rawThis,
+            argc >= 1 ? (TsValue*)a0 : nullptr);
         return;
     }
     static const char* errNames[8] = { "Error", "EvalError", "RangeError",
