@@ -7,6 +7,8 @@
 
 /// V8-style element kinds for monomorphic array optimizations
 /// Must match the ElementKind enum in src/compiler/analysis/Type.h
+class TsCell;  // TsCell.h — mapped-arguments parameter cells (ES 10.4.4)
+
 enum class ElementKind : uint8_t {
     Unknown = 0,       ///< Type not yet determined
     PackedSmi = 1,     ///< Small integers (31-bit signed)
@@ -84,6 +86,9 @@ public:
     // True if index >= length OR the slot holds the NANBOX_HOLE sentinel.
     // Used by spec-compliant iteration methods to skip holes.
     bool IsHole(size_t index) const;
+    // Raw capacity-safe element write WITHOUT the mapped-arguments
+    // write-through (see writeSlot). Internal use only.
+    void writeSlotRaw(size_t index, int64_t value);
     // Write the NANBOX_HOLE sentinel at index (index must be < length).
     void SetHole(size_t index);
 
@@ -189,11 +194,39 @@ public:
     // false and Object.prototype.toString brands it [object Arguments]. Placed at
     // the end to preserve the offsets codegen hardcodes for the early fields.
     bool isArguments = false;
+
+    // ES 10.4.4 MAPPED arguments object (sloppy mode + simple parameter list):
+    // per-index parameter-map. mappedCells[i] is the SAME shared GC cell
+    // (TsCell*) the compiler promoted the i-th named parameter to, or nullptr
+    // once the index is unmapped ([[Delete]], accessor redefinition, or
+    // writable:false — ES 10.4.4.2/10.4.4.5). Element slots always hold the
+    // plain current value (kept in sync by writeSlot's write-through and the
+    // compiler's ts_arguments_sync_mapped on parameter writes), so bulk
+    // readers (slice/spread/apply) need no cell awareness. The cells buffer
+    // is ts_alloc'd — the GC's conservative full-block scans mark and forward
+    // its contents like the `elements` buffer. nullptr for unmapped
+    // arguments objects and all plain arrays.
+    TsCell** mappedCells = nullptr;
+    size_t mappedCount = 0;
 };
 
 TS_DECLARE_TAG(TsArray);  // magic at offset 0 (POD); friend grants offsetof access
 
 extern "C" {
+    // ES 10.4.4 mapped arguments (all-boxed ABI — called via the compiler's
+    // generic all-ptr runtime-call lowering; integer args arrive as boxed
+    // TsValue ints). See TsObject.cpp.
+    void* ts_arguments_make_param_cells(void* numMappedBoxed,
+        void* p0, void* p1, void* p2, void* p3, void* p4,
+        void* p5, void* p6, void* p7, void* p8, void* p9);
+    void* ts_create_mapped_arguments_from_params(void* cellsClosure,
+        void* numMappedBoxed,
+        void* p0, void* p1, void* p2, void* p3, void* p4,
+        void* p5, void* p6, void* p7, void* p8, void* p9);
+    void  ts_arguments_sync_mapped(void* argsObj, void* idxBoxed, void* value);
+    // Internal (raw args): sever the index->parameter mapping.
+    void  ts_arguments_unmap_index(TsArray* arr, size_t idx);
+
     void* ts_array_create();
     void* ts_array_create_sized(int64_t size);
     void ts_array_init_inplace(void* mem, int64_t initial_capacity);  // Placement-new at caller-provided memory

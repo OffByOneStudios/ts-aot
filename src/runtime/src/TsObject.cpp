@@ -18,6 +18,7 @@
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
+#include "TsCell.h"
 #include "TsHashTable.h"
 #include "TsProxy.h"
 #include "TsTextEncoding.h"
@@ -1090,6 +1091,106 @@ void* ts_create_arguments_from_params(
     // Object.prototype.toString -> [object Arguments] (lodash _.isArguments).
     arr->isArguments = true;
     return ts_value_make_object(arr);
+}
+
+//==============================================================================
+// ES 10.4.4 CreateMappedArgumentsObject — sloppy-mode, simple-parameter-list
+// functions get a MAPPED arguments object: `arguments[i]` and the i-th named
+// parameter share ONE GC cell (TsCell), giving two-way write-through aliasing
+// without any raw stack address ever crossing the boxed ABI.
+//
+// The compiler (ASTToHIR::emitArgumentsObject) emits, at function entry:
+//   cells = ts_arguments_make_param_cells(N, p0..p9)   // TsClosure w/ N cells
+//   args  = ts_create_mapped_arguments_from_params(cells, N, p0..p9)
+// and then treats every named parameter exactly like a closure-captured
+// variable over `cells` (reads via ts_closure_get_cell/ts_cell_get, writes
+// via ts_cell_set + ts_arguments_sync_mapped for the element mirror).
+//
+// All three entry points below use the generic all-boxed compiler ABI:
+// integer arguments arrive as boxed TsValue ints.
+//==============================================================================
+
+// Build the parameter-cell holder: a func-less TsClosure with one cell per
+// named parameter, seeded with the call-time argument values. Reusing
+// TsClosure means the compiler's battle-tested LoadCaptureFromClosure /
+// StoreCaptureFromClosure machinery (and its GC rooting) works unchanged.
+void* ts_arguments_make_param_cells(void* numMappedBoxed,
+    void* p0, void* p1, void* p2, void* p3, void* p4,
+    void* p5, void* p6, void* p7, void* p8, void* p9) {
+    int64_t n = ts_value_get_int((TsValue*)numMappedBoxed);
+    if (n < 0) n = 0;
+    if (n > 10) n = 10;
+    TsClosure* c = ts_closure_create(nullptr, n);
+    void* params[] = {p0, p1, p2, p3, p4, p5, p6, p7, p8, p9};
+    for (int64_t i = 0; i < n; i++) {
+        ts_closure_init_capture(c, i, (TsValue*)params[i]);
+    }
+    return c;  // raw TsClosure*, same shape as normal closure values
+}
+
+// Build the mapped arguments object over the SAME cells. Elements hold plain
+// values (so slice/spread/apply/iteration read them unchanged); mappedCells
+// aliases index i to the parameter cell for every i < min(numMapped, argc).
+// Per spec only indices below the actual argument count are mapped.
+void* ts_create_mapped_arguments_from_params(void* cellsClosure,
+    void* numMappedBoxed,
+    void* p0, void* p1, void* p2, void* p3, void* p4,
+    void* p5, void* p6, void* p7, void* p8, void* p9) {
+    int64_t argc = ts_last_call_argc;
+    if (argc < 0) argc = 0;
+    if (argc > 10) argc = 10;
+    TsArray* arr = TsArray::Create();
+    void* params[] = {p0, p1, p2, p3, p4, p5, p6, p7, p8, p9};
+    for (int64_t i = 0; i < argc; i++) {
+        arr->Push((int64_t)params[i]);
+    }
+    arr->isArguments = true;
+    // Attach the parameter map AFTER the pushes so creation never routes
+    // through the writeSlot write-through.
+    int64_t n = ts_value_get_int((TsValue*)numMappedBoxed);
+    if (n < 0) n = 0;
+    if (n > argc) n = argc;  // ES 10.4.4.6: only indices < argc are mapped
+    TsClosure* c = (TsClosure*)cellsClosure;
+    if (c && n > 0) {
+        TsCell** cells = (TsCell**)ts_alloc(n * sizeof(TsCell*));
+        for (int64_t i = 0; i < n; i++) {
+            cells[i] = ts_closure_get_cell(c, i);
+            if (cells[i]) ts_gc_write_barrier(&cells[i], cells[i]);
+        }
+        arr->mappedCells = cells;
+        ts_gc_write_barrier(&arr->mappedCells, cells);
+        arr->mappedCount = (size_t)n;
+    }
+    return ts_value_make_object(arr);
+}
+
+// Element mirror for parameter writes: the compiler already routes the write
+// into the shared cell (StoreCaptureFromClosure); this call refreshes the
+// arguments object's element slot so bulk readers (slice/spread/apply,
+// getOwnPropertyDescriptor) observe the new value. No-op once the index is
+// unmapped — after [[Delete]] or an unmapping [[DefineOwnProperty]]
+// (ES 10.4.4.2/10.4.4.5) parameter writes must NOT resurrect the element.
+void ts_arguments_sync_mapped(void* argsObj, void* idxBoxed, void* value) {
+    void* raw = ts_value_get_object((TsValue*)argsObj);
+    if (!raw) raw = argsObj;
+    if (!raw || (uintptr_t)raw < 4096 ||
+        (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return;
+    if (*(uint32_t*)raw != TsArray::MAGIC) return;
+    TsArray* arr = (TsArray*)raw;
+    if (!arr->isArguments || !arr->mappedCells) return;
+    int64_t idx = ts_value_get_int((TsValue*)idxBoxed);
+    if (idx < 0 || (size_t)idx >= arr->mappedCount) return;
+    if (!arr->mappedCells[idx]) return;  // unmapped — aliasing severed
+    // writeSlot (not Raw): the redundant cell store writes the same value.
+    arr->writeSlot((size_t)idx, (int64_t)value);
+}
+
+// Sever the mapping for one index (ES 10.4.4.5 [[Delete]] step 4, and the
+// unmapping arms of 10.4.4.2 [[DefineOwnProperty]]).
+void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
+    if (arr && arr->mappedCells && idx < arr->mappedCount) {
+        arr->mappedCells[idx] = nullptr;
+    }
 }
 
     // Create a native function with name and arity set as real own
@@ -8496,6 +8597,13 @@ void* ts_create_arguments_from_params(
                         return 0;
                     }
                     if (!arr->IsHole((size_t)didx)) arr->SetHole((size_t)didx);
+                    // ES 10.4.4.5 [[Delete]] step 4: a successful delete of a
+                    // MAPPED arguments index removes the parameter mapping —
+                    // subsequent parameter writes no longer resurrect the
+                    // element, and vice versa. (The failed-delete paths above
+                    // return 0 before this point, keeping the map intact.)
+                    if (arr->isArguments)
+                        ts_arguments_unmap_index(arr, (size_t)didx);
                     // Drop any per-index descriptor side entries so a later
                     // re-definition starts fresh.
                     array_index_attrs_clear(arr, (size_t)didx);

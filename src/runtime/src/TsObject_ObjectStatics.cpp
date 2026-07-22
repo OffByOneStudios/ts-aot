@@ -2846,6 +2846,16 @@ extern "C" {
                                 // element keeps no side entry.
                                 if (newAttrs == 0x07) array_index_attrs_clear(arr, (size_t)idx);
                                 else array_index_attrs_set(arr, (size_t)idx, newAttrs);
+                                // ES 10.4.4.2 [[DefineOwnProperty]] on a MAPPED
+                                // arguments index (step 7): Desc.[[Value]], when
+                                // present, was already written through to the
+                                // parameter binding (arr->Set -> writeSlot cell
+                                // write-through above); if Desc.[[Writable]] is
+                                // false the mapping is then REMOVED. An
+                                // attrs-only {configurable:false} (no writable
+                                // field) KEEPS the mapping.
+                                if (arr->isArguments && hasW && !descBool(wkD))
+                                    ts_arguments_unmap_index(arr, (size_t)idx);
                                 return obj;
                             }
                             if (hasVal) {
@@ -2965,6 +2975,11 @@ extern "C" {
                                     if (b) accAttrs |= 0x04; else accAttrs &= ~(uint8_t)0x04;
                                 }
                                 array_index_attrs_set(arr, (size_t)idx, accAttrs);
+                                // ES 10.4.4.2 step 6.a: redefining a MAPPED
+                                // arguments index as an ACCESSOR removes the
+                                // parameter mapping.
+                                if (arr->isArguments)
+                                    ts_arguments_unmap_index(arr, (size_t)idx);
                                 return obj;
                             }
                         }
