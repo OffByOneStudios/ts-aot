@@ -87,6 +87,13 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
         retVal = maybeCloneStruct(retVal, node->expression.get());
     }
 
+    // ES 14.7.5.7 step 6.k: a return statement leaving one or more for-of
+    // loops closes their iterators (innermost first) — after the return
+    // expression is evaluated, before the completion propagates.
+    if (!forofIterStack_.empty()) {
+        emitOpenIteratorCloses(0);
+    }
+
     // ES 14.15: a `return` inside one or more enclosing try-with-finally blocks
     // must run every enclosing finally (in order) BEFORE returning. Route the
     // return completion through those finallys; the outermost finally's
@@ -176,10 +183,10 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     auto* endBlock = createBlock("while.end");
 
     // Push loop context for break/continue
-    LoopContext ctx = {condBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
+    LoopContext ctx = {condBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
-    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -225,10 +232,10 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     auto* endBlock = createBlock("for.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
-    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -308,6 +315,51 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     currentBlock_ = endBlock;
 }
 
+// One IteratorClose (ES 7.4.6 with a NON-throw completion). Sync loops call
+// the strict runtime close (GetMethod errors + return()-call errors propagate,
+// non-object result is a TypeError). for-await-of loops perform ES 7.4.7
+// AsyncIteratorClose: the return() call happens in the runtime helper, its
+// result is AWAITED here in lowered async code, then validated.
+void ASTToHIR::emitCloseOneIterator(std::shared_ptr<HIRValue> iterVal,
+                                    bool isAwait) {
+    if (!isAwait) {
+        builder_.createCall("ts_iterator_close_strict", {iterVal},
+                            HIRType::makeVoid());
+        return;
+    }
+    auto res = builder_.createCall("ts_iterator_close_get_result", {iterVal},
+                                   HIRType::makeAny());
+    // NULL result: the iterator has no return method — nothing to await.
+    auto isNull = builder_.createCmpEqPtr(res, builder_.createConstNull());
+    auto* awaitBB = createBlock("forof.close.await");
+    auto* doneBB = createBlock("forof.close.done");
+    builder_.createCondBranch(isNull, doneBB, awaitBB);
+    builder_.setInsertPoint(awaitBB);
+    currentBlock_ = awaitBB;
+    auto awaited = builder_.createAwait(res);
+    builder_.createCall("ts_iterator_close_validate", {awaited},
+                        HIRType::makeVoid());
+    builder_.createBranch(doneBB);
+    builder_.setInsertPoint(doneBB);
+    currentBlock_ = doneBB;
+}
+
+// Close every open for-of iterator in [fromDepth..end), innermost first —
+// used when a labeled break/continue or a return statement crosses one or
+// more for-of loops (ES 14.7.5.7 step 6.k: LoopContinues false ->
+// IteratorClose). Iterators separated from the abrupt statement by an
+// enclosing finally are skipped (their close/finally ordering interleaves;
+// banked — the finally dispatch machinery does not model iterators).
+void ASTToHIR::emitOpenIteratorCloses(int fromDepth) {
+    for (int i = (int)forofIterStack_.size() - 1; i >= fromDepth; i--) {
+        const auto& e = forofIterStack_[i];
+        if (!e.iterAlloca) continue;  // indexed-array fast path
+        if (e.finallyDepth < (int)finallyStack_.size()) continue;
+        auto iter = builder_.createLoad(HIRType::makeObject(), e.iterAlloca);
+        emitCloseOneIterator(iter, e.isAwait);
+    }
+}
+
 void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     setSourceLine(node);
     // For-of loop: iterate over iterable (arrays or generators)
@@ -323,10 +375,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     // for the indexed-array path) and falls through to endBlock. Normal
     // exhaustion (done === true) jumps straight to endBlock — an exhausted
     // iterator is NOT closed.
-    LoopContext ctx = {updateBlock, closeBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
+    // Track this loop's iterator for IteratorClose on crossing abrupt
+    // completions (labeled break/continue of an outer construct, return).
+    // The entry is pushed BEFORE the LoopContext so forofCloseFrom (the
+    // stack size after the push) EXCLUDES this loop's own iterator: an
+    // unlabeled/labeled break targeting THIS loop closes it in closeBlock,
+    // and a continue keeps it open.
+    forofIterStack_.push_back({nullptr, node->isAwait, (int)finallyStack_.size()});
+    LoopContext ctx = {updateBlock, closeBlock, withDepth_, tryDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(closeBlock);
-    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()});
     // Set by the iterator-protocol path; closeBlock calls iterator.return().
     std::shared_ptr<HIRValue> forofCloseIterAlloca = nullptr;
 
@@ -427,7 +486,13 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     //      undefined, .done is truthy, loop exits. Safe for non-iterables.
     // Generators/Map.keys()/custom iterables all go through this path uniformly.
     if (isGenerator || isIteratorObject) {
-        iterable = builder_.createCall("ts_iterator_get", {iterable}, HIRType::makeAny());
+        // for-await-of: GetIterator with the ASYNC hint — @@asyncIterator is
+        // preferred over @@iterator (ES 14.7.5.6 ForIn/OfHeadEvaluation
+        // iteratorKind async-iterate); the sync fallback's next() results and
+        // values are Awaited by the loop (AsyncFromSyncIterator core).
+        iterable = builder_.createCall(
+            node->isAwait ? "ts_for_await_iterator_get" : "ts_iterator_get",
+            {iterable}, HIRType::makeAny());
     }
 
     isGenerator = isGenerator || isIteratorObject;
@@ -445,6 +510,9 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         auto iterAlloca = builder_.createAlloca(HIRType::makeObject(), "forof.iter");
         builder_.createStore(iterable, iterAlloca);
         forofCloseIterAlloca = iterAlloca;  // closeBlock reads it (break path)
+        // Crossing abrupt completions (labeled break/continue, return) and
+        // the throw-close catch region read the iterator through this entry.
+        forofIterStack_.back().iterAlloca = iterAlloca;
 
         builder_.createBranch(condBlock);
 
@@ -480,6 +548,24 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         if (node->isAwait) {
             elemVal = builder_.createAwait(elemVal);
         }
+
+        // ES 14.7.5.7 steps 6.f/6.k: an ABRUPT completion from the binding
+        // initialization or the loop body must IteratorClose(iterator) with
+        // the throw completion — return() is called and every error it raises
+        // is SWALLOWED, the original exception rethrows (7.4.6 steps 5-6).
+        // Arm a synthetic handler around binding+body (NOT around next()/
+        // IteratorValue — those propagate without closing, steps 6.c/6.e).
+        // tryDepth_/tryScopeStack_ participate exactly like a real try so
+        // break/continue/return inside the body pop this handler through the
+        // existing conventions and yields re-arm it on resume.
+        auto* forofCatchBB = createBlock("forof.throwclose");
+        auto* forofBodyRunBB = createBlock("forof.bodyrun");
+        auto forofIsExc = builder_.createSetupTry(forofCatchBB);
+        builder_.createCondBranch(forofIsExc, forofCatchBB, forofBodyRunBB);
+        builder_.setInsertPoint(forofBodyRunBB);
+        currentBlock_ = forofBodyRunBB;
+        tryDepth_++;
+        tryScopeStack_.push_back({currentFunction_, forofCatchBB});
 
         // Bind to loop variable (supports simple, array destructuring, object destructuring)
         if (node->initializer) {
@@ -575,8 +661,32 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
 
         lowerStatement(node->body.get());
 
+        // End of the synthetic throw-close region: on the normal path pop
+        // the handler; abrupt exits (break/continue/return/throw) already
+        // popped or unwound it through the standard conventions.
+        tryScopeStack_.pop_back();
+        tryDepth_--;
+        if (!hasTerminator()) {
+            builder_.createPopHandler();
+        }
+
         // Branch to update (if not already terminated)
         emitBranchIfNeeded(updateBlock);
+
+        // forof.throwclose: IteratorClose with a throw completion — close
+        // errors are swallowed (7.4.6 step 6.b), the ORIGINAL exception
+        // rethrows to the enclosing handler.
+        builder_.setInsertPoint(forofCatchBB);
+        currentBlock_ = forofCatchBB;
+        {
+            auto forofExc = builder_.createGetException();
+            builder_.createClearException();
+            auto closeIter = builder_.createLoad(HIRType::makeObject(),
+                                                 forofCloseIterAlloca);
+            builder_.createCall("ts_iterator_close_quiet", {closeIter},
+                                HIRType::makeVoid());
+            builder_.createThrow(forofExc);
+        }
 
         // Update block: just jump back to cond (next call happens there)
         builder_.setInsertPoint(updateBlock);
@@ -722,19 +832,22 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     loopStack_.pop();
     breakTargetStack_.pop();
     breakTargetMeta_.pop();
+    forofIterStack_.pop_back();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
     popScope();
 
-    // closeBlock: break lands here. Iterator-protocol loops call
-    // iterator.return() (ES 7.4.8 IteratorClose); the indexed-array path has
-    // no iterator, so it is a plain fall-through.
+    // closeBlock: break lands here. Iterator-protocol loops perform
+    // IteratorClose with a break (non-throw) completion (ES 7.4.6): strict
+    // semantics — GetMethod/call errors propagate, a non-object return()
+    // result is a TypeError; for-await-of additionally Awaits the result
+    // (ES 7.4.7). The indexed-array path has no iterator: plain fall-through.
     builder_.setInsertPoint(closeBlock);
     currentBlock_ = closeBlock;
     if (forofCloseIterAlloca) {
         auto closeIter = builder_.createLoad(HIRType::makeObject(), forofCloseIterAlloca);
-        builder_.createCall("ts_iterator_close", {closeIter}, HIRType::makeVoid());
+        emitCloseOneIterator(closeIter, node->isAwait);
     }
     builder_.createBranch(endBlock);
 
@@ -752,10 +865,10 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     auto* endBlock = createBlock("forin.end");
 
     // Push loop context (continue -> update, break -> end)
-    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size()};
+    LoopContext ctx = {updateBlock, endBlock, withDepth_, tryDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()};
     loopStack_.push(ctx);
     breakTargetStack_.push(endBlock);
-    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()});
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -892,6 +1005,7 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
     {
         HIRBlock* target = nullptr;
         int tTry = 0, tWith = withDepth_, tFin = (int)finallyStack_.size();
+        int tIterFrom = (int)forofIterStack_.size();
         if (!node->label.empty()) {
             auto it = labeledLoops_.find(node->label);
             if (it != labeledLoops_.end()) {
@@ -899,6 +1013,7 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
                 tTry = it->second.tryDepth;
                 tWith = it->second.withDepth;
                 tFin = it->second.finallyDepth;
+                tIterFrom = it->second.forofCloseFrom;
             }
         } else if (!breakTargetStack_.empty()) {
             target = breakTargetStack_.top();
@@ -906,7 +1021,12 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
             tTry = m.tryDepth;
             tWith = m.withDepth;
             tFin = m.finallyDepth;
+            tIterFrom = m.forofCloseFrom;
         }
+        // ES 14.7.5.7 step 6.k: a break crossing INNER for-of loops closes
+        // their iterators, innermost first. The target loop's own iterator
+        // (when it is a for-of) is excluded — its closeBlock closes it.
+        if (target) emitOpenIteratorCloses(tIterFrom);
         if (target &&
             routeAbruptThroughFinally(/*isReturn=*/false, target, tTry, tWith,
                                       tFin, /*retVal=*/nullptr)) {
@@ -943,6 +1063,7 @@ void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
     {
         HIRBlock* target = nullptr;
         int tTry = 0, tWith = withDepth_, tFin = (int)finallyStack_.size();
+        int tIterFrom = (int)forofIterStack_.size();
         if (!node->label.empty()) {
             auto it = labeledLoops_.find(node->label);
             if (it != labeledLoops_.end()) {
@@ -950,13 +1071,19 @@ void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
                 tTry = it->second.tryDepth;
                 tWith = it->second.withDepth;
                 tFin = it->second.finallyDepth;
+                tIterFrom = it->second.forofCloseFrom;
             }
         } else if (!loopStack_.empty()) {
             target = loopStack_.top().continueTarget;
             tTry = loopStack_.top().tryDepth;
             tWith = loopStack_.top().withDepth;
             tFin = loopStack_.top().finallyDepth;
+            tIterFrom = loopStack_.top().forofCloseFrom;
         }
+        // ES 14.7.5.7 step 6.k: a labeled continue that exits INNER for-of
+        // loops closes their iterators (iterator-close-via-continue). The
+        // continued loop's own iterator stays open.
+        if (target) emitOpenIteratorCloses(tIterFrom);
         if (target &&
             routeAbruptThroughFinally(/*isReturn=*/false, target, tTry, tWith,
                                       tFin, /*retVal=*/nullptr)) {
@@ -1036,7 +1163,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
     auto* endBlock = createBlock("switch.end");
     switchStack_.push({endBlock, {}, nullptr});
     breakTargetStack_.push(endBlock);
-    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size()});
+    breakTargetMeta_.push({tryDepth_, withDepth_, (int)finallyStack_.size(), (int)forofIterStack_.size()});
 
     std::vector<HIRBlock*> caseBlocks;
     HIRBlock* defaultBlock = endBlock;

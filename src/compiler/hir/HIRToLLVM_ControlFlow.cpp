@@ -1241,9 +1241,15 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
             valueFn, { iterResult }, "agen_delegate_return");
         setValue(inst->result, returnVal);
     } else if (isGeneratorFunction_ && asyncContext_ != nullptr && !isAsyncFunction_) {
-        // State-machine generator: inline the delegation loop
+        // State-machine generator: inline the delegation loop.
         // The iterator is stored in ctx->delegateIterator so it persists across
-        // state machine calls (each yield suspends and resumes the impl function).
+        // state machine calls (each yield suspends and resumes the impl
+        // function). Mirrors the suspendable-agen shape above: a shared
+        // checkBB with a result PHI so the resume-mode dispatch (ES 27.5.3.7
+        // throw/return forwarding via ts_gen_delegate_resume) can route a
+        // delegate throw()/return() result through the same done-check, and a
+        // sentArg PHI so gen.next(v)'s argument is forwarded to the inner
+        // iterator's next (27.5.3.7.a.i: Call(next, iterator, [received])).
         llvm::Function* currentFunc = builder_->GetInsertBlock()->getParent();
 
         // Get iterator from iterable
@@ -1256,24 +1262,42 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
         builder_->CreateCall(setDelegateFn, { asyncContext_, iterator });
 
-        // Create blocks for the delegation loop
+        llvm::BasicBlock* preheaderBB = builder_->GetInsertBlock();
         llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(context_, "yield_star_loop", currentFunc);
+        llvm::BasicBlock* checkBB = llvm::BasicBlock::Create(context_, "yield_star_check", currentFunc);
         llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(context_, "yield_star_done", currentFunc);
 
         builder_->CreateBr(loopBB);
 
-        // Loop header: load iterator from ctx and call next()
+        // Loop header: load iterator from ctx and call next(sent)
         builder_->SetInsertPoint(loopBB);
+        llvm::PHINode* sentArg = builder_->CreatePHI(getGCPtrTy(), 2, "ystar_sent_arg");
+        // ES 27.5.3.7.a.i: the inner next is ALWAYS invoked with exactly one
+        // argument — « received.[[Value]] », initially undefined (star-rhs-
+        // iter-nrml-next-invoke asserts args.length 1, args[0] undefined).
+        // NaN-boxed undefined (0x0A), not nullptr: ts_iterator_next treats a
+        // null value as "no argument".
+        llvm::Value* undefSent = builder_->CreateIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0AULL),
+            getGCPtrTy(), "ystar_undef_sent");
+        sentArg->addIncoming(
+            llvm::cast<llvm::Constant>(undefSent), preheaderBB);
         auto getDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_get_delegate_iterator",
             getGCPtrTy(), { getGCPtrTy() });
         llvm::Value* curIter = builder_->CreateCall(getDelegateFn, { asyncContext_ }, "cur_iter");
 
         auto nextFn = getOrDeclareRuntimeFunction("ts_iterator_next",
             getGCPtrTy(), { getGCPtrTy(), getGCPtrTy() });
-        llvm::Value* nullVal = llvm::ConstantPointerNull::get(llvm::PointerType::get(context_, 0));
-        llvm::Value* iterResult = builder_->CreateCall(nextFn, { curIter, nullVal }, "iter_result");
+        llvm::Value* stepResult = builder_->CreateCall(nextFn, { curIter, sentArg }, "iter_result");
+        builder_->CreateBr(checkBB);
 
-        // Check if done
+        // Result check: shared by the next-step path and the throw/return
+        // forwarding path (a delegate throw()/return() result is treated
+        // exactly like a step result).
+        builder_->SetInsertPoint(checkBB);
+        llvm::PHINode* iterResult = builder_->CreatePHI(getGCPtrTy(), 2, "ystar_step_result");
+        iterResult->addIncoming(stepResult, loopBB);
+
         auto doneFn = getOrDeclareRuntimeFunction("ts_iterator_result_done",
             builder_->getInt1Ty(), { getGCPtrTy() });
         llvm::Value* isDone = builder_->CreateCall(doneFn, { iterResult }, "is_done");
@@ -1307,16 +1331,83 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         // Return from impl function (suspend)
         builder_->CreateRetVoid();
 
-        // Resume block: after next() is called again, we resume here and loop back
+        // Resume block: dispatch on the resume completion kind.
+        // - mode 0 (gen.next(v)): re-arm handlers, forward v to the inner
+        //   iterator via the loop-header PHI.
+        // - modes 1/2 (gen.throw / gen.return): FORWARD the completion to the
+        //   delegate iterator per ES 27.5.3.7 via ts_gen_delegate_resume.
+        //   Handlers are re-armed BEFORE the call so protocol TypeErrors and
+        //   throws from the delegate's throw()/return() land in the enclosing
+        //   user try inside the generator body. The helper returns a step
+        //   result (routed through checkBB) or NULL when the generator itself
+        //   completed (ctx->yielded/yieldedValue already set for the driver).
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(resumeBlock);
-            // GEN-001 Stage 6 re-arm: re-push the enclosing try scopes'
-            // handlers in this invocation's frame before re-entering the
-            // delegation loop.
+
+            auto getModeFn = getOrDeclareRuntimeFunction(
+                "ts_async_context_get_resume_mode",
+                builder_->getInt32Ty(), { getGCPtrTy() });
+            llvm::Value* mode = builder_->CreateCall(
+                getModeFn, { asyncContext_ }, "ystar_resume_mode");
+
+            llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(
+                context_, "ystar_resume_next", currentFunc);
+            llvm::BasicBlock* fwdBB = llvm::BasicBlock::Create(
+                context_, "ystar_resume_fwd", currentFunc);
+            llvm::SwitchInst* sw = builder_->CreateSwitch(mode, nextBB, 2);
+            sw->addCase(builder_->getInt32(1), fwdBB);
+            sw->addCase(builder_->getInt32(2), fwdBB);
+
+            auto getResumedFn = getOrDeclareRuntimeFunction(
+                "ts_async_context_get_resumed_value",
+                getGCPtrTy(), { getGCPtrTy() });
+
+            // mode 0: re-arm and loop with the sent value.
+            builder_->SetInsertPoint(nextBB);
             emitRearmTryHandlers(inst->tryCatchTargets);
-            // Loop back to check next delegate value
+            llvm::Value* resumedValue = builder_->CreateCall(
+                getResumedFn, { asyncContext_ }, "resumed_value");
+            // gen.next() with no argument resumes with a null resumedValue —
+            // normalize to boxed undefined so the inner next still receives
+            // exactly one argument (27.5.3.7.a.i).
+            llvm::Value* sentIsNull = builder_->CreateICmpEQ(
+                resumedValue, llvm::ConstantPointerNull::get(getGCPtrTy()),
+                "ystar_sent_isnull");
+            llvm::Value* normSent = builder_->CreateSelect(
+                sentIsNull, undefSent, resumedValue, "ystar_sent_norm");
+            sentArg->addIncoming(normSent, builder_->GetInsertBlock());
             builder_->CreateBr(loopBB);
+
+            // modes 1/2: forward to the delegate iterator.
+            builder_->SetInsertPoint(fwdBB);
+            emitRearmTryHandlers(inst->tryCatchTargets);
+            llvm::Value* fwdArg = builder_->CreateCall(
+                getResumedFn, { asyncContext_ }, "ystar_fwd_arg");
+            llvm::Value* fwdIter = builder_->CreateCall(
+                getDelegateFn, { asyncContext_ }, "ystar_fwd_iter");
+            auto resumeFwdFn = getOrDeclareRuntimeFunction(
+                "ts_gen_delegate_resume", getGCPtrTy(),
+                { getGCPtrTy(), getGCPtrTy(), builder_->getInt32Ty(),
+                  getGCPtrTy() });
+            llvm::Value* fwdResult = builder_->CreateCall(
+                resumeFwdFn, { asyncContext_, fwdIter, mode, fwdArg },
+                "ystar_fwd_result");
+            llvm::Value* genCompleted = builder_->CreateICmpEQ(
+                fwdResult, llvm::ConstantPointerNull::get(getGCPtrTy()),
+                "ystar_fwd_completed");
+            llvm::BasicBlock* fwdEndBB = builder_->GetInsertBlock();
+            llvm::BasicBlock* completeBB = llvm::BasicBlock::Create(
+                context_, "ystar_fwd_complete", currentFunc);
+            builder_->CreateCondBr(genCompleted, completeBB, checkBB);
+            iterResult->addIncoming(fwdResult, fwdEndBB);
+
+            // Generator completed inside the helper (return-completion):
+            // balance the re-armed user handlers and suspend for good — the
+            // driver (gen_resume_abrupt) reads ctx->yielded/yieldedValue.
+            builder_->SetInsertPoint(completeBB);
+            emitSuspendHandlerPops(inst->tryCatchTargets.size());
+            builder_->CreateRetVoid();
         }
 
         currentYieldState_++;
