@@ -2166,14 +2166,27 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
             }
             continue;
         }
-        // Static computed FIELD (`static [x] = init`): install the evaluated init
-        // under the evaluated key on the constructor, here at the source position
-        // (where the key's variable is bound).
+        // Static computed FIELD (`static [x] = init` / `static [x]`): define
+        // the field on the constructor via CreateDataPropertyOrThrow semantics
+        // (ES ClassDefinitionEvaluation / DefineField): ToPropertyKey abrupt
+        // completions propagate, and PropName "prototype" throws TypeError
+        // (F.prototype is {writable:false, configurable:false} per
+        // MakeConstructor — fields-computed-name-static-propname-prototype).
+        // Emission contexts (single source-position eval): inline setup and
+        // the module-init install trigger emit every entry; the hoisted
+        // user_main-entry flush emits ONLY keys that don't read a binding
+        // (a binding key is stale at the flush — its trigger installs it).
         if (ca.isField) {
-            if (!ca.keyExpr || !ca.initExpr || !ctorVal) continue;
-            auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
-            auto initVal = lowerExpression(static_cast<ast::Expression*>(ca.initExpr));
-            builder_.createSetPropDynamic(ctorVal, keyVal, initVal);
+            if (!ca.keyExpr || !ctorVal) continue;
+            if (!inlineContext && ca.keyReadsBinding) continue;
+            auto keyVal = boxValueIfNeeded(
+                lowerExpression(static_cast<ast::Expression*>(ca.keyExpr)));
+            auto initVal = ca.initExpr
+                ? boxValueIfNeeded(
+                      lowerExpression(static_cast<ast::Expression*>(ca.initExpr)))
+                : builder_.createConstUndefined();
+            builder_.createCall("ts_class_define_static_field",
+                                {ctorVal, keyVal, initVal}, HIRType::makeVoid());
             continue;
         }
         if (!ca.func || !ca.keyExpr) continue;

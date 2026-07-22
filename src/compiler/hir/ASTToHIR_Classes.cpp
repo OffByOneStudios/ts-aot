@@ -572,35 +572,37 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 auto globalPtr = builder_.createGlobal(globalName, propType);
                 staticPropertyGlobals_[globalName] = {globalPtr, propType};
 
-                // ES ClassFieldDefinitionEvaluation steps 1-2 for STATIC
-                // computed field names (`static [f()]` / `static [x] = v`):
-                // the key evaluates (? ToPropertyKey) at class-DEFINITION
-                // time and its abrupt completion aborts the definition
-                // (static-classelementname-abrupt-completion). keyEvalOnly
-                // emits that evaluation in the INLINE setup only; the
-                // deferred init below still computes the install key at the
-                // flush (unchanged).
-                if (propDef->name == "[computed]") {
-                    if (auto* fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(
-                            propDef->nameNode.get())) {
-                        if (fieldCpn->expression) {
-                            HIRClass::ComputedAccessor kev{};
-                            kev.keyExpr = fieldCpn->expression.get();
-                            kev.isStatic = true;
-                            kev.keyEvalOnly = true;
-                            hirClass->computedAccessors.push_back(kev);
-                        }
-                    }
+                // A COMPUTED static field (`static [x] = v` / `static [x]`):
+                // route through an isField ComputedAccessor entry — the field
+                // defines on the constructor via ts_class_define_static_field
+                // (ES DefineField / CreateDataPropertyOrThrow: ToPropertyKey
+                // abrupt completions propagate at class-definition time,
+                // "prototype" throws TypeError, no-init defines undefined).
+                // Emission contexts are handled in emitComputedAccessorInstalls
+                // (inline setup / install trigger / non-binding-key flush).
+                ast::ComputedPropertyName* fieldCpnD = nullptr;
+                if (propDef->name == "[computed]")
+                    fieldCpnD = dynamic_cast<ast::ComputedPropertyName*>(
+                        propDef->nameNode.get());
+                if (fieldCpnD && fieldCpnD->expression) {
+                    HIRClass::ComputedAccessor fld{};
+                    fld.keyExpr = fieldCpnD->expression.get();
+                    fld.isStatic = true;
+                    fld.isField = true;
+                    fld.initExpr = propDef->initializer.get();  // null → undefined
+                    fld.keyReadsBinding =
+                        computedKeyReferencesBinding(fieldCpnD->expression.get());
+                    hirClass->computedAccessors.push_back(fld);
                 }
-
-                // Defer initialization to user_main
-                if (propDef->initializer) {
+                // Defer initialization to user_main (non-computed names only —
+                // computed names install via the isField entry above).
+                else if (propDef->initializer) {
                     // Mirror onto the constructor closure (own property) so the
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     node->name + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    nullptr,
                                                     privateClassStack_});
                 } else if (!propDef->name.empty() && propDef->name[0] == '#') {
                     // ES 15.7: a static private field establishes the class's
@@ -1716,49 +1718,37 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 auto globalPtr = builder_.createGlobal(globalName, propType);
                 staticPropertyGlobals_[globalName] = {globalPtr, propType};
 
-                // A computed field name that reads a variable (`static [x] = v`)
-                // can't be evaluated at the hoisted deferred flush (the variable
-                // isn't bound yet). Route it through computedAccessors so it
-                // installs at the source position via the install trigger, like a
-                // computed accessor. Don't ALSO defer it (would double-eval init).
+                // A COMPUTED static field (`static [x] = v` / `static [x]`):
+                // route through an isField ComputedAccessor entry — defines on
+                // the constructor via ts_class_define_static_field (ES
+                // DefineField / CreateDataPropertyOrThrow: ToPropertyKey
+                // abrupt completions propagate at class-definition time,
+                // "prototype" throws TypeError, no-init defines undefined).
+                // Binding-reading keys emit only at source-position contexts
+                // (inline trailer / install trigger); constant keys also at
+                // the hoisted flush — see emitComputedAccessorInstalls.
                 ast::ComputedPropertyName* fieldCpn = nullptr;
                 if (propDef->name == "[computed]")
                     fieldCpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get());
-                // A compile-time-constant key (`[1+1]`, `["a"]`) is evaluable at the
-                // hoisted flush, so keep it on the deferred path (proven). A key that
-                // reads a variable or builds a value (`[x]`, `[x &&= 1]`, `[() => {}]`,
-                // `[f()]`) must run at the source position — route it through the
-                // install trigger like a computed accessor (single eval, no deferral).
-                bool runtimeKey = fieldCpn && fieldCpn->expression &&
-                                  computedKeyReferencesBinding(fieldCpn->expression.get());
-                // ES ClassFieldDefinitionEvaluation steps 1-2 for STATIC
-                // computed field names too (`static [f()]`): evaluate the key
-                // at class-definition time so its abrupt completion aborts
-                // the definition (static-classelementname-abrupt-completion).
-                // Skip when the runtimeKey+init isField route below already
-                // evaluates the key inline (single eval, no doubling).
-                if (fieldCpn && fieldCpn->expression &&
-                    !(runtimeKey && propDef->initializer)) {
-                    HIRClass::ComputedAccessor kev{};
-                    kev.keyExpr = fieldCpn->expression.get();
-                    kev.isStatic = true;
-                    kev.keyEvalOnly = true;
-                    hirClass->computedAccessors.push_back(kev);
+                if (fieldCpn && fieldCpn->expression) {
+                    HIRClass::ComputedAccessor fld{};
+                    fld.keyExpr = fieldCpn->expression.get();
+                    fld.isStatic = true;
+                    fld.isField = true;
+                    fld.initExpr = propDef->initializer.get();  // null → undefined
+                    fld.keyReadsBinding =
+                        computedKeyReferencesBinding(fieldCpn->expression.get());
+                    hirClass->computedAccessors.push_back(fld);
                 }
-                if (runtimeKey && propDef->initializer) {
-                    // {keyExpr, func, isSetter, isStatic, isMethod, moduleLevelBody, isField, initExpr}
-                    hirClass->computedAccessors.push_back(
-                        {fieldCpn->expression.get(), nullptr, false, /*isStatic=*/true,
-                         false, false, /*isField=*/true, propDef->initializer.get()});
-                }
-                // Defer initialization to user_main
+                // Defer initialization to user_main (non-computed names only —
+                // computed names install via the isField entry above).
                 else if (propDef->initializer) {
                     // Mirror onto the constructor closure (own property) so the
                     // static field is reachable through an alias / dynamic key /
                     // passed reference. ctorName is always "<Class>_constructor".
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
                                                     className + "_constructor", propDef->name,
-                                                    propDef->name == "[computed]" ? propDef->nameNode.get() : nullptr,
+                                                    nullptr,
                                                     privateClassStack_});
                 }
                 else if (!propDef->name.empty() && propDef->name[0] == '#') {

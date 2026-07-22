@@ -1212,7 +1212,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     if (hc && !hc->computedAccessors.empty()) {
                         auto ctorVal = builder_.createLoadFunction(hc->name + "_constructor");
                         auto proto = builder_.createGetPropStatic(ctorVal, "prototype", HIRType::makeAny());
-                        emitComputedAccessorInstalls(hc, proto, ctorVal);
+                        // The trigger runs at the class's SOURCE POSITION in
+                        // module init — bindings its keys read are live, so
+                        // this is an inline (source-position) context for
+                        // binding-key field entries.
+                        emitComputedAccessorInstalls(hc, proto, ctorVal,
+                                                     /*inlineContext=*/true);
                     }
                 }
             }

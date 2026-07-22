@@ -6800,6 +6800,31 @@ void* ts_create_arguments_from_params(
         ts_object_set_method(recv, keyBoxed, closure);
     }
 
+    // ES ClassDefinitionEvaluation DefineField (static): CreateDataProperty-
+    // OrThrow on the constructor F. F's "prototype" is {writable:false,
+    // configurable:false} (MakeConstructor 10.2.5 step 6), so a computed
+    // static field whose PropName is "prototype" throws TypeError
+    // (fields-computed-name-static-propname-prototype). ToPropertyKey runs
+    // first and may throw via @@toPrimitive/toString/valueOf hooks
+    // (static-classelementname-abrupt-completion). A null/undefined-init
+    // field defines the value undefined. Frame is std::string-free on
+    // purpose — a throwing hook longjmps out (POD-safety rule).
+    void ts_class_define_static_field(TsValue* recv, TsValue* key, TsValue* val) {
+        if (!recv || !key) return;
+        TsValue* pk = ts_to_property_key_spec(key);   // may throw
+        if (!pk) pk = key;
+        TsString* ks = ts_property_key_string(pk);
+        if (ks) {
+            const char* k = ks->ToUtf8();
+            if (k && strcmp(k, "prototype") == 0) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Classes may not have a static property named 'prototype'"));
+                return;
+            }
+        }
+        ts_object_set_dynamic(recv, pk, val ? val : ts_value_make_undefined());
+    }
+
     // ============================================================
     // Value-passing variants (_v) - avoid heap allocation for TsValue
     // These take TsValue by value (16 bytes, fits in 2 registers)

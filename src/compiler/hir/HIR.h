@@ -564,6 +564,12 @@ struct HIRClass {
         // (source-position) setup only; the deferred top-level flush skips
         // them (it runs at user_main entry where outer bindings are absent).
         bool keyEvalOnly = false;
+        // The key expression reads a binding (variable/call/…): it must NOT
+        // be evaluated at the hoisted user_main-entry flush (bindings are
+        // stale there) — only at source-position contexts (inline setup or
+        // the module-init install trigger). Stamped at push time via
+        // computedKeyReferencesBinding.
+        bool keyReadsBinding = false;
     };
     std::vector<ComputedAccessor> computedAccessors;
 
