@@ -3555,6 +3555,19 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "constructor") == 0) {
                 // ES 20.2.3: functions inherit Function.prototype.constructor
                 // === Function (own/prototype-chain props checked above win).
+                // An OWN 'constructor' whose stored VALUE is undefined
+                // (`class C { static ['constructor']; }` — CreateDataProperty
+                // with initValue undefined) must still shadow the builtin:
+                // TsMap::Get can't distinguish stored-undefined from absent,
+                // so re-check key PRESENCE with Has before falling back.
+                if (func->properties) {
+                    TsValue ck; ck.type = ValueType::STRING_PTR;
+                    ck.ptr_val = TsString::GetInterned("constructor");
+                    for (TsMap* m = func->properties; m && (uintptr_t)m >= 0x10000 &&
+                         *(uint32_t*)m != 0x41525259 /*ARRY*/; m = m->GetPrototype()) {
+                        if (m->Has(ck)) return ts_value_make_undefined();
+                    }
+                }
                 extern void* ts_get_global_Function();
                 void* g = ts_get_global_Function();
                 if (g) return (TsValue*)g;
@@ -3670,6 +3683,19 @@ void* ts_create_arguments_from_params(
             if (strcmp(keyStr, "constructor") == 0) {
                 // ES 20.2.3: functions inherit Function.prototype.constructor
                 // === Function (own/prototype-chain props checked above win).
+                // An OWN 'constructor' whose stored VALUE is undefined
+                // (`class C { static ['constructor']; }` — CreateDataProperty
+                // with initValue undefined) must still shadow the builtin:
+                // TsMap::Get can't distinguish stored-undefined from absent,
+                // so re-check key PRESENCE with Has before falling back.
+                if (closure->properties) {
+                    TsValue ck; ck.type = ValueType::STRING_PTR;
+                    ck.ptr_val = TsString::GetInterned("constructor");
+                    for (TsMap* m = closure->properties; m && (uintptr_t)m >= 0x10000 &&
+                         *(uint32_t*)m != 0x41525259 /*ARRY*/; m = m->GetPrototype()) {
+                        if (m->Has(ck)) return ts_value_make_undefined();
+                    }
+                }
                 extern void* ts_get_global_Function();
                 void* g = ts_get_global_Function();
                 if (g) return (TsValue*)g;
@@ -5741,6 +5767,18 @@ void* ts_create_arguments_from_params(
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "constructor") == 0) {
+                        // An own 'constructor' holding UNDEFINED (static
+                        // ['constructor'] field) shadows the builtin — Get
+                        // above can't tell stored-undefined from absent, so
+                        // re-check presence with Has (see the static-key path).
+                        if (func->properties) {
+                            TsValue ck2; ck2.type = ValueType::STRING_PTR;
+                            ck2.ptr_val = TsString::GetInterned("constructor");
+                            for (TsMap* m2 = func->properties; m2 && (uintptr_t)m2 >= 0x10000 &&
+                                 *(uint32_t*)m2 != 0x41525259 /*ARRY*/; m2 = m2->GetPrototype()) {
+                                if (m2->Has(ck2)) return ts_value_make_undefined();
+                            }
+                        }
                         extern void* ts_get_global_Function();
                         void* g = ts_get_global_Function();
                         if (g) return (TsValue*)g;
@@ -5863,6 +5901,18 @@ void* ts_create_arguments_from_params(
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "constructor") == 0) {
+                        // An own 'constructor' holding UNDEFINED (static
+                        // ['constructor'] field) shadows the builtin — Get
+                        // above can't tell stored-undefined from absent, so
+                        // re-check presence with Has (see the static-key path).
+                        if (closure->properties) {
+                            TsValue ck2; ck2.type = ValueType::STRING_PTR;
+                            ck2.ptr_val = TsString::GetInterned("constructor");
+                            for (TsMap* m2 = closure->properties; m2 && (uintptr_t)m2 >= 0x10000 &&
+                                 *(uint32_t*)m2 != 0x41525259 /*ARRY*/; m2 = m2->GetPrototype()) {
+                                if (m2->Has(ck2)) return ts_value_make_undefined();
+                            }
+                        }
                         extern void* ts_get_global_Function();
                         void* g = ts_get_global_Function();
                         if (g) return (TsValue*)g;
