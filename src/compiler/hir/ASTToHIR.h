@@ -190,6 +190,17 @@ private:
         // Populated when a second/third/... nested closure also captures this
         // var (e.g., lodash's `upperFirst` captured by many helper closures).
         std::vector<std::pair<std::shared_ptr<HIRValue>, int>> additionalCaptures;
+        // ES 10.4.4 MAPPED arguments: this binding is the i-th named parameter
+        // of a sloppy-mode simple-parameter-list function whose body uses
+        // `arguments`. The parameter was promoted to a shared cell (the
+        // closure-capture machinery above, over a func-less cells closure) and
+        // the arguments object aliases the SAME cell, so `arguments[i]` and
+        // the parameter write through each other. argsObjAlloca holds the
+        // arguments object; parameter writes additionally emit
+        // ts_arguments_sync_mapped so the object's element mirror stays
+        // current for bulk readers (see broadcastCaptureWrite).
+        int argMappedIndex = -1;
+        std::shared_ptr<HIRValue> argsObjAlloca = nullptr;
     };
     struct Scope {
         std::map<std::string, VariableInfo> variables;
@@ -983,6 +994,15 @@ private:
     VariableInfo* lookupVariableInfoInCurrentFunction(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
     void broadcastCaptureWrite(VariableInfo* info, std::shared_ptr<HIRValue> newValue);
+    // Emit the `arguments` object at function entry (shared by the
+    // FunctionDeclaration / FunctionExpression visitors and the monomorphized
+    // function-spec path). When the function qualifies for a MAPPED arguments
+    // object (ES 10.4.4: sloppy mode + simple parameter list + non-generator/
+    // async), promotes every named parameter to a shared GC cell and builds
+    // the arguments object over those SAME cells (two-way aliasing);
+    // otherwise emits the plain unmapped object exactly as before.
+    void emitArgumentsObject(HIRFunction* func,
+        const std::vector<std::unique_ptr<ast::Parameter>>& astParams);
     // SMELL-002: shared MakeClosure trailer — the optional with-scope bind
     // (ts_with_bind_fn when lexically inside a `with`) plus the
     // capture-marking loop that registers the closure cell on every

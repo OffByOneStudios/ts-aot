@@ -220,6 +220,19 @@ void ASTToHIR::broadcastCaptureWrite(VariableInfo* info,
             builder_.createStoreCaptureFromClosure(closureVal, cap.second, newValue);
         }
     }
+    // ES 10.4.4 MAPPED arguments: a write to the i-th named parameter also
+    // refreshes arguments[i]'s element mirror (the shared cell above IS the
+    // aliased storage; the element copy exists so bulk readers — slice/
+    // spread/apply/getOwnPropertyDescriptor — need no cell awareness). The
+    // runtime no-ops once the index has been unmapped ([[Delete]] /
+    // unmapping [[DefineOwnProperty]], ES 10.4.4.2/10.4.4.5).
+    if (info->argMappedIndex >= 0 && info->argsObjAlloca) {
+        auto argsObj = builder_.createLoad(HIRType::makeAny(), info->argsObjAlloca);
+        builder_.createCall("ts_arguments_sync_mapped",
+            {argsObj, builder_.createConstInt(info->argMappedIndex),
+             boxValueIfNeeded(newValue)},
+            HIRType::makeVoid());
+    }
 }
 
 ASTToHIR::VariableInfo* ASTToHIR::lookupVariableInfo(const std::string& name) {

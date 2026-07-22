@@ -19,6 +19,124 @@ static bool bodyHasUseStrictDirective(const std::vector<std::unique_ptr<ast::Sta
     return false;
 }
 
+// Emit the `arguments` object at function entry. ES 10.4.4: a sloppy-mode
+// function with a SIMPLE parameter list (no defaults / rest / patterns) gets
+// a MAPPED arguments object — `arguments[i]` and the i-th named parameter
+// are aliases. Implementation: promote each named parameter to a shared GC
+// cell (exactly the closure-capture cell machinery — the cells live in a
+// func-less TsClosure), mark the parameter's VariableInfo isCapturedByNested
+// against that closure so every existing read/write site routes through the
+// cell, and build the arguments object holding the SAME cells
+// (ts_create_mapped_arguments_from_params). Two-way aliasing falls out:
+//   arguments[i] = v  -> TsArray::writeSlot write-through -> ts_cell_set
+//   param = v         -> StoreCaptureFromClosure (cell) +
+//                        ts_arguments_sync_mapped (element mirror)
+// No raw stack address ever crosses the boxed ABI; the GC sees cells
+// natively. Ineligible functions keep the plain unmapped object unchanged.
+void ASTToHIR::emitArgumentsObject(HIRFunction* func,
+        const std::vector<std::unique_ptr<ast::Parameter>>& astParams) {
+    // Build p0..p9 (user params incl. hidden __argN__, padded with undefined).
+    // ts_create_arguments_from_params & friends are declared lazily with the
+    // arity of the first call site — every site must pass exactly 10.
+    std::vector<std::shared_ptr<HIRValue>> callArgs;
+    size_t userIdx = 0;
+    for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+        if (func->params[i].first == "__closure__") continue;
+        auto paramVal = lookupVariable(func->params[i].first);
+        if (!paramVal) {
+            paramVal = builder_.createConstUndefined();
+        }
+        callArgs.push_back(paramVal);
+        userIdx++;
+    }
+    while (userIdx < 10) {
+        callArgs.push_back(builder_.createConstUndefined());
+        userIdx++;
+    }
+
+    // Eligibility for MAPPED arguments (ES 10.4.4, gated STRICTLY):
+    // sloppy code, plain function (no generator/async suspension model),
+    // 1..10 simple identifier parameters, no duplicates (the duplicate-name
+    // mapping subtlety of CreateMappedArgumentsObject is not modeled — such
+    // functions keep the unmapped object).
+    bool mapped = !strictCode_ && !func->isGenerator && !func->isAsync &&
+                  !astParams.empty() && astParams.size() <= 10;
+    std::vector<std::string> paramNames;
+    if (mapped) {
+        std::set<std::string> seen;
+        for (const auto& p : astParams) {
+            if (!p || p->isRest || p->initializer) { mapped = false; break; }
+            auto* id = dynamic_cast<ast::Identifier*>(p->name.get());
+            if (!id || id->name == "this" || id->name == "arguments" ||
+                !seen.insert(id->name).second) {
+                mapped = false;
+                break;
+            }
+            paramNames.push_back(id->name);
+        }
+    }
+    if (mapped) {
+        // Each parameter must be a plain Any-typed alloca binding in THIS
+        // function (typed TS params keep the fast unmapped path; a param
+        // already involved in TDZ/capture bookkeeping is left alone).
+        for (const auto& nm : paramNames) {
+            auto* vi = lookupVariableInfoInCurrentFunction(nm);
+            if (!vi || !vi->isAlloca || !vi->value || !vi->elemType ||
+                vi->elemType->kind != HIRTypeKind::Any ||
+                vi->isCapturedByNested || vi->isTDZ) {
+                mapped = false;
+                break;
+            }
+        }
+    }
+
+    if (!mapped) {
+        auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+            callArgs, HIRType::makeAny());
+        auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+        builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+        defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+        return;
+    }
+
+    int numMapped = static_cast<int>(paramNames.size());
+    auto nConst = builder_.createConstInt(numMapped);
+
+    // One shared cell per named parameter, seeded with the call-time values.
+    std::vector<std::shared_ptr<HIRValue>> cellArgs;
+    cellArgs.push_back(nConst);
+    cellArgs.insert(cellArgs.end(), callArgs.begin(), callArgs.end());
+    auto cellsClosure = builder_.createCall("ts_arguments_make_param_cells",
+        cellArgs, HIRType::makeAny());
+    auto cellsAlloca = builder_.createAlloca(HIRType::makeAny(), "arguments$cells");
+    builder_.createStore(cellsClosure, cellsAlloca, HIRType::makeAny());
+
+    // The mapped arguments object aliases the SAME cells.
+    std::vector<std::shared_ptr<HIRValue>> argsArgs;
+    argsArgs.push_back(cellsClosure);
+    argsArgs.push_back(nConst);
+    argsArgs.insert(argsArgs.end(), callArgs.begin(), callArgs.end());
+    auto argsArray = builder_.createCall("ts_create_mapped_arguments_from_params",
+        argsArgs, HIRType::makeAny());
+    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+
+    // Route every parameter read/write through its cell: mark the binding as
+    // captured by the cells closure (primary capture). Later REAL closures
+    // capturing the parameter land in additionalCaptures and stay in sync via
+    // broadcastCaptureWrite, exactly as with multi-closure captures.
+    for (int i = 0; i < numMapped; ++i) {
+        auto* vi = lookupVariableInfoInCurrentFunction(paramNames[i]);
+        if (!vi) continue;
+        vi->isCapturedByNested = true;
+        vi->closurePtr = cellsAlloca;
+        vi->captureIndex = i;
+        vi->argMappedIndex = i;
+        vi->argsObjAlloca = allocaVal;
+    }
+}
+
 void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     bool savedStrict_decl = strictCode_;
     if (bodyHasUseStrictDirective(node->body)) strictCode_ = true;
@@ -244,37 +362,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
         if (!usesArguments) usesArguments = paramsReferenceArguments(node->parameters);
         if (usesArguments) {
-            // Build args for ts_create_arguments_from_params(p0..p9)
-            // The runtime uses ts_last_call_argc to know how many were actually passed.
-            // Include both declared params AND hidden __argN__ params so that
-            // functions with fewer formal params than call args still capture all args.
-            std::vector<std::shared_ptr<HIRValue>> callArgs;
-
-            // Pass each user parameter (up to 10), padding with undefined
-            size_t userIdx = 0;
-            for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
-                if (func->params[i].first == "__closure__") continue;
-                auto paramVal = lookupVariable(func->params[i].first);
-                if (!paramVal) {
-                    paramVal = builder_.createConstUndefined();
-                }
-                callArgs.push_back(paramVal);
-                userIdx++;
-            }
-            // Pad remaining slots with undefined (up to 10 total params)
-            while (userIdx < 10) {
-                callArgs.push_back(builder_.createConstUndefined());
-                userIdx++;
-            }
-
-            // Call runtime to create arguments array
-            auto argsArray = builder_.createCall("ts_create_arguments_from_params",
-                callArgs, HIRType::makeAny());
-
-            // Store as local variable "arguments"
-            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
-            builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
-            defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+            // Shared helper: builds p0..p9, decides MAPPED (ES 10.4.4) vs
+            // unmapped, and defines the "arguments" binding.
+            emitArgumentsObject(func.get(), node->parameters);
         }
     }
 
@@ -480,7 +570,25 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 auto* info = lookupVariableInfo(capName);
                 if (info) {
                     std::shared_ptr<HIRValue> val;
-                    if (info->isAlloca && info->elemType) {
+                    if (info->argMappedIndex >= 0 && info->closurePtr &&
+                        info->captureIndex >= 0) {
+                        // MAPPED-arguments parameter (ES 10.4.4): the binding
+                        // lives in a shared cell. Read the capture seed via the
+                        // cell so codegen's cell-sharing chain probe
+                        // (existingCellFromChain in lowerMakeClosure) makes this
+                        // closure alias the SAME cell — a write to the param
+                        // inside the closure then stays visible to arguments[i]
+                        // and to the outer binding.
+                        auto cellsClo = builder_.createLoad(HIRType::makeAny(),
+                                                            info->closurePtr);
+                        std::shared_ptr<HIRValue> fb = nullptr;
+                        if (info->isAlloca && info->value && info->elemType)
+                            fb = builder_.createLoad(info->elemType, info->value);
+                        val = builder_.createLoadCaptureFromClosure(cellsClo,
+                            info->captureIndex,
+                            info->elemType ? info->elemType : HIRType::makeAny(),
+                            fb);
+                    } else if (info->isAlloca && info->elemType) {
                         val = builder_.createLoad(info->elemType, info->value);
                     } else {
                         val = info->value;
@@ -1006,7 +1114,25 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 auto* info = lookupVariableInfo(capName);
                 if (info) {
                     std::shared_ptr<HIRValue> val;
-                    if (info->isAlloca && info->elemType) {
+                    if (info->argMappedIndex >= 0 && info->closurePtr &&
+                        info->captureIndex >= 0) {
+                        // MAPPED-arguments parameter (ES 10.4.4): the binding
+                        // lives in a shared cell. Read the capture seed via the
+                        // cell so codegen's cell-sharing chain probe
+                        // (existingCellFromChain in lowerMakeClosure) makes this
+                        // closure alias the SAME cell — a write to the param
+                        // inside the closure then stays visible to arguments[i]
+                        // and to the outer binding.
+                        auto cellsClo = builder_.createLoad(HIRType::makeAny(),
+                                                            info->closurePtr);
+                        std::shared_ptr<HIRValue> fb = nullptr;
+                        if (info->isAlloca && info->value && info->elemType)
+                            fb = builder_.createLoad(info->elemType, info->value);
+                        val = builder_.createLoadCaptureFromClosure(cellsClo,
+                            info->captureIndex,
+                            info->elemType ? info->elemType : HIRType::makeAny(),
+                            fb);
+                    } else if (info->isAlloca && info->elemType) {
                         val = builder_.createLoad(info->elemType, info->value);
                     } else {
                         val = info->value;
@@ -1273,29 +1399,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         }
         if (!usesArguments) usesArguments = paramsReferenceArguments(node->parameters);
         if (usesArguments) {
-            std::vector<std::shared_ptr<HIRValue>> callArgs;
-
-            size_t userIdx = 0;
-            for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
-                if (func->params[i].first == "__closure__") continue;
-                auto paramVal = lookupVariable(func->params[i].first);
-                if (!paramVal) {
-                    paramVal = builder_.createConstUndefined();
-                }
-                callArgs.push_back(paramVal);
-                userIdx++;
-            }
-            while (userIdx < 10) {
-                callArgs.push_back(builder_.createConstUndefined());
-                userIdx++;
-            }
-
-            auto argsArray = builder_.createCall("ts_create_arguments_from_params",
-                callArgs, HIRType::makeAny());
-
-            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
-            builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
-            defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+            // Shared helper: builds p0..p9, decides MAPPED (ES 10.4.4) vs
+            // unmapped, and defines the "arguments" binding.
+            emitArgumentsObject(func.get(), node->parameters);
         }
     }
 
@@ -1492,7 +1598,25 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 auto* info = lookupVariableInfo(capName);
                 if (info) {
                     std::shared_ptr<HIRValue> val;
-                    if (info->isAlloca && info->elemType) {
+                    if (info->argMappedIndex >= 0 && info->closurePtr &&
+                        info->captureIndex >= 0) {
+                        // MAPPED-arguments parameter (ES 10.4.4): the binding
+                        // lives in a shared cell. Read the capture seed via the
+                        // cell so codegen's cell-sharing chain probe
+                        // (existingCellFromChain in lowerMakeClosure) makes this
+                        // closure alias the SAME cell — a write to the param
+                        // inside the closure then stays visible to arguments[i]
+                        // and to the outer binding.
+                        auto cellsClo = builder_.createLoad(HIRType::makeAny(),
+                                                            info->closurePtr);
+                        std::shared_ptr<HIRValue> fb = nullptr;
+                        if (info->isAlloca && info->value && info->elemType)
+                            fb = builder_.createLoad(info->elemType, info->value);
+                        val = builder_.createLoadCaptureFromClosure(cellsClo,
+                            info->captureIndex,
+                            info->elemType ? info->elemType : HIRType::makeAny(),
+                            fb);
+                    } else if (info->isAlloca && info->elemType) {
                         val = builder_.createLoad(info->elemType, info->value);
                     } else {
                         val = info->value;

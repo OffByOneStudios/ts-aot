@@ -1202,6 +1202,19 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             // Walk through GC pin alloca load/store pairs (the GC pinning
             // pass inserts these to keep GC roots stable across calls).
             for (int hop = 0; hop < 6 && probe; ++hop) {
+                // lowerLoadCaptureFromClosure wraps the cell-loaded value in a
+                // null-closure fallback select ("cap.select": true = fallback,
+                // false = ts_cell_get result). Chase the cell branch so a
+                // capture of an ALREADY-CELL-BACKED binding (another closure's
+                // capture, or a mapped-arguments parameter — ES 10.4.4) shares
+                // that same cell instead of minting a divergent copy.
+                if (auto* sel = llvm::dyn_cast<llvm::SelectInst>(probe)) {
+                    if (sel->getName().starts_with("cap.select")) {
+                        probe = sel->getFalseValue();
+                        continue;
+                    }
+                    break;
+                }
                 if (auto* call = llvm::dyn_cast<llvm::CallInst>(probe)) {
                     auto* callee = call->getCalledFunction();
                     if (callee && callee->getName() == "ts_cell_get" &&

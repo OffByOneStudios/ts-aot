@@ -8,6 +8,7 @@
 #include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "TsClosure.h"
+#include "TsCell.h"
 #include "TsFlatObject.h"
 extern "C" void* ts_push_exception_handler();
 extern "C" void ts_pop_exception_handler();
@@ -376,6 +377,15 @@ TsValue* TsArray::GetElementBoxed(size_t index) {
         }
     }
 
+    // ES 10.4.4 mapped arguments [[Get]]: a still-mapped index reads the
+    // parameter binding's shared cell — the single source of truth. (The
+    // element mirror covers compiled parameter writes, but a write inside a
+    // nested closure that captured the parameter reaches only the cell.)
+    if (isArguments && mappedCells && index < mappedCount && mappedCells[index]) {
+        TsValue* cv = ts_cell_get(mappedCells[index]);
+        return cv ? cv : ts_value_make_undefined();
+    }
+
     if (isSpecialized) {
         if (isDouble) {
             double val = ((double*)elements)[index];
@@ -570,7 +580,23 @@ int64_t TsArray::readSlot(size_t index) const {
 // Never eager-allocates more than kMaxDenseElements slots, so it cannot OOM on
 // a huge sparse index. Assumes 8-byte slots (specialized arrays stay dense and
 // never reach the index >= capacity branches).
+//
+// MAPPED arguments write-through (ES 10.4.4.2 [[DefineOwnProperty]] /
+// 10.4.4 via OrdinarySet): a write to a still-mapped index of an
+// `arguments` object also updates the parameter binding's shared cell, so
+// `arguments[i] = v` is observed by reads of the i-th named parameter.
+// The raw body lives in writeSlotRaw (used by the write-through itself via
+// ts_arguments_sync_mapped -> writeSlot, where the redundant cell store of
+// the same value is harmless).
 void TsArray::writeSlot(size_t index, int64_t value) {
+    writeSlotRaw(index, value);
+    if (isArguments && mappedCells && index < mappedCount &&
+        mappedCells[index] && value != (int64_t)NANBOX_HOLE) {
+        ts_cell_set(mappedCells[index], (TsValue*)(uintptr_t)(uint64_t)value);
+    }
+}
+
+void TsArray::writeSlotRaw(size_t index, int64_t value) {
     if (index < capacity) {
         ((int64_t*)elements)[index] = value;
         ts_gc_write_barrier(&((int64_t*)elements)[index], (void*)value);
@@ -627,6 +653,12 @@ int64_t TsArray::Get(size_t index) {
         if (array_index_accessor_fn(this, index, false)) {
             return (int64_t)(uintptr_t)ts_value_make_undefined();  // setter-only
         }
+    }
+    // ES 10.4.4 mapped arguments [[Get]]: read the parameter cell (see
+    // GetElementBoxed for rationale).
+    if (isArguments && mappedCells && index < mappedCount && mappedCells[index]) {
+        TsValue* cv = ts_cell_get(mappedCells[index]);
+        return (int64_t)(uintptr_t)(cv ? cv : ts_value_make_undefined());
     }
     if (elementSize != 8) return 0;
     return readSlot(index);
