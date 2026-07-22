@@ -1982,6 +1982,16 @@ void* ts_create_arguments_from_params(
                             return nanbox_from_tagged(ov);
                         }
                     }
+                    // A branded SUBCLASS instance (`class AB extends
+                    // ArrayBuffer {}` — side-map [[Prototype]] =
+                    // AB.prototype) resolves "constructor" through that
+                    // chain (AB.prototype.constructor === AB), so
+                    // SpeciesConstructor (ECMA-262 7.3.20) sees the subclass
+                    // and `ab.slice(...) instanceof AB` holds (25.1.6.7).
+                    if (void* sp = ts_native_object_get_proto(obj)) {
+                        TsValue* pv = ts_object_get_property(sp, "constructor");
+                        if (pv && !ts_value_is_undefined(pv)) return pv;
+                    }
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
@@ -6502,6 +6512,49 @@ void* ts_create_arguments_from_params(
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
+
+        // Primitive String wrapper (TsMap with hidden __StringData): `length`
+        // and the in-range character indices are NON-WRITABLE own data
+        // properties per ES 22.1.4.1 ({writable:false}) and 10.4.3.4
+        // StringGetOwnProperty. A plain assignment is a sloppy no-op / strict
+        // TypeError; without this the write landed in the wrapper's backing
+        // map and shadowed the synthesized values (String subclass `length`
+        // verifyNotWritable). Out-of-range indices stay ordinary expandos.
+        if ((uintptr_t)rawObj >= 4096 &&
+            *(uint32_t*)((char*)rawObj + 16) == 0x4D415053 /*MAPS*/) {
+            uint64_t kNb0 = nanbox_from_tsvalue_ptr(key);
+            const char* ks0 = nullptr;
+            double kNum = -1;
+            if (nanbox_is_ptr(kNb0)) {
+                void* kp0 = nanbox_to_ptr(kNb0);
+                if (kp0 && ts_is_any_string(kp0)) ks0 = ts_ensure_flat(kp0)->ToUtf8();
+            } else if (nanbox_is_int32(kNb0) || nanbox_is_double(kNb0)) {
+                kNum = nanbox_to_number(kNb0);
+            }
+            bool isLen = ks0 && strcmp(ks0, "length") == 0;
+            int64_t idx = -1;
+            if (!isLen) {
+                if (ks0) {
+                    char* endp = nullptr; long v = strtol(ks0, &endp, 10);
+                    if (*ks0 && endp && *endp == '\0' && v >= 0) idx = v;
+                } else if (kNum >= 0 && kNum == (double)(int64_t)kNum) {
+                    idx = (int64_t)kNum;
+                }
+            }
+            if (isLen || idx >= 0) {
+                TsMap* wm = (TsMap*)rawObj;
+                TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                sdKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sd = wm->Get(sdKey);
+                if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                    int64_t slen = ts_ensure_flat(sd.ptr_val)->Length();
+                    if (isLen || idx < slen) {
+                        if (strictW) throw_strict_readonly();
+                        return;  // sloppy: silently rejected
+                    }
+                }
+            }
+        }
 
         // RegExp.lastIndex is a writable data property backed by the TsRegExp
         // field (the getter reads it directly), NOT the side-map — so
