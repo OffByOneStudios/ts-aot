@@ -3624,6 +3624,21 @@ void* ts_create_arguments_from_params(
                         TsValue* getterFunc = nanbox_from_tagged(getterVal);
                         return invoke_accessor_getter(getterFunc, boxedObj);
                     }
+                    // ES 10.1.8: a setter-ONLY accessor property makes
+                    // [[Get]] return undefined — it must NOT fall through
+                    // to a same-named data slot or the name/length builtins
+                    // (`class D { static set name(_){} }` → D.name is
+                    // undefined, fn-name-static-precedence).
+                    {
+                        std::string setterKey = std::string("__setter_") + keyStr;
+                        TsValue sk2;
+                        sk2.type = ValueType::STRING_PTR;
+                        sk2.ptr_val = TsString::GetInterned(setterKey.c_str());
+                        TsValue setterVal2 = currentMap->Get(sk2);
+                        if (setterVal2.type != ValueType::UNDEFINED) {
+                            return ts_value_make_undefined();
+                        }
+                    }
                     // Check for direct property
                     TsValue val = currentMap->Get(k);
                     if (val.type != ValueType::UNDEFINED) {
@@ -5739,6 +5754,34 @@ void* ts_create_arguments_from_params(
         // Check if this is a TsClosure and get its properties
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
             TsClosure* closure = (TsClosure*)rawObj;
+            // ES 10.1.8 [[Get]]: an own ACCESSOR property wins over the plain
+            // data slot and over the name/length builtins below. Static class
+            // accessors install as __getter_/__setter_<key> on the ctor
+            // closure — `class C { static get name(){} }` must invoke the
+            // getter for C.name (fn-name/fn-length-static-precedence), and a
+            // setter-ONLY accessor makes [[Get]] return undefined.
+            if (closure->properties && keyStr) {
+                const char* k0 = keyStr->ToUtf8();
+                if (k0) {
+                    std::string gk0 = std::string("__getter_") + k0;
+                    TsValue gkey0;
+                    gkey0.type = ValueType::STRING_PTR;
+                    gkey0.ptr_val = TsString::GetInterned(gk0.c_str());
+                    TsValue getterVal0 = closure->properties->Get(gkey0);
+                    if (getterVal0.type != ValueType::UNDEFINED) {
+                        TsValue* getterFunc = nanbox_from_tagged(getterVal0);
+                        return invoke_accessor_getter(getterFunc, obj);
+                    }
+                    std::string sk0 = std::string("__setter_") + k0;
+                    TsValue skey0;
+                    skey0.type = ValueType::STRING_PTR;
+                    skey0.ptr_val = TsString::GetInterned(sk0.c_str());
+                    TsValue setterVal0 = closure->properties->Get(skey0);
+                    if (setterVal0.type != ValueType::UNDEFINED) {
+                        return ts_value_make_undefined();  // setter-only: no [[Get]]
+                    }
+                }
+            }
             // OWN property shadows the Function.prototype builtins (see the
             // TsFunction branch above) -- e.g. lodash's own `_.bind`.
             if (closure->properties) {
@@ -6691,6 +6734,10 @@ void* ts_create_arguments_from_params(
     // the accessor gets the spec method descriptor {writable, !enumerable,
     // configurable} and is found by the dynamic accessor-dispatch in
     // ts_object_get_prop_v / ts_object_set_dynamic.
+    // ES SetFunctionName from a computed property key (TsClosure.cpp,
+    // C linkage — this TU sits inside the enclosing extern "C" block).
+    TsValue* ts_function_set_name_from_key(TsValue* fnVal, TsValue* keyVal);
+
     static void install_computed_accessor(TsValue* recv, TsValue* key,
                                           TsValue* closure, const char* prefix) {
         if (!recv || !key || !closure) return;
@@ -6702,6 +6749,23 @@ void* ts_create_arguments_from_params(
         TsString* keyStr = ts_property_key_string(key);
         if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
         if (!keyStr) return;
+        // ES SetFunctionName(v, propKey, "get"/"set"): a computed-name
+        // accessor is named at class-definition time — "get "/"set " +
+        // (symbol → "[description]" or ""; else ToString(key)). The
+        // compiler-side displayName only covers literal names
+        // (fn-name-accessor-get/set symbol-keyed cases).
+        ts_function_set_name_from_key(closure, key);  // base (symbol-aware)
+        {
+            void* rawCl = ts_value_get_object(closure);
+            if (rawCl && *(uint32_t*)((char*)rawCl + 16) == 0x434C5352 /*CLSR*/) {
+                TsClosure* cl = (TsClosure*)rawCl;
+                const char* pfx = (prefix[2] == 'g') ? "get " : "set ";
+                TsString* base = cl->name ? cl->name : TsString::Create("");
+                TsString* withPfx =
+                    (TsString*)ts_string_concat(TsString::Create(pfx), base);
+                if (withPfx) ts_closure_set_name(cl, withPfx);
+            }
+        }
         TsString* prefixStr = TsString::Create(prefix);
         TsString* full = (TsString*)ts_string_concat(prefixStr, keyStr);
         if (!full) return;
@@ -6726,6 +6790,12 @@ void* ts_create_arguments_from_params(
         TsString* keyStr = ts_property_key_string(key);
         if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
         if (!keyStr) return;
+        // ES SetFunctionName(v, propKey): computed-name methods are named at
+        // class-definition time — symbol key → "[description]" ("" when the
+        // description is undefined), else ToString(key). The compiler-side
+        // displayName only covers literal names (fn-name-method /
+        // fn-name-gen-method symbol-keyed cases).
+        ts_function_set_name_from_key(closure, key);
         TsValue* keyBoxed = ts_value_make_string(keyStr);
         ts_object_set_method(recv, keyBoxed, closure);
     }

@@ -1568,7 +1568,23 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             func->isGenerator = methodNode->isGenerator;
             func->sourceLine = methodNode->line;
             func->sourceFile = methodNode->sourceFile;
-            func->displayName = methodNode->name;
+            // ES SetFunctionName for class members (mirrors the
+            // ASTToHIR_Classes lowering): the instance CONSTRUCTOR's .name is
+            // the class name — leave displayName empty so the closure-naming
+            // fallback derives it from the "<Class>_constructor" symbol ("" for
+            // anonymous classes). Stamping "constructor" here leaked into
+            // D2.name (definition/basics.js). Accessors get the "get "/"set "
+            // prefix (fn-name-accessor-get/set). "[computed]" placeholders
+            // keep their legacy form (real names install at runtime).
+            if (methodNode->name == "constructor" && !methodNode->isStatic) {
+                // leave displayName empty
+            } else if (methodNode->name == "[computed]") {
+                func->displayName = methodNode->name;
+            } else {
+                func->displayName = methodNode->isGetter ? ("get " + methodNode->name)
+                                  : methodNode->isSetter ? ("set " + methodNode->name)
+                                  : methodNode->name;
+            }
 
             // Add 'this' parameter first for instance methods
             // spec.argTypes[0] is the class type for 'this' (set by Monomorphizer)
