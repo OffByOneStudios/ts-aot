@@ -1752,6 +1752,23 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
             void* sym = ts_symbol_create(descStr);
             return sym ? ts_value_make_object(sym) : ts_value_make_undefined();
         }
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "Array") == 0) {
+            // ECMA-262 23.1.1.1: Array(...) called as a function creates and
+            // initializes a new Array exactly as `new Array(...)` does.
+            // Direct `Array(n)` is a compiler fast path; this is the INDIRECT
+            // path (`var f = Array; f(3)`, `Array.bind(null)(42)`), which
+            // previously fell through to undefined.
+            return ts_array_constructor_native(nullptr, argc, argv);
+        }
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "Date") == 0) {
+            // ECMA-262 21.4.2.1: Date(...) with NewTarget undefined ignores
+            // its arguments and returns ToDateString(now). Direct `Date()` is
+            // a compiler fast path; this is the INDIRECT path.
+            void* s = ts_date_now_string();
+            return s ? ts_value_make_string(s) : ts_value_make_undefined();
+        }
         // ES: most built-in class constructors are not [[Call]]-able —
         // invoking them without `new` (NewTarget undefined) throws
         // TypeError (Map 24.1.1.1, Set 24.2.1.1, WeakMap/WeakSet 24.3/24.4,
@@ -1804,6 +1821,16 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     func->name = TsString::Create(name);
     func->arity = length;
     func->is_constructor = true;  // [[Construct]] slot
+    // keep_context: the body dispatches by NAME carried in ctx. Receiver-
+    // style calls (`obj.Array = Array; obj.Array(5)`, `Array.call(x, 5)`,
+    // and a bound `Array.bind(null)(42)` whose trampoline re-enters via
+    // ts_function_call_with_this) previously clobbered ctx with the
+    // receiver via maybe_override_context, losing the name — the body then
+    // silently returned undefined. Built-in constructors never use `this`
+    // in [[Call]], so pinning ctx to the name is always correct. The
+    // Temporal-namespace receiver check below stays as a dead fallback; the
+    // kRequiresNew names cover those constructors by name now.
+    func->keep_context = true;
     // Point the function's property bag at the TsMap ctor so existing
     // setup (prototype, name, static methods) is visible via
     // ts_object_get_property(func, key).
