@@ -54,6 +54,8 @@
 // ---------------------------------------------------------------------------
 extern "C" {
     void* ts_parse_program(const char* source, const char* file_name, int as_module);
+    void* ts_parse_program_n(const char* source, size_t len,
+                             const char* file_name, int as_module);
     const char* ts_parse_error(void* handle);
     void* ts_parse_get_program(void* handle);
     void ts_parse_free(void* handle);
@@ -2064,8 +2066,6 @@ Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
             if (!sraw) return normal(a0.v); // non-string argument returns as-is
             // Length-aware: eval source may contain embedded U+0000 (legal in
             // comments/strings) — ToUtf8()'s C-string would truncate there.
-            extern void* ts_parse_program_n(const char* source, size_t len,
-                                            const char* file_name, int as_module);
             std::string srcBytes;
             ((TsString*)sraw)->AppendUtf8(srcBytes);
             void* h = ts_parse_program_n(srcBytes.data(), srcBytes.size(),
@@ -2971,8 +2971,6 @@ TsValue* paramEvalImpl(const char* src, size_t srcLen, int64_t flags,
     int parseMode = (flags & (1 | 8)) ? 2 : 0;
     // Length-aware parse: eval source may contain embedded U+0000 (legal in
     // comments/strings) — a C-string parse truncates there.
-    extern void* ts_parse_program_n(const char* source, size_t len,
-                                    const char* file_name, int as_module);
     void* h = ts_parse_program_n(src ? src : "", src ? srcLen : 0,
                                  "<eval>", parseMode);
     const char* perr = ts_parse_error(h);
