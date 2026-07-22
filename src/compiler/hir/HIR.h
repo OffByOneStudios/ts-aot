@@ -605,6 +605,13 @@ struct HIRClass {
     // actually captures, so top-level and non-capturing classes keep the
     // legacy [this, ...args] ABI byte-for-byte.
     bool ctorCapturesEnclosing = false;
+
+    // ES2022 per-evaluation private brand (ECMA-262 15.7.14 step 31): true when
+    // the class body declares any INSTANCE private method/accessor. The class-
+    // definition-time setup then emits ts_private_brand_new_evaluation(classId)
+    // so each evaluation of the definition mints a fresh brand token (the
+    // *multiple-evaluations-of-class* family).
+    bool hasInstancePrivateBrand = false;
 };
 
 //==============================================================================

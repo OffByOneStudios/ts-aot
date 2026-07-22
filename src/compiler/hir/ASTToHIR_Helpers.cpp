@@ -777,8 +777,26 @@ void ASTToHIR::emitPrivateBrandCheck(std::shared_ptr<HIRValue> obj,
     if (brandId.empty()) return;
     auto brandStr = builder_.createConstString(brandId);
     auto nameStr = builder_.createConstString(name);
+    // Per-evaluation brand identity (ES 15.7.14 step 31): pass the executing
+    // method's `this` so the runtime can compare per-evaluation brand TOKENS —
+    // a receiver stamped by a DIFFERENT evaluation of the same class text must
+    // TypeError (multiple-evaluations-of-class). When `this` is unavailable
+    // (static context) the runtime falls back to the presence-only check.
+    // ONLY the current function's OWN `this` binding is usable here: when
+    // `this` would resolve through the closure-capture machinery (a plain
+    // inner function / arrow inside a method), lookupVariable returns another
+    // function's SSA value, which lowers to garbage that can pass the runtime
+    // pointer-range guard and crash (private-*-access-on-inner-function).
+    // In those contexts pass undefined -> runtime presence-only fallback.
+    std::shared_ptr<HIRValue> thisVal = nullptr;
+    size_t thisScopeIdx = 0;
+    if (currentFunction_ && !isCapturedVariable("this", &thisScopeIdx)) {
+        thisVal = lookupVariable("this");
+    }
+    if (!thisVal) thisVal = builder_.createConstUndefined();
     builder_.createCall("ts_private_brand_check",
-                        {boxValueIfNeeded(obj), brandStr, nameStr},
+                        {boxValueIfNeeded(obj), boxValueIfNeeded(thisVal),
+                         brandStr, nameStr},
                         HIRType::makeVoid());
 }
 
