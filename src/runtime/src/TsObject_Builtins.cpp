@@ -3030,6 +3030,29 @@ extern "C" {
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
 
+    // ES 23.1.3.36 Array.prototype.toString — the %Array.prototype% surface
+    // function (generic, `this`-driven):
+    //   1. array = ? ToObject(this)  — undefined/null receiver TypeErrors
+    //      (methods-called-as-functions).
+    //   2. func = ? Get(array, "join").
+    //   3. If IsCallable(func) is false, func = %Object.prototype.toString%.
+    //   4. Return ? Call(func, array).
+    extern TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_array_proto_toString_native(void* ctx, int argc, TsValue** argv) {
+        if (!ctx) ctx = ts_get_call_this();
+        uint64_t nb = ctx ? nanbox_from_tsvalue_ptr((TsValue*)ctx) : NANBOX_UNDEFINED;
+        if (!ctx || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Array.prototype.toString called on null or undefined"));
+            return ts_value_make_undefined();  // unreachable
+        }
+        void* raw = ts_value_get_object((TsValue*)ctx);
+        TsValue* join = raw ? ts_object_get_property(raw, "join") : nullptr;
+        if (join && ts_is_callable((void*)join))
+            return ts_function_call_with_this(join, (TsValue*)ctx, 0, nullptr);
+        return ts_object_toString_native(ctx, 0, nullptr);
+    }
+
     // thisNumberValue(this) per ECMA-262: the receiver (ctx) must be a number
     // primitive OR a Number wrapper object carrying [[NumberData]]. When invoked
     // via .call/.apply the bound receiver is overridden, so a non-Number `this`

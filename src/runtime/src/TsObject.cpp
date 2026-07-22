@@ -1985,6 +1985,28 @@ void* ts_create_arguments_from_params(
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
+                // ArrayBuffer `__proto__` (B.2.2.1 Object.prototype.__proto__
+                // getter = [[GetPrototypeOf]]): a subclass instance answers its
+                // side-map [[Prototype]]; a plain instance answers
+                // %ArrayBuffer.prototype% (TypedArrayConstructors/ctors/
+                // no-species asserts mysteryTA.buffer.__proto__ ===
+                // ArrayBuffer.prototype).
+                if (magic16 == 0x42554646 && keyStr &&
+                    strcmp(keyStr, "__proto__") == 0) {
+                    if (void* sp = ts_native_object_get_proto(obj))
+                        return ts_value_make_object(sp);
+                    extern void* ts_get_global_ArrayBuffer();
+                    if (void* abCtor = ts_get_global_ArrayBuffer()) {
+                        TsValue* protoV = ts_object_get_property(
+                            ts_value_get_object((TsValue*)abCtor)
+                                ? ts_value_get_object((TsValue*)abCtor)
+                                : abCtor,
+                            "prototype");
+                        if (protoV && !ts_value_is_undefined(protoV))
+                            return protoV;
+                    }
+                    return ts_value_make_undefined();
+                }
                 // Temporal.PlainTime: GetPropertyVirtual answers the field
                 // getters (hour..nanosecond); methods/constructor/@@toStringTag
                 // resolve up Temporal.PlainTime.prototype.
@@ -10797,7 +10819,15 @@ void* ts_create_arguments_from_params(
         
         // Create Array.prototype with methods
         TsMap* arrayProtoMap = TsMap::Create();
-        arrayProtoMap->Set(makeKey("toString"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_toString_native, nullptr)));
+        // ES 23.1.3.36: %Array.prototype%.toString is the join-or-
+        // ObjectToString generic, NOT %Object.prototype.toString% — and it
+        // throws on a nullish `this` (ToObject, methods-called-as-functions).
+        {
+            extern TsValue* ts_array_proto_toString_native(void*, int, TsValue**);
+            arrayProtoMap->Set(makeKey("toString"), nanbox_to_tagged(
+                makeNamedNativeFunction((void*)ts_array_proto_toString_native,
+                                        nullptr, "toString", 0)));
+        }
         arrayProtoMap->Set(makeKey("valueOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr)));
         arrayFunc->properties->Set(protoKey, nanbox_to_tagged(ts_value_make_object(arrayProtoMap)));
         
