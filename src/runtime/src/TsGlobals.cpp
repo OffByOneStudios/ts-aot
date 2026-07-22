@@ -8688,6 +8688,16 @@ void* ts_subclass_builtin_alloc(void* nameStr, void* ctorVal) {
     return inst;
 }
 
+// `super()` in a `class C extends null { ... }` constructor: ES SuperCall
+// step 5 — GetSuperConstructor() yields %Function.prototype% (the
+// constructorParent for a null heritage, 15.7.14 step 6.e), which is not a
+// constructor → TypeError. The compiler lowers such super() calls directly
+// to this throw (after argument evaluation, preserving step order).
+extern "C" void ts_super_null_base_throw() {
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "Super constructor null of class is not a constructor"));
+}
+
 void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0) {
     if (!thisVal || !nameStr) return;
     const char* n = ((TsString*)nameStr)->ToUtf8();
@@ -8745,6 +8755,14 @@ void ts_class_link_builtin_base(void* ctorVal, void* protoVal, void* nameStr) {
     TsString* name = ts_ensure_flat(nameStr);
     const char* n = name ? name->ToUtf8() : nullptr;
     if (!n) return;
+    // `class C extends null {}` reaches here with the literal heritage text
+    // "null" (the AST records the heritage expression's source text). ES
+    // 15.7.14 step 6.e: protoParent = null, constructorParent stays
+    // %Function.prototype% — mirror the dynamic-base null branch.
+    if (strcmp(n, "null") == 0) {
+        ts_object_setPrototypeOf((TsValue*)protoVal, ts_value_make_null());
+        return;
+    }
     void* base = ts_global_ctor_by_name(n);
     if (!base) {
         // Fall back to a globalThis property (host-defined constructors).
@@ -8834,7 +8852,16 @@ void ts_class_link_dynamic_base(void* ctorVal, void* protoVal, void* baseVal, vo
         ts_class_link_builtin_base(ctorVal, protoVal, nameStr);
         return;
     }
-    if (nanbox_is_null(nb)) return;
+    if (nanbox_is_null(nb)) {
+        // ES 15.7.14 ClassDefinitionEvaluation step 6.e: superclass null is
+        // LEGAL — protoParent = null, constructorParent = %Function.prototype%
+        // (the ctor's default, nothing to relink). Set
+        // C.prototype.[[Prototype]] = null explicitly; setPrototypeOf marks
+        // the map SetNullPrototype so getPrototypeOf reports null instead of
+        // the implicit Object.prototype.
+        if (protoVal) ts_object_setPrototypeOf((TsValue*)protoVal, ts_value_make_null());
+        return;
+    }
     // Nanbox-primitive heritage (number/bool/string): definitely not a
     // constructor -> TypeError.
     if (nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb)) {
