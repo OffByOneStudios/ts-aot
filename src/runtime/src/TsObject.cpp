@@ -1969,6 +1969,19 @@ void* ts_create_arguments_from_params(
                 // lodash cloneArrayBuffer `new arrayBuffer.constructor(n)` broke.
                 if (magic16 == 0x42554646 && keyStr &&
                     strcmp(keyStr, "constructor") == 0) {
+                    // An OWN "constructor" (ab.constructor = C — the
+                    // ArrayBuffer.prototype.slice species tests) must shadow
+                    // the intrinsic: SpeciesConstructor (ECMA-262 7.3.20)
+                    // starts with Get(O, "constructor"), which is an ordinary
+                    // own-before-prototype lookup.
+                    if (TsMap* ownProps = getNativeProps(obj)) {
+                        TsValue ok; ok.type = ValueType::STRING_PTR;
+                        ok.ptr_val = TsString::GetInterned("constructor");
+                        if (ownProps->Has(ok)) {
+                            TsValue ov = ownProps->Get(ok);
+                            return nanbox_from_tagged(ov);
+                        }
+                    }
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
