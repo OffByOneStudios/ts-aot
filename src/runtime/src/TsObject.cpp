@@ -8291,6 +8291,20 @@ void* ts_create_arguments_from_params(
             if (hadPlain) {
                 uint8_t attrs = props->GetPropertyAttrs(kv);
                 if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            } else {
+                // Intrinsic `prototype` of a constructor function is
+                // {writable, !enumerable, !configurable} (ES 20.2.4.3 / 10.2.8)
+                // but is not materialized in the properties map — the absent-
+                // key=true rule below must not "delete" it (strict
+                // `delete fn.prototype` throws; Proxy delete forwarding
+                // trap-is-missing-target-is-proxy asserts this).
+                const char* kc0 = ks->ToUtf8();
+                if (kc0 && strcmp(kc0, "prototype") == 0) {
+                    bool hasIntrinsicProto =
+                        (magic == TsFunction::MAGIC) ||
+                        ((TsClosure*)rawMap)->is_constructor;
+                    if (hasIntrinsicProto) return 0;
+                }
             }
             bool deletedAccessor = false;
             const char* kc = ks->ToUtf8();
