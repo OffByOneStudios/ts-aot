@@ -1049,10 +1049,20 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                                             funcName, module_.get());
                 auto* bb = llvm::BasicBlock::Create(context_, "entry", fn);
                 llvm::IRBuilder<> stubBuilder(bb);
-                auto undefFn = module_->getOrInsertFunction(
-                    "ts_value_make_undefined",
-                    llvm::FunctionType::get(getGCPtrTy(), {}, false));
-                stubBuilder.CreateRet(stubBuilder.CreateCall(undefFn));
+                // Weak-stub dispatch (ES B.3.3 / eval interop): instead of a
+                // bare `return undefined`, ask the runtime to run a matching
+                // globalThis binding using the args the call site stashed via
+                // ts_weak_stub_prepare (see ASTToHIR unresolvedGlobalCall).
+                // With no (or mismatched) stash the runtime returns undefined,
+                // preserving the legacy stub behavior for every other caller.
+                auto dispatchFn = module_->getOrInsertFunction(
+                    "ts_weak_stub_dispatch",
+                    llvm::FunctionType::get(getGCPtrTy(),
+                                            {stubBuilder.getPtrTy()}, false));
+                llvm::Value* mangledStr =
+                    stubBuilder.CreateGlobalStringPtr(funcName, funcName + ".name");
+                stubBuilder.CreateRet(
+                    stubBuilder.CreateCall(dispatchFn, {mangledStr}));
             } else {
                 ft = llvm::FunctionType::get(retType, paramTypes, false);
                 fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
