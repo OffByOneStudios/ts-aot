@@ -1038,8 +1038,23 @@ void* ts_get_global_String() {
         addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd, 0);
         // AnnexB B.2.3: substr + trimLeft/trimRight aliases as real own props.
         addMethod(proto, "substr", (void*)ts_string_proto_substr, 2);
-        addMethod(proto, "trimLeft", (void*)ts_string_proto_trimLeft, 0);
-        addMethod(proto, "trimRight", (void*)ts_string_proto_trimRight, 0);
+        // B.2.3.1/B.2.3.2: trimLeft/trimRight are THE SAME function objects as
+        // trimStart/trimEnd (identity equality, and .name is "trimStart"/
+        // "trimEnd"), not separately-created wrappers.
+        {
+            auto aliasTo = [&](const char* alias, const char* canonical) {
+                TsValue ck; ck.type = ValueType::STRING_PTR;
+                ck.ptr_val = TsString::GetInterned(canonical);
+                TsValue cv = proto->Get(ck);
+                if (cv.type != ValueType::FUNCTION_PTR || !cv.ptr_val) return;
+                TsValue ak; ak.type = ValueType::STRING_PTR;
+                ak.ptr_val = TsString::GetInterned(alias);
+                proto->SetWithAttrs(ak, cv,
+                    TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            };
+            aliasTo("trimLeft", "trimStart");
+            aliasTo("trimRight", "trimEnd");
+        }
         addMethod(proto, "at", (void*)ts_string_proto_at);
         addMethod(proto, "codePointAt", (void*)ts_string_proto_codePointAt);
         addMethod(proto, "normalize", (void*)ts_string_proto_normalize);
@@ -9020,3 +9035,93 @@ TS_CTOR_REQUIRES_NEW_STUBS(FinalizationRegistry)
 #undef TS_CTOR_REQUIRES_NEW_STUB
 
 } // extern "C" (require-new ctor stubs)
+
+//==============================================================================
+// Weak-stub dynamic dispatch (ES B.3.3 / eval interop)
+//
+// A call to an identifier the compiler cannot resolve statically (no
+// specialization, not a runtime/extension symbol) lowers to a direct call of a
+// mangled symbol (e.g. `f_any_any`) whose only definition is a WeakAny stub.
+// Before this dispatch existed the stub returned `undefined`, so a function
+// created at RUNTIME on the global object was silently uncallable from
+// compiled code — most visibly ES B.3.3.3 (Changes to
+// EvalDeclarationInstantiation): `eval("{ function f(){} }")` must create a
+// var-scoped `f` on the global object that outer (compiled) code can call.
+//
+// Protocol: the call site stashes (bare name, mangled symbol, boxed-args
+// array) via ts_weak_stub_prepare immediately before the direct call; the weak
+// stub body calls ts_weak_stub_dispatch(<its mangled name>). Dispatch runs the
+// globalThis binding when the stash matches; on a missing/stale stash, or a
+// missing/non-callable global, it preserves the legacy undefined return. A
+// strong link-time definition (real runtime symbol, require-`new` ctor guard)
+// still overrides the weak stub, so previously-working direct calls are
+// untouched.
+//
+// GC: the stashed args array lives in a registered root slot so it (and its
+// elements) survive/forward across collections between stash and dispatch.
+// Dispatch keeps only POD locals (longjmp POD-safety rule): the callee may
+// throw via ts_throw/longjmp.
+
+extern "C" TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index);
+
+namespace {
+// Name buffers are plain C storage (no GC pointers); the args array is a GC
+// pointer and is rooted below.
+constexpr size_t kWeakStubNameCap = 512;
+char  g_weak_stub_bare[kWeakStubNameCap];
+char  g_weak_stub_mangled[kWeakStubNameCap];
+void* g_weak_stub_args = nullptr;   // TsArray* (raw GC pointer), rooted
+bool  g_weak_stub_pending = false;
+} // namespace
+
+extern "C" void ts_weak_stub_prepare(const char* bare, const char* mangled,
+                                     void* argsArr) {
+    static bool rooted = false;
+    if (!rooted) {
+        ts_gc_register_root(&g_weak_stub_args);
+        rooted = true;
+    }
+    if (!bare || !mangled ||
+        strlen(bare) >= kWeakStubNameCap || strlen(mangled) >= kWeakStubNameCap) {
+        g_weak_stub_pending = false;
+        g_weak_stub_args = nullptr;
+        return;
+    }
+    strcpy(g_weak_stub_bare, bare);
+    strcpy(g_weak_stub_mangled, mangled);
+    g_weak_stub_args = argsArr;
+    g_weak_stub_pending = true;
+}
+
+extern "C" TsValue* ts_weak_stub_dispatch(const char* mangled) {
+    if (!g_weak_stub_pending || !mangled ||
+        strcmp(g_weak_stub_mangled, mangled) != 0) {
+        // No (or mismatched) stash for THIS symbol: legacy stub behavior.
+        return ts_value_make_undefined();
+    }
+    g_weak_stub_pending = false;
+    void* argsArr = g_weak_stub_args;  // stays rooted via the slot until cleared
+
+    if (!globalThis) return ts_value_make_undefined();
+    TsValue* fn = ts_object_get_dynamic(
+        globalThis, ts_value_make_string(ts_string_create(g_weak_stub_bare)));
+    if (!fn || !ts_is_callable((void*)fn)) {
+        g_weak_stub_args = nullptr;
+        return ts_value_make_undefined();
+    }
+
+    int64_t argc = argsArr ? ts_array_length(argsArr) : 0;
+    // POD-only locals: fixed buffer for the common case, GC block otherwise
+    // (no destructors — the callee may longjmp through this frame).
+    TsValue* argvSmall[16];
+    TsValue** argv = argvSmall;
+    if (argc > 16) argv = (TsValue**)ts_alloc(sizeof(TsValue*) * (size_t)argc);
+    TsValue* argsBoxed = argsArr ? ts_value_make_object(argsArr) : nullptr;
+    for (int64_t i = 0; i < argc; i++)
+        argv[i] = ts_array_get_dynamic(argsBoxed, ts_value_make_int(i));
+
+    TsValue* result = ts_function_call_with_this(
+        fn, ts_value_make_undefined(), (int)argc, argc ? argv : nullptr);
+    g_weak_stub_args = nullptr;
+    return result ? result : ts_value_make_undefined();
+}

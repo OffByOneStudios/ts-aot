@@ -54,6 +54,8 @@
 // ---------------------------------------------------------------------------
 extern "C" {
     void* ts_parse_program(const char* source, const char* file_name, int as_module);
+    void* ts_parse_program_n(const char* source, size_t len,
+                             const char* file_name, int as_module);
     const char* ts_parse_error(void* handle);
     void* ts_parse_get_program(void* handle);
     void ts_parse_free(void* handle);
@@ -2062,8 +2064,12 @@ Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
             if (isAbrupt(a0)) return a0;
             void* sraw = ts_value_get_string(a0.v);
             if (!sraw) return normal(a0.v); // non-string argument returns as-is
-            const char* src = ((TsString*)sraw)->ToUtf8();
-            void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+            // Length-aware: eval source may contain embedded U+0000 (legal in
+            // comments/strings) — ToUtf8()'s C-string would truncate there.
+            std::string srcBytes;
+            ((TsString*)sraw)->AppendUtf8(srcBytes);
+            void* h = ts_parse_program_n(srcBytes.data(), srcBytes.size(),
+                                         "<eval>", 0);
             const char* perr = ts_parse_error(h);
             if (perr) {
                 std::string msg(perr);
@@ -2956,13 +2962,17 @@ bool evalCodeContainsBanned(ast::Node* node, EvalBan kind) {
     return false;
 }
 
-TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
-                       Cpl* abrupt, const char* pnamesUtf8 = nullptr) {
+TsValue* paramEvalImpl(const char* src, size_t srcLen, int64_t flags,
+                       TsValue** errOut, Cpl* abrupt,
+                       const char* pnamesUtf8 = nullptr) {
     // bit0 (param-init) / bit3 (field-init): eval code is FUNCTION code —
     // parse with new.target / super-property valid at toplevel (bit1 of the
     // parse mode; ES 19.2.1.1).
     int parseMode = (flags & (1 | 8)) ? 2 : 0;
-    void* h = ts_parse_program(src ? src : "", "<eval>", parseMode);
+    // Length-aware parse: eval source may contain embedded U+0000 (legal in
+    // comments/strings) — a C-string parse truncates there.
+    void* h = ts_parse_program_n(src ? src : "", src ? srcLen : 0,
+                                 "<eval>", parseMode);
     const char* perr = ts_parse_error(h);
     if (perr) {
         *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
@@ -3078,8 +3088,9 @@ TsValue* paramEvalImpl(const char* src, int64_t flags, TsValue** errOut,
     return r.v ? r.v : jsUndefined();
 }
 
-TsValue* indirectEvalImpl(const char* src, TsValue** errOut, Cpl* abrupt) {
-    void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+TsValue* indirectEvalImpl(const char* src, size_t srcLen, TsValue** errOut,
+                          Cpl* abrupt) {
+    void* h = ts_parse_program_n(src ? src : "", src ? srcLen : 0, "<eval>", 0);
     const char* perr = ts_parse_error(h);
     if (perr) {
         *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
@@ -3140,11 +3151,21 @@ extern "C" void* ts_function_ctor_from_strings(void* strArr, int64_t n) {
 
 // Indirect eval: parse `src` as a Program and run it in global scope.
 // Returns the completion value or throws (SyntaxError / whatever the code threw).
+extern "C" TsValue* ts_indirect_eval_nstr(const char* src, size_t len) {
+    TsValue* err = nullptr;
+    Cpl abrupt;
+    abrupt.k = Cpl::Normal;
+    TsValue* r = indirectEvalImpl(src, len, &err, &abrupt);
+    if (err) ts_throw(err);
+    if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
+    return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
 extern "C" TsValue* ts_indirect_eval_cstr(const char* src) {
     TsValue* err = nullptr;
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
-    TsValue* r = indirectEvalImpl(src, &err, &abrupt);
+    TsValue* r = indirectEvalImpl(src, src ? strlen(src) : 0, &err, &abrupt);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
@@ -3158,10 +3179,11 @@ extern "C" TsValue* ts_direct_eval_value(TsValue* arg, int64_t flags) {
     void* sraw = ts_value_get_string(arg);
     if (!sraw) return arg;
     const char* src = ((TsString*)sraw)->ToUtf8();
+    size_t srcLen = ((TsString*)sraw)->Utf8Length();
     TsValue* err = nullptr;
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
-    TsValue* r = paramEvalImpl(src ? src : "", flags, &err, &abrupt);
+    TsValue* r = paramEvalImpl(src ? src : "", srcLen, flags, &err, &abrupt);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
@@ -3187,7 +3209,9 @@ extern "C" TsValue* ts_direct_eval_value_pnames(TsValue* arg, int64_t flags,
     TsValue* err = nullptr;
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
-    TsValue* r = paramEvalImpl(src ? src : "", flags, &err, &abrupt, pnames);
+    TsValue* r = paramEvalImpl(src ? src : "",
+                               sraw ? ((TsString*)sraw)->Utf8Length() : 0,
+                               flags, &err, &abrupt, pnames);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;

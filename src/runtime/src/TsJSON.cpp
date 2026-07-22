@@ -96,6 +96,7 @@ struct JsonAbruptCompletion { TsValue* error; };
 // Invoke a user callback under a longjmp guard. Returns the result, or
 // null with *errOut set when the callee threw. NO C++ objects live in
 // this frame (longjmp rule).
+extern "C" bool ts_is_callable(void* v);
 extern "C" void* ts_push_exception_handler();
 extern "C" void ts_pop_exception_handler();
 extern "C" TsValue* ts_get_exception();
@@ -142,6 +143,10 @@ static nlohmann::ordered_json ts_value_to_json(TsValue v, std::set<void*>& visit
         case ValueType::STRING_PTR: return ts_to_json_internal(v.ptr_val, visited);
         case ValueType::OBJECT_PTR: return ts_to_json_internal(v.ptr_val, visited);
         case ValueType::ARRAY_PTR: return ts_to_json_internal(v.ptr_val, visited);
+        // 25.5.2.2 steps 10-11: a callable member is unserializable —
+        // omitted from objects / null in arrays (discarded sentinel).
+        case ValueType::FUNCTION_PTR:
+            return nlohmann::ordered_json(nlohmann::detail::value_t::discarded);
         case ValueType::PROMISE_PTR: return "[Promise]";
         default: return nullptr;
     }
@@ -232,7 +237,11 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                 j.push_back(nullptr);
                 continue;
             }
-            j.push_back(ts_to_json_internal((void*)raw, visited));
+            nlohmann::ordered_json el = ts_to_json_internal((void*)raw, visited);
+            // 25.5.2.4 SerializeJSONArray step 8.b: unserializable elements
+            // (functions, symbols) become null in arrays.
+            j.push_back(el.is_discarded() ? nlohmann::ordered_json(nullptr)
+                                          : std::move(el));
         }
         visited.erase(p);
         return j;
@@ -305,7 +314,12 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                 if (nm && (nm[0] == '\x01' ||
                            strncmp(nm, "__getter_", 9) == 0 ||
                            strncmp(nm, "__setter_", 9) == 0)) continue;
-                j[desc->propNames[i]] = ts_to_json_internal((void*)(uintptr_t)val, visited);
+                nlohmann::ordered_json pv =
+                    ts_to_json_internal((void*)(uintptr_t)val, visited);
+                // 25.5.2.5 SerializeJSONObject step 8.b: unserializable
+                // members (functions, symbols) are omitted.
+                if (pv.is_discarded()) continue;
+                j[desc->propNames[i]] = std::move(pv);
             }
             // Check overflow map
             void* overflow = *(void**)((char*)p + 16 + desc->numSlots * 8);
@@ -330,7 +344,9 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                     keyTv.ptr_val = keyStr;
                     TsValue val = map->Get(keyTv);
                     if (val.type == ValueType::UNDEFINED) continue;
-                    j[keyStr->ToUtf8()] = ts_value_to_json(val, visited);
+                    nlohmann::ordered_json pv = ts_value_to_json(val, visited);
+                    if (pv.is_discarded()) continue;  // function/symbol member
+                    j[keyStr->ToUtf8()] = std::move(pv);
                 }
             }
         }
@@ -371,10 +387,25 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
             TsValue val = map->Get(keyTv);
             if (val.type == ValueType::UNDEFINED) continue;
 
-            j[keyStdStr] = ts_value_to_json(val, visited);
+            nlohmann::ordered_json pv = ts_value_to_json(val, visited);
+            if (pv.is_discarded()) continue;  // function/symbol member
+            j[keyStdStr] = std::move(pv);
         }
         visited.erase(p);
         return j;
+    }
+
+    // ECMA-262 25.5.2.2 SerializeJSONProperty steps 10-11: a callable object
+    // (function/closure) or a Symbol is NOT serializable — the property is
+    // omitted from objects, becomes null in arrays, and makes the top-level
+    // result undefined. Signal with nlohmann's `discarded` sentinel; every
+    // consumer (array/object loops, ts_json_stringify) handles it explicitly
+    // and it never reaches dump().
+    {
+        uint32_t m16sym = ((uintptr_t)p > 0x1000) ? *(uint32_t*)((char*)p + 16) : 0;
+        if (ts_is_callable(p) || magic == 0x53594D42 || m16sym == 0x53594D42) {
+            return nlohmann::ordered_json(nlohmann::detail::value_t::discarded);
+        }
     }
 
     // Fallback: unknown object type
@@ -698,6 +729,8 @@ static nlohmann::ordered_json json_apply_property_list(
 // scope per runtime-safety rules (block-scope extern "C" is illegal).
 extern "C" void ts_throw(TsValue* err);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
+extern "C" TsValue* ts_value_make_undefined();
+extern "C" TsValue* ts_value_make_double(double d);
 
 extern "C" {
     void* ts_json_parse(void* json_str) {
@@ -721,6 +754,20 @@ extern "C" {
         // Parse the text. Malformed input must surface as a JS SyntaxError
         // (ECMA-262 25.5.1), not as an internal C++ exception escaping the
         // runtime. Only the parse step can throw on bad input; isolate it.
+        // ECMA-404/ECMA-262 25.5.1: the text "-0" parses to the Number -0.
+        // nlohmann parses it as integer 0, losing the sign — special-case the
+        // (whitespace-trimmed) top-level form.
+        {
+            const char* t = s->ToUtf8();
+            while (*t == ' ' || *t == '\t' || *t == '\n' || *t == '\r') t++;
+            if (t[0] == '-' && t[1] == '0') {
+                const char* rest = t + 2;
+                while (*rest == ' ' || *rest == '\t' || *rest == '\n' ||
+                       *rest == '\r') rest++;
+                if (*rest == '\0')
+                    return (void*)ts_value_make_double(-0.0);
+            }
+        }
         nlohmann::ordered_json j;
         try {
             j = nlohmann::ordered_json::parse(s->ToUtf8());
@@ -739,8 +786,18 @@ extern "C" {
     }
 
     void* ts_json_stringify(void* obj, void* replacer, void* space) {
+        // ECMA-262 25.5.2 steps 11-12 via SerializeJSONProperty step 11:
+        // JSON.stringify(undefined), a bare function, or a Symbol at the top
+        // level returns undefined (NOT the string "null" / "{}").
+        // NOTE: a C-level nullptr is NOT undefined here — internal callers
+        // (util.isDeepStrictEqual, legacy paths) pass nullptr for JS null and
+        // expect the string "null" back; only a genuine NANBOX_UNDEFINED input
+        // takes the undefined path.
+        if (obj && nanbox_is_undefined((uint64_t)(uintptr_t)obj))
+            return ts_value_make_undefined();
         try {
             nlohmann::ordered_json j = ts_to_json(obj);
+            if (j.is_discarded()) return ts_value_make_undefined();
 
             // ECMA-262 25.5.2 step 4: an Array replacer is a PropertyList that
             // filters/orders object keys at EVERY nesting level (not just the

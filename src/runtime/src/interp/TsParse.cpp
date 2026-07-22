@@ -27,6 +27,33 @@ struct TsParseResult {
 // Parse `source` as a Program. `as_module` selects the module goal (else
 // script goal, the goal eval'd code uses). Always returns a handle; check
 // ts_parse_error() for failure. Never throws across the C boundary.
+// Length-aware variant: eval source may contain embedded U+0000 (legal in
+// comments/strings, ES 12.4) — the C-string entry below truncates at the
+// first NUL byte, turning "/* \0 */" into an unterminated comment.
+extern "C" void* ts_parse_program_n(const char* source, size_t len,
+                                    const char* file_name, int as_module) {
+    auto* res = new (std::nothrow) TsParseResult();
+    if (!res) return nullptr;
+    if (!source) {
+        res->error = "SyntaxError: null source";
+        return res;
+    }
+    try {
+        ts::parser::Parser parser;
+        if (as_module & 2) parser.setFunctionContextEval();
+        res->program = parser.parse(std::string(source, len),
+                                    file_name ? std::string(file_name)
+                                              : std::string("<eval>"));
+        if (!res->program) res->error = "SyntaxError: parse produced no program";
+    } catch (const std::exception& e) {
+        res->error = e.what();
+        if (res->error.empty()) res->error = "SyntaxError: invalid source";
+    } catch (...) {
+        res->error = "SyntaxError: invalid source";
+    }
+    return res;
+}
+
 extern "C" void* ts_parse_program(const char* source, const char* file_name,
                                   int as_module) {
     auto* res = new (std::nothrow) TsParseResult();

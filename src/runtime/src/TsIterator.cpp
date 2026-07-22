@@ -182,7 +182,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
                 // ES GetIterator step 4: the @@iterator call result must be
                 // an Object (null/number/string/Symbol -> TypeError).
-                return iter_require_object_result(tsCall(boxedFn));
+                return iter_require_object_result(
+                    ts_call_with_this_0(boxedFn, iterable));
             }
             // @@iterator slot present (own data key or computed-accessor
             // slot) but the raw map read found it non-callable: run the
@@ -225,7 +226,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
                 // ES GetIterator step 4: the @@iterator call result must be
                 // an Object (null/number/string/Symbol -> TypeError).
-                return iter_require_object_result(tsCall(boxedFn));
+                return iter_require_object_result(
+                    ts_call_with_this_0(boxedFn, iterable));
             }
             // @@iterator slot present (own data key or computed-accessor
             // slot) but the raw map read found it non-callable: run the
@@ -497,6 +499,38 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 }
 
 // Call next on an iterator
+// ECMA-262 7.4.3 GetIterator(obj, ASYNC) for for-await-of: prefer
+// @@asyncIterator when present (its getter runs; a non-callable non-nullish
+// value is a TypeError; the returned iterator must be an Object). Falls back
+// to the sync GetIterator — the for-await lowering Awaits each next() result
+// and value, which is the observable core of CreateAsyncFromSyncIterator.
+TsValue* ts_for_await_iterator_get(TsValue* iterable) {
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    extern bool ts_is_callable(void* v);
+    extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+    void* rawObj = iterable ? ts_value_get_object(iterable) : nullptr;
+    if (rawObj && (uintptr_t)rawObj >= 0x1000) {
+        TsValue* method = ts_object_get_property(rawObj, "[Symbol.asyncIterator]");
+        uint64_t mnb = method ? nanbox_from_tsvalue_ptr(method) : NANBOX_UNDEFINED;
+        if (method && mnb != NANBOX_UNDEFINED && mnb != NANBOX_NULL) {
+            if (!ts_is_callable(method)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "[Symbol.asyncIterator] is not callable"));
+                return ts_value_make_undefined();
+            }
+            TsValue* iter = ts_function_call_with_this(method, iterable, 0, nullptr);
+            void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+            if (!iterRaw) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "iterator method returned a non-object"));
+                return ts_value_make_undefined();
+            }
+            return iter;
+        }
+    }
+    return ts_iterator_get(iterable);
+}
+
 TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
     if (!iterator) return nullptr;
 

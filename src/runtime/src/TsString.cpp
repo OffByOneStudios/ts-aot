@@ -10,6 +10,7 @@
 #include "TsGC.h"
 #include "TsNanBox.h"
 #include <cmath>
+#include <limits>
 #include <unicode/unistr.h>
 #include <unicode/regex.h>
 #include <unicode/normlzr.h>
@@ -258,6 +259,15 @@ const char* TsString::ToUtf8() {
     data.heap.utf8Buffer = (char*)ts_alloc(len + 1);
     std::memcpy(data.heap.utf8Buffer, str.c_str(), len + 1);
     return data.heap.utf8Buffer;
+}
+
+size_t TsString::Utf8Length() {
+    // Small strings are ASCII with `length` = exact byte count; the inline
+    // buffer may contain embedded NULs, so strlen would truncate here.
+    if (isSmall) return length;
+    std::string tmp;
+    getUStr().toUTF8String(tmp);
+    return tmp.size();
 }
 
 uint32_t TsString::Hash() {
@@ -1476,15 +1486,27 @@ extern "C" {
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
         if (nanbox_is_number(nb)) {
-            int32_t code = (int32_t)nanbox_to_double(nb);
-            char16_t ch = static_cast<char16_t>(code & 0xFFFF);
+            // ToUint16 (ES 7.1.8): NaN/±Infinity/±0 -> +0; else modulo 2^16.
+            // The (int32_t) cast on NaN/Inf is UB, and " " must survive
+            // — use the length-aware Create (c_str() truncates at the NUL).
+            double d = nanbox_to_double(nb);
+            char16_t ch;
+            if (d != d || d == std::numeric_limits<double>::infinity() ||
+                d == -std::numeric_limits<double>::infinity()) {
+                ch = 0;
+            } else {
+                double t = std::trunc(d);
+                double m = std::fmod(t, 65536.0);
+                if (m < 0) m += 65536.0;
+                ch = static_cast<char16_t>((uint32_t)m & 0xFFFF);
+            }
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
 
         // Unbox if NaN-boxed pointer
@@ -1495,9 +1517,15 @@ extern "C" {
         // (ToNumber first). NaN -> 0.
         extern double ts_to_number(TsValue* v);
         auto coerceCharCode = [](uint64_t valueNb) -> char16_t {
+            // ToUint16 (ES 7.1.8): NaN/±Inf -> 0; else truncate + modulo 2^16
+            // ((int32_t) cast on NaN/Inf/huge is UB).
             double d = ts_to_number((TsValue*)(uintptr_t)valueNb);
-            int32_t code = (d != d) ? 0 : (int32_t)d;
-            return static_cast<char16_t>(code & 0xFFFF);
+            if (d != d || d == std::numeric_limits<double>::infinity() ||
+                d == -std::numeric_limits<double>::infinity()) return 0;
+            double t = std::trunc(d);
+            double m = std::fmod(t, 65536.0);
+            if (m < 0) m += 65536.0;
+            return static_cast<char16_t>((uint32_t)m & 0xFFFF);
         };
         if (!charCodesArray || (uintptr_t)charCodesArray < 0x10000) return TsString::Create("");
 
@@ -1511,7 +1539,7 @@ extern "C" {
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
 
         TsArray* arr = (TsArray*)charCodesArray;
@@ -1529,7 +1557,7 @@ extern "C" {
         icu::UnicodeString ustr(reinterpret_cast<const UChar*>(u16.data()), (int32_t)u16.size());
         std::string utf8;
         ustr.toUTF8String(utf8);
-        return TsString::Create(utf8.c_str());
+        return TsString::Create(utf8.data(), utf8.size());
     }
 
     void* ts_string_fromCodePoint(void* codePointsArray) {
@@ -1906,6 +1934,9 @@ extern "C" {
                 return str;  // unreachable
             }
         }
+        // ''.repeat(2^31) must not loop 2^31 times — an empty (or 0-count)
+        // result is the empty string regardless of n (22.1.3.18 step 5-6).
+        if (slen == 0 || n == 0) return TsString::Create("");
         return s->Repeat((int64_t)n);
     }
 
@@ -1975,12 +2006,33 @@ extern "C" {
     // throw a TypeError if the search argument IsRegExp. We approximate IsRegExp with
     // the TsRegExp brand (covers regexp literals/instances; the rare @@match-override
     // case is not handled). Throws from this std-container-free frame.
+    void* ts_to_string_spec(TsValue* val);  // fwd: defined below
+
     static void reject_regexp_search(void* v, const char* method) {
         void* raw = ts_nanbox_safe_unbox(v);
         if (!raw) return;
         uintptr_t p = (uintptr_t)raw;
         if (p < 0x1000 || p > 0x00007FFFFFFFFFFFULL) return;
-        if (*(uint32_t*)raw == 0x52454758 /* TsRegExp "REGX" */) {
+        bool isRe = (*(uint32_t*)raw == 0x52454758 /* TsRegExp "REGX" */);
+        if (!isRe) {
+            // ECMA-262 7.2.6 IsRegExp step 2: matcher = ? Get(arg, @@match)
+            // (an accessor here can THROW - abrupt propagates); step 3: if
+            // matcher is not undefined, return ToBoolean(matcher). Only for
+            // real objects (flat literals / TsMap-family).
+            uint32_t m0 = *(uint32_t*)raw;
+            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+            if (m16 == 0x4D415053 /* TsMap "MAPS" */ ||
+                m0 == 0x464C4154 /* FLAT */) {
+                extern TsValue* ts_object_get_property(void* o, const char* k);
+                extern bool ts_value_to_bool(TsValue* v);
+                TsValue* matcher = ts_object_get_property(raw, "[Symbol.match]");
+                if (matcher &&
+                    !nanbox_is_undefined((uint64_t)(uintptr_t)matcher) &&
+                    ts_value_to_bool(matcher))
+                    isRe = true;
+            }
+        }
+        if (isRe) {
             char msg[96];
             std::snprintf(msg, sizeof(msg),
                 "First argument to String.prototype.%s must not be a regular expression", method);
@@ -1992,7 +2044,7 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(prefix, "startsWith");
-        TsString* p = ts_ensure_flat(prefix);
+        TsString* p = ts_ensure_flat(ts_to_string_spec((TsValue*)prefix));
         if (!p) return false;
         return s->StartsWith(p);
     }
@@ -2001,7 +2053,7 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(suffix, "endsWith");
-        TsString* suf = ts_ensure_flat(suffix);
+        TsString* suf = ts_ensure_flat(ts_to_string_spec((TsValue*)suffix));
         if (!suf) return false;
         return s->EndsWith(suf);
     }
@@ -2010,10 +2062,9 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(searchString, "includes");
-        // ToString-coerce the search arg: a non-string (undefined from
-        // indexOf(void 0), a number, etc.) must become its string form rather
-        // than crash ts_ensure_flat, which dereferences a non-string value.
-        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
+        // ECMA-262 22.1.3.7 step 5: searchStr = ? ToString(searchString) -
+        // hook-invoking (user toString/valueOf run, Symbol throws TypeError).
+        TsString* search = (TsString*)ts_to_string_spec((TsValue*)searchString);
         if (!search) return false;
         // ECMA-262: the empty string is contained in every string.
         if (search->Length() == 0) return true;
@@ -2035,7 +2086,8 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(prefix, "startsWith");
-        TsString* p = (TsString*)ts_string_from_value((TsValue*)prefix);
+        // 22.1.3.23 step 5: searchStr = ? ToString(searchString).
+        TsString* p = (TsString*)ts_to_string_spec((TsValue*)prefix);
         if (!p) return false;
         int64_t len = (int64_t)s->Length();
         int64_t start = string_pos_arg(pos, 0, len);
@@ -2049,7 +2101,8 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(suffix, "endsWith");
-        TsString* suf = (TsString*)ts_string_from_value((TsValue*)suffix);
+        // 22.1.3.9 step 5: searchStr = ? ToString(searchString).
+        TsString* suf = (TsString*)ts_to_string_spec((TsValue*)suffix);
         if (!suf) return false;
         int64_t len = (int64_t)s->Length();
         int64_t end = string_pos_arg(endPos, len, len);
@@ -2064,7 +2117,8 @@ extern "C" {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;
         reject_regexp_search(searchString, "includes");
-        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
+        // 22.1.3.7 step 5: searchStr = ? ToString(searchString).
+        TsString* search = (TsString*)ts_to_string_spec((TsValue*)searchString);
         if (!search) return false;
         int64_t len = (int64_t)s->Length();
         int64_t start = string_pos_arg(pos, 0, len);
@@ -2076,10 +2130,9 @@ extern "C" {
     int64_t ts_string_indexOf(void* str, void* searchString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
-        // ToString-coerce the search arg: a non-string (undefined from
-        // indexOf(void 0), a number, etc.) must become its string form rather
-        // than crash ts_ensure_flat, which dereferences a non-string value.
-        TsString* search = (TsString*)ts_string_from_value((TsValue*)searchString);
+        // ECMA-262 22.1.3.8 step 3: searchStr = ? ToString(searchString) -
+        // hook-invoking (@@toPrimitive/toString/valueOf run; Symbol throws).
+        TsString* search = (TsString*)ts_to_string_spec((TsValue*)searchString);
         if (!search) return -1;
         // ECMA-262 22.1.3.8: the empty string is found at position 0.
         // ICU's IndexOf returns -1 for an empty needle, which is wrong.
@@ -2134,10 +2187,42 @@ extern "C" {
         int64_t i = ts_to_index_integer(index);  // may throw
         return ts_string_charAt(str, i);
     }
+    // ECMA-262 22.1.3.3 String.prototype.charCodeAt: position =
+    // ? ToIntegerOrInfinity(pos) (string/object coercion, TypeError on
+    // Symbol/BigInt); step 5: out-of-range position -> NaN (the raw i64
+    // lowering returned 0 for both OOB and the NUL character).
+    double ts_string_charCodeAt_coerced(void* str, TsValue* index) {
+        int64_t i = ts_to_index_integer(index);  // may throw
+        if (i < 0 || i >= ts_string_length(str))
+            return std::numeric_limits<double>::quiet_NaN();
+        return (double)ts_string_charCodeAt(str, i);
+    }
+    // ECMA-262 22.1.3.4 String.prototype.codePointAt: position =
+    // ? ToIntegerOrInfinity(pos); OOB -> undefined (not -1); CodePointAt
+    // (11.1.4) combines a lead+trail surrogate pair but returns a lone
+    // trailing surrogate code unit as-is (ICU char32At back-combines, which
+    // is NOT the spec behavior at a trail-surrogate index).
+    TsValue* ts_string_codePointAt_boxed(void* str, TsValue* index) {
+        int64_t i = ts_to_index_integer(index);  // may throw
+        int64_t size = ts_string_length(str);
+        if (i < 0 || i >= size) return (TsValue*)ts_value_make_undefined();
+        int64_t first = ts_string_charCodeAt(str, i);
+        if (first >= 0xD800 && first <= 0xDBFF && i + 1 < size) {
+            int64_t second = ts_string_charCodeAt(str, i + 1);
+            if (second >= 0xDC00 && second <= 0xDFFF)
+                return (TsValue*)ts_value_make_int(
+                    (first - 0xD800) * 0x400 + (second - 0xDC00) + 0x10000);
+        }
+        return (TsValue*)ts_value_make_int(first);
+    }
     int64_t ts_string_indexOf_from_coerced(void* str, void* searchString, TsValue* startPos) {
-        // ToIntegerOrInfinity(position); undefined/omitted -> 0 per spec.
+        // ECMA-262 22.1.3.8: step 3 searchStr = ? ToString(searchString)
+        // runs BEFORE step 4 pos = ? ToIntegerOrInfinity(position) - the
+        // search string's user hooks fire first, and its abrupt completion
+        // wins over a bad position.
+        void* search = ts_to_string_spec((TsValue*)searchString);
         int64_t p = ts_to_index_integer(startPos);  // may throw
-        return ts_string_indexOf_from(str, searchString, p);
+        return ts_string_indexOf_from(str, search, p);
     }
 
     int64_t ts_string_lastIndexOf(void* str, void* searchString) {
@@ -2176,6 +2261,29 @@ extern "C" {
         if (!s) return str;
         TsString* formStr = form ? ts_ensure_flat(form) : nullptr;
         return s->Normalize(formStr);
+    }
+
+    // ECMA-262 22.1.3.13 String.prototype.normalize (typed lowering entry):
+    //   step 3: if form is undefined, f = "NFC"; else f = ? ToString(form)
+    //     (TypeError on Symbol, ToPrimitive hooks may throw);
+    //   step 4: f not in {"NFC","NFD","NFKC","NFKD"} -> RangeError.
+    // No std::string locals — ts_throw longjmps out of this frame.
+    void* ts_string_normalize_coerced(void* str, TsValue* form) {
+        void* ts_to_string_spec(TsValue* v);  // defined below in this TU
+        void* f = nullptr;
+        if (form && !nanbox_is_undefined((uint64_t)(uintptr_t)form)) {
+            f = ts_to_string_spec(form);
+        }
+        if (f) {
+            TsString* fs = ts_ensure_flat(f);
+            const char* fu = fs ? fs->ToUtf8() : "";
+            if (strcmp(fu, "NFC") != 0 && strcmp(fu, "NFD") != 0 &&
+                strcmp(fu, "NFKC") != 0 && strcmp(fu, "NFKD") != 0) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "The normalization form should be one of NFC, NFD, NFKC, NFKD."));
+            }
+        }
+        return ts_string_normalize(str, f);
     }
 
     // Helper: unbox a potential TsValue* to get the raw TsRegExp* pointer.
