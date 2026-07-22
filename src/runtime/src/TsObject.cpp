@@ -1985,6 +1985,28 @@ void* ts_create_arguments_from_params(
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
+                // ArrayBuffer `__proto__` (B.2.2.1 Object.prototype.__proto__
+                // getter = [[GetPrototypeOf]]): a subclass instance answers its
+                // side-map [[Prototype]]; a plain instance answers
+                // %ArrayBuffer.prototype% (TypedArrayConstructors/ctors/
+                // no-species asserts mysteryTA.buffer.__proto__ ===
+                // ArrayBuffer.prototype).
+                if (magic16 == 0x42554646 && keyStr &&
+                    strcmp(keyStr, "__proto__") == 0) {
+                    if (void* sp = ts_native_object_get_proto(obj))
+                        return ts_value_make_object(sp);
+                    extern void* ts_get_global_ArrayBuffer();
+                    if (void* abCtor = ts_get_global_ArrayBuffer()) {
+                        TsValue* protoV = ts_object_get_property(
+                            ts_value_get_object((TsValue*)abCtor)
+                                ? ts_value_get_object((TsValue*)abCtor)
+                                : abCtor,
+                            "prototype");
+                        if (protoV && !ts_value_is_undefined(protoV))
+                            return protoV;
+                    }
+                    return ts_value_make_undefined();
+                }
                 // Temporal.PlainTime: GetPropertyVirtual answers the field
                 // getters (hour..nanosecond); methods/constructor/@@toStringTag
                 // resolve up Temporal.PlainTime.prototype.
