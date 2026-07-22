@@ -3188,10 +3188,24 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
         if(rd){
             int64_t ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
             auto anchor=[&](TsDuration* d,int64_t* dayOff,int64_t* remNs){
-                int64_t timeNs=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
-                int64_t extraD=timeNs/NS_PER_DAY; *remNs=timeNs%NS_PER_DAY;
+                // Overflow-safe (days, sub-day-ns) split: the naive total-ns sum
+                // wraps int64 for e.g. seconds = 2^53-1 (~9e24 ns). The floor
+                // split yields the same total offset, so the lexicographic
+                // (dayOff, remNs) comparison is unchanged.
+                int64_t extraD, rNs;
+                add_dur_time_to_day(0, d, 1, &extraD, &rNs);
+                *remNs=rNs;
                 int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraD, &ey,&em,&ed);
-                *dayOff=iso_days_from_civil(ey,em,ed)-ra;
+                int64_t edays=iso_days_from_civil(ey,em,ed);
+                // ES Temporal AddDate / ISODateWithinLimits: anchoring the
+                // duration to relativeTo must land inside the representable ISO
+                // range (±1e8 days around the epoch; -271821-04-19 carries the
+                // one-day slack) — otherwise RangeError.
+                if(edays > 100000000LL || edays < -100000001LL){
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Temporal.Duration.compare: duration added to relativeTo is outside the representable range"));
+                }
+                *dayOff=edays-ra;
             };
             int64_t da,na,db,nb; anchor(a,&da,&na); anchor(b,&db,&nb);
             int r = (da<db)?-1:(da>db)?1:((na<nb)?-1:(na>nb)?1:0);
@@ -4803,10 +4817,29 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
+        // ES Temporal Duration.round: MaximumTemporalDurationRoundingIncrement
+        // is undefined for DATE units (year/month/week/day), so a
+        // roundingIncrement other than 1 is only allowed when largestUnit
+        // equals smallestUnit — "Cannot round to an increment of months while
+        // also balancing to years" (round-and-balance-calendar-units family).
+        if(inc!=1 && date_unit_rank(sUnit)>0 && date_unit_rank(L)!=date_unit_rank(sUnit)){
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Temporal.Duration.prototype.round: a date smallestUnit only allows roundingIncrement 1 unless largestUnit equals smallestUnit"));
+            return ts_value_make_undefined();
+        }
         int64_t timeNsTot=d->hours*NS_PER_HOUR+d->minutes*NS_PER_MINUTE+d->seconds*NS_PER_SECOND+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds;
         int64_t extraDays=timeNsTot/NS_PER_DAY;
         int64_t subNsMag=timeNsTot%NS_PER_DAY; if(subNsMag<0) subNsMag=-subNsMag;   // forward magnitude of the sub-day remainder
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
+        // ES Temporal AddDate / ISODateWithinLimits: the duration anchored at
+        // relativeTo must land inside the representable ISO range (±1e8 days,
+        // with the one-day slack at the minimum) — otherwise RangeError.
+        { int64_t edchk=iso_days_from_civil(ey,em,ed);
+          if(edchk > 100000000LL || edchk < -100000001LL){
+              ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                  "Temporal.Duration.prototype.round: duration added to relativeTo is outside the representable range"));
+              return ts_value_make_undefined();
+          } }
         int64_t yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re,subNsMag);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
         // A TIME smallestUnit (hour..nanosecond): round_date_duration kept the EXACT date
@@ -4873,6 +4906,22 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
             roundedSecMag=aSec+rsub/NS_PER_SECOND; roundedSubMag=rsub%NS_PER_SECOND;
         }
         if(roundedSecMag>9007199254740991LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: result is out of range")); return ts_value_make_undefined(); }
+        // A SUB-second largestUnit balances the whole-second total into that
+        // unit. Per IsValidDuration the balanced component is read back as a
+        // float64 (ℝ(𝔽(x))); when that rounding reaches 2^53 seconds' worth
+        // of nanoseconds (2^53 * 1e9) the result is out of range — e.g.
+        // seconds = 2^53-1 with ns = 999,999,999 balanced to nanoseconds
+        // rounds UP to exactly 2^53*1e9 → RangeError (double-space check;
+        // exact big-int balancing for the representable window is a separate,
+        // deeper rework).
+        if(Lns < NS_PER_SECOND){
+            double nsTot=(double)roundedSecMag*1e9+(double)roundedSubMag;
+            if(nsTot >= 9007199254740992.0*1e9){
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Temporal.Duration.prototype.round: balanced component is out of range"));
+                return ts_value_make_undefined();
+            }
+        }
         int64_t out2[7]={0,0,0,0,0,0,0};
         int64_t secMag=roundedSecMag; static const int64_t usec[4]={86400,3600,60,1};
         for(int i=0;i<4;i++){ int64_t uNs=usec[i]*NS_PER_SECOND; if(uNs>=sNs && uNs<=Lns){ out2[i]=secMag/usec[i]; secMag%=usec[i]; } }
