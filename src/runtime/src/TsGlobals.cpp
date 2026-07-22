@@ -671,6 +671,11 @@ void* ts_get_global_Array() {
     addMethod(proto, "join", (void*)ts_array_join_native);
     { extern TsValue* ts_array_toLocaleString_native(void*, int, TsValue**);
       addMethod(proto, "toLocaleString", (void*)ts_array_toLocaleString_native, 0); }
+    // ES 23.1.3.36: %Array.prototype%.toString is its OWN generic (join-or-
+    // ObjectToString, TypeError on nullish this) — without this entry the
+    // lookup fell through to %Object.prototype.toString% ("[object Array]").
+    { extern TsValue* ts_array_proto_toString_native(void*, int, TsValue**);
+      addMethod(proto, "toString", (void*)ts_array_proto_toString_native, 0); }
     addMethod(proto, "indexOf", (void*)ts_array_indexOf_native);
     addMethod(proto, "includes", (void*)ts_array_includes_native);
     addMethod(proto, "some", (void*)ts_array_some_native);

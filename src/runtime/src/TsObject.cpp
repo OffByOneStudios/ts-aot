@@ -10797,7 +10797,15 @@ void* ts_create_arguments_from_params(
         
         // Create Array.prototype with methods
         TsMap* arrayProtoMap = TsMap::Create();
-        arrayProtoMap->Set(makeKey("toString"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_toString_native, nullptr)));
+        // ES 23.1.3.36: %Array.prototype%.toString is the join-or-
+        // ObjectToString generic, NOT %Object.prototype.toString% — and it
+        // throws on a nullish `this` (ToObject, methods-called-as-functions).
+        {
+            extern TsValue* ts_array_proto_toString_native(void*, int, TsValue**);
+            arrayProtoMap->Set(makeKey("toString"), nanbox_to_tagged(
+                makeNamedNativeFunction((void*)ts_array_proto_toString_native,
+                                        nullptr, "toString", 0)));
+        }
         arrayProtoMap->Set(makeKey("valueOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr)));
         arrayFunc->properties->Set(protoKey, nanbox_to_tagged(ts_value_make_object(arrayProtoMap)));
         
