@@ -769,7 +769,20 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
         }
 
-        if (hasPropertyInitializers && !hasExplicitConstructor) {
+        // A class with instance private methods/accessors also needs a
+        // synthesized ctor even without fields — it must stamp the private
+        // BRAND on each instance (ES2022 InitializeInstanceElements).
+        bool hasInstancePrivateMethods = false;
+        for (auto& memberPtr2 : classDecl->members) {
+            if (auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr2.get())) {
+                if (!md->name.empty() && md->name[0] == '#' && !md->isStatic) {
+                    hasInstancePrivateMethods = true;
+                    break;
+                }
+            }
+        }
+
+        if ((hasPropertyInitializers || hasInstancePrivateMethods) && !hasExplicitConstructor) {
             std::string ctorName = className + "_constructor";
             auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
             {
@@ -802,6 +815,10 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeClass(className, 0), "this");
             defineVariable("this", thisValue);
+
+            // ES2022 InitializeInstanceElements: instance private-method
+            // brand before field initializers (base-class entry point).
+            emitPrivateBrandAddIfNeeded(thisValue, classDecl->members, hirClass->name);
 
             // Initialize property defaults from AST. Every declared
             // instance field is installed even without initializer
@@ -1907,6 +1924,10 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 if (classType && classType->node) {
                     auto thisValue = lookupVariable("this");
                     if (thisValue) {
+                        // ES2022 InitializeInstanceElements: instance
+                        // private-method brand alongside the field installs.
+                        emitPrivateBrandAddIfNeeded(thisValue, classType->node->members,
+                                                    classType->name);
                         for (auto& member : classType->node->members) {
                             if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                                 if (!propDef->isStatic) {

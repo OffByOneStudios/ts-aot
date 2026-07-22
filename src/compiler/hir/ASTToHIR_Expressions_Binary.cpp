@@ -1201,6 +1201,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (targetClass) {
                 auto setterIt = targetClass->methods.find("__setter_" + propAccess->name);
                 if (setterIt != targetClass->methods.end() && setterIt->second) {
+                    // ES2022 PrivateSet (7.3.31) step 6: brand-check a
+                    // private setter's runtime receiver (compound writes).
+                    if (!propAccess->name.empty() && propAccess->name[0] == '#')
+                        emitPrivateBrandCheck(obj, propAccess->name);
                     builder_.createCall(setterIt->second->name,
                                         {obj, boxValueIfNeeded(result)},
                                         HIRType::makeVoid());
@@ -1642,6 +1646,12 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     }
                     builder_.createCall(setterFunc->name, {rhs}, HIRType::makeVoid());
                 } else {
+                    // ES2022 PrivateSet (7.3.31) step 6: an INSTANCE private
+                    // setter dispatched statically may still receive a
+                    // foreign runtime `this` (`c.method.call({})`,
+                    // inner-arrow family) — brand-check the receiver first.
+                    if (!propAccess->name.empty() && propAccess->name[0] == '#')
+                        emitPrivateBrandCheck(obj, propAccess->name);
                     builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
                 }
                 lastValue_ = rhs;
@@ -1668,6 +1678,10 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 builder_.createCall("ts_throw_private_method_write", {nm},
                                     HIRType::makeVoid());
             }
+            // ES2022 PrivateSet (7.3.31) step 6: instance ACCESSOR writes
+            // verify the declaring class's brand (fields keep the
+            // slot-presence check inside set_private).
+            emitPrivateBrandCheck(obj, propAccess->name);
             auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             builder_.createCall("ts_object_set_private",
                 {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());

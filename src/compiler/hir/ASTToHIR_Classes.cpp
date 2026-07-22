@@ -380,6 +380,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
                     if (md->isGetter) pctx.getters.insert(md->name);
                     if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
+                    if (!md->isStatic) pctx.instMembers.insert(md->name);
                 }
             }
         }
@@ -918,6 +919,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
+                    // ES2022 InitializeInstanceElements: instance
+                    // private-method brand. Explicit ctors emit field inits
+                    // at entry (existing simplification), so the brand goes
+                    // with them; the precise after-super timing is exercised
+                    // by the synthesized-ctor paths.
+                    emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
@@ -1235,6 +1242,13 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
+            // ES2022 InitializeInstanceElements: stamp the instance
+            // private-method/accessor BRAND right after super() returned
+            // (derived) / at ctor entry (base) — before field initializers,
+            // so `this.#m` during a base-ctor callback (before-super-return
+            // family) correctly lacks the brand and throws TypeError.
+            emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
+
             // Initialize property defaults. Every declared instance
             // field is installed on `this`, with `undefined` for
             // fields without initializers — matches ECMA-262 15.7.
@@ -1548,6 +1562,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     if (!md->isGetter && !md->isSetter) pctx.methods.insert(md->name);
                     if (md->isGetter) pctx.getters.insert(md->name);
                     if (md->isGetter || md->isSetter) pctx.accessors.insert(md->name);
+                    if (!md->isStatic) pctx.instMembers.insert(md->name);
                 }
             }
         }
@@ -1998,6 +2013,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
+                    // ES2022 InitializeInstanceElements: instance
+                    // private-method brand. Explicit ctors emit field inits
+                    // at entry (existing simplification), so the brand goes
+                    // with them; the precise after-super timing is exercised
+                    // by the synthesized-ctor paths.
+                    emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
@@ -2242,6 +2263,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 superArgs.push_back(thisValue);
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
+
+            // ES2022 InitializeInstanceElements: instance private-method
+            // brand right after super() (derived) / at entry (base).
+            emitPrivateBrandAddIfNeeded(thisValue, node->members, hirClass->name);
 
             // Initialize property defaults. Every declared instance
             // field is installed on `this`, with `undefined` for

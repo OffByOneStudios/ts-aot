@@ -472,6 +472,10 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // lookupVariable("this") returned the raw closure param there
             // (receiver arrived as the CLSR object, TS_DEBUG_PRIVGET trace).
             auto objV = lowerExpression(propAccess->expression.get());
+            // ES2022 PrivateGet (7.3.30) step 5: private METHOD/ACCESSOR
+            // access verifies the declaring class's brand on the runtime
+            // receiver (before-super-return + double-init + .call families).
+            emitPrivateBrandCheck(objV, propAccess->name);
             auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             auto boxedObj = boxValueIfNeeded(objV);
             auto func = builder_.createCall("ts_object_get_private",
@@ -1163,6 +1167,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // instance (c.method.call(foreignObj) rebinds it; the inner-arrow-
         // function family). ts_object_get_private throws on a brand miss.
         if (!propAccess->name.empty() && propAccess->name[0] == '#') {
+            // ES2022 PrivateGet (7.3.30) step 5: brand-check instance
+            // method/accessor access on the runtime receiver.
+            emitPrivateBrandCheck(obj, propAccess->name);
             auto keyStr = builder_.createConstString(resolvePrivateName(propAccess->name));
             auto boxedObj = boxValueIfNeeded(obj);
             auto func = builder_.createCall("ts_object_get_private",

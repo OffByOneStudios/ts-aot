@@ -764,4 +764,46 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
 // descriptor. Shared by the class-declaration deferred install and the
 // class-expression inline installs.
 
+// ES2022 private brand check (ECMA-262 7.3.30 PrivateGet step 5 / 7.3.31
+// PrivateSet step 6): when #name resolves to an INSTANCE private
+// method/accessor of a lexically-enclosing class, the runtime receiver must
+// carry that class's brand — a foreign object (`c.m.call({})`), a sibling
+// instance with a same-named private, or `this` before super() returns all
+// lack it and throw TypeError. No-op for fields/static members (they have
+// their own presence/brand paths).
+void ASTToHIR::emitPrivateBrandCheck(std::shared_ptr<HIRValue> obj,
+                                     const std::string& name) {
+    std::string brandId = privateBrandIdOf(name);
+    if (brandId.empty()) return;
+    auto brandStr = builder_.createConstString(brandId);
+    auto nameStr = builder_.createConstString(name);
+    builder_.createCall("ts_private_brand_check",
+                        {boxValueIfNeeded(obj), brandStr, nameStr},
+                        HIRType::makeVoid());
+}
+
+// ES2022 PrivateBrandAdd at the InitializeInstanceElements point (ECMA-262
+// 7.3.28): a class whose body declares any instance private method/accessor
+// stamps its brand on the instance where field initializers begin — ctor
+// entry for base classes, immediately after super() returns for derived
+// (the synthesized-ctor sites call this right after the super call).
+void ASTToHIR::emitPrivateBrandAddIfNeeded(std::shared_ptr<HIRValue> thisValue,
+                                           const std::vector<ast::NodePtr>& members,
+                                           const std::string& classId) {
+    bool hasInstancePrivate = false;
+    for (auto& m : members) {
+        if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get())) {
+            if (!md->name.empty() && md->name[0] == '#' && !md->isStatic) {
+                hasInstancePrivate = true;
+                break;
+            }
+        }
+    }
+    if (!hasInstancePrivate) return;
+    auto brandStr = builder_.createConstString(classId);
+    builder_.createCall("ts_private_brand_add",
+                        {boxValueIfNeeded(thisValue), brandStr},
+                        HIRType::makeVoid());
+}
+
 }  // namespace ts::hir
