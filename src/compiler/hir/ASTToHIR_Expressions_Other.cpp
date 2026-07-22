@@ -627,6 +627,11 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             // Found a getter - call it instead of direct property access
             HIRFunction* getterFunc = getterIt->second;
             auto returnType = getterFunc->returnType ? getterFunc->returnType : HIRType::makeAny();
+            // ES2022 PrivateGet (7.3.30) step 5: a PRIVATE getter dispatched
+            // statically may still receive a foreign runtime `this`
+            // (`c.method.call({})`, inner-arrow family) — brand-check first.
+            if (!node->name.empty() && node->name[0] == '#')
+                emitPrivateBrandCheck(obj, node->name);
             lastValue_ = builder_.createCall(getterFunc->name, {obj}, returnType);
             return;
         }
@@ -840,6 +845,11 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // ALL private reads brand-check (typed `this` can be rebound foreign
     // via .call — inner-arrow family); result is boxed Any (dynamic path).
     if (!node->name.empty() && node->name[0] == '#') {
+        // Instance METHOD/ACCESSOR reads verify the declaring class's BRAND
+        // (ES2022 PrivateGet 7.3.30 step 5) — presence probing can't catch
+        // before-super-return access (methods resolve via the prototype from
+        // birth). Fields keep the slot-presence check inside get_private.
+        emitPrivateBrandCheck(obj, node->name);
         auto keyStr = builder_.createConstString(resolvePrivateName(node->name));
         auto boxedObj = boxValueIfNeeded(obj);
         lastValue_ = builder_.createCall("ts_object_get_private", {boxedObj, keyStr}, HIRType::makeAny());

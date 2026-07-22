@@ -4958,6 +4958,62 @@ void* ts_create_arguments_from_params(
         ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
     }
 
+    // ES2022 INSTANCE private brand (ECMA-262 7.3.28 PrivateMethodOrAccessorAdd,
+    // 7.3.30 PrivateGet step 5, 7.3.31 PrivateSet step 6; InitializeInstanceElements):
+    // a class whose body declares instance private methods/accessors stamps its
+    // brand on each instance at the point field initializers begin — ctor entry
+    // for base classes, right after super() returns for derived. Every private
+    // method/accessor access then verifies the DECLARING class's brand on the
+    // runtime receiver: `.call()` on a foreign object, access before super()
+    // returns, and sibling/super-class instances all lack it -> TypeError.
+    // The brand is a hidden property "\x01@brand@<classId>" — the \x01 prefix
+    // keeps it out of enumeration exactly like private field storage keys.
+    // POD-only frames: ts_throw longjmps, and a live std::string in the frame
+    // corrupts the MSVC unwinder (see longjmp POD-safety rule). Key built in a
+    // stack char buffer: "\x01@brand@<classId>".
+    extern "C" void ts_private_brand_add(void* obj, void* brandName) {
+        void* raw = ts_value_get_object((TsValue*)obj);
+        if (!raw) raw = obj;
+        TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
+        const char* brandId = bs ? bs->ToUtf8() : nullptr;
+        if (!raw || !brandId) return;
+        char keyBuf[192];
+        snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
+        TsValue* existing = ts_object_get_property(raw, keyBuf);
+        if (existing && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(existing))) {
+            // 7.3.28 step 2: adding the same brand twice (return-override
+            // double construction) is a TypeError.
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Cannot initialize private methods of class %s twice on the same object", brandId);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return;
+        }
+        ts_object_set_property(raw, ts_value_make_string(TsString::Create(keyBuf)),
+                               ts_value_make_bool(true));
+    }
+    extern "C" void ts_private_brand_check(void* obj, void* brandName, void* memberName) {
+        TsString* ms = (TsString*)ts_value_get_string((TsValue*)memberName);
+        const char* member = ms ? ms->ToUtf8() : "#member";
+        TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
+        const char* brandId = bs ? bs->ToUtf8() : nullptr;
+        void* raw = ts_value_get_object((TsValue*)obj);
+        if (!raw) raw = obj;
+        bool ok = false;
+        if (raw && brandId &&
+            (uintptr_t)raw >= 0x1000 && (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL) {
+            char keyBuf[192];
+            snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
+            TsValue* v = ts_object_get_property(raw, keyBuf);
+            ok = v && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(v));
+        }
+        if (ok) return;
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Cannot read private member %s from an object whose class did not declare it", member);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     TsValue* ts_object_get_private(void* obj, void* keyName) {
         void* rawObj = ts_value_get_object((TsValue*)obj);
         if (!rawObj) rawObj = obj;

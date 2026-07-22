@@ -544,6 +544,29 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                         if (currentFunction_ && isModuleGlobalVar(id->name)) {
                             builder_.createStoreGlobal(modVarName(id->name), elemVal);
                         }
+                    } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(lhsExpr)) {
+                        // `for (obj.prop of iter)` — ES 14.7.5.7
+                        // ForIn/OfBodyEvaluation step 6.f: PutValue on a
+                        // property Reference each iteration. PRIVATE targets
+                        // (`for (this.#x of iter)`) route through
+                        // ts_object_set_private so PrivateSet (7.3.31) brand-
+                        // checks a foreign receiver -> TypeError
+                        // (privatefieldset-typeerror-6). This target form was
+                        // previously dropped silently (no store at all).
+                        auto tobj = lowerExpression(pa->expression.get());
+                        if (!pa->name.empty() && pa->name[0] == '#') {
+                            emitPrivateBrandCheck(tobj, pa->name);
+                            auto pk = builder_.createConstString(resolvePrivateName(pa->name));
+                            builder_.createCall("ts_object_set_private",
+                                {tobj, pk, boxValueIfNeeded(elemVal)}, HIRType::makeVoid());
+                        } else {
+                            builder_.createSetPropStatic(tobj, pa->name, elemVal);
+                        }
+                    } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(lhsExpr)) {
+                        // `for (arr[i] of iter)` — element Reference target.
+                        auto tobj = lowerExpression(ea->expression.get());
+                        auto tidx = lowerExpression(ea->argumentExpression.get());
+                        builder_.createSetElem(tobj, tidx, elemVal);
                     }
                     lastValue_ = savedLast;
                 }
@@ -652,6 +675,29 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                         if (currentFunction_ && isModuleGlobalVar(id->name)) {
                             builder_.createStoreGlobal(modVarName(id->name), elemVal);
                         }
+                    } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(lhsExpr)) {
+                        // `for (obj.prop of iter)` — ES 14.7.5.7
+                        // ForIn/OfBodyEvaluation step 6.f: PutValue on a
+                        // property Reference each iteration. PRIVATE targets
+                        // (`for (this.#x of iter)`) route through
+                        // ts_object_set_private so PrivateSet (7.3.31) brand-
+                        // checks a foreign receiver -> TypeError
+                        // (privatefieldset-typeerror-6). This target form was
+                        // previously dropped silently (no store at all).
+                        auto tobj = lowerExpression(pa->expression.get());
+                        if (!pa->name.empty() && pa->name[0] == '#') {
+                            emitPrivateBrandCheck(tobj, pa->name);
+                            auto pk = builder_.createConstString(resolvePrivateName(pa->name));
+                            builder_.createCall("ts_object_set_private",
+                                {tobj, pk, boxValueIfNeeded(elemVal)}, HIRType::makeVoid());
+                        } else {
+                            builder_.createSetPropStatic(tobj, pa->name, elemVal);
+                        }
+                    } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(lhsExpr)) {
+                        // `for (arr[i] of iter)` — element Reference target.
+                        auto tobj = lowerExpression(ea->expression.get());
+                        auto tidx = lowerExpression(ea->argumentExpression.get());
+                        builder_.createSetElem(tobj, tidx, elemVal);
                     }
                     lastValue_ = savedLast;
                 }
@@ -762,6 +808,49 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
             auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
             if (ident) {
                 defineVariable(ident->name, key);
+            }
+        } else {
+            // Assignment-target form: `for (lhs in obj)` where lhs is an
+            // existing variable or a property/element Reference — ES 14.7.5.7
+            // ForIn/OfBodyEvaluation step 6.f PutValue each iteration.
+            // Mirrors the for-of assignment-target handling. PRIVATE property
+            // targets (`for (this.#x in obj)`) route through
+            // ts_object_set_private so PrivateSet (7.3.31) brand-checks a
+            // foreign receiver -> TypeError (privatefieldset-typeerror-7).
+            ast::Node* lhsNode = node->initializer.get();
+            if (auto* es = dynamic_cast<ast::ExpressionStatement*>(lhsNode)) {
+                lhsNode = es->expression.get();
+            }
+            if (auto* id = dynamic_cast<ast::Identifier*>(lhsNode)) {
+                auto* info = lookupVariableInfo(id->name);
+                if (info && info->isAlloca) {
+                    builder_.createStore(key, info->value, info->elemType);
+                } else if (info) {
+                    auto allocaPtr = builder_.createAlloca(key->type, id->name);
+                    builder_.createStore(key, allocaPtr, key->type);
+                    info->value = allocaPtr;
+                    info->elemType = key->type;
+                    info->isAlloca = true;
+                } else {
+                    defineVariable(id->name, key);
+                }
+                if (currentFunction_ && isModuleGlobalVar(id->name)) {
+                    builder_.createStoreGlobal(modVarName(id->name), key);
+                }
+            } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(lhsNode)) {
+                auto tobj = lowerExpression(pa->expression.get());
+                if (!pa->name.empty() && pa->name[0] == '#') {
+                    emitPrivateBrandCheck(tobj, pa->name);
+                    auto pk = builder_.createConstString(resolvePrivateName(pa->name));
+                    builder_.createCall("ts_object_set_private",
+                        {tobj, pk, boxValueIfNeeded(key)}, HIRType::makeVoid());
+                } else {
+                    builder_.createSetPropStatic(tobj, pa->name, key);
+                }
+            } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(lhsNode)) {
+                auto tobj = lowerExpression(ea->expression.get());
+                auto tidx = lowerExpression(ea->argumentExpression.get());
+                builder_.createSetElem(tobj, tidx, key);
             }
         }
     }
