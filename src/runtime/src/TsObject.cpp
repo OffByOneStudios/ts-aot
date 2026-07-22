@@ -4409,14 +4409,22 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
                 "Cannot convert object to primitive value"));
         }
         // ECMA-262 7.1.1.1 OrdinaryToPrimitive step 3: if NO candidate method
-        // produced a primitive, throw TypeError. We can only apply this safely
-        // to objects that are EXPLICITLY prototype-less (Object.create(null)):
-        // for them "no valueOf/toString anywhere" is a real user-visible state
-        // (charAt/charCodeAt pos-coerce-err, trim* this-value-cannot-convert).
-        if (magic16 == 0x4D415053 /* TsMap */ &&
-            ((TsMap*)obj)->HasNullPrototype()) {
-            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                "Cannot convert object to primitive value"));
+        // produced a primitive, throw TypeError. Applied to ordinary objects
+        // (flat literals and TsMap-backed): a plain object ALWAYS reaches the
+        // built-in Object.prototype.toString through ts_object_get_property,
+        // so landing here means the user explicitly shadowed toString/valueOf
+        // with non-callables ({toString: undefined, valueOf: undefined}) or
+        // built the object with Object.create(null) — both must throw
+        // (charAt/charCodeAt pos-coerce-err, trim* this-value-cannot-convert,
+        // indexOf ToPrimitive skip-both). Non-ordinary pointer shapes keep the
+        // legacy fallback below.
+        {
+            uint32_t m0f = *(uint32_t*)obj;
+            if (magic16 == 0x4D415053 /* TsMap */ ||
+                m0f == 0x464C4154 /* FLAT */) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert object to primitive value"));
+            }
         }
         // No methods reachable — preserve legacy fallback so weirdly-boxed
         // TsValue structs and built-ins without a full prototype chain
@@ -10326,6 +10334,17 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
     // ORIGINAL (possibly primitive) receiver is passed as `this`.
     extern "C" TsValue* ts_object_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
         if (!ctx) ctx = ts_get_call_this();
+        // ECMA-262 20.1.3.5: Return ? Invoke(O, "toString") — Invoke's GetV
+        // does ToObject(this value), so toLocaleString.call(undefined/null)
+        // is a TypeError (S15.2.4.3_A12/A13).
+        if (ctx) {
+            uint64_t tlsCtxNb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(tlsCtxNb) || nanbox_is_undefined(tlsCtxNb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to object"));
+                return ts_value_make_undefined();  // unreachable
+            }
+        }
         TsValue* self = (TsValue*)(ctx ? ctx : ts_value_make_undefined());
         TsValue* key = ts_value_make_string(TsString::Create("toString"));
         TsValue* fn = ts_object_get_dynamic(self, key);
