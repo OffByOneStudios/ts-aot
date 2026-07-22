@@ -1758,6 +1758,26 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         }
     }
 
+    // Module-toplevel binding read during the class PRE-PASS (before the
+    // module-global registry is populated): synthetic default-ctor field
+    // initializers lower in lower()'s first pass, where isModuleGlobalVar()
+    // is still empty. moduleToplevelDeclaredNames_ IS scanned before that
+    // pass, so route the read through the __modvar_ global that module init
+    // stores unconditionally — the const-undefined fallback below made
+    // `class C { c = fn }` (top-level `const fn = function(){}`) install the
+    // field as undefined (regular-definitions-literal-names family, value
+    // identity `c.c === fn` broken). Gated on the registry being EMPTY so
+    // post-registration resolution (the branches above) is unchanged.
+    if (moduleGlobalVarsByModule_.empty() &&
+        moduleToplevelDeclaredNames_.count(node->name) &&
+        node->name.rfind("__", 0) != 0 && node->name != "exports") {
+        std::string globalName = modVarName(node->name);
+        auto gtype = module_->globals.count(globalName)
+            ? module_->globals[globalName] : HIRType::makeAny();
+        lastValue_ = builder_.createLoadGlobalTyped(globalName, gtype);
+        return;
+    }
+
     // Unresolvable identifier. Throw ReferenceError (ECMA-262 9.4.2 GetValue
     // on an unresolvable Reference) ONLY when the analyzer — which has the
     // complete symbol table (imports, commonjs globals, enums, classes,

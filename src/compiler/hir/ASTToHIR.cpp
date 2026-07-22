@@ -1568,7 +1568,23 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             func->isGenerator = methodNode->isGenerator;
             func->sourceLine = methodNode->line;
             func->sourceFile = methodNode->sourceFile;
-            func->displayName = methodNode->name;
+            // ES SetFunctionName for class members (mirrors the
+            // ASTToHIR_Classes lowering): the instance CONSTRUCTOR's .name is
+            // the class name — leave displayName empty so the closure-naming
+            // fallback derives it from the "<Class>_constructor" symbol ("" for
+            // anonymous classes). Stamping "constructor" here leaked into
+            // D2.name (definition/basics.js). Accessors get the "get "/"set "
+            // prefix (fn-name-accessor-get/set). "[computed]" placeholders
+            // keep their legacy form (real names install at runtime).
+            if (methodNode->name == "constructor" && !methodNode->isStatic) {
+                // leave displayName empty
+            } else if (methodNode->name == "[computed]") {
+                func->displayName = methodNode->name;
+            } else {
+                func->displayName = methodNode->isGetter ? ("get " + methodNode->name)
+                                  : methodNode->isSetter ? ("set " + methodNode->name)
+                                  : methodNode->name;
+            }
 
             // Add 'this' parameter first for instance methods
             // spec.argTypes[0] is the class type for 'this' (set by Monomorphizer)
@@ -2130,17 +2146,47 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
 void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
                                             std::shared_ptr<HIRValue> proto,
-                                            std::shared_ptr<HIRValue> ctorVal) {
+                                            std::shared_ptr<HIRValue> ctorVal,
+                                            bool inlineContext) {
     if (!hirClass) return;
     for (auto& ca : hirClass->computedAccessors) {
-        // Static computed FIELD (`static [x] = init`): install the evaluated init
-        // under the evaluated key on the constructor, here at the source position
-        // (where the key's variable is bound).
+        // ECMA-262 ClassFieldDefinitionEvaluation steps 1-2: evaluate the
+        // computed field NAME (with ? ToPropertyKey) at class-definition time
+        // so an abrupt completion aborts the definition (evaluation-error /
+        // classelementname-abrupt-completion families). Result discarded —
+        // the instance install still computes its key in the constructor.
+        // INLINE contexts only: the deferred top-level flush runs at
+        // user_main entry where the key's outer bindings don't resolve.
+        if (ca.keyEvalOnly) {
+            if (inlineContext && ca.keyExpr) {
+                auto keyVal = boxValueIfNeeded(
+                    lowerExpression(static_cast<ast::Expression*>(ca.keyExpr)));
+                builder_.createCall("ts_to_property_key_spec", {keyVal},
+                                    HIRType::makeAny());
+            }
+            continue;
+        }
+        // Static computed FIELD (`static [x] = init` / `static [x]`): define
+        // the field on the constructor via CreateDataPropertyOrThrow semantics
+        // (ES ClassDefinitionEvaluation / DefineField): ToPropertyKey abrupt
+        // completions propagate, and PropName "prototype" throws TypeError
+        // (F.prototype is {writable:false, configurable:false} per
+        // MakeConstructor — fields-computed-name-static-propname-prototype).
+        // Emission contexts (single source-position eval): inline setup and
+        // the module-init install trigger emit every entry; the hoisted
+        // user_main-entry flush emits ONLY keys that don't read a binding
+        // (a binding key is stale at the flush — its trigger installs it).
         if (ca.isField) {
-            if (!ca.keyExpr || !ca.initExpr || !ctorVal) continue;
-            auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
-            auto initVal = lowerExpression(static_cast<ast::Expression*>(ca.initExpr));
-            builder_.createSetPropDynamic(ctorVal, keyVal, initVal);
+            if (!ca.keyExpr || !ctorVal) continue;
+            if (!inlineContext && ca.keyReadsBinding) continue;
+            auto keyVal = boxValueIfNeeded(
+                lowerExpression(static_cast<ast::Expression*>(ca.keyExpr)));
+            auto initVal = ca.initExpr
+                ? boxValueIfNeeded(
+                      lowerExpression(static_cast<ast::Expression*>(ca.initExpr)))
+                : builder_.createConstUndefined();
+            builder_.createCall("ts_class_define_static_field",
+                                {ctorVal, keyVal, initVal}, HIRType::makeVoid());
             continue;
         }
         if (!ca.func || !ca.keyExpr) continue;
@@ -2423,7 +2469,11 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         // static `__getter_<name>` storage key, so the key expression is
         // evaluated and the accessor installed onto the prototype (instance) or
         // the constructor object (static).
-        emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+        // valueResolveHeritage doubles as the "inline (source-position)
+        // emission" marker — exactly the contexts where computed FIELD-name
+        // key expressions resolve in the right scope (keyEvalOnly entries).
+        emitComputedAccessorInstalls(hirClass, proto, ctorVal,
+                                     /*inlineContext=*/valueResolveHeritage);
     }
 }
 

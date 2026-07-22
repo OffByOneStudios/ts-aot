@@ -555,6 +555,21 @@ struct HIRClass {
         // constructor at the source position (where the key's variable is bound).
         bool isField = false;
         void* initExpr = nullptr;  // ast::Expression* (field initializer)
+        // ECMA-262 ClassFieldDefinitionEvaluation step 1-2: a computed FIELD
+        // name is evaluated (with ToPropertyKey) at class-DEFINITION time and
+        // its abrupt completion aborts the class definition (ReferenceError
+        // from an unresolvable name, a throwing @@toPrimitive/toString, ...).
+        // keyEvalOnly entries emit exactly that evaluation — key expression +
+        // ts_to_property_key_spec, result discarded — in the INLINE
+        // (source-position) setup only; the deferred top-level flush skips
+        // them (it runs at user_main entry where outer bindings are absent).
+        bool keyEvalOnly = false;
+        // The key expression reads a binding (variable/call/…): it must NOT
+        // be evaluated at the hoisted user_main-entry flush (bindings are
+        // stale there) — only at source-position contexts (inline setup or
+        // the module-init install trigger). Stamped at push time via
+        // computedKeyReferencesBinding.
+        bool keyReadsBinding = false;
     };
     std::vector<ComputedAccessor> computedAccessors;
 

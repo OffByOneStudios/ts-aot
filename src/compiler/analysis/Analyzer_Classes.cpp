@@ -327,6 +327,17 @@ void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr
         std::set<PropertyDefinition*>& s; PropertyDefinition* n;
         ~Eraser() { s.erase(n); }
     } eraser{inProgress, node};
+    // Analyze a COMPUTED field name (`[expr] = v`) like the MethodDefinition
+    // path does (Analyzer_Functions.cpp): without this visit, an unresolvable
+    // name in the key (`[noRef]`) is never stamped isUnresolvedReference, so
+    // codegen's class-definition-time key evaluation lowered it to constant
+    // undefined instead of the ReferenceError throw (ES ClassFieldDefinition-
+    // Evaluation step 2 ReturnIfAbrupt — evaluation-error family).
+    if (node->nameNode) {
+        if (dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
+            visit(node->nameNode.get());
+        }
+    }
     if (node->initializer) {
         // Field initializers run with `this` bound to the instance (ES class
         // fields semantics). Without the binding, `b = () => this` reported

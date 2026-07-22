@@ -594,10 +594,15 @@ private:
     void emitEnumObject(const std::string& enumName);
 
     // Install a class's computed-name accessors (get/set [expr]) onto the
-    // prototype (instance) / constructor object (static).
+    // prototype (instance) / constructor object (static). inlineContext=true
+    // when emitting at the class's SOURCE POSITION (in-function setup /
+    // class-expression trailer) — the only contexts where keyEvalOnly
+    // computed FIELD-name evaluations (ES ClassFieldDefinitionEvaluation
+    // steps 1-2, abrupt completions propagate) are emitted.
     void emitComputedAccessorInstalls(HIRClass* hirClass,
                                       std::shared_ptr<HIRValue> proto,
-                                      std::shared_ptr<HIRValue> ctorVal);
+                                      std::shared_ptr<HIRValue> ctorVal,
+                                      bool inlineContext = false);
 
     // Generate static init function for a class with decorators
     // (class, method, property, and parameter decorators)
