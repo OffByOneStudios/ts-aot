@@ -368,13 +368,15 @@ void ts_map_init_inplace(void* mem) {
     TsMap::InitInPlace(mem);
 }
 
-// Per ECMA-262 24.1.1.1 Map ( [ iterable ] ): create a Map, then iterate
-// the iterable expecting [key, value] pairs and call map.set(k, v) for each.
-// Currently handles TsArray-of-TsArrays iterables (the common test262 case).
-void* ts_map_create_from_iterable(TsValue* iterable) {
-    extern void* ts_map_create_explicit();
+// Per ECMA-262 24.1.1.1 Map ( [ iterable ] ) steps 8-10 / 24.1.1.2
+// AddEntriesFromIterable: iterate the iterable expecting [key, value] pairs
+// and call the adder (map.set) for each. Split out of
+// ts_map_create_from_iterable so a SUBCLASS instance (`class M extends Map {}`
+// — the pre-allocated branded TsMap) can run the base constructor's
+// populate step via super(iterable) (ts_super_builtin_call).
+void* ts_map_populate_from_iterable(void* map, TsValue* iterable) {
     extern void* ts_error_create_typed(const char* type, const char* message);
-    void* map = ts_map_create_explicit();
+    if (!map) return map;
     if (!iterable) return map;
     uint64_t nb = (uint64_t)(uintptr_t)iterable;
     if (nb <= NANBOX_UNDEFINED) return map;  // null / undefined → empty map (no throw)
@@ -515,6 +517,11 @@ void* ts_map_create_from_iterable(TsValue* iterable) {
         }
     }
     return map;
+}
+
+void* ts_map_create_from_iterable(TsValue* iterable) {
+    extern void* ts_map_create_explicit();
+    return ts_map_populate_from_iterable(ts_map_create_explicit(), iterable);
 }
 
 void* ts_map_create_explicit() {

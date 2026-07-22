@@ -3011,7 +3011,23 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // build the branded base from the SUPER arguments — which differ from the
     // `new Sub()` arguments — via ts_super_dynamic_construct + ts_construct_select
     // below; routing it here would construct from the wrong (new-call) args.
-    if (hirClass && hirClass->baseBuiltinName.rfind("Temporal.", 0) == 0 &&
+    // Also route FIELDLESS synthetic-ctor subclasses of the brandable
+    // builtins that need their constructor ARGS at creation time —
+    // Array/Date/DataView/ArrayBuffer/Number/Boolean/String (ES 9.1.13
+    // OrdinaryCreateFromConstructor: the instance must carry [[DateValue]] /
+    // [[ViewedArrayBuffer]] / [[ArrayBufferData]] / [[NumberData]] /
+    // [[BooleanData]] / [[StringData]] / Array exotic length). The runtime
+    // [[Construct]] path's builtin-subclass block builds the branded
+    // instance from the args and relinks its [[Prototype]] to C.prototype.
+    // (Map/Set/WeakMap/WeakSet stay on the empty-then-populate
+    // ts_subclass_builtin_alloc + ts_super_builtin_call path below.)
+    auto isArgsAtCreationBuiltin = [](const std::string& b) {
+        return b.rfind("Temporal.", 0) == 0 || b == "Array" || b == "Date" ||
+               b == "DataView" || b == "ArrayBuffer" || b == "Number" ||
+               b == "Boolean" || b == "String";
+    };
+    if (hirClass && !hirClass->baseBuiltinName.empty() &&
+        isArgsAtCreationBuiltin(hirClass->baseBuiltinName) &&
         (!hirClass->shape || hirClass->shape->propertyOffsets.empty()) &&
         (!hirClass->constructor || hirClass->hasSyntheticCtor)) {
         auto constructorVal = lowerExpression(node->expression.get());

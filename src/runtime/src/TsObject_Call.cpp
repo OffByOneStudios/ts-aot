@@ -586,6 +586,183 @@ extern "C" {
     // TypedArray constructor's "requires new" guard misfired).
     TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv);
 
+    // --- Builtin-subclass branding hooks (extends the proven Temporal/Promise
+    // pattern to Array/Date/DataView/ArrayBuffer/Number/Boolean/String). ---
+
+    // Build a genuinely-branded base instance for builtin `name` from the
+    // constructor arguments. Each branch mirrors the direct-identity dispatch
+    // for `new <Builtin>(...)` earlier in this TU so subclass construction and
+    // direct construction share semantics. Returns nullptr for names outside
+    // the table.
+    static TsValue* ts_construct_builtin_branded(const char* name, int argc, TsValue** argv) {
+        TsValue* a0 = (argc >= 1 && argv) ? argv[0] : nullptr;
+        if (strcmp(name, "Array") == 0) {
+            // ES 23.1.1.1: single-number arg -> length-n array, else [items].
+            return ts_array_constructor_native(nullptr, argc, argv);
+        }
+        if (strcmp(name, "Date") == 0) {
+            extern void* ts_date_create();
+            extern void* ts_date_create_ms(int64_t ms);
+            extern void* ts_date_create_str(void* str);
+            extern void* ts_date_create_parts(double, double, double,
+                                               double, double, double, double);
+            if (argc == 0) return ts_value_make_object(ts_date_create());
+            if (argc == 1 && a0) {
+                uint64_t anb = nanbox_from_tsvalue_ptr(a0);
+                // ES 21.4.2.1: a single String arg is parsed; anything else is
+                // coerced via ToNumber (a Date arg uses valueOf -> ms).
+                if (nanbox_is_string_ptr(anb))
+                    return ts_value_make_object(ts_date_create_str(a0));
+                return ts_value_make_object(ts_date_create_ms((int64_t)ts_to_number(a0)));
+            }
+            double p[7] = {0, 0, 1, 0, 0, 0, 0};
+            for (int i = 0; i < 7 && i < argc; ++i)
+                if (argv && argv[i]) p[i] = ts_to_number(argv[i]);
+            return ts_value_make_object(
+                ts_date_create_parts(p[0], p[1], p[2], p[3], p[4], p[5], p[6]));
+        }
+        if (strcmp(name, "DataView") == 0) {
+            // ES 25.3.2.1 DataView(buffer, byteOffset, byteLength); the
+            // create_full runtime performs the buffer/offset/length checks.
+            extern void* ts_dataview_create_full(void*, int64_t, int64_t);
+            int64_t off = 0, len = -1;  // -1 = "rest of buffer"
+            if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+                off = (int64_t)ts_to_number(argv[1]);
+            if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2]))
+                len = (int64_t)ts_to_number(argv[2]);
+            void* dv = ts_dataview_create_full((void*)a0, off, len);
+            return dv ? ts_value_make_object(dv) : ts_value_make_undefined();
+        }
+        if (strcmp(name, "ArrayBuffer") == 0) {
+            // ES 25.1.4.1 ArrayBuffer(length) with ToIndex semantics (mirrors
+            // the indirect-new ArrayBuffer branch: NaN -> +0; negative or
+            // > 2^53-1 -> RangeError).
+            extern void* ts_arraybuffer_create(int64_t length);
+            double dlen = a0 ? ts_to_number(a0) : 0;
+            if (dlen != dlen) dlen = 0;
+            if (dlen < 0 || dlen > 9007199254740991.0) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid array buffer length"));
+                return ts_value_make_undefined();  // unreachable
+            }
+            void* ab = ts_arraybuffer_create((int64_t)dlen);
+            return ab ? ts_value_make_object(ab) : ts_value_make_undefined();
+        }
+        // The primitive wrappers are represented as TsMaps with a hidden
+        // __NumberData / __BooleanData / __StringData slot whose prototype is
+        // Builtin.prototype (the shape ts_get_global_Number/Boolean/String's
+        // ctor functions produce for a direct `new Builtin(x)`); the
+        // prototype-reading thisXxxValue helpers and the wrapper-aware
+        // property paths key off exactly this shape.
+        auto makeWrapper = [](void* (*globalGetter)(), const char* dataKey,
+                              TsValue dataVal) -> TsValue* {
+            TsMap* obj = TsMap::Create();
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(dataKey);
+            obj->Set(k, dataVal);
+            TsValue* boxed = ts_value_make_object(obj);
+            void* g = globalGetter();
+            if (g) {
+                TsValue* proto = ts_object_get_dynamic((TsValue*)g,
+                    ts_value_make_string(TsString::Create("prototype")));
+                if (proto && !ts_value_is_undefined(proto) &&
+                    !ts_value_is_null(proto))
+                    ts_object_setPrototypeOf(boxed, proto);
+            }
+            return boxed;
+        };
+        if (strcmp(name, "Number") == 0) {
+            // ES 21.1.1.1: [[NumberData]] = ToNumeric(value); +0 when absent.
+            extern void* ts_get_global_Number();
+            TsValue v; v.type = ValueType::NUMBER_DBL;
+            v.d_val = (argc >= 1 && a0 ? ts_to_number(a0) : 0.0);
+            return makeWrapper(ts_get_global_Number, "__NumberData", v);
+        }
+        if (strcmp(name, "Boolean") == 0) {
+            // ES 20.3.1.1: [[BooleanData]] = ToBoolean(value).
+            extern void* ts_get_global_Boolean();
+            extern bool ts_value_to_bool(TsValue* v);
+            TsValue v; v.type = ValueType::BOOLEAN;
+            v.i_val = (a0 && ts_value_to_bool(a0)) ? 1 : 0;
+            return makeWrapper(ts_get_global_Boolean, "__BooleanData", v);
+        }
+        if (strcmp(name, "String") == 0) {
+            // ES 22.1.1.1: [[StringData]] = ToString(value); "" when absent.
+            // ts_string_ctor runs spec ToString (ToPrimitive hooks) and may
+            // throw, matching the direct `new String(x)` path.
+            extern void* ts_get_global_String();
+            extern void* ts_string_ctor(TsValue* v);
+            void* s = (argc >= 1 && a0) ? ts_string_ctor(a0)
+                                        : (void*)TsString::Create("");
+            if (!s) return ts_value_make_undefined();
+            TsValue v; v.type = ValueType::STRING_PTR;
+            v.ptr_val = (TsString*)s;
+            return makeWrapper(ts_get_global_String, "__StringData", v);
+        }
+        return nullptr;
+    }
+
+    // Relink a branded subclass instance's [[Prototype]] to Sub.prototype.
+    // Wrapper instances (Number/Boolean/String data TsMaps) dispatch methods
+    // through the REAL prototype chain — set it directly. Exotic natives
+    // (TsArray/TsDate/TsDataView/TsBuffer) keep their magic-based dispatch and
+    // use the native-object side proto consumed by ts_proto_chain_has /
+    // ts_object_getPrototypeOf's native branch.
+    static void ts_subclass_relink_proto(TsValue* inst, void* instRaw, TsValue* protoVal) {
+        if (!inst || !instRaw || !protoVal) return;
+        extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+        uint32_t m16 = ((uintptr_t)instRaw > 0x1000)
+            ? *(uint32_t*)((char*)instRaw + 16) : 0;
+        if (m16 == 0x4D415053) {  // TsMap (primitive wrapper)
+            ts_object_setPrototypeOf(inst, protoVal);
+        } else {
+            ts_native_object_set_proto(instRaw, protoVal);
+        }
+    }
+
+    // Walk `ctor`'s [[Prototype]] chain for one of the brandable builtin ctor
+    // globals (`Sub.__proto__ === Builtin` for `class Sub extends Builtin`,
+    // linked by ts_class_link_builtin_base / ts_class_link_dynamic_base).
+    // `rawCtor` (the unboxed ctor, skipped during the walk so a DIRECT
+    // `new Builtin()` stays on its dedicated dispatch) may be null to walk
+    // without the skip. Returns the builtin's name or nullptr.
+    static const char* ts_builtin_subclass_base_name(TsValue* ctor, void* rawCtor) {
+        extern TsValue* ts_object_getPrototypeOf(TsValue* obj);
+        extern void* ts_get_global_Array();
+        extern void* ts_get_global_Date();
+        extern void* ts_get_global_DataView();
+        extern void* ts_get_global_ArrayBuffer();
+        extern void* ts_get_global_Number();
+        extern void* ts_get_global_Boolean();
+        extern void* ts_get_global_String();
+        struct BuiltinCtor { void* (*getter)(); const char* name; };
+        static const BuiltinCtor kBuiltinCtors[] = {
+            { ts_get_global_Array,       "Array" },
+            { ts_get_global_Date,        "Date" },
+            { ts_get_global_DataView,    "DataView" },
+            { ts_get_global_ArrayBuffer, "ArrayBuffer" },
+            { ts_get_global_Number,      "Number" },
+            { ts_get_global_Boolean,     "Boolean" },
+            { ts_get_global_String,      "String" },
+        };
+        const char* chosen = nullptr;
+        TsValue* cur = ts_object_getPrototypeOf(ctor);
+        for (int hops = 0; hops < 64 && cur && !chosen &&
+             !ts_value_is_undefined(cur) && !ts_value_is_null(cur); hops++) {
+            void* curRaw = ts_value_get_object(cur);
+            if (curRaw && curRaw != rawCtor) {
+                for (const auto& e : kBuiltinCtors) {
+                    void* g = e.getter(); if (!g) continue;
+                    void* gRaw = ts_value_get_object((TsValue*)g);
+                    if (!gRaw) gRaw = g;
+                    if (curRaw == g || curRaw == gRaw) { chosen = e.name; break; }
+                }
+            }
+            cur = ts_object_getPrototypeOf(cur);
+        }
+        return chosen;
+    }
+
     // Helper for "new ConstructorFunction(...args)" in the slow path.
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
@@ -1021,6 +1198,49 @@ extern "C" {
             }
         }
 
+        // `class X extends Array/Date/DataView/ArrayBuffer/Number/Boolean/
+        // String` reached via the runtime [[Construct]] path (the compiler
+        // routes FIELDLESS synthetic-ctor subclasses of these here, mirroring
+        // the Temporal shortcut; dynamic/eval subclasses arrive naturally):
+        // ES 9.1.13 OrdinaryCreateFromConstructor must yield an object
+        // carrying the base type's internal slots — [[DateValue]] 21.4.2.1,
+        // [[ViewedArrayBuffer]] 25.3.2.1, [[ArrayBufferData]] 25.1.4.1,
+        // [[NumberData]] 21.1.1.1, [[BooleanData]] 20.3.1.1, [[StringData]]
+        // 22.1.1.1, Array exotic length 10.4.2. Walk C's [[Prototype]] chain
+        // for the builtin ctor global; on a match build a genuinely BRANDED
+        // base instance from the args, relink its [[Prototype]] to
+        // C.prototype, and run C's ctor body for side effects (mirrors the
+        // Temporal subclass block below).
+        {
+            extern void ts_native_object_set_proto(void* obj, TsValue* proto);
+            extern TsValue* ts_object_getPrototypeOf(TsValue* obj);
+            void* rawCtor = ts_value_get_object(constructorFn);
+            if (rawCtor) {
+                const char* chosen = ts_builtin_subclass_base_name(constructorFn, rawCtor);
+                if (chosen) {
+                    TsValue* inst = ts_construct_builtin_branded(chosen, argc, argv);
+                    void* instRaw = inst ? ts_value_get_object(inst) : nullptr;
+                    if (inst && instRaw) {
+                        // Relink instance -> C.prototype (whose own
+                        // [[Prototype]] is Builtin.prototype, so the branded
+                        // methods stay reachable up the chain).
+                        TsValue* protoVal = ts_object_get_dynamic(constructorFn,
+                            ts_value_make_string(TsString::Create("prototype")));
+                        if (protoVal && !ts_value_is_undefined(protoVal) &&
+                            !ts_value_is_null(protoVal))
+                            ts_subclass_relink_proto(inst, instRaw, protoVal);
+                        // Run C's own constructor body for its side effects
+                        // (field inits etc.); the class is fieldless and
+                        // super() to a builtin base no-ops here, so this does
+                        // not re-brand.
+                        if (ts_is_callable((void*)constructorFn))
+                            ts_function_call_with_this(constructorFn, inst, argc, argv);
+                        return inst;
+                    }
+                }
+            }
+        }
+
         // A user class `extends Promise`: build a genuine promise instance
         // whose executor (the effect of `super(executor)`) settles it, so
         // NewPromiseCapability(C) — reached here for `Promise.all.call(Sub, …)`,
@@ -1266,7 +1486,18 @@ extern "C" {
             }
             cur = ts_object_getPrototypeOf(cur);
         }
-        if (!chosen) return oldThis;  // non-Temporal base: keep ordinary `this`
+        const char* builtinName = nullptr;
+        if (!chosen) {
+            // Non-Temporal base: try the brandable-builtin table (Array/Date/
+            // DataView/ArrayBuffer/Number/Boolean/String). ES 13.3.7.1
+            // SuperCall binds `this` to base.[[Construct]](superArgs,
+            // newTarget), which for these bases must yield an instance
+            // carrying the base's internal slots (the eager flat instance the
+            // compiler pre-allocates is unbranded, so inherited branded
+            // methods would throw / read empty state).
+            builtinName = ts_builtin_subclass_base_name(newTarget, nullptr);
+            if (!builtinName) return oldThis;  // ordinary base: keep `this`
+        }
 
         // Extract the SUPER-call arguments (packed by the compiler, iterator
         // protocol already applied for `super(...iterable)`).
@@ -1277,15 +1508,20 @@ extern "C" {
         std::vector<TsValue*> argv((size_t)argc, nullptr);
         for (int64_t i = 0; i < argc; ++i)
             argv[(size_t)i] = (TsValue*)ts_value_get_element(argsArray, i);
-        TsValue* inst = chosen((int)argc, argc ? argv.data() : nullptr);   // may throw RangeError
+        TsValue* inst = chosen
+            ? chosen((int)argc, argc ? argv.data() : nullptr)  // may throw RangeError
+            : ts_construct_builtin_branded(builtinName, (int)argc,
+                                           argc ? argv.data() : nullptr);
         void* instRaw = inst ? ts_value_get_object(inst) : nullptr;
         if (!inst || !instRaw) return oldThis;
-        // Relink instance -> newTarget.prototype (the subclass prototype whose own
-        // [[Prototype]] is Temporal.X.prototype, so branded methods stay reachable).
+        // Relink instance -> newTarget.prototype (the subclass prototype whose
+        // own [[Prototype]] is Base.prototype, so branded methods stay
+        // reachable). Wrapper-aware: primitive-wrapper TsMaps get a REAL
+        // prototype link, exotic natives the side-map link.
         TsValue* protoVal = ts_object_get_dynamic(newTarget,
             ts_value_make_string(TsString::Create("prototype")));
         if (protoVal && !ts_value_is_undefined(protoVal) && !ts_value_is_null(protoVal))
-            ts_native_object_set_proto(instRaw, protoVal);
+            ts_subclass_relink_proto(inst, instRaw, protoVal);
         return inst;
     }
 

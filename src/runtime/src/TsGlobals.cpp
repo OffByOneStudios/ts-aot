@@ -8725,6 +8725,20 @@ void ts_super_builtin_call(void* thisVal, void* nameStr, int64_t argc, void* a0)
             ts_set_populate_from_iterable(rawThis, (TsValue*)a0);
         return;
     }
+    // `class M extends Map {}` with a default/synthetic ctor: ES 24.1.1.1
+    // steps 8-10 — super(iterable) must run AddEntriesFromIterable on the
+    // subclass instance (the pre-allocated branded TsMap from
+    // ts_subclass_builtin_alloc). Without this the map stayed empty and
+    // `new M([[k,v]]).size` read 0 (SameValue(0, 1) failures). WeakMap
+    // shares the TsMap backing.
+    if (strcmp(n, "Map") == 0 || strcmp(n, "WeakMap") == 0) {
+        extern void* ts_map_populate_from_iterable(void* map, TsValue* iterable);
+        void* rawThis = ts_value_get_object((TsValue*)thisVal);
+        if (!rawThis) rawThis = thisVal;
+        if (argc >= 1)
+            ts_map_populate_from_iterable(rawThis, (TsValue*)a0);
+        return;
+    }
     // `class C extends Promise` + `super(executor)`: ES 27.2.3.1 — the base
     // Promise constructor steps run on the (branded) subclass instance:
     // non-callable executor throws TypeError (step 2), otherwise the executor
