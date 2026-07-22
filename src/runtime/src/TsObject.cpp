@@ -18,6 +18,7 @@
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
+#include "TsCell.h"
 #include "TsHashTable.h"
 #include "TsProxy.h"
 #include "TsTextEncoding.h"
@@ -1092,6 +1093,106 @@ void* ts_create_arguments_from_params(
     return ts_value_make_object(arr);
 }
 
+//==============================================================================
+// ES 10.4.4 CreateMappedArgumentsObject — sloppy-mode, simple-parameter-list
+// functions get a MAPPED arguments object: `arguments[i]` and the i-th named
+// parameter share ONE GC cell (TsCell), giving two-way write-through aliasing
+// without any raw stack address ever crossing the boxed ABI.
+//
+// The compiler (ASTToHIR::emitArgumentsObject) emits, at function entry:
+//   cells = ts_arguments_make_param_cells(N, p0..p9)   // TsClosure w/ N cells
+//   args  = ts_create_mapped_arguments_from_params(cells, N, p0..p9)
+// and then treats every named parameter exactly like a closure-captured
+// variable over `cells` (reads via ts_closure_get_cell/ts_cell_get, writes
+// via ts_cell_set + ts_arguments_sync_mapped for the element mirror).
+//
+// All three entry points below use the generic all-boxed compiler ABI:
+// integer arguments arrive as boxed TsValue ints.
+//==============================================================================
+
+// Build the parameter-cell holder: a func-less TsClosure with one cell per
+// named parameter, seeded with the call-time argument values. Reusing
+// TsClosure means the compiler's battle-tested LoadCaptureFromClosure /
+// StoreCaptureFromClosure machinery (and its GC rooting) works unchanged.
+void* ts_arguments_make_param_cells(void* numMappedBoxed,
+    void* p0, void* p1, void* p2, void* p3, void* p4,
+    void* p5, void* p6, void* p7, void* p8, void* p9) {
+    int64_t n = ts_value_get_int((TsValue*)numMappedBoxed);
+    if (n < 0) n = 0;
+    if (n > 10) n = 10;
+    TsClosure* c = ts_closure_create(nullptr, n);
+    void* params[] = {p0, p1, p2, p3, p4, p5, p6, p7, p8, p9};
+    for (int64_t i = 0; i < n; i++) {
+        ts_closure_init_capture(c, i, (TsValue*)params[i]);
+    }
+    return c;  // raw TsClosure*, same shape as normal closure values
+}
+
+// Build the mapped arguments object over the SAME cells. Elements hold plain
+// values (so slice/spread/apply/iteration read them unchanged); mappedCells
+// aliases index i to the parameter cell for every i < min(numMapped, argc).
+// Per spec only indices below the actual argument count are mapped.
+void* ts_create_mapped_arguments_from_params(void* cellsClosure,
+    void* numMappedBoxed,
+    void* p0, void* p1, void* p2, void* p3, void* p4,
+    void* p5, void* p6, void* p7, void* p8, void* p9) {
+    int64_t argc = ts_last_call_argc;
+    if (argc < 0) argc = 0;
+    if (argc > 10) argc = 10;
+    TsArray* arr = TsArray::Create();
+    void* params[] = {p0, p1, p2, p3, p4, p5, p6, p7, p8, p9};
+    for (int64_t i = 0; i < argc; i++) {
+        arr->Push((int64_t)params[i]);
+    }
+    arr->isArguments = true;
+    // Attach the parameter map AFTER the pushes so creation never routes
+    // through the writeSlot write-through.
+    int64_t n = ts_value_get_int((TsValue*)numMappedBoxed);
+    if (n < 0) n = 0;
+    if (n > argc) n = argc;  // ES 10.4.4.6: only indices < argc are mapped
+    TsClosure* c = (TsClosure*)cellsClosure;
+    if (c && n > 0) {
+        TsCell** cells = (TsCell**)ts_alloc(n * sizeof(TsCell*));
+        for (int64_t i = 0; i < n; i++) {
+            cells[i] = ts_closure_get_cell(c, i);
+            if (cells[i]) ts_gc_write_barrier(&cells[i], cells[i]);
+        }
+        arr->mappedCells = cells;
+        ts_gc_write_barrier(&arr->mappedCells, cells);
+        arr->mappedCount = (size_t)n;
+    }
+    return ts_value_make_object(arr);
+}
+
+// Element mirror for parameter writes: the compiler already routes the write
+// into the shared cell (StoreCaptureFromClosure); this call refreshes the
+// arguments object's element slot so bulk readers (slice/spread/apply,
+// getOwnPropertyDescriptor) observe the new value. No-op once the index is
+// unmapped — after [[Delete]] or an unmapping [[DefineOwnProperty]]
+// (ES 10.4.4.2/10.4.4.5) parameter writes must NOT resurrect the element.
+void ts_arguments_sync_mapped(void* argsObj, void* idxBoxed, void* value) {
+    void* raw = ts_value_get_object((TsValue*)argsObj);
+    if (!raw) raw = argsObj;
+    if (!raw || (uintptr_t)raw < 4096 ||
+        (uintptr_t)raw > 0x00007FFFFFFFFFFFULL) return;
+    if (*(uint32_t*)raw != TsArray::MAGIC) return;
+    TsArray* arr = (TsArray*)raw;
+    if (!arr->isArguments || !arr->mappedCells) return;
+    int64_t idx = ts_value_get_int((TsValue*)idxBoxed);
+    if (idx < 0 || (size_t)idx >= arr->mappedCount) return;
+    if (!arr->mappedCells[idx]) return;  // unmapped — aliasing severed
+    // writeSlot (not Raw): the redundant cell store writes the same value.
+    arr->writeSlot((size_t)idx, (int64_t)value);
+}
+
+// Sever the mapping for one index (ES 10.4.4.5 [[Delete]] step 4, and the
+// unmapping arms of 10.4.4.2 [[DefineOwnProperty]]).
+void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
+    if (arr && arr->mappedCells && idx < arr->mappedCount) {
+        arr->mappedCells[idx] = nullptr;
+    }
+}
+
     // Create a native function with name and arity set as real own
     // properties in the TsMap, so hasOwnProperty, getOwnPropertyDescriptor,
     // delete, and Object.defineProperty all work through standard TsMap
@@ -1981,6 +2082,16 @@ void* ts_create_arguments_from_params(
                             TsValue ov = ownProps->Get(ok);
                             return nanbox_from_tagged(ov);
                         }
+                    }
+                    // A branded SUBCLASS instance (`class AB extends
+                    // ArrayBuffer {}` — side-map [[Prototype]] =
+                    // AB.prototype) resolves "constructor" through that
+                    // chain (AB.prototype.constructor === AB), so
+                    // SpeciesConstructor (ECMA-262 7.3.20) sees the subclass
+                    // and `ab.slice(...) instanceof AB` holds (25.1.6.7).
+                    if (void* sp = ts_native_object_get_proto(obj)) {
+                        TsValue* pv = ts_object_get_property(sp, "constructor");
+                        if (pv && !ts_value_is_undefined(pv)) return pv;
                     }
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
@@ -5032,6 +5143,40 @@ void* ts_create_arguments_from_params(
     // POD-only frames: ts_throw longjmps, and a live std::string in the frame
     // corrupts the MSVC unwinder (see longjmp POD-safety rule). Key built in a
     // stack char buffer: "\x01@brand@<classId>".
+    //
+    // PER-EVALUATION brand identity (ECMA-262 15.7.14 ClassDefinitionEvaluation
+    // step 31 / test262 *multiple-evaluations-of-class*): each EVALUATION of a
+    // class definition mints a fresh [[PrivateBrand]], so instances of two
+    // evaluations of the same class TEXT (a class in a function called twice)
+    // must not cross-satisfy each other's brand. The compiler emits
+    // ts_private_brand_new_evaluation(classId) at the class-definition source
+    // position (runs once per evaluation); the ctor stamps the CURRENT token on
+    // the instance; the check compares the receiver's token with the executing
+    // method's `this` token when both carry the brand key. Top-level classes
+    // evaluate once, so all their instances share one token — behavior there is
+    // byte-identical to the pre-token presence check.
+    // The token map is host C++ (std::string keys copied from compile-time
+    // class ids, integer values) — it holds NO GC pointers, so no scanner or
+    // minor-fixup registration is needed (GC-rooting rule satisfied vacuously).
+    static uint64_t g_brand_eval_counter = 0;
+    static std::unordered_map<std::string, uint64_t>& brand_eval_tokens() {
+        static std::unordered_map<std::string, uint64_t> m;
+        return m;
+    }
+    // noexcept helpers keep std::string construction OUT of frames that call
+    // ts_throw (longjmp POD-safety rule).
+    static uint64_t brand_current_token(const char* classId) noexcept {
+        if (!classId) return 0;
+        auto& m = brand_eval_tokens();
+        auto it = m.find(classId);
+        return it == m.end() ? 0 : it->second;
+    }
+    extern "C" void ts_private_brand_new_evaluation(void* classId) {
+        TsString* s = (TsString*)ts_value_get_string((TsValue*)classId);
+        const char* id = s ? s->ToUtf8() : nullptr;
+        if (!id) return;
+        brand_eval_tokens()[std::string(id)] = ++g_brand_eval_counter;
+    }
     extern "C" void ts_private_brand_add(void* obj, void* brandName) {
         void* raw = ts_value_get_object((TsValue*)obj);
         if (!raw) raw = obj;
@@ -5050,10 +5195,19 @@ void* ts_create_arguments_from_params(
             ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return;
         }
+        // Stamp the CURRENT evaluation's token (0 when the class was never
+        // re-evaluated / is top-level) so cross-evaluation instances are
+        // distinguishable at check time.
         ts_object_set_property(raw, ts_value_make_string(TsString::Create(keyBuf)),
-                               ts_value_make_bool(true));
+                               ts_value_make_double((double)brand_current_token(brandId)));
     }
-    extern "C" void ts_private_brand_check(void* obj, void* brandName, void* memberName) {
+    // 4-arg form: `thisArg` is the executing method's `this`. When BOTH the
+    // receiver and `this` carry the brand key, their per-evaluation tokens must
+    // match (SameValue(e, P.[[Brand]]) — the method executes with the brand of
+    // `this`'s evaluation). When `this` carries no token (static context,
+    // undefined, non-instance), fall back to the presence-only check.
+    extern "C" void ts_private_brand_check(void* obj, void* thisArg,
+                                           void* brandName, void* memberName) {
         TsString* ms = (TsString*)ts_value_get_string((TsValue*)memberName);
         const char* member = ms ? ms->ToUtf8() : "#member";
         TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
@@ -5067,6 +5221,21 @@ void* ts_create_arguments_from_params(
             snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
             TsValue* v = ts_object_get_property(raw, keyBuf);
             ok = v && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(v));
+            if (ok && thisArg &&
+                !nanbox_is_undefined(nanbox_from_tsvalue_ptr((TsValue*)thisArg))) {
+                void* thisRaw = ts_value_get_object((TsValue*)thisArg);
+                if (!thisRaw) thisRaw = thisArg;
+                if (thisRaw && thisRaw != raw &&
+                    (uintptr_t)thisRaw >= 0x1000 &&
+                    (uintptr_t)thisRaw <= 0x00007FFFFFFFFFFFULL) {
+                    TsValue* tv = ts_object_get_property(thisRaw, keyBuf);
+                    if (tv && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(tv))) {
+                        double recvTok = ts_value_get_double(v);
+                        double thisTok = ts_value_get_double(tv);
+                        if (recvTok != thisTok) ok = false;
+                    }
+                }
+            }
         }
         if (ok) return;
         char msg[160];
@@ -6502,6 +6671,49 @@ void* ts_create_arguments_from_params(
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
+
+        // Primitive String wrapper (TsMap with hidden __StringData): `length`
+        // and the in-range character indices are NON-WRITABLE own data
+        // properties per ES 22.1.4.1 ({writable:false}) and 10.4.3.4
+        // StringGetOwnProperty. A plain assignment is a sloppy no-op / strict
+        // TypeError; without this the write landed in the wrapper's backing
+        // map and shadowed the synthesized values (String subclass `length`
+        // verifyNotWritable). Out-of-range indices stay ordinary expandos.
+        if ((uintptr_t)rawObj >= 4096 &&
+            *(uint32_t*)((char*)rawObj + 16) == 0x4D415053 /*MAPS*/) {
+            uint64_t kNb0 = nanbox_from_tsvalue_ptr(key);
+            const char* ks0 = nullptr;
+            double kNum = -1;
+            if (nanbox_is_ptr(kNb0)) {
+                void* kp0 = nanbox_to_ptr(kNb0);
+                if (kp0 && ts_is_any_string(kp0)) ks0 = ts_ensure_flat(kp0)->ToUtf8();
+            } else if (nanbox_is_int32(kNb0) || nanbox_is_double(kNb0)) {
+                kNum = nanbox_to_number(kNb0);
+            }
+            bool isLen = ks0 && strcmp(ks0, "length") == 0;
+            int64_t idx = -1;
+            if (!isLen) {
+                if (ks0) {
+                    char* endp = nullptr; long v = strtol(ks0, &endp, 10);
+                    if (*ks0 && endp && *endp == '\0' && v >= 0) idx = v;
+                } else if (kNum >= 0 && kNum == (double)(int64_t)kNum) {
+                    idx = (int64_t)kNum;
+                }
+            }
+            if (isLen || idx >= 0) {
+                TsMap* wm = (TsMap*)rawObj;
+                TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                sdKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sd = wm->Get(sdKey);
+                if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                    int64_t slen = ts_ensure_flat(sd.ptr_val)->Length();
+                    if (isLen || idx < slen) {
+                        if (strictW) throw_strict_readonly();
+                        return;  // sloppy: silently rejected
+                    }
+                }
+            }
+        }
 
         // RegExp.lastIndex is a writable data property backed by the TsRegExp
         // field (the getter reads it directly), NOT the side-map — so
@@ -8385,6 +8597,13 @@ void* ts_create_arguments_from_params(
                         return 0;
                     }
                     if (!arr->IsHole((size_t)didx)) arr->SetHole((size_t)didx);
+                    // ES 10.4.4.5 [[Delete]] step 4: a successful delete of a
+                    // MAPPED arguments index removes the parameter mapping —
+                    // subsequent parameter writes no longer resurrect the
+                    // element, and vice versa. (The failed-delete paths above
+                    // return 0 before this point, keeping the map intact.)
+                    if (arr->isArguments)
+                        ts_arguments_unmap_index(arr, (size_t)didx);
                     // Drop any per-index descriptor side entries so a later
                     // re-definition starts fresh.
                     array_index_attrs_clear(arr, (size_t)didx);

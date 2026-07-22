@@ -1458,27 +1458,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
                 if (!usesArguments) usesArguments = paramsReferenceArguments(funcNode->parameters);
                 if (usesArguments) {
-                    std::vector<std::shared_ptr<HIRValue>> callArgs;
-                    size_t userIdx = 0;
-                    for (size_t i = 0; i < funcPtr->params.size() && userIdx < 10; ++i) {
-                        if (funcPtr->params[i].first == "__closure__") continue;
-                        auto paramVal = lookupVariable(funcPtr->params[i].first);
-                        if (!paramVal) {
-                            paramVal = builder_.createConstUndefined();
-                        }
-                        callArgs.push_back(paramVal);
-                        userIdx++;
-                    }
-                    while (userIdx < 10) {
-                        callArgs.push_back(builder_.createConstUndefined());
-                        userIdx++;
-                    }
-
-                    auto argsArray = builder_.createCall("ts_create_arguments_from_params",
-                        callArgs, HIRType::makeAny());
-                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
-                    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
-                    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+                    // Shared helper: builds p0..p9, decides MAPPED (ES 10.4.4)
+                    // vs unmapped, and defines the "arguments" binding.
+                    emitArgumentsObject(funcPtr, funcNode->parameters);
                 }
             }
 
@@ -2371,6 +2353,18 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
     };
     {
         if (!hirClass) return;
+        // Per-evaluation brand (ES 15.7.14 step 31): for a class DECLARED in a
+        // nested function this setup emits INLINE at the class statement's
+        // source position and so re-executes per evaluation — mint a fresh
+        // brand token (multiple-evaluations-of-class family). For top-level
+        // classes this runs once from the deferred flush at user_main entry,
+        // where a single mint leaves all instances sharing one token —
+        // behavior identical to the pre-token presence check.
+        if (hirClass->hasInstancePrivateBrand) {
+            builder_.createCall("ts_private_brand_new_evaluation",
+                                {builder_.createConstString(hirClass->name)},
+                                HIRType::makeVoid());
+        }
         // Every class needs a real prototype object (not just classes with
         // user-defined methods) so that `c.constructor === C` and
         // `Object.getPrototypeOf(c) === C.prototype` hold per ECMA-262

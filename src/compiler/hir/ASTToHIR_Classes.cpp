@@ -384,6 +384,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
         }
+        // Per-evaluation brand (ES 15.7.14 step 31): remember whether this
+        // class body carries an instance private-brand at all, so the
+        // definition-time setup can mint a fresh evaluation token.
+        hirClass->hasInstancePrivateBrand = !pctx.instMembers.empty();
         privateClassStack_.push_back(std::move(pctx));
         classPrivSnapshots_[hirClass->name] = privateClassStack_;
     }
@@ -1500,6 +1504,16 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         // `(class { [k](){} }).prototype` read `.prototype` off that string
         // (-> undefined).
         auto ctorResult = lastValue_;
+        // Per-evaluation brand (ES 15.7.14 step 31): this trailer IS the
+        // ClassDefinitionEvaluation source position — it re-executes on every
+        // evaluation of a function-scoped class expression. Mint a fresh brand
+        // token so instances of distinct evaluations don't cross-satisfy each
+        // other's private methods/accessors (multiple-evaluations-of-class).
+        if (hirClass->hasInstancePrivateBrand) {
+            builder_.createCall("ts_private_brand_new_evaluation",
+                                {builder_.createConstString(hirClass->name)},
+                                HIRType::makeVoid());
+        }
         // Set up prototype object with instance methods for dynamic dispatch.
         // Always build (even for an empty class body) so `A.prototype`, the
         // constructor backref, and instanceof via the prototype walk hold.
@@ -1607,6 +1621,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 }
             }
         }
+        // Per-evaluation brand (ES 15.7.14 step 31): remember whether this
+        // class body carries an instance private-brand at all, so the
+        // definition-time setup can mint a fresh evaluation token.
+        hirClass->hasInstancePrivateBrand = !pctx.instMembers.empty();
         privateClassStack_.push_back(std::move(pctx));
         classPrivSnapshots_[hirClass->name] = privateClassStack_;
     }
@@ -2424,6 +2442,15 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // with the key string. Without restoring it, an inline
     // `(class { [k](){} }).prototype` read `.prototype` off that string.
     auto ctorResult = lastValue_;
+
+    // Per-evaluation brand (ES 15.7.14 step 31): mint a fresh brand token at
+    // the class-definition source position (re-executes per evaluation of a
+    // function-scoped class expression). See the cached-path trailer above.
+    if (hirClass->hasInstancePrivateBrand) {
+        builder_.createCall("ts_private_brand_new_evaluation",
+                            {builder_.createConstString(hirClass->name)},
+                            HIRType::makeVoid());
+    }
 
     // Set up prototype object with instance methods for dynamic dispatch.
     // This is critical for untyped JS classes (e.g. npm modules) where method

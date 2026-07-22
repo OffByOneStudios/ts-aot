@@ -32,6 +32,7 @@
   "golden_ir/javascript/classes/constructor_body_props.js": "pass",
   "golden_ir/javascript/classes/error_types.js": "pass",
   "golden_ir/javascript/classes/es6_class.js": "pass",
+  "golden_ir/javascript/classes/private_brand_per_evaluation.js": "pass",
   "golden_ir/javascript/classes/prototype_method.js": "pass",
   "golden_ir/javascript/closures/closure_var_mutation.js": "pass",
   "golden_ir/javascript/closures/counter_closure.js": "pass",
