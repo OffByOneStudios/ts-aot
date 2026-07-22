@@ -25,6 +25,9 @@ public:
 
     // Get UTF-8 representation (cached)
     const char* ToUtf8();
+    // Byte length of the UTF-8 representation, correct for embedded NULs
+    // (strlen on ToUtf8() truncates at the first NUL).
+    size_t Utf8Length();
     // Append UTF-8 bytes to `out`, preserving embedded NULs (length-aware).
     void AppendUtf8(std::string& out);
     const char* GetBuffer() { return ToUtf8(); }
