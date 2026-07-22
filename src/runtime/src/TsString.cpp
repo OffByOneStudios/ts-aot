@@ -10,6 +10,7 @@
 #include "TsGC.h"
 #include "TsNanBox.h"
 #include <cmath>
+#include <limits>
 #include <unicode/unistr.h>
 #include <unicode/regex.h>
 #include <unicode/normlzr.h>
@@ -1476,15 +1477,27 @@ extern "C" {
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
         if (nanbox_is_number(nb)) {
-            int32_t code = (int32_t)nanbox_to_double(nb);
-            char16_t ch = static_cast<char16_t>(code & 0xFFFF);
+            // ToUint16 (ES 7.1.8): NaN/±Infinity/±0 -> +0; else modulo 2^16.
+            // The (int32_t) cast on NaN/Inf is UB, and " " must survive
+            // — use the length-aware Create (c_str() truncates at the NUL).
+            double d = nanbox_to_double(nb);
+            char16_t ch;
+            if (d != d || d == std::numeric_limits<double>::infinity() ||
+                d == -std::numeric_limits<double>::infinity()) {
+                ch = 0;
+            } else {
+                double t = std::trunc(d);
+                double m = std::fmod(t, 65536.0);
+                if (m < 0) m += 65536.0;
+                ch = static_cast<char16_t>((uint32_t)m & 0xFFFF);
+            }
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
 
         // Unbox if NaN-boxed pointer
@@ -1495,9 +1508,15 @@ extern "C" {
         // (ToNumber first). NaN -> 0.
         extern double ts_to_number(TsValue* v);
         auto coerceCharCode = [](uint64_t valueNb) -> char16_t {
+            // ToUint16 (ES 7.1.8): NaN/±Inf -> 0; else truncate + modulo 2^16
+            // ((int32_t) cast on NaN/Inf/huge is UB).
             double d = ts_to_number((TsValue*)(uintptr_t)valueNb);
-            int32_t code = (d != d) ? 0 : (int32_t)d;
-            return static_cast<char16_t>(code & 0xFFFF);
+            if (d != d || d == std::numeric_limits<double>::infinity() ||
+                d == -std::numeric_limits<double>::infinity()) return 0;
+            double t = std::trunc(d);
+            double m = std::fmod(t, 65536.0);
+            if (m < 0) m += 65536.0;
+            return static_cast<char16_t>((uint32_t)m & 0xFFFF);
         };
         if (!charCodesArray || (uintptr_t)charCodesArray < 0x10000) return TsString::Create("");
 
@@ -1511,7 +1530,7 @@ extern "C" {
             icu::UnicodeString ustr(&ch, 1);
             std::string utf8;
             ustr.toUTF8String(utf8);
-            return TsString::Create(utf8.c_str());
+            return TsString::Create(utf8.data(), utf8.size());
         }
 
         TsArray* arr = (TsArray*)charCodesArray;
@@ -1529,7 +1548,7 @@ extern "C" {
         icu::UnicodeString ustr(reinterpret_cast<const UChar*>(u16.data()), (int32_t)u16.size());
         std::string utf8;
         ustr.toUTF8String(utf8);
-        return TsString::Create(utf8.c_str());
+        return TsString::Create(utf8.data(), utf8.size());
     }
 
     void* ts_string_fromCodePoint(void* codePointsArray) {
