@@ -2488,10 +2488,22 @@ extern "C" {
                              nanbox_to_int32(propNb));
                     keyStr = intBuf;
                 } else if (nanbox_is_ptr(propNb)) {
-                    TsString* ps = (TsString*)ts_value_get_string(prop);
-                    if (ps) {
-                        TsString* flat = ts_ensure_flat(ps);
-                        if (flat) keyStr = flat->ToUtf8();
+                    // Symbol key: canonicalize to its storage-key string —
+                    // ts_value_get_string routes through ToString and THROWS
+                    // on a Symbol ("Cannot convert a Symbol value to a
+                    // string"), which killed defineProperty(arr,
+                    // Symbol.isConcatSpreadable, ...) whole-test
+                    // (concat/is-concat-spreadable-get-order).
+                    void* pp = nanbox_to_ptr(propNb);
+                    if (pp && *(uint32_t*)pp == 0x53594D42 /* TsSymbol */) {
+                        TsString* sk = ts_symbol_storage_key((TsSymbol*)pp);
+                        if (sk) keyStr = sk->ToUtf8();
+                    } else {
+                        TsString* ps = (TsString*)ts_value_get_string(prop);
+                        if (ps) {
+                            TsString* flat = ts_ensure_flat(ps);
+                            if (flat) keyStr = flat->ToUtf8();
+                        }
                     }
                 }
                 // ECMA-262 10.4.2.1 Array [[DefineOwnProperty]] for "length"

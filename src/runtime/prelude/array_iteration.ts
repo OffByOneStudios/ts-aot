@@ -49,12 +49,33 @@
     }
   }
 
+  // ECMA-262 23.1.3.3 (9.4.2.3) ArraySpeciesCreate(originalArray, length).
+  // IsArray tunnels Proxy targets (7.2.2 step 3) via Array.isArray, so a
+  // Proxy wrapping a real array with a custom constructor[@@species] builds
+  // its result through that species (map/filter create-proxy family). A
+  // non-array receiver takes ArrayCreate (step 4). Default-constructor
+  // receivers return a plain array — identical to the previous behavior.
+  function arraySpeciesCreate(O: any, len: number): any {
+    if (!Array.isArray(O)) return new Array(len);
+    var C: any = O.constructor;
+    if (C !== null && C !== undefined &&
+        (typeof C === "object" || typeof C === "function")) {
+      C = C[Symbol.species];
+      if (C === null) C = undefined;
+    }
+    if (C === undefined) return new Array(len);
+    if (typeof C !== "function") {
+      throw new TypeError("ArraySpeciesCreate: @@species is not a constructor");
+    }
+    return new C(len);
+  }
+
   // --- 23.1.3.7 Array.prototype.filter (compacts; holes skipped) ---
   var filter = function (O_recv: any, callbackfn: any, thisArg: any): any {
     var O: any = toObject(O_recv, "filter");
     var len: number = toLength(O.length);
     requireCallable(callbackfn);
-    var A: any[] = [];
+    var A: any = arraySpeciesCreate(O, 0);  // 23.1.3.8 step 4
     var to = 0;
     for (var k = 0; k < len; k++) {
       if (k in O) {
@@ -74,7 +95,7 @@
     var len: number = toLength(O.length);
     requireCallable(callbackfn);
     // length len, all holes; present indices are filled below, absent stay holes.
-    var A: any[] = new Array(len);
+    var A: any = arraySpeciesCreate(O, len);  // 23.1.3.19 step 5
     for (var k = 0; k < len; k++) {
       if (k in O) {
         A[k] = callbackfn.call(thisArg, O[k], k, O);
@@ -194,7 +215,7 @@
     var O: any = toObject(O_recv, "flatMap");
     var len: number = toLength(O.length);
     requireCallable(callbackfn);
-    var A: any[] = [];
+    var A: any = arraySpeciesCreate(O, 0);  // 23.1.3.13 step 5
     var to = 0;
     for (var k = 0; k < len; k++) {
       if (k in O) {

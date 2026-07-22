@@ -1472,6 +1472,20 @@ extern "C" {
         double k = actualStart;
         for (int i = 2; i < argc; i++) { al_set(O, k, argv[i]); k += 1; }
         al_set_length(O, len - actualDeleteCount + itemCount);
+        // ES 23.1.3.31 step 9: A = ArraySpeciesCreate(O, actualDeleteCount).
+        // IsArray(O) tunnels Proxy targets (7.2.2 step 3) — a Proxy wrapping a
+        // real array with a custom constructor[@@species] must build the
+        // removed-elements object through that species (splice/create-proxy).
+        // A non-array array-like keeps the default Array (step 4 ArrayCreate).
+        {
+            extern bool ts_array_isArray(void* value);
+            if (ts_array_isArray((void*)O)) {
+                extern void* ts_array_species_rematerialize_ex(
+                    void* receiver, void* resultRaw, int64_t constructLen, int setLength);
+                void* out = ts_array_species_rematerialize_ex((void*)O, (void*)A, -1, 1);
+                if (out) return ts_value_make_object(out);
+            }
+        }
         return ts_value_make_object(A);
     }
 
@@ -2647,9 +2661,11 @@ extern "C" {
         }
 
         arraylike_writeback(arr);  // array-like receiver: propagate mutation
-        // ECMA-262 23.1.3.31: removed-elements array via ArraySpeciesCreate.
-        extern void* ts_array_species_rematerialize(void* receiver, void* resultRaw);
-        void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
+        // ECMA-262 23.1.3.31: removed-elements array via
+        // ArraySpeciesCreate(O, actualDeleteCount) + Set(A, "length") (step 12).
+        extern void* ts_array_species_rematerialize_ex(void* receiver, void* resultRaw,
+                                                       int64_t constructLen, int setLength);
+        void* out = ts_array_species_rematerialize_ex((void*)arr, (void*)result, -1, 1);
         return out ? ts_value_make_object(out) : ts_value_make_undefined();
     }
     // ECMA-262 23.1.3.2 IsConcatSpreadable(O): Type(O) must be Object; a
@@ -2737,8 +2753,11 @@ extern "C" {
         for (int i = 0; i < argc; ++i) {
             if (argv && argv[i]) concat_append_item(result, argv[i]);
         }
-        extern void* ts_array_species_rematerialize(void* receiver, void* resultRaw);
-        void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
+        // ECMA-262 23.1.3.2 concat: ArraySpeciesCreate(O, 0) (step 2) +
+        // Set(A, "length", n, true) (step 6).
+        extern void* ts_array_species_rematerialize_ex(void* receiver, void* resultRaw,
+                                                       int64_t constructLen, int setLength);
+        void* out = ts_array_species_rematerialize_ex((void*)arr, (void*)result, 0, 1);
         return ts_value_make_object(out ? out : (void*)result);
     }
 
