@@ -2078,6 +2078,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
         // If still not found, determine if this is a runtime function or user function
+        // Set when the identifier resolves to NOTHING the compiler knows
+        // (no specialization, not runtime/extension/harness) — the direct
+        // call below will target a WeakAny undefined-returning stub unless
+        // the linker finds a strong definition. Such calls stash their args
+        // so the stub can dispatch to a runtime-created globalThis binding
+        // (ES B.3.3.3 sloppy-eval function promotion and friends).
+        bool unresolvedGlobalCall = false;
         if (!targetFunc) {
             // Check if this is a named import from an extension module
             // e.g., import { join } from 'path'; join('a', 'b')
@@ -2177,6 +2184,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 callName = "ts_global_parseFloat";
             }
             // Otherwise keep the mangled name (already set above)
+            else {
+                unresolvedGlobalCall = true;
+            }
         }
 
         // Handle rest parameters: package excess arguments into an array
@@ -2240,6 +2250,27 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
             auto referrerVal = builder_.createConstCString(referrerPath);
             args.push_back(referrerVal);
+        }
+
+        // Weak-stub dispatch stash (ES B.3.3 / eval interop): the direct call
+        // below targets a symbol whose only definition may be the WeakAny
+        // undefined-returning stub. Stash bare name + mangled symbol + boxed
+        // args so the stub body (ts_weak_stub_dispatch) can run a
+        // runtime-created globalThis binding instead — e.g. a block-level
+        // `function f` promoted to a global var binding by sloppy eval per
+        // ES B.3.3.3 (Changes to EvalDeclarationInstantiation), which outer
+        // compiled code must be able to call. Strong link-time definitions
+        // bypass the stub, so statically-resolved calls never consume this.
+        if (unresolvedGlobalCall) {
+            auto stashArr = builder_.createCall(
+                "ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+            for (auto& a : args)
+                builder_.createCall("ts_array_push",
+                    {stashArr, boxValueIfNeeded(a)}, HIRType::makeInt64());
+            builder_.createCall("ts_weak_stub_prepare",
+                {builder_.createConstCString(ident->name),
+                 builder_.createConstCString(callName), stashArr},
+                HIRType::makeVoid());
         }
 
         // Set ts_last_call_argc before direct calls so the 'arguments' object
