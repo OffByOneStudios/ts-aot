@@ -5032,6 +5032,40 @@ void* ts_create_arguments_from_params(
     // POD-only frames: ts_throw longjmps, and a live std::string in the frame
     // corrupts the MSVC unwinder (see longjmp POD-safety rule). Key built in a
     // stack char buffer: "\x01@brand@<classId>".
+    //
+    // PER-EVALUATION brand identity (ECMA-262 15.7.14 ClassDefinitionEvaluation
+    // step 31 / test262 *multiple-evaluations-of-class*): each EVALUATION of a
+    // class definition mints a fresh [[PrivateBrand]], so instances of two
+    // evaluations of the same class TEXT (a class in a function called twice)
+    // must not cross-satisfy each other's brand. The compiler emits
+    // ts_private_brand_new_evaluation(classId) at the class-definition source
+    // position (runs once per evaluation); the ctor stamps the CURRENT token on
+    // the instance; the check compares the receiver's token with the executing
+    // method's `this` token when both carry the brand key. Top-level classes
+    // evaluate once, so all their instances share one token — behavior there is
+    // byte-identical to the pre-token presence check.
+    // The token map is host C++ (std::string keys copied from compile-time
+    // class ids, integer values) — it holds NO GC pointers, so no scanner or
+    // minor-fixup registration is needed (GC-rooting rule satisfied vacuously).
+    static uint64_t g_brand_eval_counter = 0;
+    static std::unordered_map<std::string, uint64_t>& brand_eval_tokens() {
+        static std::unordered_map<std::string, uint64_t> m;
+        return m;
+    }
+    // noexcept helpers keep std::string construction OUT of frames that call
+    // ts_throw (longjmp POD-safety rule).
+    static uint64_t brand_current_token(const char* classId) noexcept {
+        if (!classId) return 0;
+        auto& m = brand_eval_tokens();
+        auto it = m.find(classId);
+        return it == m.end() ? 0 : it->second;
+    }
+    extern "C" void ts_private_brand_new_evaluation(void* classId) {
+        TsString* s = (TsString*)ts_value_get_string((TsValue*)classId);
+        const char* id = s ? s->ToUtf8() : nullptr;
+        if (!id) return;
+        brand_eval_tokens()[std::string(id)] = ++g_brand_eval_counter;
+    }
     extern "C" void ts_private_brand_add(void* obj, void* brandName) {
         void* raw = ts_value_get_object((TsValue*)obj);
         if (!raw) raw = obj;
@@ -5050,10 +5084,19 @@ void* ts_create_arguments_from_params(
             ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return;
         }
+        // Stamp the CURRENT evaluation's token (0 when the class was never
+        // re-evaluated / is top-level) so cross-evaluation instances are
+        // distinguishable at check time.
         ts_object_set_property(raw, ts_value_make_string(TsString::Create(keyBuf)),
-                               ts_value_make_bool(true));
+                               ts_value_make_double((double)brand_current_token(brandId)));
     }
-    extern "C" void ts_private_brand_check(void* obj, void* brandName, void* memberName) {
+    // 4-arg form: `thisArg` is the executing method's `this`. When BOTH the
+    // receiver and `this` carry the brand key, their per-evaluation tokens must
+    // match (SameValue(e, P.[[Brand]]) — the method executes with the brand of
+    // `this`'s evaluation). When `this` carries no token (static context,
+    // undefined, non-instance), fall back to the presence-only check.
+    extern "C" void ts_private_brand_check(void* obj, void* thisArg,
+                                           void* brandName, void* memberName) {
         TsString* ms = (TsString*)ts_value_get_string((TsValue*)memberName);
         const char* member = ms ? ms->ToUtf8() : "#member";
         TsString* bs = (TsString*)ts_value_get_string((TsValue*)brandName);
@@ -5067,6 +5110,21 @@ void* ts_create_arguments_from_params(
             snprintf(keyBuf, sizeof(keyBuf), "\x01@brand@%s", brandId);
             TsValue* v = ts_object_get_property(raw, keyBuf);
             ok = v && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(v));
+            if (ok && thisArg &&
+                !nanbox_is_undefined(nanbox_from_tsvalue_ptr((TsValue*)thisArg))) {
+                void* thisRaw = ts_value_get_object((TsValue*)thisArg);
+                if (!thisRaw) thisRaw = thisArg;
+                if (thisRaw && thisRaw != raw &&
+                    (uintptr_t)thisRaw >= 0x1000 &&
+                    (uintptr_t)thisRaw <= 0x00007FFFFFFFFFFFULL) {
+                    TsValue* tv = ts_object_get_property(thisRaw, keyBuf);
+                    if (tv && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(tv))) {
+                        double recvTok = ts_value_get_double(v);
+                        double thisTok = ts_value_get_double(tv);
+                        if (recvTok != thisTok) ok = false;
+                    }
+                }
+            }
         }
         if (ok) return;
         char msg[160];

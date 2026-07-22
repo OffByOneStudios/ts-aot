@@ -44,6 +44,7 @@
 
 #include <setjmp.h>
 #include <cstring>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include <set>
@@ -1182,6 +1183,40 @@ Cpl evalKey(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
 }
 
 // Member access target decomposition for assignment / calls.
+// --- per-evaluation private brand for INTERPRETED classes --------------------
+// ES2022 / ECMA-262 15.7.14 ClassDefinitionEvaluation step 31 + 7.3.30/7.3.31
+// PrivateBrandCheck: every EVALUATION of a class definition mints a fresh
+// [[PrivateBrand]]. evalClass() runs once per evaluation (unlike the AOT
+// path), so per-evaluation identity is natural here: mint a token into the
+// class scope env (reserved key "\x01bt"), stamp each instance with
+// "\x01@ibrand@<tok>" at InitializeInstanceElements, and verify at every
+// lexical `#name` member access that the receiver carries the ACCESSING
+// class evaluation's stamp (multiple-evaluations-of-class eval/function-ctor
+// families). When the access is not inside a branded interpreted class (no
+// "\x01bt" in the env chain), behavior is unchanged.
+uint64_t g_interpBrandCounter = 0;
+
+Cpl interpPrivateBrandCheck(TsMap* env, const std::string& name, TsValue* obj) {
+    if (name.empty() || name[0] != '#') return normal();
+    TsValue* tok = envLookupReserved(env, "\x01" "bt");
+    if (!tok) return normal();  // not lexically inside a branded eval'd class
+    double t = ts_value_get_double(tok);
+    char kb[64];
+    snprintf(kb, sizeof(kb), "\x01@ibrand@%.0f", t);
+    void* raw = ts_value_get_object(obj);
+    if (!raw) raw = obj;
+    bool ok = false;
+    if (raw && (uintptr_t)raw >= 0x1000 &&
+        (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL) {
+        TsValue* v = ts_object_get_property(raw, kb);
+        ok = v && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(v));
+    }
+    if (ok) return normal();
+    return throwTyped("TypeError",
+        "Cannot access private member " + name +
+        " from an object whose class did not declare it");
+}
+
 struct MemberRef {
     TsValue* obj = nullptr;
     TsValue* keyV = nullptr;
@@ -1192,6 +1227,10 @@ Cpl evalMemberRef(Expression* e, TsMap* env, TsValue* thisV, bool strict,
     if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(e)) {
         Cpl o = evalExpr(pa->expression.get(), env, thisV, strict);
         if (isAbrupt(o)) return o;
+        // Per-evaluation private brand (ES 7.3.31 PrivateSet step 6) for
+        // assignment/compound targets like `o.#s = v`.
+        { Cpl bc = interpPrivateBrandCheck(env, pa->name, o.v);
+          if (isAbrupt(bc)) return bc; }
         out->obj = o.v;
         out->keyV = boxStr(pa->name);
         return normal();
@@ -1414,6 +1453,9 @@ Cpl evalExpr(Expression* e, TsMap* env, TsValue* thisV, bool strict) {
                 "Cannot read properties of " +
                 std::string(ts_value_is_null(o.v) ? "null" : "undefined") +
                 " (reading '" + pa->name + "')");
+        // Per-evaluation private brand (ES 7.3.30 PrivateGet step 5).
+        { Cpl bc = interpPrivateBrandCheck(env, pa->name, o.v);
+          if (isAbrupt(bc)) return bc; }
         TsValue* out = nullptr; TsValue* ex = nullptr;
         if (!guardGet(o.v, boxStr(pa->name), &out, &ex)) return thrown(ex);
         return normal(out ? out : jsUndefined());
@@ -1778,6 +1820,26 @@ Cpl evalAssignment(ast::AssignmentExpression* ae, TsMap* env, TsValue* thisV,
 // (base ctor entry, or after super() for a derived ctor). Field initializers
 // evaluate in the class scope with `this` bound to the new instance.
 Cpl initInstanceFields(InterpFn* fd, TsMap* env, TsValue* thisV, bool strict) {
+    // Per-evaluation brand stamp (ES 7.3.28 PrivateMethodOrAccessorAdd at
+    // InitializeInstanceElements): if this ctor's class evaluation minted a
+    // brand token ("\x01bt" reachable through the ctor's env chain), mark the
+    // instance as carrying THAT evaluation's brand. Runs at ctor entry for
+    // base classes and right after super() for derived — the same three call
+    // sites this function already covers.
+    if (fd->isCtor) {
+        TsValue* tok = envLookupReserved(env, "\x01" "bt");
+        if (tok) {
+            char kb[64];
+            snprintf(kb, sizeof(kb), "\x01@ibrand@%.0f", ts_value_get_double(tok));
+            void* raw = ts_value_get_object(thisV);
+            if (!raw) raw = thisV;
+            if (raw && (uintptr_t)raw >= 0x1000 &&
+                (uintptr_t)raw <= 0x00007FFFFFFFFFFFULL)
+                ts_object_set_property(raw,
+                    ts_value_make_string(TsString::Create(kb)),
+                    ts_value_make_bool(true));
+        }
+    }
     if (!fd->fields) return normal();
     for (auto* pd : *fd->fields) {
         TsValue* keyV = boxStr(pd->name);
@@ -1828,18 +1890,31 @@ Cpl evalClass(const std::string& className, const std::string& baseClassName,
     std::vector<ast::MethodDefinition*> methods, statics;
     auto* fields = new std::vector<ast::PropertyDefinition*>();
     std::vector<ast::PropertyDefinition*> staticFields;
+    bool hasInstancePrivate = false;
     for (auto& mp : members) {
         if (auto* md = dynamic_cast<ast::MethodDefinition*>(mp.get())) {
             if (md->isAsync || md->isGenerator) continue;   // eval N/A
             if (!md->isStatic && md->name == "constructor" && !md->isGetter && !md->isSetter) {
                 ctorMD = md; continue;
             }
+            if (!md->isStatic && !md->name.empty() && md->name[0] == '#')
+                hasInstancePrivate = true;
             (md->isStatic ? statics : methods).push_back(md);
         } else if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(mp.get())) {
+            if (!pd->isStatic && !pd->name.empty() && pd->name[0] == '#')
+                hasInstancePrivate = true;
             (pd->isStatic ? staticFields : *fields).push_back(pd);
         }
         // StaticBlock / IndexSignature: skipped
     }
+    // Per-evaluation [[PrivateBrand]] (ES 15.7.14 step 31): THIS evalClass call
+    // is one ClassDefinitionEvaluation — mint a fresh token into the class
+    // scope env. Methods/ctor capture cenv, so every lexical #name access and
+    // the instance stamping (initInstanceFields) see this evaluation's token.
+    if (hasInstancePrivate)
+        cenv->Set(key("\x01" "bt"),
+                  nanbox_to_tagged(ts_value_make_double(
+                      (double)++g_interpBrandCounter)));
 
     auto* cdata = new InterpFn();
     cdata->name = className;
@@ -2012,6 +2087,10 @@ Cpl evalCall(ast::CallExpression* ce, TsMap* env, TsValue* thisV, bool strict) {
         if (ts_value_is_nullish(o.v))
             return throwTyped("TypeError",
                 "Cannot read properties of null or undefined (reading '" + pa->name + "')");
+        // Per-evaluation private brand (ES 7.3.30 PrivateGet step 5) for
+        // private method calls like `o.#m()`.
+        { Cpl bc = interpPrivateBrandCheck(env, pa->name, o.v);
+          if (isAbrupt(bc)) return bc; }
         TsValue* ex = nullptr;
         if (!guardGet(o.v, boxStr(pa->name), &fnV, &ex)) return thrown(ex);
         thisArg = o.v;
