@@ -2130,9 +2130,26 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
 void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
                                             std::shared_ptr<HIRValue> proto,
-                                            std::shared_ptr<HIRValue> ctorVal) {
+                                            std::shared_ptr<HIRValue> ctorVal,
+                                            bool inlineContext) {
     if (!hirClass) return;
     for (auto& ca : hirClass->computedAccessors) {
+        // ECMA-262 ClassFieldDefinitionEvaluation steps 1-2: evaluate the
+        // computed field NAME (with ? ToPropertyKey) at class-definition time
+        // so an abrupt completion aborts the definition (evaluation-error /
+        // classelementname-abrupt-completion families). Result discarded —
+        // the instance install still computes its key in the constructor.
+        // INLINE contexts only: the deferred top-level flush runs at
+        // user_main entry where the key's outer bindings don't resolve.
+        if (ca.keyEvalOnly) {
+            if (inlineContext && ca.keyExpr) {
+                auto keyVal = boxValueIfNeeded(
+                    lowerExpression(static_cast<ast::Expression*>(ca.keyExpr)));
+                builder_.createCall("ts_to_property_key_spec", {keyVal},
+                                    HIRType::makeAny());
+            }
+            continue;
+        }
         // Static computed FIELD (`static [x] = init`): install the evaluated init
         // under the evaluated key on the constructor, here at the source position
         // (where the key's variable is bound).
@@ -2423,7 +2440,11 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         // static `__getter_<name>` storage key, so the key expression is
         // evaluated and the accessor installed onto the prototype (instance) or
         // the constructor object (static).
-        emitComputedAccessorInstalls(hirClass, proto, ctorVal);
+        // valueResolveHeritage doubles as the "inline (source-position)
+        // emission" marker — exactly the contexts where computed FIELD-name
+        // key expressions resolve in the right scope (keyEvalOnly entries).
+        emitComputedAccessorInstalls(hirClass, proto, ctorVal,
+                                     /*inlineContext=*/valueResolveHeritage);
     }
 }
 
