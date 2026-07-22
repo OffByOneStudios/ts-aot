@@ -63,7 +63,10 @@
       C = C[Symbol.species];
       if (C === null) C = undefined;
     }
-    if (C === undefined) return new Array(len);
+    // Step 6a: C being the realm's %Array% intrinsic is the default — take
+    // ArrayCreate(len) directly so its RangeError on len >= 2^32 fires
+    // (create-species-undef-invalid-len; a dynamic `new C(len)` misses it).
+    if (C === undefined || C === Array) return new Array(len);
     if (typeof C !== "function") {
       throw new TypeError("ArraySpeciesCreate: @@species is not a constructor");
     }
