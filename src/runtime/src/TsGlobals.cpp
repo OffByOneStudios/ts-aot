@@ -36,6 +36,18 @@
 #include <limits>
 #include <cmath>
 #include <cstdio>
+#include <cstring>    // memcpy (ArrayBuffer.prototype.slice species path)
+#include <algorithm>  // std::max/min (slice index clamping)
+
+// SpeciesConstructor (ECMA-262 7.3.20) shared helper, defined in TsArray.cpp.
+extern "C" TsValue* ts_species_constructor_std(void* exemplar, void* defaultCtor);
+// Array [[Call]]/[[Construct]] body (TsObject.cpp) and Date-as-function
+// (TsDate.cpp), used by the wrapAsCallable name dispatch. Block-scope
+// declarations inside the dispatch lambda would take C++ linkage (the lambda
+// operator() is a member function), so declare them here.
+extern "C" TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
+extern "C" void* ts_date_now_string();
+extern "C" TsValue* ts_new_from_constructor_1(TsValue* ctor, TsValue* arg);
 
 // GC-001 Phase C: RAII guard that routes allocations to the old generation for
 // its lifetime (ts_gc_push_tenure/pop). Placed at the entry of every
@@ -4663,6 +4675,112 @@ void* ts_get_global_Proxy() {
 // an empty object — enough to pass test262's is-a-constructor tests
 // plus .name / .length own-property checks.
 
+// ECMA-262 25.1.6.7 ArrayBuffer.prototype.slice(start, end) — the single
+// spec-shaped implementation behind BOTH dispatch surfaces (the
+// ArrayBuffer.prototype method installed below AND the TsBuffer instance
+// GetPropertyVirtual read in extensions/node/core/src/TsBuffer.cpp; the
+// builtin proto-surface contract requires the two to agree).
+// Steps: receiver brand + detach checks; ToIntegerOrInfinity index clamping
+// (steps 4-11); SpeciesConstructor (steps 13-14); Construct + result
+// validation (steps 15-22: must be a fresh, attached, large-enough
+// ArrayBuffer); byte copy (steps 23-26).
+extern "C" void* ts_get_global_ArrayBuffer();
+extern "C" TsValue* ts_arraybuffer_slice_spec(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    if (!raw) raw = ctx;  // instance-dispatch passes the raw TsBuffer*
+    TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
+    if (!buf) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    if (buf->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Steps 4-11: ToIntegerOrInfinity on start/end (NaN -> 0), negative
+    // indices count from the end, both clamped to [0, len]. Computed in
+    // doubles so +/-Infinity clamps correctly instead of int64 cast UB.
+    double lenD = (double)(int64_t)buf->GetLength();
+    double rs = 0;
+    if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0]))
+        rs = ts_to_number(argv[0]);
+    if (rs != rs) rs = 0;                      // NaN -> +0
+    rs = std::trunc(rs);
+    double firstD = (rs < 0) ? std::max(lenD + rs, 0.0) : std::min(rs, lenD);
+    double re = lenD;
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+        re = ts_to_number(argv[1]);
+    if (re != re) re = 0;                      // NaN -> +0
+    re = std::trunc(re);
+    double finalD = (re < 0) ? std::max(lenD + re, 0.0) : std::min(re, lenD);
+    int64_t first = (int64_t)firstD;
+    int64_t newLen = (int64_t)finalD - first;
+    if (newLen < 0) newLen = 0;
+
+    // Steps 13-14: ctor = ? SpeciesConstructor(O, %ArrayBuffer%).
+    void* defCtor = ts_get_global_ArrayBuffer();
+    TsValue* ctorVal = ts_species_constructor_std((void*)buf, defCtor);
+    if (!ctorVal) return ts_value_make_undefined();  // TypeError thrown
+    void* ctorRaw = ts_value_get_object(ctorVal);
+    void* defRaw = defCtor ? ts_value_get_object((TsValue*)defCtor) : nullptr;
+    bool isDefault = (ctorVal == (TsValue*)defCtor) ||
+                     (ctorRaw && defRaw && ctorRaw == defRaw);
+    if (isDefault) {
+        // Default constructor: allocate directly (bypasses TsBuffer::Slice's
+        // Node-Buffer end<=0 quirk).
+        TsBuffer* out = TsBuffer::Create((size_t)newLen);
+        if (newLen > 0 && buf->GetData() && out->GetData())
+            std::memcpy(out->GetData(), buf->GetData() + first, (size_t)newLen);
+        return ts_value_make_object(out);
+    }
+    // Steps 15-16: new = ? Construct(ctor, «newLen»).
+    TsValue* res = ts_new_from_constructor_1(ctorVal, ts_value_make_int(newLen));
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    TsBuffer* nb = resRaw ? ts_cast<TsBuffer>(resRaw) : nullptr;
+    // Step 17: RequireInternalSlot(new, [[ArrayBufferData]]).
+    if (!nb) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor did not return "
+            "an ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Step 19: IsDetachedBuffer(new) -> TypeError.
+    if (nb->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned a "
+            "detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Step 20: SameValue(new, O) -> TypeError.
+    if (nb == buf) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned the "
+            "receiver"));
+        return ts_value_make_undefined();
+    }
+    // Step 21: new.[[ArrayBufferByteLength]] < newLen -> TypeError.
+    if ((int64_t)nb->GetLength() < newLen) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice: species constructor returned an "
+            "ArrayBuffer that is too small"));
+        return ts_value_make_undefined();
+    }
+    // Step 23: re-check the SOURCE for detachment (the constructor may have
+    // detached it).
+    if (buf->IsDetached()) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
+        return ts_value_make_undefined();
+    }
+    // Steps 24-26: copy newLen bytes from O at first into new.
+    if (newLen > 0 && buf->GetData() && nb->GetData())
+        std::memcpy(nb->GetData(), buf->GetData() + first, (size_t)newLen);
+    return res;
+}
+
 void* ts_get_global_ArrayBuffer() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -4791,28 +4909,7 @@ void* ts_get_global_ArrayBuffer() {
             // checked by tests/node/builtin_proto_contract.js; add new
             // methods to BOTH surfaces (or better, only here and let the
             // instance read inherit).
-            addMethod(abProto, "slice", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-                if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_nanbox_safe_unbox(ctx);
-                TsBuffer* buf = raw ? ts_cast<TsBuffer>(raw) : nullptr;
-                if (!buf) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on non-ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                if (buf->IsDetached()) {
-                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                        "ArrayBuffer.prototype.slice called on detached ArrayBuffer"));
-                    return ts_value_make_undefined();
-                }
-                int64_t len = (int64_t)buf->GetLength();
-                int64_t start = 0, end = len;
-                if (argc >= 1 && argv[0] && !ts_value_is_undefined(argv[0]))
-                    start = (int64_t)ts_to_number(argv[0]);
-                if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1]))
-                    end = (int64_t)ts_to_number(argv[1]);
-                return ts_value_make_object(buf->Slice(start, end));
-            }, 2);
+            addMethod(abProto, "slice", (void*)ts_arraybuffer_slice_spec, 2);
             {
                 // transfer / transferToFixedLength share one body (ES2024
                 // 25.1.5.4/.5); both detach the receiver and copy min(old,new)

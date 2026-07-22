@@ -2786,6 +2786,17 @@ extern "C" {
         return speciesVal;
     }
 
+    // Exported SpeciesConstructor (ECMA-262 7.3.20) for other runtime
+    // translation units (ArrayBuffer.prototype.slice step 13, Promise
+    // .prototype.then step 3). Returns the boxed constructor value, or the
+    // defaultCtor pointer unchanged when the default applies; throws
+    // TypeError (longjmp) on a non-Object "constructor" or a non-constructor
+    // @@species.
+    extern "C" TsValue* ts_species_constructor_std(void* exemplar,
+                                                   void* defaultCtor) {
+        return species_constructor(exemplar, defaultCtor);
+    }
+
     // Public helper: TypedArraySpeciesCreate(exemplar, length) per ECMA-262
     // 22.2.4.7 — returns a TsTypedArray of the right kind (via the species
     // constructor or default), or nullptr if a TypeError was thrown.
