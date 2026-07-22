@@ -262,9 +262,9 @@ const char* TsString::ToUtf8() {
 }
 
 size_t TsString::Utf8Length() {
-    // Small strings cannot hold embedded NULs (C-string storage) — strlen is
-    // exact there. Heap strings recompute from the ICU impl (NUL-safe).
-    if (isSmall) return strlen(data.inlineBuffer);
+    // Small strings are ASCII with `length` = exact byte count; the inline
+    // buffer may contain embedded NULs, so strlen would truncate here.
+    if (isSmall) return length;
     std::string tmp;
     getUStr().toUTF8String(tmp);
     return tmp.size();

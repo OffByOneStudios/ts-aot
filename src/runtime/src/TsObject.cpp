@@ -9696,9 +9696,12 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         if (!arg) return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
         void* sraw = ts_value_get_string(arg);
         if (!sraw) return arg;   // non-string: return unchanged
-        extern TsValue* ts_indirect_eval_cstr(const char* src);
+        // Length-aware: eval source may legally contain U+0000 (in comments
+        // or strings); the C-string path truncates at the first NUL.
+        extern TsValue* ts_indirect_eval_nstr(const char* src, size_t len);
         const char* src = ((TsString*)sraw)->ToUtf8();
-        return ts_indirect_eval_cstr(src ? src : "");
+        size_t srcLen = ((TsString*)sraw)->Utf8Length();
+        return ts_indirect_eval_nstr(src ? src : "", src ? srcLen : 0);
     }
 
     // Legacy varargs-lowered call sites still emit @eval directly.

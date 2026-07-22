@@ -3088,8 +3088,9 @@ TsValue* paramEvalImpl(const char* src, size_t srcLen, int64_t flags,
     return r.v ? r.v : jsUndefined();
 }
 
-TsValue* indirectEvalImpl(const char* src, TsValue** errOut, Cpl* abrupt) {
-    void* h = ts_parse_program(src ? src : "", "<eval>", 0);
+TsValue* indirectEvalImpl(const char* src, size_t srcLen, TsValue** errOut,
+                          Cpl* abrupt) {
+    void* h = ts_parse_program_n(src ? src : "", src ? srcLen : 0, "<eval>", 0);
     const char* perr = ts_parse_error(h);
     if (perr) {
         *errOut = (TsValue*)ts_error_create_typed("SyntaxError", perr);
@@ -3150,11 +3151,21 @@ extern "C" void* ts_function_ctor_from_strings(void* strArr, int64_t n) {
 
 // Indirect eval: parse `src` as a Program and run it in global scope.
 // Returns the completion value or throws (SyntaxError / whatever the code threw).
+extern "C" TsValue* ts_indirect_eval_nstr(const char* src, size_t len) {
+    TsValue* err = nullptr;
+    Cpl abrupt;
+    abrupt.k = Cpl::Normal;
+    TsValue* r = indirectEvalImpl(src, len, &err, &abrupt);
+    if (err) ts_throw(err);
+    if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
+    return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
 extern "C" TsValue* ts_indirect_eval_cstr(const char* src) {
     TsValue* err = nullptr;
     Cpl abrupt;
     abrupt.k = Cpl::Normal;
-    TsValue* r = indirectEvalImpl(src, &err, &abrupt);
+    TsValue* r = indirectEvalImpl(src, src ? strlen(src) : 0, &err, &abrupt);
     if (err) ts_throw(err);
     if (abrupt.k == Cpl::Thrown) ts_throw(abrupt.v);
     return r ? r : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
