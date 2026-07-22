@@ -6129,8 +6129,12 @@ void* ts_create_arguments_from_params(
             }
         }
 
-        // Intercept __proto__ accessor
-        if (keyStr) {
+        // Intercept __proto__ accessor. NOT for module namespace exotics:
+        // ES 10.4.6.8 [[Get]] returns undefined for any non-exported key
+        // (an exported "__proto__" binding is served by the own-data fast
+        // path above), and the B.2.2.1 Object.prototype.__proto__ accessor
+        // is not inherited through a null [[Prototype]].
+        if (keyStr && !map->IsModuleNamespaceAny()) {
             const char* k = keyStr->ToUtf8();
             if (k && strcmp(k, "__proto__") == 0) {
                 TsMap* proto = map->GetPrototype();
