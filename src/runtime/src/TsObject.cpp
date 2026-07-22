@@ -8214,26 +8214,51 @@ void* ts_create_arguments_from_params(
         }
 
         // TsFunction/TsClosure: delete from their properties TsMap,
-        // honoring the configurable attribute per ES spec.
-        if (magic == TsFunction::MAGIC) {
-            TsFunction* func = (TsFunction*)rawMap;
-            if (!func->properties) return 1; // non-existent = true
-            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
-            if (func->properties->Has(kv)) {
-                uint8_t attrs = func->properties->GetPropertyAttrs(kv);
+        // honoring the configurable attribute per ES spec ([[Delete]],
+        // 10.1.10 OrdinaryDelete). The key must go through the SAME
+        // canonicalization as get/set/has (ts_property_key_string): a Symbol
+        // key (e.g. Symbol.species) canonicalizes to its storage string
+        // ("[Symbol.species]" for well-known) — previously the raw Symbol
+        // value was used, Has() missed, and Delete() failed, so
+        // `delete Ctor[Symbol.species]` returned false on every builtin
+        // constructor even though the property is configurable
+        // (<Ctor>/Symbol.species/symbol-species.js verifyConfigurable).
+        // Accessor-backed properties additionally store their getter under
+        // "__getter_<k>" — delete that half too or the accessor stays live.
+        if (magic == TsFunction::MAGIC || magic == 0x434C5352 /* TsClosure */) {
+            TsMap* props = (magic == TsFunction::MAGIC)
+                               ? ((TsFunction*)rawMap)->properties
+                               : ((TsClosure*)rawMap)->properties;
+            if (!props) return 1; // non-existent = true
+            TsString* ks = ts_property_key_string((TsValue*)keyArg);
+            if (!ks) return 0;
+            TsValue kv; kv.type = ValueType::STRING_PTR; kv.ptr_val = ks;
+            bool hadPlain = props->Has(kv);
+            if (hadPlain) {
+                uint8_t attrs = props->GetPropertyAttrs(kv);
                 if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
             }
-            return func->properties->Delete(kv) ? 1 : 0;
-        }
-        if (magic == 0x434C5352) { // TsClosure
-            TsClosure* cl = (TsClosure*)rawMap;
-            if (!cl->properties) return 1;
-            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
-            if (cl->properties->Has(kv)) {
-                uint8_t attrs = cl->properties->GetPropertyAttrs(kv);
-                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            bool deletedAccessor = false;
+            const char* kc = ks->ToUtf8();
+            if (kc && kc[0] != '\0' && strncmp(kc, "__getter_", 9) != 0 &&
+                strncmp(kc, "__setter_", 9) != 0 && strlen(kc) < 240) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "__getter_%s", kc);
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(buf);
+                snprintf(buf, sizeof(buf), "__setter_%s", kc);
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(buf);
+                bool hasG = props->Has(gk), hasS = props->Has(sk);
+                if ((hasG || hasS) && !hadPlain) {
+                    uint8_t attrs = hasG ? props->GetPropertyAttrs(gk)
+                                         : props->GetPropertyAttrs(sk);
+                    if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+                }
+                if (hasG) { props->Delete(gk); deletedAccessor = true; }
+                if (hasS) { props->Delete(sk); deletedAccessor = true; }
             }
-            return cl->properties->Delete(kv) ? 1 : 0;
+            return (props->Delete(kv) || deletedAccessor || !hadPlain) ? 1 : 0;
         }
 
         // TsArray string-keyed side-map: magic is at offset 0.
