@@ -1151,7 +1151,17 @@ extern "C" {
         TsMap* newObj = TsMap::Create();
         TsValue* thisVal = ts_value_make_object(newObj);
 
-        // If proto is null/undefined, return object with no prototype. Mark it
+        // ECMA-262 20.1.2.2 step 1: if O is neither an Object nor null, throw a
+        // TypeError. undefined is NOT null — Object.create(undefined) throws.
+        // (A C-level nullptr is kept on the null path: internal callers use it
+        // for the null-prototype case.)
+        if (proto && nanbox_is_undefined((uint64_t)(uintptr_t)proto)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object prototype may only be an Object or null"));
+            return ts_value_make_undefined();  // unreachable
+        }
+
+        // If proto is null, return object with no prototype. Mark it
         // null-prototype so `in` / `.constructor` / getPrototypeOf don't fall
         // back to Object.prototype (a plain `{}` also has prototype==nullptr but
         // logically inherits Object.prototype). lodash's Hash cache is
@@ -4876,98 +4886,102 @@ extern "C" {
         return resultBoxed;
     }
 
-    // ES2024 Object.groupBy(iterable, callbackFn)
-    // Groups elements by the key returned from the callback
+    // ES2024 Object.groupBy(items, callbackfn) — ECMA-262 20.1.2.13, via the
+    // GroupBy abstract operation (7.3.35) with keyCoercion "property":
+    //   1. RequireObjectCoercible(items) — undefined/null items -> TypeError.
+    //   2. If IsCallable(callbackfn) is false, throw TypeError.
+    //   3-4. GetIterator(items) and iterate the PROTOCOL (any iterable: strings,
+    //        generators, custom [Symbol.iterator] objects — not just arrays).
+    //   6.e. key = ? Call(callbackfn, undefined, <<value, F(k)>>) then
+    //        key = ? ToPropertyKey(key) (symbol keys preserved; abrupt
+    //        coercion propagates).
+    //   Result object is OrdinaryObjectCreate(null) — null [[Prototype]].
     TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn) {
-        TsMap* result = TsMap::Create();
+        extern TsValue* ts_iterator_get(TsValue* iterable);
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+        extern bool ts_is_callable(void* v);
+        extern TsValue* ts_to_property_key_spec(TsValue* key);
+        extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+        extern void ts_object_set_property(void* obj, void* key, void* value);
 
-        if (!iterable || !callbackFn) return ts_value_make_object(result);
-
-        // Get raw array pointer
-        void* rawPtr = ts_value_get_object(iterable);
-        if (!rawPtr) rawPtr = iterable;
-
-        // Check if it's an array
-        uint32_t magic = *(uint32_t*)rawPtr;
-        if (magic != TsArray::MAGIC) {
-            return ts_value_make_object(result);
+        // Step 1: RequireObjectCoercible(items).
+        uint64_t itNb = iterable ? (uint64_t)(uintptr_t)iterable : 0;
+        if (!iterable || nanbox_is_undefined(itNb) || nanbox_is_null(itNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.groupBy called on null or undefined"));
+            return ts_value_make_undefined();  // unreachable
+        }
+        // Step 2: IsCallable(callbackfn).
+        if (!callbackFn || !ts_is_callable(callbackFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.groupBy: callbackfn is not a function"));
+            return ts_value_make_undefined();  // unreachable
         }
 
-        TsArray* arr = (TsArray*)rawPtr;
-        int64_t len = arr->Length();
+        TsMap* result = TsMap::Create();
+        result->SetNullPrototype(true);
+        result->SetPrototype(nullptr);
+        TsValue* resultBoxed = ts_value_make_object(result);
 
-        // Get the callback function
-        void* cbRaw = ts_value_get_object(callbackFn);
-        if (!cbRaw) cbRaw = callbackFn;
+        // Steps 3-4: GetIterator(items, sync); throws TypeError for
+        // non-iterables (numbers, plain objects without @@iterator).
+        TsValue* iterator = ts_iterator_get(iterable);
+        if (!iterator) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.groupBy requires an iterable argument"));
+            return ts_value_make_undefined();  // unreachable
+        }
+        TsValue* nextFn = ts_object_get_property((void*)iterator, "next");
+        if (!nextFn || !ts_is_callable(nextFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.groupBy: iterator.next is not callable"));
+            return ts_value_make_undefined();  // unreachable
+        }
 
-        for (int64_t i = 0; i < len; i++) {
-            // Get raw element value
-            int64_t rawVal = arr->Get(i);
-
-            // Box properly using ts_value_box_any to detect strings, arrays, etc.
-            TsValue* elem;
-            if (rawVal > 0xFFFFFFFF || rawVal < 0) {
-                // Looks like a pointer - use ts_value_box_any for proper type detection
-                elem = ts_value_box_any((void*)rawVal);
-            } else {
-                // Small value - likely an integer
-                elem = ts_value_make_int(rawVal);
+        for (int64_t k = 0; k < (int64_t)1 << 53; k++) {
+            // 6.b-6.c IteratorStepValue: a throw from next() propagates.
+            TsValue* res = ts_function_call_with_this(nextFn, iterator, 0, nullptr);
+            uint64_t rnb = res ? (uint64_t)(uintptr_t)res : 0;
+            if (!res || !nanbox_is_ptr(rnb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Object.groupBy: iterator result is not an object"));
+                return ts_value_make_undefined();  // unreachable
             }
-            if (!elem) continue;
+            TsValue* doneV = ts_object_get_property((void*)res, "done");
+            if (doneV && ts_value_to_bool(doneV)) break;
+            TsValue* elem = ts_object_get_property((void*)res, "value");
+            if (!elem) elem = ts_value_make_undefined();
 
-            // Call callback with (element, index)
-            TsValue* indexVal = ts_value_make_int(i);
-            TsValue* keyResult = tsCall(callbackFn, elem, indexVal);
+            // 6.e key = ? Call(callbackfn, undefined, <<value, F(k)>>), then
+            // ToPropertyKey — both abrupt paths propagate to the caller.
+            TsValue* args[2] = { elem, ts_value_make_int(k) };
+            TsValue* keyResult = ts_function_call_with_this(callbackFn,
+                ts_value_make_undefined(), 2, args);
+            TsValue* pk = ts_to_property_key_spec(
+                keyResult ? keyResult : ts_value_make_undefined());
 
-            if (!keyResult) continue;
-
-            // Convert result to string key via NaN-box decode
-            TsValue keyVal;
-            uint64_t krNb = nanbox_from_tsvalue_ptr(keyResult);
-            if (nanbox_is_string_ptr(krNb)) {
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = nanbox_to_ptr(krNb);
-            } else if (nanbox_is_int32(krNb)) {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%d", nanbox_to_int32(krNb));
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = TsString::Create(buf);
-            } else if (nanbox_is_double(krNb)) {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%g", nanbox_to_double(krNb));
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = TsString::Create(buf);
-            } else if (nanbox_is_bool(krNb)) {
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = TsString::Create(nanbox_to_bool(krNb) ? "true" : "false");
-            } else if (nanbox_is_undefined(krNb)) {
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = TsString::Create("undefined");
-            } else {
-                keyVal.type = ValueType::STRING_PTR;
-                keyVal.ptr_val = TsString::Create("[object Object]");
+            // 6.g AddValueToKeyedGroup: append to the existing group array or
+            // create a new one under the (string or symbol) key.
+            TsValue* existing = ts_object_get_dynamic(resultBoxed, pk);
+            TsArray* group = nullptr;
+            if (existing) {
+                uint64_t exNb = (uint64_t)(uintptr_t)existing;
+                if (nanbox_is_ptr(exNb)) {
+                    void* exRaw = nanbox_to_ptr(exNb);
+                    if (exRaw && *(uint32_t*)exRaw == TsArray::MAGIC)
+                        group = (TsArray*)exRaw;
+                }
             }
-
-            // Check if group already exists
-            TsValue existing = result->Get(keyVal);
-            TsArray* group;
-
-            if (existing.type == ValueType::ARRAY_PTR && existing.ptr_val) {
-                group = (TsArray*)existing.ptr_val;
-            } else {
-                // Create new group array
+            if (!group) {
                 group = TsArray::Create();
-                TsValue groupVal;
-                groupVal.type = ValueType::ARRAY_PTR;
-                groupVal.ptr_val = group;
-                result->Set(keyVal, groupVal);
+                ts_object_set_property((void*)resultBoxed, (void*)pk,
+                    (void*)ts_value_box_any(group));
             }
-
-            // Add element to group
             group->Push((int64_t)elem);
         }
 
-        return ts_value_make_object(result);
+        return resultBoxed;
     }
 
 }  // extern "C"

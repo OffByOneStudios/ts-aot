@@ -1038,8 +1038,23 @@ void* ts_get_global_String() {
         addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd, 0);
         // AnnexB B.2.3: substr + trimLeft/trimRight aliases as real own props.
         addMethod(proto, "substr", (void*)ts_string_proto_substr, 2);
-        addMethod(proto, "trimLeft", (void*)ts_string_proto_trimLeft, 0);
-        addMethod(proto, "trimRight", (void*)ts_string_proto_trimRight, 0);
+        // B.2.3.1/B.2.3.2: trimLeft/trimRight are THE SAME function objects as
+        // trimStart/trimEnd (identity equality, and .name is "trimStart"/
+        // "trimEnd"), not separately-created wrappers.
+        {
+            auto aliasTo = [&](const char* alias, const char* canonical) {
+                TsValue ck; ck.type = ValueType::STRING_PTR;
+                ck.ptr_val = TsString::GetInterned(canonical);
+                TsValue cv = proto->Get(ck);
+                if (cv.type != ValueType::FUNCTION_PTR || !cv.ptr_val) return;
+                TsValue ak; ak.type = ValueType::STRING_PTR;
+                ak.ptr_val = TsString::GetInterned(alias);
+                proto->SetWithAttrs(ak, cv,
+                    TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            };
+            aliasTo("trimLeft", "trimStart");
+            aliasTo("trimRight", "trimEnd");
+        }
         addMethod(proto, "at", (void*)ts_string_proto_at);
         addMethod(proto, "codePointAt", (void*)ts_string_proto_codePointAt);
         addMethod(proto, "normalize", (void*)ts_string_proto_normalize);
