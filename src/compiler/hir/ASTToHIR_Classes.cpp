@@ -559,9 +559,33 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
         std::set<std::string> lex;
         collectTopLevelLexicalNames(md->body, lex);
         for (auto& n : lex) localNames.insert(n);
+        // A referenced name triggers member-closure threading only when it
+        // resolves to a binding OWNED BY A REAL ENCLOSING FUNCTION. Module /
+        // top-level bindings (harness functions, globals) resolve through
+        // module machinery, not capture cells — counting them would flip
+        // nearly every nested-class member to the capturing ABI for nothing.
+        auto outerFunctionBinding = [&](const std::string& nm) -> bool {
+            for (size_t i = scopes_.size(); i-- > 0; ) {
+                if (!scopes_[i].variables.count(nm)) continue;
+                // Nearest function boundary at or below the binding's scope
+                // identifies the owner; none => module-level binding.
+                for (size_t j = i + 1; j-- > 0; ) {
+                    if (!scopes_[j].isFunctionBoundary) continue;
+                    HIRFunction* owner = scopes_[j].owningFunction;
+                    if (!owner) return false;
+                    const std::string& on = owner->name;
+                    if (on.rfind("__module_init_", 0) == 0 ||
+                        on == "user_main" || on == "__synthetic_user_main")
+                        return false;
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        };
         for (const auto& nm : refs) {
             if (localNames.count(nm)) continue;
-            if (lookupVariableInfo(nm) != nullptr) return true;
+            if (outerFunctionBinding(nm)) return true;
         }
         return false;
     };

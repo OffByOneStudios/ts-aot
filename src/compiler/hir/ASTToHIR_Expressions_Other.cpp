@@ -638,7 +638,13 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             memberNeedsClosure(getterIt->second)) {
             // Milestone B: a capturing getter ((__closure__, this)) dispatches
             // through the prototype's cell-carrier closure — dynamic get.
+            // ES2022 PrivateGet (7.3.30) step 5: a PRIVATE accessor still
+            // brand-checks the runtime receiver FIRST (the direct path did
+            // this; dropping it silently returned undefined for foreign
+            // receivers instead of TypeError).
             const std::string& gn = node->name;
+            if (!gn.empty() && gn[0] == '#')
+                emitPrivateBrandCheck(obj, gn);
             auto keyV = builder_.createConstString(
                 (!gn.empty() && gn[0] == '#') ? resolvePrivateKey(gn) : gn);
             lastValue_ = builder_.createCall("ts_object_get_dynamic",
