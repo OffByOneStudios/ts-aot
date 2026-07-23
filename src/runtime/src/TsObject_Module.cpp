@@ -615,6 +615,18 @@ void* ts_builtin_lookup_special(const char* name) {
         TsString* ek = TsString::GetInterned("exports");
         TsValue* ns = ts_object_get_dynamic(record, ts_value_make_string(ek));
         if (!ns || ts_value_is_undefined(ns)) ns = record;
+        // ES 13.3.10.2/16.2.1.10 GetModuleNamespace: import() ALWAYS yields
+        // a module namespace exotic. Modules with no export syntax (empty
+        // fixtures) or ones the resolver did not classify as ESM never got
+        // the init-end mark — stamp the LIGHT (pre) mark here: it brands
+        // the map for the Any-gated exotic ladders (gOPD/delete/define/
+        // isExtensible), null proto, @@toStringTag — but does NOT
+        // PreventExtensions, because import() can run DURING the importing
+        // module's own init (self-import: eval-export-dflt-* family) and
+        // the init-end export population must still write. Builtin modules
+        // are handled above and stay unmarked (their map IS require()'s
+        // mutable module.exports).
+        ts_module_mark_namespace_pre(ns);
         ts_promise_resolve_internal(promise, ns);
         return ts_value_make_promise(promise);
     }

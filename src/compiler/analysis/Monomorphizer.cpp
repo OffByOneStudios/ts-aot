@@ -1723,7 +1723,50 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             auto injectReExports = [&](const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
                 for (const auto& stmt : stmts) {
                     auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
-                    if (!ed || ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                    if (getenv("TS_DEBUG_REEXPORT") && ed)
+                        fprintf(stderr, "[reexport] mod=%s spec='%s' star=%d ns='%s' named=%zu\n",
+                                path.c_str(), ed->moduleSpecifier.c_str(),
+                                (int)ed->isStarExport, ed->namespaceExport.c_str(),
+                                ed->namedExports.size());
+                    if (!ed || ed->moduleSpecifier.empty()) continue;
+                    // ES2020 `export * as ns from './m'`: the exported binding
+                    // is the SOURCE module's namespace exotic object — inject
+                    // exports.<ns> = ts_module_get_cached('<resolved>')
+                    // (the source's exports map, marked as a namespace by its
+                    // own init-end ts_module_mark_namespace). Overwrites the
+                    // generic loop's placeholder (the ns name is in the
+                    // exports symbol table but has no local binding).
+                    if (ed->isStarExport && !ed->namespaceExport.empty()) {
+                        auto resolvedNs = analyzer.getModuleResolver().resolve(
+                            ed->moduleSpecifier, fs::path(path));
+                        if (!resolvedNs.isValid() ||
+                            resolvedNs.type == ModuleType::Builtin) continue;
+                        auto assignExpr = std::make_unique<ast::AssignmentExpression>();
+                        auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
+                        auto exportsRef = std::make_unique<ast::Identifier>();
+                        exportsRef->name = "exports";
+                        exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        exportsAccess->expression = std::move(exportsRef);
+                        exportsAccess->name = ed->namespaceExport;
+                        exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        assignExpr->left = std::move(exportsAccess);
+
+                        auto call = std::make_unique<ast::CallExpression>();
+                        auto callee = std::make_unique<ast::Identifier>();
+                        callee->name = "ts_module_get_cached";
+                        call->callee = std::move(callee);
+                        auto pathLit = std::make_unique<ast::StringLiteral>();
+                        pathLit->value = resolvedNs.path;
+                        call->arguments.push_back(std::move(pathLit));
+                        call->inferredType = std::make_shared<Type>(TypeKind::Any);
+                        assignExpr->right = std::move(call);
+
+                        auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                        exprStmt->expression = std::move(assignExpr);
+                        reExportStmts.push_back(std::move(exprStmt));
+                        continue;
+                    }
+                    if (ed->isStarExport) continue;
                     // SELF re-exports were already injected as local renames
                     // (collectRenames/reExportSpecIsSelf) with live-binding
                     // getters; a second data write here landed on the
@@ -1736,6 +1779,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         const std::string& local =
                             spec.propertyName.empty() ? spec.name : spec.propertyName;
                         if (local.empty() || spec.name.empty()) continue;
+                        // Placeholder FIRST: `exports.<name> = undefined`.
+                        // The copy below no-ops when the source binding is
+                        // an uninitialized `export var` (the cross-module
+                        // read yields a null slot the store skips), but the
+                        // exported name must still exist as an OWN key of
+                        // the namespace (hasOwnProperty/ownKeys — nested-
+                        // namespace props-nrml family).
+                        {
+                            auto phAssign = std::make_unique<ast::AssignmentExpression>();
+                            auto phAccess = std::make_unique<ast::PropertyAccessExpression>();
+                            auto phExports = std::make_unique<ast::Identifier>();
+                            phExports->name = "exports";
+                            phExports->inferredType = std::make_shared<Type>(TypeKind::Any);
+                            phAccess->expression = std::move(phExports);
+                            phAccess->name = spec.name;
+                            phAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                            phAssign->left = std::move(phAccess);
+                            auto phUndef = std::make_unique<ast::Identifier>();
+                            phUndef->name = "undefined";
+                            phAssign->right = std::move(phUndef);
+                            auto phStmt = std::make_unique<ast::ExpressionStatement>();
+                            phStmt->expression = std::move(phAssign);
+                            reExportStmts.push_back(std::move(phStmt));
+                        }
                         auto assignExpr = std::make_unique<ast::AssignmentExpression>();
                         auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
                         auto exportsRef = std::make_unique<ast::Identifier>();

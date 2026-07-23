@@ -224,6 +224,17 @@ void* ts_dynamic_import(void* moduleSpecifier) {
         }
         TsValue* exports = ts_module_get_cached(boxedPath);
         if (exports && !ts_value_is_undefined(exports)) {
+            // ES 13.3.10.2 / 16.2.1.10 GetModuleNamespace: import() always
+            // yields a module namespace exotic. Modules without export
+            // syntax (empty fixtures) or ones not resolver-classified as
+            // ESM never received the init-end mark — stamp the LIGHT (pre)
+            // mark: brands the Any-gated exotic ladders + null proto +
+            // @@toStringTag but does NOT PreventExtensions, because
+            // import() can run DURING the importing module's own init
+            // (self-import: eval-export-dflt-* family) and the init-end
+            // export population must still write.
+            extern void ts_module_mark_namespace_pre(TsValue* exportsBoxed);
+            ts_module_mark_namespace_pre(exports);
             // Module found in cache — resolve the promise with its exports
             TsPromise* promise = ts_promise_create();
             ts_promise_resolve_internal(promise, exports);
