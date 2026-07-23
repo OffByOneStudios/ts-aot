@@ -13,6 +13,25 @@ endif()
 # This avoids rebuilding packages on each clean build
 set(VCPKG_INSTALLED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed" CACHE PATH "")
 
+# Linked git worktrees (agent worktrees under .claude/worktrees, or any
+# `git worktree add`) must NOT install their own 26GB vcpkg_installed copy.
+# A linked worktree has a `.git` FILE (gitdir: <main>/.git/worktrees/<name>)
+# instead of a directory: resolve the main checkout and share its install
+# read-only. VCPKG_MANIFEST_INSTALL=OFF stops configure from ever writing
+# into the shared dir (concurrent worktree configures would race).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git" AND NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.git" _ts_gitfile)
+    string(STRIP "${_ts_gitfile}" _ts_gitfile)
+    string(REPLACE "gitdir: " "" _ts_gitdir "${_ts_gitfile}")
+    file(TO_CMAKE_PATH "${_ts_gitdir}" _ts_gitdir)
+    string(REGEX REPLACE "/\\.git/worktrees/[^/]+$" "" _ts_main "${_ts_gitdir}")
+    if(NOT _ts_main STREQUAL _ts_gitdir AND EXISTS "${_ts_main}/vcpkg_installed")
+        set(VCPKG_INSTALLED_DIR "${_ts_main}/vcpkg_installed" CACHE PATH "" FORCE)
+        set(VCPKG_MANIFEST_INSTALL OFF CACHE BOOL "" FORCE)
+        message(STATUS "ts-aot: linked worktree - sharing vcpkg_installed from ${_ts_main}")
+    endif()
+endif()
+
 project(ts-aot LANGUAGES CXX)
 
 # Force Release mode only
