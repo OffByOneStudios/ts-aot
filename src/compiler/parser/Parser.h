@@ -218,6 +218,11 @@ private:
     std::vector<std::pair<std::string, int>> moduleExportLocalRefs_;
     void declareModuleExportName(const std::string& name, int line);
     void checkModuleImportBinding(const std::string& name, int line);
+    // ECMA-262 ModuleExportName : IdentifierName | StringLiteral (ES2022
+    // arbitrary module namespace names). Sets *wasString when the name came
+    // from a StringLiteral; throws SyntaxError when the string value is not
+    // well-formed Unicode (IsStringWellFormedUnicode is false).
+    std::string moduleExportName(bool* wasString = nullptr);
     void pushLexicalScope();
     void popLexicalScope();
     // Returns false if redeclaration conflict. Emits error if conflict.

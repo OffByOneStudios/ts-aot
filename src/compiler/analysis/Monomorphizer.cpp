@@ -1613,6 +1613,49 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 }
             }
 
+            // Names provided by `export ... from` / `export * from` a
+            // DIFFERENT module (indirect/star export entries). The generic
+            // loop below must NOT emit its same-name-local data write for
+            // them: the local identifier does not exist, so that write is
+            // `exports.<n> = undefined` at the END of init — it would clobber
+            // the real values injected from the source module's cached
+            // exports (reExportStmts, front-inserted below).
+            std::set<std::string> indirectExportNames;
+            {
+                auto scanIndirect = [&](const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
+                    for (const auto& stmt : stmts) {
+                        auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
+                        if (!ed || ed->moduleSpecifier.empty()) continue;
+                        if (reExportSpecIsSelf(ed->moduleSpecifier)) continue;
+                        if (ed->isStarExport) {
+                            if (!ed->namespaceExport.empty()) {
+                                indirectExportNames.insert(ed->namespaceExport);
+                                continue;
+                            }
+                            auto resolvedStar = analyzer.getModuleResolver().resolve(
+                                ed->moduleSpecifier, fs::path(path));
+                            if (!resolvedStar.isValid()) continue;
+                            auto srcIt = analyzer.modules.find(resolvedStar.path);
+                            if (srcIt == analyzer.modules.end() ||
+                                !srcIt->second->exports) continue;
+                            for (const auto& [n, s] :
+                                 srcIt->second->exports->getGlobalSymbols()) {
+                                if (n == "default") continue;
+                                if (module->reDirectExports.count(n)) continue;
+                                if (module->reNamedIndirect.count(n)) continue;
+                                indirectExportNames.insert(n);
+                            }
+                            continue;
+                        }
+                        for (const auto& spec : ed->namedExports)
+                            if (!spec.name.empty())
+                                indirectExportNames.insert(spec.name);
+                    }
+                };
+                scanIndirect(newBody);
+                scanIndirect(moduleInit->body);
+            }
+
             // Mutable (var/let) module-level locals: their exports must be
             // LIVE bindings (ES 8.1.1.5) — `x = 2` after import must be
             // visible through the namespace. The data snapshot below stays
@@ -1640,6 +1683,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             // Inject: exports.<name> = <local>; for each exported name
             // (uses the 'exports' local = module.exports, created in the preamble)
             for (const auto& name : exportedNames) {
+                // Indirect/star re-export names have no same-name local —
+                // their values come from reExportStmts (front-inserted below).
+                if (indirectExportNames.count(name)) continue;
                 auto assignExpr = std::make_unique<ast::AssignmentExpression>();
 
                 // LHS: exports.<name>
@@ -1714,16 +1760,98 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 }
             }
 
-            // Named re-exports WITH a specifier:
-            // `export { local as exported } from './m'` — inject
-            // exports.<exported> = ts_module_get_cached('<resolved>').<local>;
-            // AFTER the local-export injections (a SELF re-export reads its own
-            // just-populated exports).
+            // Indirect/star re-export injections (computed BEFORE the
+            // local-export loop below so the generic loop can skip the names
+            // they provide; INSERTED at the front region after it — ES 16.2.3:
+            // indirect exports resolve at link time, before the module's own
+            // statements evaluate, and a SELF-importing module (test262
+            // export-expname-from-*) reads them during its own init).
             std::vector<std::unique_ptr<ast::Statement>> reExportStmts;
+            // Shared emitter: exports.<exportedName> = ts_module_get_cached(
+            // '<resolvedPath>')[.<srcName>] — srcName empty assigns the whole
+            // cached exports object (export * as ns from ...).
+            auto emitReExportAssign = [&](const std::string& exportedName,
+                                          const std::string& resolvedPath,
+                                          const std::string& srcName) {
+                indirectExportNames.insert(exportedName);
+                auto assignExpr = std::make_unique<ast::AssignmentExpression>();
+                auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
+                auto exportsRef = std::make_unique<ast::Identifier>();
+                exportsRef->name = "exports";
+                exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                exportsAccess->expression = std::move(exportsRef);
+                exportsAccess->name = exportedName;
+                exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                assignExpr->left = std::move(exportsAccess);
+
+                auto call = std::make_unique<ast::CallExpression>();
+                auto callee = std::make_unique<ast::Identifier>();
+                callee->name = "ts_module_get_cached";
+                call->callee = std::move(callee);
+                auto pathLit = std::make_unique<ast::StringLiteral>();
+                pathLit->value = resolvedPath;
+                call->arguments.push_back(std::move(pathLit));
+                call->inferredType = std::make_shared<Type>(TypeKind::Any);
+                if (srcName.empty()) {
+                    assignExpr->right = std::move(call);
+                } else {
+                    auto srcAccess = std::make_unique<ast::PropertyAccessExpression>();
+                    srcAccess->expression = std::move(call);
+                    srcAccess->name = srcName;
+                    srcAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    assignExpr->right = std::move(srcAccess);
+                }
+                auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                exprStmt->expression = std::move(assignExpr);
+                reExportStmts.push_back(std::move(exprStmt));
+            };
             auto injectReExports = [&](const std::vector<std::unique_ptr<ast::Statement>>& stmts) {
                 for (const auto& stmt : stmts) {
                     auto* ed = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
-                    if (!ed || ed->moduleSpecifier.empty() || ed->isStarExport) continue;
+                    if (!ed || ed->moduleSpecifier.empty()) continue;
+                    if (ed->isStarExport) {
+                        // `export * from './m'` / `export * as ns from './m'`:
+                        // materialize the star re-export into the exports
+                        // object (ES 16.2.3.7 ExportEntries; star entries skip
+                        // "default"). Previously nothing was injected, so
+                        // star-re-exported names (incl. string ModuleExportNames
+                        // like "☿", export-expname-from-star) read undefined
+                        // through the module namespace.
+                        if (reExportSpecIsSelf(ed->moduleSpecifier)) continue;
+                        auto resolvedStar = analyzer.getModuleResolver().resolve(
+                            ed->moduleSpecifier, fs::path(path));
+                        if (getenv("TS_DEBUG_STARREEXP"))
+                            fprintf(stderr, "[starreexp] mod='%s' spec='%s' valid=%d type=%d\n",
+                                    path.c_str(), ed->moduleSpecifier.c_str(),
+                                    (int)resolvedStar.isValid(), (int)resolvedStar.type);
+                        if (!resolvedStar.isValid() ||
+                            resolvedStar.type == ModuleType::Builtin) continue;
+                        if (!ed->namespaceExport.empty()) {
+                            // export * as ns from: the exported value is the
+                            // source module's namespace object itself.
+                            emitReExportAssign(ed->namespaceExport,
+                                               resolvedStar.path, "");
+                            continue;
+                        }
+                        auto srcIt = analyzer.modules.find(resolvedStar.path);
+                        if (srcIt == analyzer.modules.end() ||
+                            !srcIt->second->exports) continue;
+                        for (const auto& [expName, expSym] :
+                             srcIt->second->exports->getGlobalSymbols()) {
+                            if (expName == "default") continue;
+                            if (expName.rfind("__getter_", 0) == 0 ||
+                                expName.rfind("__setter_", 0) == 0) continue;
+                            // Local/named exports of THIS module shadow star
+                            // re-exports (ES 9.4.6 ResolveExport precedence).
+                            if (module->reDirectExports.count(expName)) continue;
+                            if (module->reNamedIndirect.count(expName)) continue;
+                            if (getenv("TS_DEBUG_STARREEXP"))
+                                fprintf(stderr, "[starreexp] emit '%s' <- %s\n",
+                                        expName.c_str(), resolvedStar.path.c_str());
+                            emitReExportAssign(expName, resolvedStar.path, expName);
+                        }
+                        continue;
+                    }
                     // SELF re-exports were already injected as local renames
                     // (collectRenames/reExportSpecIsSelf) with live-binding
                     // getters; a second data write here landed on the
@@ -1736,40 +1864,23 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         const std::string& local =
                             spec.propertyName.empty() ? spec.name : spec.propertyName;
                         if (local.empty() || spec.name.empty()) continue;
-                        auto assignExpr = std::make_unique<ast::AssignmentExpression>();
-                        auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
-                        auto exportsRef = std::make_unique<ast::Identifier>();
-                        exportsRef->name = "exports";
-                        exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
-                        exportsAccess->expression = std::move(exportsRef);
-                        exportsAccess->name = spec.name;
-                        exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
-                        assignExpr->left = std::move(exportsAccess);
-
-                        auto call = std::make_unique<ast::CallExpression>();
-                        auto callee = std::make_unique<ast::Identifier>();
-                        callee->name = "ts_module_get_cached";
-                        call->callee = std::move(callee);
-                        auto pathLit = std::make_unique<ast::StringLiteral>();
-                        pathLit->value = resolved.path;
-                        call->arguments.push_back(std::move(pathLit));
-                        auto srcAccess = std::make_unique<ast::PropertyAccessExpression>();
-                        srcAccess->expression = std::move(call);
-                        srcAccess->name = local;
-                        srcAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
-                        assignExpr->right = std::move(srcAccess);
-
-                        auto exprStmt = std::make_unique<ast::ExpressionStatement>();
-                        exprStmt->expression = std::move(assignExpr);
-                        // Collected separately: pushing into moduleInit->body
-                        // while iterating it invalidates the range-for.
-                        reExportStmts.push_back(std::move(exprStmt));
+                        // Collected separately (reExportStmts): pushing into
+                        // moduleInit->body while iterating it invalidates the
+                        // range-for.
+                        emitReExportAssign(spec.name, resolved.path, local);
                     }
                 }
             };
             injectReExports(newBody);
             injectReExports(moduleInit->body);
-            for (auto& s : reExportStmts) moduleInit->body.push_back(std::move(s));
+            // Front-insert (after the local-export placeholders, before the
+            // module's own statements): ES 16.2.3 indirect exports resolve at
+            // link time, so a SELF-importing module must see them during its
+            // own evaluation (test262 export-expname-from-*).
+            for (auto& s : reExportStmts)
+                moduleInit->body.insert(
+                    moduleInit->body.begin() + (nsExportInsertPos++),
+                    std::move(s));
 
             // ES 10.4.6: stamp the populated exports object as a module
             // namespace exotic (writes rejected, own deletes rejected,
