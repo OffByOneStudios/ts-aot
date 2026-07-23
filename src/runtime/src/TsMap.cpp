@@ -653,9 +653,17 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
     if (!map) return nullptr;
     // Object.keys/for-in use ENUMERABLE keys; Object.getOwnPropertySymbols
     // returns ALL own symbols regardless of enumerability (ECMA-262 §20.1.2.10).
-    TsArray* all = (TsArray*)(allKeys ? ((TsMap*)map)->GetKeys()
-                                      : ((TsMap*)map)->GetEnumerableKeys());
+    // The enumerable path ALSO iterates GetKeys (all keys, insertion order)
+    // and filters by ATTR_ENUMERABLE below, instead of GetEnumerableKeys:
+    // GetEnumerableKeys strips "__getter_/__setter_" halves BEFORE this
+    // function sees them, so a placeholder-less literal accessor
+    // ({ get x() {} } — {enumerable: true} per ECMA-262) never surfaced in
+    // Object.keys / for-in / JSON.stringify, and appending it afterwards
+    // broke insertion order (the accessor's position matters —
+    // JSON/stringify replacer-function-object-deleted-property).
+    TsArray* all = (TsArray*)((TsMap*)map)->GetKeys();
     if (!all) return all;
+    bool enumerableOnly = !allKeys;
     TsArray* out = TsArray::Create(0);
     std::set<std::string> emitted;
     std::set<std::string> accessorBases;
@@ -680,16 +688,40 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
         // @@toStringTag leaked as a 17th name in own-property-keys-sort).
         if (kc && strncmp(kc, "[Symbol.", 8) == 0) continue;
         // Accessor storage slots ("__getter_<k>"/"__setter_<k>") are not
-        // property keys — the BASE name is (surfaced via its data
-        // placeholder, or appended below if no placeholder was stored).
-        // GetEnumerableKeys already drops these; GetKeys (the
-        // getOwnPropertyNames path) does not.
+        // property keys — the BASE name is. allKeys mode: collect for the
+        // append-fallback below. Enumerable mode: surface the base INLINE at
+        // the half's insertion position when no data placeholder exists (a
+        // placeholder carries the accessor's enumerability and is honored at
+        // its own position — the defineProperty'd-accessor convention) and
+        // the half's recorded attrs are enumerable (plain-Set default; the
+        // object-literal accessor case).
         if (kc && (strncmp(kc, "__getter_", 9) == 0 ||
                    strncmp(kc, "__setter_", 9) == 0)) {
-            if (!symbolsOnly) accessorBases.insert(kc + 9);
+            if (symbolsOnly) continue;
+            const char* base = kc + 9;
+            if (allKeys) { accessorBases.insert(base); continue; }
+            if (!*base || emitted.count(base)) continue;
+            TsValue bk; bk.type = ValueType::STRING_PTR;
+            bk.ptr_val = TsString::GetInterned(base);
+            if (((TsMap*)map)->Has(bk)) continue;  // placeholder decides
+            TsValue hk; hk.type = ValueType::STRING_PTR;
+            hk.ptr_val = (TsString*)sp;
+            if (!(((TsMap*)map)->GetPropertyAttrs(hk) & TsHashTable::ATTR_ENUMERABLE))
+                continue;
+            emitted.insert(base);
+            out->Push((int64_t)(uintptr_t)ts_value_make_string(
+                TsString::GetInterned(base)));
             continue;
         }
         if (isSym != symbolsOnly) continue;
+        // Enumerable mode: manual ATTR_ENUMERABLE filter (this loop reads
+        // GetKeys, which does not filter).
+        if (enumerableOnly && sp) {
+            TsValue ak; ak.type = ValueType::STRING_PTR;
+            ak.ptr_val = (TsString*)sp;
+            if (!(((TsMap*)map)->GetPropertyAttrs(ak) & TsHashTable::ATTR_ENUMERABLE))
+                continue;
+        }
         if (kc) emitted.insert(kc);
         out->Push(boxed);
     }

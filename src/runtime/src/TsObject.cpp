@@ -9096,8 +9096,28 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         uint64_t vnb = val ? nanbox_from_tsvalue_ptr(val) : 0;
         if (val && nanbox_is_ptr(vnb)) {
             void* raw = nanbox_to_ptr(vnb);
+            // ES 25.5.1.1 step 2: "If Type(val) is Object" — a String /
+            // BigInt / Symbol primitive is a nanbox POINTER but NOT an
+            // Object; walking it sent every string element into the object
+            // branch, whose Reflect.ownKeys correctly rejected the string
+            // (TypeError) and broke EVERY reviver over string data.
             if (raw && (uintptr_t)raw > 0x1000) {
-                if (ts_array_is_array(raw)) {
+                uint32_t vm0 = *(uint32_t*)raw;
+                if (vm0 == 0x53545247 /*STRG*/ || vm0 == 0x434F4E53 /*CONS*/ ||
+                    vm0 == 0x42494749 /*BIGI*/ || vm0 == 0x53594D42 /*SYMB*/) {
+                    raw = nullptr;  // primitive: skip the object/array walk
+                }
+            }
+            if (raw && (uintptr_t)raw > 0x1000) {
+                // ES 25.5.1.1 step 2.a: isArray = ? IsArray(val) — the
+                // PROXY-AWARE IsArray (7.2.2): a proxy whose target is an
+                // array takes the ARRAY walk (its length/element traps fire,
+                // its defineProperty trap's abrupt completion propagates);
+                // a revoked proxy throws TypeError. ts_array_is_array is the
+                // non-proxy-aware variant and sent proxies down the object
+                // walk (reviver-array-*-err, revived-proxy).
+                extern bool ts_array_isArray(void* value);
+                if (ts_array_isArray((void*)val)) {
                     // len = ? ToLength(? Get(val, "length"))
                     TsValue* lenKey = ts_value_make_string(TsString::Create("length"));
                     TsValue* lenV = ts_reflect_get((void*)val, (void*)lenKey, (void*)val);

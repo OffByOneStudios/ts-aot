@@ -582,6 +582,29 @@ extern "C" void* ts_value_get_string(TsValue* v);
 // symbolsOnly=false -> the string-keyed own properties (Object.keys / for-in),
 // excluding user-symbol storage keys. symbolsOnly=true -> only user-symbol
 // storage keys (for Object.getOwnPropertySymbols).
+// True when `base` exists as a PLAIN (data/placeholder) own entry of the flat
+// object — an inline slot that isn't tombstoned, or an overflow-map entry.
+// Used by the enumerable-keys walk: a data placeholder carries a
+// defineProperty'd accessor's enumerability and is honored at its own
+// position, so the "__getter_/__setter_" half must NOT re-emit the base.
+static bool flat_keys_has_plain_entry(void* obj, ShapeDescriptor* desc,
+                                      const char* base) {
+    for (uint32_t j = 0; j < desc->numSlots; j++) {
+        const char* nm2 = desc->propNames[j];
+        if (nm2 && strcmp(nm2, base) == 0) {
+            uint64_t v2 = *(uint64_t*)((char*)obj + 16 + j * 8);
+            if (v2 != NANBOX_DELETED) return true;
+        }
+    }
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
+    if (overflow) {
+        TsValue bk; bk.type = ValueType::STRING_PTR;
+        bk.ptr_val = TsString::GetInterned(base);
+        if (((TsMap*)overflow)->Has(bk)) return true;
+    }
+    return false;
+}
+
 static void* flat_object_keys_impl(void* obj, bool symbolsOnly,
                                    bool enumerableOnly) {
     if (!obj) return TsArray::Create(0);
@@ -604,10 +627,22 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly,
         // (private fields "\x01#x") — never an enumerable property key.
         if (!isSym && nm && nm[0] == '\x01') continue;
         // Accessor storage ("__getter_<k>"/"__setter_<k>") is not a property
-        // key; the BASE name is (via its data placeholder, or appended below).
+        // key; the BASE name is. Non-enumerable (gOPN) mode: collect for the
+        // append-fallback below. Enumerable mode: emit the base INLINE at the
+        // half's slot position — a placeholder-less half is a compiler-emitted
+        // object-literal accessor ({enumerable: true} per ECMA-262), and its
+        // insertion-order position is observable (Object.keys / for-in /
+        // JSON.stringify member order).
         if (!isSym && nm && (strncmp(nm, "__getter_", 9) == 0 ||
                              strncmp(nm, "__setter_", 9) == 0)) {
-            if (!symbolsOnly) accessorBases.insert(nm + 9);
+            if (symbolsOnly) continue;
+            const char* base = nm + 9;
+            if (!enumerableOnly) { accessorBases.insert(base); continue; }
+            if (!*base || emitted.count(base)) continue;
+            if (flat_keys_has_plain_entry(obj, desc, base)) continue;
+            emitted.insert(base);
+            considered.insert(base);
+            keys->Push((int64_t)(uintptr_t)TsString::Create(base));
             continue;
         }
         if (isSym != symbolsOnly) continue;
@@ -629,7 +664,20 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly,
                 if (!isSym && kc && kc[0] == '\x01') continue;  // internal storage key
                 if (!isSym && kc && (strncmp(kc, "__getter_", 9) == 0 ||
                                      strncmp(kc, "__setter_", 9) == 0)) {
-                    if (!symbolsOnly) accessorBases.insert(kc + 9);
+                    if (symbolsOnly) continue;
+                    const char* base = kc + 9;
+                    if (!enumerableOnly) { accessorBases.insert(base); continue; }
+                    // Enumerable mode: inline emission (see slot loop above).
+                    // Overflow-stored halves carry attrs — honor them.
+                    if (!*base || emitted.count(base)) continue;
+                    if (flat_keys_has_plain_entry(obj, desc, base)) continue;
+                    TsValue hk; hk.type = ValueType::STRING_PTR;
+                    hk.ptr_val = (TsString*)sp;
+                    if (!(((TsMap*)overflow)->GetPropertyAttrs(hk) & 0x01))
+                        continue;
+                    emitted.insert(base);
+                    considered.insert(base);
+                    keys->Push((int64_t)(uintptr_t)TsString::Create(base));
                     continue;
                 }
                 if (isSym != symbolsOnly) continue;
@@ -653,12 +701,16 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly,
     // Fallback for an accessor stored WITHOUT its data placeholder. A name
     // that was CONSIDERED but attr-filtered must stay filtered (the
     // placeholder carries the accessor's enumerability, so re-adding it here
-    // leaked non-enumerable accessors into Object.keys). Under
-    // enumerableOnly a placeholder-less accessor's enumerability is
-    // unknowable — skip (the placeholder convention makes this unreachable).
+    // leaked non-enumerable accessors into Object.keys). A placeholder-less
+    // accessor is a COMPILER-EMITTED object-literal accessor ({ get x() {} });
+    // per ECMA-262 those are {enumerable: true, configurable: true} data-free
+    // properties, so they DO belong in Object.keys / for-in / JSON.stringify
+    // (defineProperty'd accessors always leave an attr-bearing placeholder and
+    // never reach this loop). Previously skipped under enumerableOnly, which
+    // made Object.keys({get x(){}}) return [] and JSON.stringify never invoke
+    // literal getters (test262 JSON/stringify value-object-abrupt/-circular).
     for (const std::string& base : accessorBases) {
         if (considered.count(base) || emitted.count(base)) continue;
-        if (enumerableOnly) continue;
         keys->Push((int64_t)(uintptr_t)TsString::Create(base.c_str()));
     }
 

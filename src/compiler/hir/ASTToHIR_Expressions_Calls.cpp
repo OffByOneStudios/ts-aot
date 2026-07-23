@@ -2142,12 +2142,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     callName = ident->name;  // Keep original name for registered modules
                 }
             }
+            // ECMA-262: JSON (25.5), Math (21.3) and console are NAMESPACE
+            // objects with no [[Call]] — invoking them must throw a TypeError.
+            // These names previously sat in the keep-original-name list below,
+            // so `JSON()` emitted a direct call of the bare symbol `JSON`,
+            // which the linker bound to the runtime's DATA global
+            // (`extern "C" TsValue* JSON`) — jumping into BSS (0xC0000005).
+            else if (ident->name == "JSON" || ident->name == "Math" ||
+                     ident->name == "console") {
+                lastValue_ = builder_.createCall(
+                    "ts_call_non_callable_namespace",
+                    {builder_.createConstCString(ident->name)},
+                    HIRType::makeAny());
+                return;
+            }
             // Runtime functions start with "ts_" - use original name
             // User functions should use the mangled name
             else if (ident->name.substr(0, 3) == "ts_" ||
-                ident->name == "console" ||
-                ident->name == "Math" ||
-                ident->name == "JSON" ||
                 ident->name == "parseInt" ||
                 ident->name == "isNaN" ||
                 ident->name == "isFinite" ||
@@ -2403,6 +2414,18 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 }
             }
         }
+    }
+
+    // ECMA-262: JSON (25.5) and Math (21.3) are namespace objects with no
+    // [[Construct]] — `new JSON()` / `new Math()` must throw a TypeError
+    // (previously fell into the generic-Object fallback and silently
+    // produced a plain object).
+    if (ident && (ident->name == "JSON" || ident->name == "Math")) {
+        lastValue_ = builder_.createCall(
+            "ts_call_non_callable_namespace",
+            {builder_.createConstCString(ident->name)},
+            HIRType::makeAny());
+        return;
     }
 
     // DYNAMIC callee (`new (await X)()`, `new (f())()`, `new (c ? A : B)()`):

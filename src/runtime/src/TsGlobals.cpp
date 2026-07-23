@@ -9093,6 +9093,18 @@ extern "C" void ts_weak_stub_prepare(const char* bare, const char* mangled,
     g_weak_stub_pending = true;
 }
 
+// ECMA-262: calling a namespace object (JSON, Math, console) — they have no
+// [[Call]] internal method, so the call site throws TypeError. Lowered by the
+// compiler for `JSON(...)` / `Math(...)` / `console(...)` (a direct call of
+// the bare symbol would bind to the runtime's DATA global and jump into BSS).
+extern "C" TsValue* ts_call_non_callable_namespace(const char* name) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s is not a function",
+             (name && *name) ? name : "value");
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", buf));
+    return ts_value_make_undefined();  // unreachable
+}
+
 extern "C" TsValue* ts_weak_stub_dispatch(const char* mangled) {
     if (!g_weak_stub_pending || !mangled ||
         strcmp(g_weak_stub_mangled, mangled) != 0) {

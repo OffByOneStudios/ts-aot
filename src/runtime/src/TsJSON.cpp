@@ -14,24 +14,37 @@
 #include "TsTyped.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
+#include <unicode/unistr.h>
 #include <string>
 #include <cstring>
+#include <cstdio>
 
 #include <set>
 #include <vector>
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <cmath>
 
-// ECMA-262 25.5.2 SerializeJSONObject step 6: emit keys in
-// [[OwnPropertyKeys]] order (insertion order for string keys). Default
-// nlohmann::ordered_json uses std::map which sorts alphabetically; switch to
-// ordered_json which preserves insertion order while keeping the same
-// API surface elsewhere in this file.
+// nlohmann is used ONLY by JSON.parse now. ECMA-262 25.5.2 JSON.stringify is
+// implemented below as a direct, spec-order serializer over live JS values
+// (SerializeJSONProperty / SerializeJSONObject / SerializeJSONArray), because
+// function replacers, per-property [[Get]] observability, toJSON ordering and
+// abrupt completions cannot be expressed over a materialized JSON tree.
 using json = nlohmann::ordered_json;
 
 static TsValue json_to_ts(const json& j) {
-    if (j.is_null()) return TsValue(nullptr);
+    if (j.is_null()) {
+        // JS null, NOT undefined: OBJECT_PTR with a null pointer is the
+        // struct representation nanbox_from_tagged maps to NANBOX_NULL.
+        // (TsValue(nullptr) is the UNDEFINED ctor — JSON.parse("null")
+        // returned undefined at every nesting level.)
+        TsValue v;
+        std::memset(&v, 0, sizeof(TsValue));
+        v.type = ValueType::OBJECT_PTR;
+        v.ptr_val = nullptr;
+        return v;
+    }
     if (j.is_boolean()) return TsValue(j.get<bool>());
     if (j.is_number_integer()) {
         return TsValue((int64_t)j.get<int64_t>());
@@ -74,33 +87,51 @@ static TsValue json_to_ts(const json& j) {
     return TsValue(nullptr);
 }
 
-// Signals a revoked Proxy encountered during serialization. Thrown as a C++
-// exception (safe through the nlohmann/std frames), converted to a JS TypeError
-// by ts_json_stringify's catch (a ts_throw from inside the recursion would
-// longjmp through std-object frames and corrupt the unwinder).
+// ---------------------------------------------------------------------------
+// JSON.stringify — ECMA-262 25.5.2 spec-order serializer
+// ---------------------------------------------------------------------------
+//
+// Exception architecture: user code (toJSON, replacer, getters, proxy traps,
+// ToNumber/ToString coercions) runs under a setjmp guard in a POD-only frame;
+// a ts_throw longjmp is converted to the C++ exception JsonAbruptCompletion so
+// unwinding through frames holding std::string/std::vector is well-defined.
+// The clean top-level catch in ts_json_stringify re-raises via ts_throw.
+
+// Signals a revoked Proxy encountered during serialization (IsArray on a
+// revoked proxy is a TypeError per ES 7.2.2).
 struct JsonRevokedProxyError {};
 
-// Signals a TypeError to raise from the clean top-level catch (unwinding
-// through nlohmann/std frames first): circular structure, or a BigInt value
-// (ECMA-262 25.5.2 SerializeJSONProperty — BigInt is a TypeError).
+// Signals a TypeError raised by the serializer itself: circular structure, or
+// a BigInt value (ECMA-262 25.5.2.2 SerializeJSONProperty step 10).
 struct JsonTypeErrorSignal { const char* msg; };
 
-// Signals an ABRUPT completion (user toJSON/getter threw) during
-// serialization. Same architecture as JsonRevokedProxyError: the user call
-// runs under a setjmp guard (ts_throw pops its own handler — NEVER pop in
-// the landing branch), the longjmp is converted to this C++ exception so
-// unwinding through the nlohmann/std frames is well-defined, and the clean
-// top-level catch re-throws the ORIGINAL error object via ts_throw.
+// Signals an ABRUPT completion (user toJSON/replacer/getter/coercion threw).
 struct JsonAbruptCompletion { TsValue* error; };
 
-// Invoke a user callback under a longjmp guard. Returns the result, or
-// null with *errOut set when the callee threw. NO C++ objects live in
-// this frame (longjmp rule).
+// Runtime services (C linkage). Declared at file scope per runtime-safety
+// rules. Several are also declared in the included headers; identical
+// redeclaration is harmless.
 extern "C" bool ts_is_callable(void* v);
 extern "C" void* ts_push_exception_handler();
 extern "C" void ts_pop_exception_handler();
 extern "C" TsValue* ts_get_exception();
 extern "C" void ts_set_exception(TsValue* e);
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+extern "C" TsValue* ts_value_make_undefined();
+extern "C" TsValue* ts_value_make_null();
+extern "C" TsValue* ts_value_make_double(double d);
+extern "C" double ts_to_number(TsValue* v);
+extern "C" TsValue* ts_to_primitive(TsValue* val, int hint);
+extern "C" void* ts_string_from_value(TsValue* val);
+extern "C" void* ts_number_to_string(double value, int64_t radix);
+extern "C" bool ts_array_isArray(void* value);
+extern TsString* ts_ensure_flat(void* ptr);
+
+// ---- Guarded user-code invocations -----------------------------------------
+// Each helper's frame is POD-only (longjmp rule: no non-trivially-destructible
+// locals may live in a frame that a longjmp passes through). ts_throw pops its
+// own handler before the longjmp — NEVER pop in the landing branch.
 
 static TsValue* json_call_guarded_1(TsValue* fn, TsValue* thisV,
                                     TsValue* arg, TsValue** errOut) {
@@ -112,435 +143,620 @@ static TsValue* json_call_guarded_1(TsValue* fn, TsValue* thisV,
         ts_pop_exception_handler();
         return r;
     }
-    // ts_throw already popped the handler before the longjmp.
     *errOut = ts_get_exception();
     ts_set_exception(nullptr);
     return nullptr;
 }
 
-static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited);
-static int json_wrapper_num_or_str(void* raw, double* num, TsString** str);
-// ECMA-262 25.5.2.2 SerializeJSONProperty step 4: unwrap a primitive wrapper
-// object (new Number/String/Boolean) to its primitive JSON form. Defined below
-// (after json_wrapper_num_or_str); forward-declared here for ts_to_json_internal.
-static bool json_unwrap_primitive_wrapper(void* p, nlohmann::ordered_json& out);
-
-static nlohmann::ordered_json ts_value_to_json(TsValue v, std::set<void*>& visited) {
-    switch (v.type) {
-        case ValueType::UNDEFINED: return nullptr;
-        case ValueType::NUMBER_INT: return v.i_val;
-        case ValueType::NUMBER_DBL: {
-            // Format whole numbers as integers (10.0 -> 10, not 10.0)
-            double d = v.d_val;
-            double intPart;
-            if (std::modf(d, &intPart) == 0.0 &&
-                d >= -9007199254740992.0 && d <= 9007199254740992.0) {
-                return (int64_t)d;
-            }
-            return d;
-        }
-        case ValueType::BOOLEAN: return v.b_val;
-        case ValueType::STRING_PTR: return ts_to_json_internal(v.ptr_val, visited);
-        case ValueType::OBJECT_PTR: return ts_to_json_internal(v.ptr_val, visited);
-        case ValueType::ARRAY_PTR: return ts_to_json_internal(v.ptr_val, visited);
-        // 25.5.2.2 steps 10-11: a callable member is unserializable —
-        // omitted from objects / null in arrays (discarded sentinel).
-        case ValueType::FUNCTION_PTR:
-            return nlohmann::ordered_json(nlohmann::detail::value_t::discarded);
-        case ValueType::PROMISE_PTR: return "[Promise]";
-        default: return nullptr;
+static TsValue* json_call_guarded_2(TsValue* fn, TsValue* thisV,
+                                    TsValue* a1, TsValue* a2, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* r = ts_call_with_this_2(fn, thisV, a1, a2);
+        ts_pop_exception_handler();
+        return r;
     }
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return nullptr;
 }
 
-static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited) {
-    if (!p) return nullptr;
-
-    // Decode NaN-boxed values
-    uint64_t nb = (uint64_t)(uintptr_t)p;
-    if (nanbox_is_undefined(nb)) return nullptr;
-    if (nanbox_is_null(nb)) return nullptr;
-    if (nanbox_is_bool(nb)) return nanbox_to_bool(nb);
-    if (nanbox_is_int32(nb)) {
-        return (int64_t)nanbox_to_int32(nb);
+// [[Get]] — observable (getters, proxy get trap).
+static TsValue* json_get_guarded(TsValue* obj, TsValue* key, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* r = ts_object_get_dynamic(obj, key);
+        ts_pop_exception_handler();
+        return r;
     }
-    if (nanbox_is_double(nb)) {
-        double d = nanbox_to_double(nb);
-        double intPart;
-        if (std::modf(d, &intPart) == 0.0 &&
-            d >= -9007199254740992.0 && d <= 9007199254740992.0) {
-            return (int64_t)d;
-        }
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return nullptr;
+}
+
+// EnumerableOwnPropertyNames(KEY) — observable (proxy ownKeys/gOPD traps).
+static TsValue* json_keys_guarded(TsValue* obj, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* r = ts_object_keys(obj);
+        ts_pop_exception_handler();
+        return r;
+    }
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return nullptr;
+}
+
+// ToNumber — observable on objects (valueOf/toString).
+static double json_tonumber_guarded(TsValue* v, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        double d = ts_to_number(v);
+        ts_pop_exception_handler();
         return d;
     }
-
-    // Must be a pointer (nanbox_is_ptr). Extract the raw pointer.
-    // Note: for heap pointers, the NaN-boxed representation IS the raw pointer value.
-
-    // Check magic numbers. Some objects have a vtable (TsObject), some don't.
-    // Layout varies:
-    //   TsString, TsArray, TsDate, TsRegExp: magic at offset 0 (no vtable)
-    //   TsMap, TsSet, TsBuffer, etc: magic at offset 16 (TsObject-derived with vtable)
-    uint32_t magic = *(uint32_t*)p;
-    uint32_t magic_offset16 = 0;
-    if ((uintptr_t)p > 0x1000) {
-        magic_offset16 = *(uint32_t*)((char*)p + 16);
-    }
-
-    // A revoked Proxy crashes when its traps deref the null target. ECMA-262
-    // requires JSON.stringify to throw a TypeError on it. We can't ts_throw
-    // (longjmp) from here — this frame holds nlohmann/std objects — so signal
-    // via a C++ exception that ts_json_stringify converts to a JS TypeError.
-    if (magic_offset16 == 0x4D415053) {  // TsMap (Proxy is a TsMap subclass, vtable)
-        if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)p)) {
-            if (px->revoked) throw JsonRevokedProxyError{};
-        }
-    }
-
-    if (magic == TsString::MAGIC) {
-        return ((TsString*)p)->ToUtf8();
-    }
-
-    // TsConsString (lazy string concatenation, magic "CONS"): flatten to a real
-    // TsString and serialize as a string. Without this, a runtime-built string
-    // (e.g. `"a" + someVar`, which is a cons-string until forced) fell through to
-    // the object path and serialized as `{}`. ASCII all-literal concats were
-    // unaffected only because the compiler constant-folds them to a flat string.
-    if (magic == 0x434F4E53) {  // TsConsString::MAGIC
-        extern TsString* ts_ensure_flat(void* ptr);
-        TsString* flat = ts_ensure_flat(p);
-        if (flat) return flat->ToUtf8();
-    }
-
-    if (magic == TsDate::MAGIC) {
-        return ((TsDate*)p)->ToISOString()->ToUtf8();
-    }
-
-    if (magic == TsRegExp::MAGIC) {
-        return nlohmann::ordered_json::object();
-    }
-
-    if (magic == TsArray::MAGIC) {
-        if (visited.find(p) != visited.end()) {
-            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
-        }
-        visited.insert(p);
-        TsArray* arr = (TsArray*)p;
-        nlohmann::ordered_json j = nlohmann::ordered_json::array();
-        for (int64_t i = 0; i < arr->Length(); ++i) {
-            // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value.
-            // ECMA-262 25.5.2: array holes (and undefined) serialize as `null`.
-            // Without the hole guard, the NANBOX_HOLE sentinel was dereferenced
-            // as a pointer (crash) for sparse arrays, e.g. `JSON.stringify([,,5])`
-            // or lodash `_.set({}, 'a[2]', v)`.
-            uint64_t raw = (uint64_t)arr->Get(i);
-            if (raw == (uint64_t)NANBOX_HOLE || nanbox_is_undefined(raw)) {
-                j.push_back(nullptr);
-                continue;
-            }
-            nlohmann::ordered_json el = ts_to_json_internal((void*)raw, visited);
-            // 25.5.2.4 SerializeJSONArray step 8.b: unserializable elements
-            // (functions, symbols) become null in arrays.
-            j.push_back(el.is_discarded() ? nlohmann::ordered_json(nullptr)
-                                          : std::move(el));
-        }
-        visited.erase(p);
-        return j;
-    }
-
-    // ECMA-262 25.5.2.1 SerializeJSONProperty step 2: if the value has a
-    // callable `toJSON` method, invoke it (with the property key) and serialize
-    // the RESULT instead. Built-ins with their own JSON form (String, Date,
-    // RegExp, Array) returned above; this covers generic objects / class
-    // instances / lodash wrappers whose toJSON lives on the prototype. Guarded
-    // by `visited` so a toJSON returning `this` degrades to circular-ref, not an
-    // infinite loop.
-    if (visited.find(p) == visited.end()) {
-        TsValue* tj = ts_object_get_property(p, "toJSON");
-        if (tj) {
-            uint64_t tjnb = nanbox_from_tsvalue_ptr(tj);
-            if (nanbox_is_ptr(tjnb)) {
-                void* fnp = nanbox_to_ptr(tjnb);
-                if (fnp && ts_is_closure(fnp)) {
-                    visited.insert(p);
-                    TsValue* keyArg = ts_value_make_string(TsString::Create(""));
-                    TsValue* boxedThis = ts_value_make_object(p);
-                    TsValue* tjErr = nullptr;
-                    TsValue* res = json_call_guarded_1(tj, boxedThis, keyArg, &tjErr);
-                    if (tjErr) throw JsonAbruptCompletion{tjErr};
-                    nlohmann::ordered_json out =
-                        ts_to_json_internal((void*)(uintptr_t)nanbox_from_tsvalue_ptr(res), visited);
-                    visited.erase(p);
-                    return out;
-                }
-            }
-        }
-    }
-
-    // ECMA-262 25.5.2.2 SerializeJSONProperty step 4-5: a Number/String/Boolean
-    // wrapper object (new Number(x) / new String(x) / new Boolean(x)) serializes
-    // as its underlying primitive (ToNumber / ToString / [[BooleanData]]), NOT
-    // as a plain object. This runs AFTER toJSON (step 2) but before the generic
-    // object serialization below, so `JSON.stringify(new Number(5))` yields "5"
-    // instead of leaking the hidden data slot as `{"__NumberData":5}`.
-    {
-        nlohmann::ordered_json wrapped;
-        if (json_unwrap_primitive_wrapper(p, wrapped)) {
-            return wrapped;
-        }
-    }
-
-    // Flat inline-slot object (magic at offset 0)
-    if (magic == FLAT_MAGIC) {
-        if (visited.find(p) != visited.end()) {
-            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
-        }
-        visited.insert(p);
-        uint32_t shapeId = flat_object_shape_id(p);
-        ShapeDescriptor* desc = ts_shape_lookup(shapeId);
-        nlohmann::ordered_json j = nlohmann::ordered_json::object();
-        if (desc) {
-            for (uint32_t i = 0; i < desc->numSlots; i++) {
-                uint64_t val = *(uint64_t*)((char*)p + 16 + i * 8);
-                // Per ECMA-262 25.5.2.4 SerializeJSONProperty: undefined-valued
-                // own properties are OMITTED from the result object. Also skip
-                // hole/deleted tombstones so absent slots don't appear as null.
-                if (nanbox_is_undefined(val) || val == NANBOX_HOLE ||
-                    val == NANBOX_DELETED) continue;
-                // Internal storage keys are not JSON-serializable properties:
-                // '\x01' slots (privates/symbols) and "__getter_/__setter_"
-                // accessor storage (JSON.stringify({} with defineProperty get
-                // x) leaked {"__getter_x":null}).
-                const char* nm = desc->propNames[i];
-                if (nm && (nm[0] == '\x01' ||
-                           strncmp(nm, "__getter_", 9) == 0 ||
-                           strncmp(nm, "__setter_", 9) == 0)) continue;
-                nlohmann::ordered_json pv =
-                    ts_to_json_internal((void*)(uintptr_t)val, visited);
-                // 25.5.2.5 SerializeJSONObject step 8.b: unserializable
-                // members (functions, symbols) are omitted.
-                if (pv.is_discarded()) continue;
-                j[desc->propNames[i]] = std::move(pv);
-            }
-            // Check overflow map
-            void* overflow = *(void**)((char*)p + 16 + desc->numSlots * 8);
-            if (overflow) {
-                TsMap* map = (TsMap*)overflow;
-                TsArray* keys = (TsArray*)map->GetKeys();
-                for (int64_t i = 0; i < keys->Length(); i++) {
-                    uint64_t keyNB = (uint64_t)keys->Get(i);
-                    if (!nanbox_is_ptr(keyNB)) continue;
-                    void* keyPtr = nanbox_to_ptr(keyNB);
-                    if (!ts_is<TsString>(keyPtr)) continue;
-                    TsString* keyStr = (TsString*)keyPtr;
-                    {
-                        const char* kc = keyStr->ToUtf8();
-                        if (kc && (kc[0] == '\x01' ||
-                                   strncmp(kc, "__getter_", 9) == 0 ||
-                                   strncmp(kc, "__setter_", 9) == 0)) continue;
-                    }
-                    TsValue keyTv;
-                    std::memset(&keyTv, 0, sizeof(TsValue));
-                    keyTv.type = ValueType::STRING_PTR;
-                    keyTv.ptr_val = keyStr;
-                    TsValue val = map->Get(keyTv);
-                    if (val.type == ValueType::UNDEFINED) continue;
-                    nlohmann::ordered_json pv = ts_value_to_json(val, visited);
-                    if (pv.is_discarded()) continue;  // function/symbol member
-                    j[keyStr->ToUtf8()] = std::move(pv);
-                }
-            }
-        }
-        visited.erase(p);
-        return j;
-    }
-
-    // TsMap is TsObject-derived, magic at offset 16
-    if (magic_offset16 == TsMap::MAGIC) {
-        if (visited.find(p) != visited.end()) {
-            throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
-        }
-        visited.insert(p);
-        TsMap* map = (TsMap*)p;
-        nlohmann::ordered_json j = nlohmann::ordered_json::object();
-        TsArray* keys = (TsArray*)map->GetKeys();
-        for (int64_t i = 0; i < keys->Length(); ++i) {
-            // keys->Get(i) returns a NaN-boxed value (pointer to TsString)
-            uint64_t keyNB = (uint64_t)keys->Get(i);
-            if (!nanbox_is_ptr(keyNB)) continue;  // JSON only supports string keys
-            void* keyPtr = nanbox_to_ptr(keyNB);
-            if (!ts_is<TsString>(keyPtr)) continue;
-
-            TsString* keyStr = (TsString*)keyPtr;
-            std::string keyStdStr = keyStr->ToUtf8();
-            // Internal storage keys (accessor slots, '\x01' privates/symbols)
-            // are not properties — skip them.
-            if (!keyStdStr.empty() &&
-                (keyStdStr[0] == '\x01' ||
-                 keyStdStr.rfind("__getter_", 0) == 0 ||
-                 keyStdStr.rfind("__setter_", 0) == 0)) continue;
-
-            // Create a TsValue struct for the key to pass to map->Get
-            TsValue keyTv;
-            std::memset(&keyTv, 0, sizeof(TsValue));
-            keyTv.type = ValueType::STRING_PTR;
-            keyTv.ptr_val = keyStr;
-            TsValue val = map->Get(keyTv);
-            if (val.type == ValueType::UNDEFINED) continue;
-
-            nlohmann::ordered_json pv = ts_value_to_json(val, visited);
-            if (pv.is_discarded()) continue;  // function/symbol member
-            j[keyStdStr] = std::move(pv);
-        }
-        visited.erase(p);
-        return j;
-    }
-
-    // ECMA-262 25.5.2.2 SerializeJSONProperty steps 10-11: a callable object
-    // (function/closure) or a Symbol is NOT serializable — the property is
-    // omitted from objects, becomes null in arrays, and makes the top-level
-    // result undefined. Signal with nlohmann's `discarded` sentinel; every
-    // consumer (array/object loops, ts_json_stringify) handles it explicitly
-    // and it never reaches dump().
-    {
-        uint32_t m16sym = ((uintptr_t)p > 0x1000) ? *(uint32_t*)((char*)p + 16) : 0;
-        if (ts_is_callable(p) || magic == 0x53594D42 || m16sym == 0x53594D42) {
-            return nlohmann::ordered_json(nlohmann::detail::value_t::discarded);
-        }
-    }
-
-    // Fallback: unknown object type
-    return nlohmann::ordered_json::object();
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return 0.0;
 }
 
-static nlohmann::ordered_json ts_to_json(void* p) {
-    std::set<void*> visited;
-    return ts_to_json_internal(p, visited);
+// ToString — observable on objects (toString/valueOf are invoked via
+// OrdinaryToPrimitive with the string hint; ts_string_from_value alone reads
+// wrapper data slots directly and would miss a patched toString).
+static TsString* json_tostring_guarded(TsValue* v, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* prim = ts_to_primitive(v, 2);  // hint string
+        TsString* s = (TsString*)ts_string_from_value(prim ? prim : v);
+        ts_pop_exception_handler();
+        return s;
+    }
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return nullptr;
 }
 
-extern TsString* ts_ensure_flat(void* ptr);
-
-// ECMA-262 25.5.2: format a Number value as a JSON property-list key string
-// (used for array-replacer entries and Number wrappers). Integers get no
-// fractional part; other finite numbers use the shortest round-trip form.
-static std::string json_number_key(double d) {
-    // Number::toString, not the JSON number grammar: NaN/Infinity stringify to
-    // their names (these are legal PropertyList keys, e.g. an object with a
-    // "NaN" property).
-    if (std::isnan(d)) return "NaN";
-    if (std::isinf(d)) return d < 0 ? "-Infinity" : "Infinity";
-    double intPart;
-    if (std::modf(d, &intPart) == 0.0 &&
-        d >= -9007199254740992.0 && d <= 9007199254740992.0) {
-        return std::to_string((int64_t)d);
+// IsArray — throws TypeError on a revoked proxy (ES 7.2.2 step 3.a).
+static bool json_isarray_guarded(void* raw, TsValue** errOut) {
+    *errOut = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        bool b = ts_array_isArray(raw);
+        ts_pop_exception_handler();
+        return b;
     }
-    std::ostringstream oss;
-    oss << d;
-    return oss.str();
+    *errOut = ts_get_exception();
+    ts_set_exception(nullptr);
+    return false;
 }
 
-// If `raw` (a heap object pointer) is a Number or String wrapper object
-// (`new Number(x)` / `new String(x)`, stored as an object with a hidden
-// __NumberData / __StringData own slot), return its primitive: kind 1 fills
-// *num, kind 2 fills *str. Returns 0 for any other object. Only own-slot data
-// reads are performed, so no user getters/valueOf are invoked.
-static int json_wrapper_num_or_str(void* raw, double* num, TsString** str) {
-    if (!raw || (uintptr_t)raw <= 0x1000) return 0;
-    {
-        TsValue* v = ts_object_get_property(raw, "__NumberData");
-        if (v) {
-            uint64_t vb = nanbox_from_tsvalue_ptr(v);
-            if (nanbox_is_int32(vb)) { *num = (double)nanbox_to_int32(vb); return 1; }
-            if (nanbox_is_double(vb)) { *num = nanbox_to_double(vb); return 1; }
-        }
-    }
-    {
-        TsValue* v = ts_object_get_property(raw, "__StringData");
-        if (v) {
-            uint64_t vb = nanbox_from_tsvalue_ptr(v);
-            if (nanbox_is_ptr(vb)) {
-                void* sp = nanbox_to_ptr(vb);
-                if (sp && (uintptr_t)sp > 0x1000 &&
-                    *(uint32_t*)sp == TsString::MAGIC) { *str = (TsString*)sp; return 2; }
-            }
-        }
+// ---- Value inspection helpers ----------------------------------------------
+
+static void* json_raw(TsValue* v) {
+    if (!v) return nullptr;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (!nanbox_is_ptr(nb)) return nullptr;
+    void* p = nanbox_to_ptr(nb);
+    return ((uintptr_t)p > 0x1000) ? p : nullptr;
+}
+
+static bool json_is_proxy(void* raw) {
+    if (!raw) return false;
+    if (*(uint32_t*)((char*)raw + 16) != 0x4D415053) return false;  // TsMap
+    return dynamic_cast<TsProxy*>((TsMap*)raw) != nullptr;
+}
+
+// Boxed-primitive wrapper kind for a heap object: 0 = none, 1 = Number,
+// 2 = String, 3 = Boolean, 4 = BigInt. Detection only — no user code runs.
+// Handles BOTH runtime representations: the dedicated TsNumberObject /
+// TsStringObject / TsBooleanObject classes (magic at offset 16) and TsMap /
+// flat-backed objects carrying a hidden __NumberData/__StringData/
+// __BooleanData/__BigIntData own slot. Proxies are never probed.
+static int json_wrapper_kind(void* raw) {
+    if (!raw) return 0;
+    uint32_t m0 = *(uint32_t*)raw;
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 == TsNumberObject::MAGIC) return 1;
+    if (m16 == TsStringObject::MAGIC) return 2;
+    if (m16 == TsBooleanObject::MAGIC) return 3;
+    bool isMapLike = (m16 == 0x4D415053);
+    bool isFlat = (m0 == FLAT_MAGIC);
+    if (!isMapLike && !isFlat) return 0;
+    if (isMapLike && dynamic_cast<TsProxy*>((TsMap*)raw) != nullptr) return 0;
+    static const char* slots[4] = { "__NumberData", "__StringData",
+                                    "__BooleanData", "__BigIntData" };
+    for (int k = 0; k < 4; k++) {
+        TsValue* v = ts_object_get_property(raw, slots[k]);
+        if (!v) continue;
+        uint64_t vb = nanbox_from_tsvalue_ptr(v);
+        if (!nanbox_is_undefined(vb)) return k + 1;
     }
     return 0;
 }
 
-// Format a double as its JSON number form (whole numbers as integers, e.g.
-// 8.5 -> 8.5, 10.0 -> 10). Non-finite values (NaN/Infinity) become JSON null,
-// matching the primitive-number path (nlohmann also dumps these as null).
-static nlohmann::ordered_json json_num_to_json(double d) {
-    if (!std::isfinite(d)) return nullptr;
-    double intPart;
-    if (std::modf(d, &intPart) == 0.0 &&
-        d >= -9007199254740992.0 && d <= 9007199254740992.0) {
-        return (int64_t)d;
-    }
-    return d;
-}
-
-// ECMA-262 25.5.2.2 SerializeJSONProperty step 4: if `p` is a Number/String/
-// Boolean wrapper object (new Number(x) / new String(x) / new Boolean(x)),
-// fill `out` with its primitive JSON form (ToNumber / ToString /
-// [[BooleanData]]) and return true. Handles BOTH runtime representations: the
-// dedicated TsNumberObject/TsStringObject/TsBooleanObject (vtable at 0, magic
-// at offset 16) and TsMap/flat-backed objects carrying a hidden
-// __NumberData/__StringData/__BooleanData own slot. Only own-slot / internal
-// reads are performed (no user getters/valueOf), and a Proxy is never probed.
-static bool json_unwrap_primitive_wrapper(void* p, nlohmann::ordered_json& out) {
-    if (!p || (uintptr_t)p <= 0x1000) return false;
-    uint32_t magic0 = *(uint32_t*)p;
-    uint32_t magic16 = *(uint32_t*)((char*)p + 16);
-
-    // Dedicated wrapper classes.
-    if (magic16 == TsNumberObject::MAGIC) {
-        out = json_num_to_json(((TsNumberObject*)p)->value);
-        return true;
-    }
-    if (magic16 == TsStringObject::MAGIC) {
-        TsString* s = ((TsStringObject*)p)->value;
-        out = s ? std::string(s->ToUtf8()) : std::string();
-        return true;
-    }
-    if (magic16 == TsBooleanObject::MAGIC) {
-        out = ((TsBooleanObject*)p)->value;
-        return true;
-    }
-
-    // TsMap/flat-backed wrappers with a hidden data slot. Only probe map-like
-    // (non-Proxy) or flat objects; a dynamic_cast is only well-defined on the
-    // polymorphic TsMap family, and a Proxy's get trap must not be tripped.
-    bool isMapLike = (magic16 == 0x4D415053);  // TsMap
-    bool isFlat = (magic0 == FLAT_MAGIC);
-    if (!isMapLike && !isFlat) return false;
-    if (isMapLike && dynamic_cast<TsProxy*>((TsObject*)p) != nullptr) return false;
-
-    double wn = 0.0; TsString* ws = nullptr;
-    int wk = json_wrapper_num_or_str(p, &wn, &ws);
-    if (wk == 1) { out = json_num_to_json(wn); return true; }
-    if (wk == 2) { out = ws ? std::string(ws->ToUtf8()) : std::string(); return true; }
-
-    // Boolean wrapper: __BooleanData slot (json_wrapper_num_or_str covers only
-    // Number/String). A plain object without the slot yields boxed undefined,
-    // which fails the bool check below, so this is safe on arbitrary objects.
-    TsValue* bv = ts_object_get_property(p, "__BooleanData");
-    if (bv) {
-        uint64_t bb = nanbox_from_tsvalue_ptr(bv);
-        if (nanbox_is_bool(bb)) { out = nanbox_to_bool(bb); return true; }
+// [[BooleanData]] read (internal slot, not observable).
+static bool json_boolean_data(void* raw) {
+    if (*(uint32_t*)((char*)raw + 16) == TsBooleanObject::MAGIC)
+        return ((TsBooleanObject*)raw)->value;
+    TsValue* v = ts_object_get_property(raw, "__BooleanData");
+    if (v) {
+        uint64_t vb = nanbox_from_tsvalue_ptr(v);
+        if (nanbox_is_bool(vb)) return nanbox_to_bool(vb);
     }
     return false;
 }
 
-// ECMA-262 25.5.2 step 5: compute the `gap` string from the `space` argument.
-//   Number  -> min(10, ToInteger(space)) SPACE code units (empty if < 1)
-//   String  -> first min(10, length) code units of the string
-//   other   -> empty (ignored)
-// Handles nanbox int/double primitives, TsString / cons-string pointers, and
-// Number/String wrapper objects (new Number(x) / new String(x)).
+// ---- Output builders --------------------------------------------------------
+
+// ECMA-262 25.5.2.3 QuoteJSONString over UTF-16 code units. Well-formed
+// stringify (ES2019): lone surrogates escape as \udXXX (lowercase hex); valid
+// pairs and other units pass through as UTF-8.
+static void json_quote_us(const icu::UnicodeString& us, std::string& out) {
+    out.push_back('"');
+    int32_t n = us.length();
+    char buf[8];
+    for (int32_t i = 0; i < n; i++) {
+        char16_t c = us.charAt(i);
+        switch (c) {
+            case 0x22: out += "\\\""; break;
+            case 0x5C: out += "\\\\"; break;
+            case 0x08: out += "\\b";  break;
+            case 0x0C: out += "\\f";  break;
+            case 0x0A: out += "\\n";  break;
+            case 0x0D: out += "\\r";  break;
+            case 0x09: out += "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    std::snprintf(buf, sizeof buf, "\\u%04x", (unsigned)c);
+                    out += buf;
+                } else if (c >= 0xD800 && c <= 0xDBFF) {
+                    if (i + 1 < n) {
+                        char16_t d = us.charAt(i + 1);
+                        if (d >= 0xDC00 && d <= 0xDFFF) {
+                            uint32_t cp = 0x10000u +
+                                (((uint32_t)(c - 0xD800)) << 10) + (d - 0xDC00);
+                            out += (char)(0xF0 | (cp >> 18));
+                            out += (char)(0x80 | ((cp >> 12) & 0x3F));
+                            out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                            out += (char)(0x80 | (cp & 0x3F));
+                            i++;
+                            break;
+                        }
+                    }
+                    std::snprintf(buf, sizeof buf, "\\u%04x", (unsigned)c);
+                    out += buf;
+                } else if (c >= 0xDC00 && c <= 0xDFFF) {
+                    std::snprintf(buf, sizeof buf, "\\u%04x", (unsigned)c);
+                    out += buf;
+                } else if (c < 0x80) {
+                    out += (char)c;
+                } else if (c < 0x800) {
+                    out += (char)(0xC0 | (c >> 6));
+                    out += (char)(0x80 | (c & 0x3F));
+                } else {
+                    out += (char)(0xE0 | (c >> 12));
+                    out += (char)(0x80 | ((c >> 6) & 0x3F));
+                    out += (char)(0x80 | (c & 0x3F));
+                }
+        }
+    }
+    out.push_back('"');
+}
+
+static void json_quote(TsString* str, std::string& out) {
+    if (!str) { out += "\"\""; return; }
+    // NUL-safe: ToUnicodeString() can lazily rebuild from the C-string UTF-8
+    // buffer and truncate at an embedded '\0' (JSON/stringify
+    // value-string-escape-ascii serializes control-char strings).
+    // AppendUtf8 is
+    // length-aware.
+    std::string utf8;
+    str->AppendUtf8(utf8);
+    json_quote_us(icu::UnicodeString::fromUTF8(
+        icu::StringPiece(utf8.data(), (int32_t)utf8.size())), out);
+}
+
+// NUL-safe: keys are stored as std::string of UTF-8 BYTES (length-aware);
+// StringPiece keeps embedded NULs intact.
+static void json_quote_utf8(const std::string& key, std::string& out) {
+    json_quote_us(icu::UnicodeString::fromUTF8(
+        icu::StringPiece(key.data(), (int32_t)key.size())), out);
+}
+
+// Length-aware TsString for a stored key (Create(const char*) truncates at NUL).
+static TsString* json_key_string(const std::string& key) {
+    return TsString::Create(key.data(), key.size());
+}
+
+// ECMA-262 25.5.2.2 step 9: Number serializes via ToString(number); non-finite
+// values become "null".
+static void json_number_out(double d, std::string& out) {
+    if (!std::isfinite(d)) { out += "null"; return; }
+    TsString* s = (TsString*)ts_number_to_string(d, 10);
+    if (s) out += s->ToUtf8();
+    else out += "0";
+}
+
+// ---- Serializer state -------------------------------------------------------
+
+struct JsonSer {
+    std::vector<void*> stack;                 // circular detection (raw ptrs)
+    std::string gap;                          // ES 25.5.2 step 8
+    std::vector<std::string>* propList = nullptr;  // array-replacer PropertyList
+    TsValue* replacer = nullptr;              // callable replacer (boxed)
+};
+
+static bool json_serialize_property(JsonSer& st, const std::string& key,
+                                    TsValue* holderBoxed, TsValue* valueBoxed,
+                                    const std::string& indent, std::string& out);
+
+// ECMA-262 25.5.2.5 SerializeJSONObject
+static void json_serialize_object(JsonSer& st, TsValue* valueBoxed, void* raw,
+                                  const std::string& indent, std::string& out) {
+    if (std::find(st.stack.begin(), st.stack.end(), raw) != st.stack.end())
+        throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
+    st.stack.push_back(raw);
+    const std::string& stepback = indent;
+    std::string ind = indent + st.gap;
+
+    std::vector<std::string> keys;
+    if (st.propList) {
+        keys = *st.propList;
+    } else {
+        TsValue* err = nullptr;
+        TsValue* kv = json_keys_guarded(valueBoxed, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        void* karr = kv ? ts_value_get_object(kv) : nullptr;
+        if (karr && *(uint32_t*)karr == TsArray::MAGIC) {
+            TsArray* ka = (TsArray*)karr;
+            int64_t kn = ka->Length();
+            for (int64_t i = 0; i < kn; i++) {
+                uint64_t knb = (uint64_t)ka->Get(i);
+                if (!nanbox_is_ptr(knb)) continue;
+                void* kp = nanbox_to_ptr(knb);
+                if (!kp || (uintptr_t)kp <= 0x1000) continue;
+                uint32_t km = *(uint32_t*)kp;
+                TsString* ks = nullptr;
+                if (km == TsString::MAGIC) ks = (TsString*)kp;
+                else if (km == 0x434F4E53) ks = ts_ensure_flat(kp);  // cons
+                if (!ks) continue;
+                std::string kstr;
+                ks->AppendUtf8(kstr);  // NUL-safe (ToUtf8 truncates at '\0')
+                // Internal storage keys are not JSON-serializable properties.
+                if (!kstr.empty() &&
+                    (kstr[0] == '\x01' ||
+                     kstr.rfind("__getter_", 0) == 0 ||
+                     kstr.rfind("__setter_", 0) == 0)) continue;
+                keys.push_back(std::move(kstr));
+            }
+        }
+    }
+
+    std::vector<std::string> partial;
+    for (const std::string& k : keys) {
+        TsValue* err = nullptr;
+        TsValue* keyV = ts_value_make_string(json_key_string(k));
+        TsValue* v = json_get_guarded(valueBoxed, keyV, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        std::string sub;
+        if (json_serialize_property(st, k, valueBoxed, v, ind, sub)) {
+            std::string member;
+            json_quote_utf8(k, member);
+            member += ':';
+            if (!st.gap.empty()) member += ' ';
+            member += sub;
+            partial.push_back(std::move(member));
+        }
+    }
+
+    if (partial.empty()) {
+        out += "{}";
+    } else if (st.gap.empty()) {
+        out += '{';
+        for (size_t i = 0; i < partial.size(); i++) {
+            if (i) out += ',';
+            out += partial[i];
+        }
+        out += '}';
+    } else {
+        out += "{\n";
+        for (size_t i = 0; i < partial.size(); i++) {
+            if (i) out += ",\n";
+            out += ind;
+            out += partial[i];
+        }
+        out += '\n';
+        out += stepback;
+        out += '}';
+    }
+    st.stack.pop_back();
+}
+
+// ECMA-262 25.5.2.4 SerializeJSONArray
+static void json_serialize_array(JsonSer& st, TsValue* valueBoxed, void* raw,
+                                 const std::string& indent, std::string& out) {
+    if (std::find(st.stack.begin(), st.stack.end(), raw) != st.stack.end())
+        throw JsonTypeErrorSignal{"Converting circular structure to JSON"};
+    st.stack.push_back(raw);
+    const std::string& stepback = indent;
+    std::string ind = indent + st.gap;
+
+    // LengthOfArrayLike: plain arrays read length directly; anything else
+    // (proxy for an array) does an observable Get("length") + ToLength.
+    int64_t len = 0;
+    if (*(uint32_t*)raw == TsArray::MAGIC || *(uint32_t*)raw == 0x524D4154) {
+        len = (*(uint32_t*)raw == TsArray::MAGIC)
+                  ? ((TsArray*)raw)->Length()
+                  : ((TsRegExpMatchArray*)raw)->Length();
+    } else {
+        TsValue* err = nullptr;
+        TsValue* keyV = ts_value_make_string(TsString::GetInterned("length"));
+        TsValue* lv = json_get_guarded(valueBoxed, keyV, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        double d = json_tonumber_guarded(lv, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        if (!(d > 0)) len = 0;                       // NaN / negative / 0
+        else if (d > 9007199254740991.0) len = 9007199254740991LL;
+        else len = (int64_t)d;
+    }
+
+    std::vector<std::string> partial;
+    for (int64_t i = 0; i < len; i++) {
+        TsValue* err = nullptr;
+        TsValue* elem = json_get_guarded(valueBoxed, ts_value_make_int(i), &err);
+        if (err) throw JsonAbruptCompletion{err};
+        std::string sub;
+        std::string ks = std::to_string(i);
+        bool present = json_serialize_property(st, ks, valueBoxed, elem, ind, sub);
+        // 25.5.2.4 step 8.b: unserializable elements become "null".
+        partial.push_back(present ? std::move(sub) : std::string("null"));
+    }
+
+    if (partial.empty()) {
+        out += "[]";
+    } else if (st.gap.empty()) {
+        out += '[';
+        for (size_t i = 0; i < partial.size(); i++) {
+            if (i) out += ',';
+            out += partial[i];
+        }
+        out += ']';
+    } else {
+        out += "[\n";
+        for (size_t i = 0; i < partial.size(); i++) {
+            if (i) out += ",\n";
+            out += ind;
+            out += partial[i];
+        }
+        out += '\n';
+        out += stepback;
+        out += ']';
+    }
+    st.stack.pop_back();
+}
+
+// ECMA-262 25.5.2.2 SerializeJSONProperty. `valueBoxed` is Get(holder, key),
+// performed by the caller. Returns false when the value is unserializable
+// (undefined / function / symbol) — the JSON "absent" completion.
+static bool json_serialize_property(JsonSer& st, const std::string& key,
+                                    TsValue* holderBoxed, TsValue* valueBoxed,
+                                    const std::string& indent, std::string& out) {
+    if (!valueBoxed) valueBoxed = ts_value_make_undefined();
+
+    // Step 2: if Type(value) is Object or BigInt, Get(value, "toJSON") and,
+    // if callable, value = Call(toJSON, value, [key]). Strings and Symbols
+    // are excluded (not Objects); BigInt primitives ARE included (the BigInt
+    // proposal allows BigInt receivers for toJSON).
+    {
+        void* raw = json_raw(valueBoxed);
+        bool eligible = false;
+        if (raw) {
+            uint32_t m0 = *(uint32_t*)raw;
+            if (m0 != TsString::MAGIC && m0 != 0x434F4E53 /*cons*/ &&
+                m0 != 0x53594D42 /*symbol*/) {
+                eligible = true;
+            }
+        }
+        if (eligible) {
+            TsValue* err = nullptr;
+            TsValue* tjKey = ts_value_make_string(TsString::GetInterned("toJSON"));
+            TsValue* tj = json_get_guarded(valueBoxed, tjKey, &err);
+            if (err) throw JsonAbruptCompletion{err};
+            void* tjRaw = json_raw(tj);
+            if (tjRaw && ts_is_callable(tjRaw)) {
+                TsValue* keyV = ts_value_make_string(json_key_string(key));
+                TsValue* r = json_call_guarded_1(tj, valueBoxed, keyV, &err);
+                if (err) throw JsonAbruptCompletion{err};
+                valueBoxed = r ? r : ts_value_make_undefined();
+            }
+        }
+    }
+
+    // Step 3: function replacer — value = Call(replacer, holder, [key, value]).
+    // Runs for EVERY property (even undefined values), AFTER toJSON.
+    if (st.replacer) {
+        TsValue* err = nullptr;
+        TsValue* keyV = ts_value_make_string(json_key_string(key));
+        TsValue* r = json_call_guarded_2(st.replacer, holderBoxed, keyV,
+                                         valueBoxed, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        valueBoxed = r ? r : ts_value_make_undefined();
+    }
+
+    // Step 4: unwrap Number/String/Boolean/BigInt wrapper objects. ToNumber /
+    // ToString are OBSERVABLE (valueOf/toString are invoked and may throw).
+    {
+        void* raw = json_raw(valueBoxed);
+        int wk = raw ? json_wrapper_kind(raw) : 0;
+        if (wk == 1) {
+            TsValue* err = nullptr;
+            double d = json_tonumber_guarded(valueBoxed, &err);
+            if (err) throw JsonAbruptCompletion{err};
+            valueBoxed = ts_value_make_double(d);
+        } else if (wk == 2) {
+            TsValue* err = nullptr;
+            TsString* s = json_tostring_guarded(valueBoxed, &err);
+            if (err) throw JsonAbruptCompletion{err};
+            valueBoxed = ts_value_make_string(s ? s : TsString::Create(""));
+        } else if (wk == 3) {
+            valueBoxed = ts_value_make_bool(json_boolean_data(raw));
+        } else if (wk == 4) {
+            // [[BigIntData]] -> BigInt -> step 10 TypeError (no user code runs).
+            throw JsonTypeErrorSignal{"Do not know how to serialize a BigInt"};
+        }
+    }
+
+    // Steps 5-12: emit by final type.
+    uint64_t nb = nanbox_from_tsvalue_ptr(valueBoxed);
+    if (nanbox_is_undefined(nb)) return false;
+    if (nanbox_is_null(nb)) { out += "null"; return true; }
+    if (nanbox_is_bool(nb)) { out += nanbox_to_bool(nb) ? "true" : "false"; return true; }
+    if (nanbox_is_int32(nb)) { json_number_out((double)nanbox_to_int32(nb), out); return true; }
+    if (nanbox_is_double(nb)) { json_number_out(nanbox_to_double(nb), out); return true; }
+    if (!nanbox_is_ptr(nb)) return false;
+
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw || (uintptr_t)raw <= 0x1000) return false;
+    uint32_t m0 = *(uint32_t*)raw;
+
+    if (m0 == TsString::MAGIC) { json_quote((TsString*)raw, out); return true; }
+    if (m0 == 0x434F4E53) { json_quote(ts_ensure_flat(raw), out); return true; }
+    if (m0 == 0x42494749) {  // TsBigInt — step 10
+        throw JsonTypeErrorSignal{"Do not know how to serialize a BigInt"};
+    }
+    if (m0 == 0x53594D42) return false;              // Symbol — unserializable
+    if (ts_is_callable(raw)) return false;           // callable — unserializable
+
+    // Revoked proxy: IsArray throws TypeError (surface via signal).
+    if (json_is_proxy(raw)) {
+        TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)raw);
+        if (px && px->revoked) throw JsonRevokedProxyError{};
+    }
+
+    {
+        TsValue* err = nullptr;
+        bool isArr = json_isarray_guarded(raw, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        if (isArr) {
+            json_serialize_array(st, valueBoxed, raw, indent, out);
+            return true;
+        }
+    }
+
+    // Date without a reachable toJSON (step 2 already ran): ISO string, matching
+    // Date.prototype.toJSON.
+    if (m0 == TsDate::MAGIC) {
+        json_quote(((TsDate*)raw)->ToISOString(), out);
+        return true;
+    }
+    // RegExp: ordinary object with no own enumerable properties.
+    if (m0 == TsRegExp::MAGIC) { out += "{}"; return true; }
+
+    json_serialize_object(st, valueBoxed, raw, indent, out);
+    return true;
+}
+
+// ---- Replacer PropertyList (array replacer) ---------------------------------
+
+// ECMA-262 25.5.2 step 4.b: build the PropertyList. String and Number
+// elements contribute directly; String/Number WRAPPER objects contribute via
+// an observable ToString (abrupt completions propagate). Elements are read
+// with observable Gets (proxy replacer arrays route their traps). Duplicates
+// are dropped, order preserved.
+static bool json_build_property_list(void* replacer, std::vector<std::string>& keys) {
+    if (!replacer) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)replacer);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p || (uintptr_t)p <= 0x1000) return false;
+
+    // IsArray(replacer) on a revoked Proxy throws a TypeError.
+    if (*(uint32_t*)((char*)p + 16) == 0x4D415053) {
+        if (TsProxy* px = dynamic_cast<TsProxy*>((TsMap*)p)) {
+            if (px->revoked) throw JsonRevokedProxyError{};
+        }
+    }
+    {
+        TsValue* err = nullptr;
+        bool isArr = json_isarray_guarded(p, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        if (!isArr) return false;
+    }
+
+    TsValue* rb = (TsValue*)replacer;
+    int64_t len = 0;
+    if (*(uint32_t*)p == TsArray::MAGIC) {
+        len = ((TsArray*)p)->Length();
+    } else {
+        TsValue* err = nullptr;
+        TsValue* keyV = ts_value_make_string(TsString::GetInterned("length"));
+        TsValue* lv = json_get_guarded(rb, keyV, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        double d = json_tonumber_guarded(lv, &err);
+        if (err) throw JsonAbruptCompletion{err};
+        if (!(d > 0)) len = 0;
+        else if (d > 9007199254740991.0) len = 9007199254740991LL;
+        else len = (int64_t)d;
+    }
+
+    std::set<std::string> seen;
+    for (int64_t i = 0; i < len; i++) {
+        TsValue* err = nullptr;
+        TsValue* e = json_get_guarded(rb, ts_value_make_int(i), &err);
+        if (err) throw JsonAbruptCompletion{err};
+        if (!e) continue;
+        uint64_t enb = nanbox_from_tsvalue_ptr(e);
+        std::string key;
+        bool have = false;
+        if (nanbox_is_int32(enb)) {
+            TsString* s = (TsString*)ts_number_to_string((double)nanbox_to_int32(enb), 10);
+            if (s) { key = s->ToUtf8(); have = true; }
+        } else if (nanbox_is_double(enb)) {
+            TsString* s = (TsString*)ts_number_to_string(nanbox_to_double(enb), 10);
+            if (s) { key = s->ToUtf8(); have = true; }
+        } else if (nanbox_is_ptr(enb)) {
+            void* ep = nanbox_to_ptr(enb);
+            if (ep && (uintptr_t)ep > 0x1000) {
+                uint32_t m0 = *(uint32_t*)ep;
+                if (m0 == TsString::MAGIC) {
+                    ((TsString*)ep)->AppendUtf8(key); have = true;
+                } else if (m0 == 0x434F4E53) {
+                    TsString* f = ts_ensure_flat(ep);
+                    if (f) { f->AppendUtf8(key); have = true; }
+                } else {
+                    int wk = json_wrapper_kind(ep);
+                    if (wk == 1 || wk == 2) {
+                        // 4.b.iii.3: item = ? ToString(v) — observable.
+                        TsString* s = json_tostring_guarded(e, &err);
+                        if (err) throw JsonAbruptCompletion{err};
+                        if (s) { s->AppendUtf8(key); have = true; }
+                    }
+                }
+            }
+        }
+        if (have && seen.insert(key).second) keys.push_back(std::move(key));
+    }
+    return true;
+}
+
+// ---- space -> gap -----------------------------------------------------------
+
+// ECMA-262 25.5.2 steps 5-8. Number/String wrapper objects convert via
+// OBSERVABLE ToNumber/ToString (space-number-object / space-string-object).
 static std::string json_compute_gap(void* space) {
     if (!space) return "";
-    uint64_t nb = (uint64_t)(uintptr_t)space;
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)space);
 
     double num = 0.0;
     bool isNum = false;
@@ -548,36 +764,36 @@ static std::string json_compute_gap(void* space) {
 
     if (nanbox_is_int32(nb)) { num = (double)nanbox_to_int32(nb); isNum = true; }
     else if (nanbox_is_double(nb)) { num = nanbox_to_double(nb); isNum = true; }
-    else if (nanbox_is_bool(nb) || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
-        return "";
-    } else if (nanbox_is_ptr(nb)) {
+    else if (nanbox_is_ptr(nb)) {
         void* p = nanbox_to_ptr(nb);
-        if (!p) return "";
-        uint32_t magic0 = *(uint32_t*)p;
-        uint32_t magic16 = ((uintptr_t)p > 0x1000) ? *(uint32_t*)((char*)p + 16) : 0;
-        if (magic0 == TsString::MAGIC) {
+        if (!p || (uintptr_t)p <= 0x1000) return "";
+        uint32_t m0 = *(uint32_t*)p;
+        if (m0 == TsString::MAGIC) {
             str = (TsString*)p;
-        } else if (magic0 == 0x434F4E53) {  // TsConsString
+        } else if (m0 == 0x434F4E53) {
             str = ts_ensure_flat(p);
-        } else if (magic16 == TsNumberObject::MAGIC) {
-            num = ((TsNumberObject*)p)->value; isNum = true;
-        } else if (magic16 == TsStringObject::MAGIC) {
-            str = ((TsStringObject*)p)->value;
         } else {
-            // new Number(x) / new String(x) wrapper objects (hidden data slot)
-            double wn = 0.0; TsString* ws = nullptr;
-            int wk = json_wrapper_num_or_str(p, &wn, &ws);
-            if (wk == 1) { num = wn; isNum = true; }
-            else if (wk == 2) { str = ws; }
-            else return "";  // any other object type: ignored
+            int wk = json_wrapper_kind(p);
+            if (wk == 1) {
+                TsValue* err = nullptr;
+                num = json_tonumber_guarded((TsValue*)space, &err);
+                if (err) throw JsonAbruptCompletion{err};
+                isNum = true;
+            } else if (wk == 2) {
+                TsValue* err = nullptr;
+                str = json_tostring_guarded((TsValue*)space, &err);
+                if (err) throw JsonAbruptCompletion{err};
+            } else {
+                return "";  // any other object: ignored
+            }
         }
     } else {
-        return "";
+        return "";  // undefined / null / bool
     }
 
     if (isNum) {
         if (std::isnan(num)) num = 0.0;
-        long n = (long)num;  // ToInteger truncates toward zero
+        long n = (long)num;  // ToIntegerOrInfinity truncates toward zero
         if (n < 1) return "";
         if (n > 10) n = 10;
         return std::string((size_t)n, ' ');
@@ -594,144 +810,6 @@ static std::string json_compute_gap(void* space) {
     return "";
 }
 
-// Custom pretty-printer over a fully-materialized nlohmann tree, using an
-// arbitrary `gap` string for indentation (nlohmann::dump only supports a
-// single repeated fill CHARACTER, so it cannot emit e.g. "\t" or "--"). For a
-// numeric space the gap is N spaces, producing output byte-identical to
-// nlohmann::dump(N). Scalars delegate to nlohmann so number/string escaping
-// stays consistent with the compact path.
-static void json_pp(const nlohmann::ordered_json& j, const std::string& gap,
-                    const std::string& curIndent, std::string& out) {
-    if (j.is_object()) {
-        if (j.empty()) { out += "{}"; return; }
-        std::string childIndent = curIndent + gap;
-        out += "{\n";
-        bool first = true;
-        for (auto it = j.begin(); it != j.end(); ++it) {
-            if (!first) out += ",\n";
-            first = false;
-            out += childIndent;
-            out += nlohmann::ordered_json(it.key()).dump();
-            out += ": ";
-            json_pp(it.value(), gap, childIndent, out);
-        }
-        out += "\n";
-        out += curIndent;
-        out += "}";
-    } else if (j.is_array()) {
-        if (j.empty()) { out += "[]"; return; }
-        std::string childIndent = curIndent + gap;
-        out += "[\n";
-        bool first = true;
-        for (const auto& e : j) {
-            if (!first) out += ",\n";
-            first = false;
-            out += childIndent;
-            json_pp(e, gap, childIndent, out);
-        }
-        out += "\n";
-        out += curIndent;
-        out += "]";
-    } else {
-        out += j.dump();
-    }
-}
-
-// ECMA-262 25.5.2 step 4: build the PropertyList from an array replacer.
-// Returns true if `replacer` is an Array (so key filtering applies), filling
-// `keys` with the ordered, de-duplicated string keys. Only String and Number
-// elements (and their wrapper objects) contribute a key, per spec.
-static bool json_build_property_list(void* replacer, std::vector<std::string>& keys) {
-    if (!replacer) return false;
-    uint64_t nb = (uint64_t)(uintptr_t)replacer;
-    if (!nanbox_is_ptr(nb)) return false;
-    void* p = nanbox_to_ptr(nb);
-    if (!p || (uintptr_t)p <= 0x1000) return false;
-    // ECMA-262 25.5.2 step 4.b: IsArray(replacer) on a revoked Proxy throws a
-    // TypeError. Signal via the C++ exception the top-level catch converts.
-    if (*(uint32_t*)((char*)p + 16) == 0x4D415053) {  // TsMap (Proxy subclass)
-        if (TsProxy* px = dynamic_cast<TsProxy*>((TsObject*)p)) {
-            if (px->revoked) throw JsonRevokedProxyError{};
-        }
-    }
-    if (*(uint32_t*)p != TsArray::MAGIC) return false;
-
-    TsArray* arr = (TsArray*)p;
-    std::set<std::string> seen;
-    int64_t len = arr->Length();
-    for (int64_t i = 0; i < len; ++i) {
-        uint64_t e = (uint64_t)arr->Get(i);
-        std::string key;
-        bool have = false;
-        if (nanbox_is_int32(e)) { key = std::to_string(nanbox_to_int32(e)); have = true; }
-        else if (nanbox_is_double(e)) { key = json_number_key(nanbox_to_double(e)); have = true; }
-        else if (nanbox_is_ptr(e)) {
-            void* ep = nanbox_to_ptr(e);
-            if (ep && (uintptr_t)ep > 0x1000) {
-                uint32_t m0 = *(uint32_t*)ep;
-                uint32_t m16 = *(uint32_t*)((char*)ep + 16);
-                if (m0 == TsString::MAGIC) { key = ((TsString*)ep)->ToUtf8(); have = true; }
-                else if (m0 == 0x434F4E53) {
-                    TsString* f = ts_ensure_flat(ep);
-                    if (f) { key = f->ToUtf8(); have = true; }
-                } else if (m16 == TsStringObject::MAGIC) {
-                    TsString* v = ((TsStringObject*)ep)->value;
-                    if (v) { key = v->ToUtf8(); have = true; }
-                } else if (m16 == TsNumberObject::MAGIC) {
-                    key = json_number_key(((TsNumberObject*)ep)->value); have = true;
-                } else {
-                    // new Number(x) / new String(x) wrapper objects carry a
-                    // hidden __NumberData / __StringData own slot. Only probe
-                    // flat objects and (non-Proxy) TsMap-backed objects — a
-                    // dynamic_cast is only well-defined on the polymorphic
-                    // TsMap family, and Proxies must not have a get trap tripped.
-                    bool isMapLike = (m16 == 0x4D415053);
-                    bool isFlat = (m0 == FLAT_MAGIC);
-                    bool isProxy = isMapLike &&
-                        (dynamic_cast<TsProxy*>((TsObject*)ep) != nullptr);
-                    if ((isFlat || isMapLike) && !isProxy) {
-                        double wn = 0.0; TsString* ws = nullptr;
-                        int wk = json_wrapper_num_or_str(ep, &wn, &ws);
-                        if (wk == 1) { key = json_number_key(wn); have = true; }
-                        else if (wk == 2 && ws) { key = ws->ToUtf8(); have = true; }
-                    }
-                }
-            }
-        }
-        if (have && seen.insert(key).second) keys.push_back(key);
-    }
-    return true;
-}
-
-// Recursively restrict every object in the tree to the PropertyList `keys`,
-// emitting members in list order (ECMA-262 25.5.2 SerializeJSONObject with a
-// PropertyList). Applies at every nesting level, including objects inside
-// arrays.
-static nlohmann::ordered_json json_apply_property_list(
-        const nlohmann::ordered_json& j, const std::vector<std::string>& keys) {
-    if (j.is_object()) {
-        nlohmann::ordered_json out = nlohmann::ordered_json::object();
-        for (const std::string& k : keys) {
-            auto it = j.find(k);
-            if (it != j.end()) out[k] = json_apply_property_list(it.value(), keys);
-        }
-        return out;
-    }
-    if (j.is_array()) {
-        nlohmann::ordered_json out = nlohmann::ordered_json::array();
-        for (const auto& e : j) out.push_back(json_apply_property_list(e, keys));
-        return out;
-    }
-    return j;
-}
-
-// JS exception machinery (defined elsewhere in the runtime). Declared at file
-// scope per runtime-safety rules (block-scope extern "C" is illegal).
-extern "C" void ts_throw(TsValue* err);
-extern "C" void* ts_error_create_typed(const char* type, const char* message);
-extern "C" TsValue* ts_value_make_undefined();
-extern "C" TsValue* ts_value_make_double(double d);
-
 extern "C" {
     void* ts_json_parse(void* json_str) {
         if (!json_str) {
@@ -745,8 +823,12 @@ extern "C" {
         // ToUtf8'd -> access violation. Coerce to its string form; an unparseable
         // result ("undefined", "true" is valid -> true) surfaces below as a
         // SyntaxError via the parse step.
-        extern void* ts_string_from_value(TsValue* val);
-        TsString* s = (TsString*)ts_string_from_value((TsValue*)json_str);
+        // ToString(object) is OBSERVABLE (OrdinaryToPrimitive invokes user
+        // toString/valueOf; abrupt completions propagate via ts_throw before
+        // any non-POD local is constructed in this frame) —
+        // JSON/parse/text-object and text-object-abrupt.
+        TsValue* prim = ts_to_primitive((TsValue*)json_str, 2);
+        TsString* s = (TsString*)ts_string_from_value(prim ? prim : (TsValue*)json_str);
         if (!s) {
             ts_throw((TsValue*)ts_error_create_typed("SyntaxError", "Unexpected token in JSON"));
             return nullptr;
@@ -768,6 +850,18 @@ extern "C" {
                     return (void*)ts_value_make_double(-0.0);
             }
         }
+        // ECMA-262 25.5.1 / ECMA-404: U+FEFF (BOM) is NOT JSONWhitespace —
+        // "﻿1234" must be a SyntaxError. nlohmann silently skips a
+        // leading UTF-8 BOM (EF BB BF), so reject it here (test262
+        // JSON/parse/15.12.1.1-0-6).
+        {
+            const unsigned char* b = (const unsigned char*)s->ToUtf8();
+            if (b && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) {
+                ts_throw((TsValue*)ts_error_create_typed(
+                    "SyntaxError", "Unexpected token \\ufeff in JSON"));
+                return nullptr;
+            }
+        }
         nlohmann::ordered_json j;
         try {
             j = nlohmann::ordered_json::parse(s->ToUtf8());
@@ -785,58 +879,56 @@ extern "C" {
         return (void*)nanbox_from_tagged(val);
     }
 
+    // ECMA-262 25.5.2 JSON.stringify ( value [ , replacer [ , space ] ] ).
+    // Direct spec-order serializer; see SerializeJSONProperty above.
+    // NOTE: a C-level nullptr `obj` is NOT undefined here — internal callers
+    // (IPC serialization, legacy paths) pass nullptr for JS null and expect
+    // the string "null" back.
     void* ts_json_stringify(void* obj, void* replacer, void* space) {
-        // ECMA-262 25.5.2 steps 11-12 via SerializeJSONProperty step 11:
-        // JSON.stringify(undefined), a bare function, or a Symbol at the top
-        // level returns undefined (NOT the string "null" / "{}").
-        // NOTE: a C-level nullptr is NOT undefined here — internal callers
-        // (util.isDeepStrictEqual, legacy paths) pass nullptr for JS null and
-        // expect the string "null" back; only a genuine NANBOX_UNDEFINED input
-        // takes the undefined path.
-        if (obj && nanbox_is_undefined((uint64_t)(uintptr_t)obj))
-            return ts_value_make_undefined();
         try {
-            nlohmann::ordered_json j = ts_to_json(obj);
-            if (j.is_discarded()) return ts_value_make_undefined();
+            JsonSer st;
+            std::vector<std::string> plist;
 
-            // ECMA-262 25.5.2 step 4: an Array replacer is a PropertyList that
-            // filters/orders object keys at EVERY nesting level (not just the
-            // top). A function replacer is not yet supported and is ignored.
+            // Step 4: replacer — callable => ReplacerFunction; array (incl.
+            // proxy-for-array) => PropertyList.
             if (replacer) {
-                std::vector<std::string> keys;
-                if (json_build_property_list(replacer, keys)) {
-                    j = json_apply_property_list(j, keys);
+                uint64_t rnb = nanbox_from_tsvalue_ptr((TsValue*)replacer);
+                if (nanbox_is_ptr(rnb)) {
+                    void* rp = nanbox_to_ptr(rnb);
+                    if (rp && (uintptr_t)rp > 0x1000) {
+                        if (ts_is_callable(rp)) {
+                            st.replacer = (TsValue*)replacer;
+                        } else if (json_build_property_list(replacer, plist)) {
+                            st.propList = &plist;
+                        }
+                    }
                 }
             }
 
-            // ECMA-262 25.5.2 step 5-6: derive the indentation gap from `space`
-            // (number clamped to 0..10 spaces; string truncated to 10 code
-            // units). Empty gap => compact output.
-            std::string gap = json_compute_gap(space);
+            // Steps 5-8: gap from space.
+            st.gap = json_compute_gap(space);
 
-            std::string s;
-            if (!gap.empty()) {
-                json_pp(j, gap, "", s);
-            } else {
-                s = j.dump();
-            }
-            return TsString::Create(s.c_str());
+            // Steps 9-11: wrapper = { "": value }; serialize the empty key.
+            TsValue* valueBoxed = obj ? (TsValue*)obj : ts_value_make_null();
+            TsMap* wrapper = TsMap::Create();
+            wrapper->Set(TsString::Create(""), nanbox_to_tagged(valueBoxed));
+            TsValue* wrapperBoxed = ts_value_make_object(wrapper);
+
+            std::string out;
+            bool present = json_serialize_property(st, "", wrapperBoxed,
+                                                   valueBoxed, "", out);
+            if (!present) return ts_value_make_undefined();
+            return TsString::Create(out.c_str());
         } catch (const JsonAbruptCompletion& a) {
             // C++ unwinding cleaned the recursion frames; re-throw the
             // ORIGINAL user error from this clean frame.
             ts_throw(a.error);
             return TsString::Create("null");  // unreachable
         } catch (const JsonRevokedProxyError&) {
-            // The C++ exception unwound the nlohmann/std frames; this catch
-            // frame is clean, so the ts_throw longjmp is safe here.
-            extern void* ts_error_create_typed(const char* type, const char* message);
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot serialize a revoked Proxy with JSON.stringify"));
             return TsString::Create("null");  // unreachable
         } catch (const JsonTypeErrorSignal& s) {
-            // Circular structure or BigInt: raise a JS TypeError from this
-            // clean frame (the swallowing catch(...) below returned "null").
-            extern void* ts_error_create_typed(const char* type, const char* message);
             ts_throw((TsValue*)ts_error_create_typed("TypeError", s.msg));
             return TsString::Create("null");  // unreachable
         } catch (...) {
