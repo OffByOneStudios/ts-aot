@@ -1008,7 +1008,7 @@ extern "C" {
         }
     }
 
-    static void arraylike_writeback(TsArray* arr) {
+    static void arraylike_writeback(TsArray* arr, bool writeLength = true) {
         if (!arr) return;
         void* orig = arr->originalReceiver;
         if (!orig || orig == (void*)arr) return;
@@ -1021,8 +1021,13 @@ extern "C" {
             TsValue* v = arr->GetElementBoxed((size_t)i);
             ts_object_set_dynamic(origBoxed, ts_value_make_int(i), v);
         }
-        TsValue* lk = ts_value_make_string(TsString::GetInterned("length"));
-        ts_object_set_dynamic(origBoxed, lk, ts_value_make_int(n));
+        // Methods whose spec algorithm never performs Set(O, "length", ...)
+        // (e.g. sort, ES 23.1.3.30) must not fabricate one — a generic
+        // receiver's bogus length (obj.length = -4294967294) stays untouched.
+        if (writeLength) {
+            TsValue* lk = ts_value_make_string(TsString::GetInterned("length"));
+            ts_object_set_dynamic(origBoxed, lk, ts_value_make_int(n));
+        }
     }
 
     // LengthOfArrayLike(O) for a generic receiver WITHOUT materializing any
@@ -1407,6 +1412,103 @@ extern "C" {
         }
         if (!ok) return nullptr;
         return ts_value_make_object(raw);
+    }
+
+    // 23.1.3.17 indexOf / 23.1.3.20 lastIndexOf / 23.1.3.16 includes on a
+    // plain array-like DATA receiver — runs the spec loop directly on the
+    // object (no O(len) temp materialization, so a length near 2^53-1 works).
+    // A bounded window is scanned linearly; if exhausted (huge sparse
+    // receiver) the scan falls back to the receiver's OWN keys — for plain
+    // data objects HasProperty on an absent index is unobservable, so this is
+    // spec-equivalent.
+    extern "C" bool ts_value_strict_eq_bool(TsValue* lhs, TsValue* rhs);
+    TsValue* ts_object_keys(TsValue* obj);
+    static bool al_search_eq(TsValue* elem, TsValue* search, bool sameValueZero) {
+        if (sameValueZero) {
+            // SameValueZero: NaN matches NaN.
+            uint64_t snb = search ? nanbox_from_tsvalue_ptr(search) : (uint64_t)NANBOX_UNDEFINED;
+            if (nanbox_is_number(snb)) {
+                double sd = nanbox_to_number(snb);
+                if (sd != sd) {
+                    uint64_t enb = elem ? nanbox_from_tsvalue_ptr(elem) : 0;
+                    return nanbox_is_number(enb) && nanbox_to_number(enb) != nanbox_to_number(enb);
+                }
+            }
+        }
+        return ts_value_strict_eq_bool(elem ? elem : ts_value_make_undefined(),
+                                       search ? search : ts_value_make_undefined());
+    }
+    static TsValue* arraylike_search(TsValue* O, int argc, TsValue** argv, int kind) {
+        // kind: 0 = indexOf, 1 = lastIndexOf, 2 = includes
+        const bool isLast = (kind == 1);
+        const bool isIncludes = (kind == 2);
+        double len = al_to_length(O);
+        if (len == 0) return isIncludes ? ts_value_make_bool(false) : ts_value_make_int(-1);
+        TsValue* search = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        bool searchIsUndef = !search || nanbox_is_undefined(nanbox_from_tsvalue_ptr(search));
+        double start;
+        if (isLast) {
+            double n = (argc >= 2 && argv && argv[1]) ? al_to_integer_or_infinity(argv[1])
+                                                       : len - 1;
+            if (std::isinf(n) && n < 0) return ts_value_make_int(-1);
+            start = (n >= 0) ? ((n < len - 1) ? n : len - 1) : len + n;
+            if (start < 0) return ts_value_make_int(-1);
+        } else {
+            double n = (argc >= 2 && argv && argv[1]) ? al_to_integer_or_infinity(argv[1]) : 0;
+            if (std::isinf(n)) {
+                if (n > 0) return isIncludes ? ts_value_make_bool(false) : ts_value_make_int(-1);
+                n = 0;
+            }
+            start = (n >= 0) ? n : len + n;
+            if (start < 0) start = 0;
+            if (start >= len) return isIncludes ? ts_value_make_bool(false) : ts_value_make_int(-1);
+        }
+        const double kMaxLinear = 1000000;
+        double steps = 0;
+        for (double k = start; isLast ? (k >= 0) : (k < len); k += (isLast ? -1 : 1)) {
+            if (++steps > kMaxLinear) {
+                // Huge sparse receiver: scan OWN numeric keys in the remaining
+                // range instead (present keys are the only possible matches for
+                // a defined search value; `includes(undefined)` matches any
+                // absent index, of which a >1e6-element sparse span has some).
+                if (isIncludes && searchIsUndef) return ts_value_make_bool(true);
+                TsValue* keysBoxed = ts_object_keys(O);
+                void* keysRaw = keysBoxed ? ts_value_get_object(keysBoxed) : nullptr;
+                if (!keysRaw || *(uint32_t*)keysRaw != 0x41525259) break;
+                TsArray* keys = (TsArray*)keysRaw;
+                std::vector<double> idxs;
+                for (int64_t i = 0; i < keys->Length(); i++) {
+                    TsValue* kv = (TsValue*)keys->GetElementBoxed((size_t)i);
+                    void* ks = kv ? ts_value_get_string(kv) : nullptr;
+                    if (!ks) continue;
+                    const char* s = ((TsString*)ks)->ToUtf8();
+                    if (!s || !*s || s[0] < '0' || s[0] > '9') continue;
+                    char* endp = nullptr;
+                    double idx = strtod(s, &endp);
+                    if (endp == s || (endp && *endp)) continue;
+                    bool inRange = isLast ? (idx <= start) : (idx >= start && idx < len);
+                    if (inRange) idxs.push_back(idx);
+                }
+                std::sort(idxs.begin(), idxs.end());
+                if (isLast) std::reverse(idxs.begin(), idxs.end());
+                for (double idx : idxs) {
+                    TsValue* elem = al_get(O, idx);
+                    if (al_search_eq(elem, search, isIncludes))
+                        return isIncludes ? ts_value_make_bool(true)
+                                          : ts_value_make_double(idx);
+                }
+                return isIncludes ? ts_value_make_bool(false) : ts_value_make_int(-1);
+            }
+            if (isIncludes) {
+                TsValue* elem = al_get(O, k);  // absent reads as undefined
+                if (al_search_eq(elem, search, true)) return ts_value_make_bool(true);
+            } else {
+                if (!al_has(O, k)) continue;
+                if (al_search_eq(al_get(O, k), search, false))
+                    return ts_value_make_double(k);
+            }
+        }
+        return isIncludes ? ts_value_make_bool(false) : ts_value_make_int(-1);
     }
 
     // 23.1.3.23 Array.prototype.push
@@ -1812,9 +1914,17 @@ extern "C" {
     }
 
     TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec loop directly on the object
+        // (ES 23.1.3.17) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_search(O, argc, argv, 0);
+        }
         TsArray* arr = require_array_or_throw(ctx, "indexOf");
         if (!arr) return ts_value_make_int(-1);
-        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
+        // ES 23.1.3.17: an omitted searchElement is undefined — [undefined]
+        // .indexOf() must return 0, not -1.
+        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0]
+                                            : (int64_t)(uintptr_t)ts_value_make_undefined();
         int64_t len = arr->Length();
         int64_t fromIndex = parseFromIndex(argc, argv, len, false);
         if (fromIndex < 0) fromIndex = 0;
@@ -1826,9 +1936,16 @@ extern "C" {
         return ts_value_make_int(arr->IndexOf(value, (size_t)fromIndex));
     }
     TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec loop directly on the object
+        // (ES 23.1.3.16) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_search(O, argc, argv, 2);
+        }
         TsArray* arr = require_array_or_throw(ctx, "includes");
         if (!arr) return ts_value_make_bool(false);
-        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
+        // ES 23.1.3.16: omitted searchElement is undefined.
+        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0]
+                                            : (int64_t)(uintptr_t)ts_value_make_undefined();
         int64_t len = arr->Length();
         int64_t fromIndex = parseFromIndex(argc, argv, len, false);
         if (fromIndex < 0) fromIndex = 0;
@@ -2614,7 +2731,7 @@ extern "C" {
             }
         }
         void* result = ts_array_sort(arr, comparator);
-        arraylike_writeback(arr);
+        arraylike_writeback(arr, /*writeLength=*/false);
         // ES 23.1.3.30 step 4: returns the RECEIVER (original array-like).
         if (arr->originalReceiver && arr->originalReceiver != (void*)arr)
             return ts_value_make_object(arr->originalReceiver);
@@ -2772,10 +2889,16 @@ extern "C" {
             extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
             extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
             TsValue* keyB = ts_value_make_int(k);
-            TsValue* elem = ts_object_has_prop(objB, keyB)
-                                ? ts_object_get_dynamic(objB, keyB)
-                                : ts_value_make_undefined();
-            ts_array_push(result, (void*)(elem ? elem : ts_value_make_undefined()));
+            // ES 23.1.3.2 step 5.c.iv: only a PRESENT index (own or inherited,
+            // HasProperty-aware) is copied — an absent index stays a HOLE in
+            // the result (b.hasOwnProperty(k) must be false), not an own
+            // undefined.
+            if (ts_object_has_prop(objB, keyB)) {
+                TsValue* elem = ts_object_get_dynamic(objB, keyB);
+                ts_array_push(result, (void*)(elem ? elem : ts_value_make_undefined()));
+            } else {
+                result->SetLength((size_t)result->Length() + 1);  // append hole
+            }
         }
     }
 
@@ -2915,9 +3038,16 @@ extern "C" {
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
+        // Array-LIKE data receiver: spec loop directly on the object
+        // (ES 23.1.3.20) — no O(len) materialization for a near-limit length.
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_search(O, argc, argv, 1);
+        }
         TsArray* arr = require_array_or_throw(ctx, "lastIndexOf");
         if (!arr) return ts_value_make_int(-1);
-        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
+        // ES 23.1.3.20: omitted searchElement is undefined.
+        int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0]
+                                            : (int64_t)(uintptr_t)ts_value_make_undefined();
         int64_t len = arr->Length();
         int64_t fromIndex = parseFromIndex(argc, argv, len, true);
         // lastIndexOf: fromIndex < 0 means skip everything (no valid index).
@@ -3053,7 +3183,35 @@ extern "C" {
         void* result = ts_array_with(arr, index, value);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
+    // ES 23.1.3.11/23.1.3.12 findLast/findLastIndex on a plain array-like DATA
+    // receiver: spec loop from len-1 downward directly on the object — no
+    // O(len) temp for a length near 2^53-1 (findLast/maximum-index.js). The
+    // callback sees undefined for absent indices (findLast does NOT skip
+    // holes). A pragmatic 1e6-visit cap bounds pathological sparse misses.
+    static TsValue* arraylike_findLast(TsValue* O, int argc, TsValue** argv, bool wantIndex) {
+        double len = al_to_length(O);
+        void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, wantIndex ? "findLastIndex" : "findLast"))
+            return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
+        TsValue* thisArg = (argc >= 2 && argv && argv[1]) ? argv[1] : ts_value_make_undefined();
+        extern TsValue* ts_call_with_this_3(TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        double steps = 0;
+        for (double k = len - 1; k >= 0; k -= 1) {
+            TsValue* v = al_get(O, k);
+            if (!v) v = ts_value_make_undefined();
+            TsValue* r = ts_call_with_this_3(ts_value_make_object(callback), thisArg,
+                                             v, ts_value_make_double(k), O);
+            if (r && ts_value_to_bool(r))
+                return wantIndex ? ts_value_make_double(k) : v;
+            if (++steps > 1000000) break;
+        }
+        return wantIndex ? ts_value_make_int(-1) : ts_value_make_undefined();
+    }
+
     TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv) {
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_findLast(O, argc, argv, false);
+        }
         TsArray* arr = require_array_or_throw(ctx, "findLast");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -3065,6 +3223,9 @@ extern "C" {
         return result ? result : ts_value_make_undefined();
     }
     TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv) {
+        if (!resolve_array_ctx(ctx)) {
+            if (TsValue* O = arraylike_data_receiver(ctx)) return arraylike_findLast(O, argc, argv, true);
+        }
         TsArray* arr = require_array_or_throw(ctx, "findLastIndex");
         if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;

@@ -2967,6 +2967,14 @@ extern "C" {
                                     uint8_t cur = 0;
                                     if (array_index_attrs_get(arr, (size_t)idx, &cur))
                                         accAttrs = cur & 0x05;  // enumerable|configurable
+                                    else
+                                        // Existing PLAIN data element (no side
+                                        // record): its current attrs are all
+                                        // true — absent descriptor fields
+                                        // RETAIN them (ES 10.1.6.3), so the
+                                        // converted accessor stays
+                                        // enumerable+configurable.
+                                        accAttrs = 0x05;
                                 }
                                 TsValue ekA; ekA.type = ValueType::STRING_PTR;
                                 ekA.ptr_val = TsString::GetInterned("enumerable");
