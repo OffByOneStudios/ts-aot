@@ -164,6 +164,19 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     if (i >= 0 && (size_t)i < (size_t)arr->Length() && !arr->IsHole((size_t)i)) {
         return arr->GetElementBoxed((size_t)i);
     }
+    // ARGUMENTS object: a past-length write (`arguments[i]=v`) created an own
+    // string-keyed side-map property (ts_array_set's isArguments branch). Reads
+    // must mirror it before falling to the prototype (params-dflt-args-unmapped
+    // family). This is the shared indexed-Get helper reached by the compiled
+    // `arr[intKey]` path (TsObject.cpp ts_object_get_dynamic -> here).
+    if (i >= 0 && arr->isArguments && arr->properties) {
+        char kb[24];
+        snprintf(kb, sizeof(kb), "%lld", (long long)i);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned(kb);
+        if (arr->properties->Has(k))
+            return (TsValue*)nanbox_from_tagged(arr->properties->Get(k));
+    }
     // Inherited via Array.prototype.
     TsValue* v = array_proto_get_at((void*)arr, i);
     if (!v) {

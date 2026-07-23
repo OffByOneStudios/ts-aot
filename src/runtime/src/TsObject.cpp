@@ -8877,6 +8877,28 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             }
         }
 
+        // Primitive String wrapper (TsMap with a hidden __StringData slot):
+        // `length` and in-range character indices are NON-CONFIGURABLE own
+        // properties served exotically (not stored as plain map entries). They
+        // are NOT hadPlain, so the `!hadPlain` success below would wrongly
+        // report delete=true for them (S15.5.5.1_A3). [[Delete]] must return
+        // false. Mirrors the `in`/get exotic-own detection above.
+        if (!hadPlain) {
+            TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+            sdKey.ptr_val = TsString::GetInterned("__StringData");
+            TsValue sd = map->Get(sdKey);
+            if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                TsString* str = (TsString*)sd.ptr_val;
+                if (const char* k = keyStr->ToUtf8()) {
+                    if (strcmp(k, "length") == 0) return 0;
+                    char* endp = nullptr;
+                    long idx = strtol(k, &endp, 10);
+                    if (endp && *endp == '\0' && idx >= 0 && idx < str->Length())
+                        return 0;
+                }
+            }
+        }
+
         // ES 10.1.10 OrdinaryDelete step 3: an ABSENT key deletes
         // successfully (true). Plain objects are usually FLAT (handled
         // above); this TsMap tail previously returned 0 for missing keys,

@@ -244,6 +244,10 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
 // enumerable:false, configurable:true} under the well-known-symbol storage key,
 // so Object.prototype.toString.call(x) === "[object <tag>]" and the property is
 // discoverable (ECMA-262 e.g. 24.1.3.13 Map.prototype[@@toStringTag]).
+// %Function.prototype% identity, defined in TsObject_Call.cpp (extern "C"
+// linkage there); stamped by the Function-global builder below.
+extern "C" void* g_function_prototype_obj;
+
 static void setProtoStringTag(TsMap* proto, const char* tag) {
     if (!proto) return;
     TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
@@ -2324,6 +2328,13 @@ void* ts_get_global_Function() {
     if (!cached) {
         TsMap* ctor = TsMap::Create();
         TsMap* proto = TsMap::Create();
+        // ES 20.2.3: %Function.prototype% is itself callable (accepts any
+        // args, returns undefined). Export its identity so the non-callable
+        // TypeError guard in TsObject_Call.cpp can exempt it.
+        g_function_prototype_obj = proto;
+        { static bool _fpRooted = false;
+          if (!_fpRooted) { _fpRooted = true;
+              ts_gc_register_root(&g_function_prototype_obj); } }
 
         // Function.prototype.call / apply / bind / toString
         // toString is required for lodash (and many other libraries) which

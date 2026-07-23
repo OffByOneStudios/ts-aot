@@ -345,9 +345,17 @@ extern "C" {
     // invoke maybe-absent callbacks through this dispatcher. A DEFINED
     // non-callable (a Promise from `import(x)()`, a number, a plain object)
     // throws. POD frame at the throw point (ts_throw longjmps).
+    // Defined here, stamped by the Function-global builder (TsGlobals.cpp).
+    void* g_function_prototype_obj = nullptr;
+
     static void throw_defined_not_callable(TsValue* boxedFunc) {
         uint64_t nb = nanbox_from_tsvalue_ptr(boxedFunc);
         if (!boxedFunc || nanbox_is_undefined(nb) || nanbox_is_null(nb)) return;
+        // ES 20.2.3: %Function.prototype% is itself callable — accepts any
+        // arguments and returns undefined (Function.prototype() tests).
+        extern void* g_function_prototype_obj;
+        if (g_function_prototype_obj &&
+            ts_value_get_object(boxedFunc) == g_function_prototype_obj) return;
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "value is not a function"));
     }
