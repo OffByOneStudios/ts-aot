@@ -1335,6 +1335,20 @@ extern "C" {
     }
 
     void* ts_array_pop(void* arr) {
+        // Guard non-TsArray receivers (compiler Any-path lowering: a variable
+        // statically typed Array may hold a plain object at runtime). Delegate
+        // to the native wrapper (array-like spec algorithm).
+        {
+            void* raw = ts_nanbox_safe_unbox(arr);
+            uintptr_t p = (uintptr_t)raw;
+            if (!raw || p <= 0x1000 || p >= 0x0000800000000000ULL ||
+                *(uint32_t*)raw != TsArray::MAGIC) {
+                extern TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv);
+                TsValue* res = ts_array_pop_native(arr, 0, nullptr);
+                return res ? (void*)res : (void*)ts_value_make_undefined();
+            }
+            arr = raw;
+        }
         arr_require_len_writable(arr, "pop");
         // ES 23.1.3.22 order: Get(O, len-1) runs FIRST — an inherited
         // Array.prototype getter may freeze O or make its length
@@ -1342,7 +1356,10 @@ extern "C" {
         // Filling inherited holes performs those Gets; then re-check.
         ts_array_fill_inherited_holes(arr);
         arr_require_len_writable(arr, "pop");
-        return (void*)((TsArray*)arr)->Pop();
+        int64_t r = ((TsArray*)arr)->Pop();
+        // Popping a HOLE: the sentinel must not leak as a value.
+        if ((uint64_t)r == NANBOX_HOLE) return (void*)ts_value_make_undefined();
+        return (void*)r;
     }
 
     extern TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
@@ -1385,6 +1402,18 @@ extern "C" {
     }
 
     void* ts_array_shift(void* arr) {
+        // Guard non-TsArray receivers (see ts_array_pop).
+        {
+            void* raw = ts_nanbox_safe_unbox(arr);
+            uintptr_t p = (uintptr_t)raw;
+            if (!raw || p <= 0x1000 || p >= 0x0000800000000000ULL ||
+                *(uint32_t*)raw != TsArray::MAGIC) {
+                extern TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv);
+                TsValue* res = ts_array_shift_native(arr, 0, nullptr);
+                return res ? (void*)res : (void*)ts_value_make_undefined();
+            }
+            arr = raw;
+        }
         arr_require_len_writable(arr, "shift");
         // ES 23.1.3.27: every moved position is read via Get (holes inherit
         // through the prototype chain) and written via Set. Flag-gated no-op.
@@ -1392,7 +1421,11 @@ extern "C" {
         // Set(O, "length") must then throw, with length unchanged.
         ts_array_fill_inherited_holes(arr);
         arr_require_len_writable(arr, "shift");
-        return (void*)((TsArray*)arr)->Shift();
+        int64_t r = ((TsArray*)arr)->Shift();
+        // Shifting a HOLE off the front: the sentinel must not leak as a
+        // value — spec Get of a still-missing index is undefined.
+        if ((uint64_t)r == NANBOX_HOLE) return (void*)ts_value_make_undefined();
+        return (void*)r;
     }
 
     TsValue* ts_array_get_as_value(void* arr, int64_t index) {

@@ -985,6 +985,11 @@ extern "C" {
                 uint32_t m0 = *(uint32_t*)orig;
                 if (m0 == 0x53545247 /*STRG*/ || m0 == TsConsString::MAGIC) {
                     blocked = true;
+                } else if (m0 == 0x434C5352 /*CLSR — function receiver*/) {
+                    // A function's "length" is non-writable (ES 20.2.4.1):
+                    // shift/pop/... .call(function(){}) must TypeError at the
+                    // Set(O, "length") step.
+                    blocked = true;
                 } else if (*(uint32_t*)((char*)orig + 16) == 0x4D415053) {
                     // String WRAPPER object (the materializer boxes string
                     // receivers): its length is never writable either.
@@ -1369,6 +1374,36 @@ extern "C" {
         if (std::isinf(d)) return d;
         return d < 0 ? std::ceil(d) : std::floor(d);
     }
+    // True when O (a TsMap-backed plain object) has an own NON-WRITABLE data
+    // property under the given numeric-or-name key. Used by the arraylike
+    // mutators: Set(O, P, V, true) must throw TypeError when
+    // OrdinarySetWithOwnDescriptor finds writable:false (ES 10.1.9.2 step 3.a).
+    static bool al_prop_nonwritable(TsValue* O, const char* keyName) {
+        void* raw = ts_value_get_object(O);
+        if (!raw) return false;
+        if (*(uint32_t*)((char*)raw + 16) != 0x4D415053 /*MAPS*/) return false;
+        TsMap* m = (TsMap*)raw;
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned(keyName);
+        if (!m->Has(k)) return false;
+        // Attrs default to 0x07 for plain assignments; defineProperty with
+        // writable:false clears bit 0x02 (possibly leaving 0x00).
+        return !(m->GetPropertyAttrs(k) & 0x02 /*ATTR_WRITABLE*/);
+    }
+    static bool al_prop_nonwritable_idx(TsValue* O, double idx) {
+        char kb[32];
+        if (idx == (double)(int64_t)idx)
+            snprintf(kb, sizeof(kb), "%lld", (long long)idx);
+        else
+            snprintf(kb, sizeof(kb), "%.17g", idx);
+        return al_prop_nonwritable(O, kb);
+    }
+    static void al_throw_nonwritable(const char* what) {
+        char msg[128];
+        snprintf(msg, sizeof(msg),
+                 "Cannot assign to read only property '%s' of object", what);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
     static void al_throw_length_limit(const char* method) {
         char msg[128];
         snprintf(msg, sizeof(msg),
@@ -1516,8 +1551,16 @@ extern "C" {
         double len = al_to_length(O);
         double argCount = (double)argc;
         if (len + argCount > kArrayMaxSafeLen) { al_throw_length_limit("push"); return ts_value_make_undefined(); }
-        for (int i = 0; i < argc; i++) al_set(O, len + (double)i, argv[i]);
+        for (int i = 0; i < argc; i++) {
+            // Set(O, len+i, v, true): a non-writable own data property makes
+            // the Set fail -> TypeError; earlier writes persist
+            // (push/length-near-integer-limit-set-failure).
+            double idx = len + (double)i;
+            if (al_prop_nonwritable_idx(O, idx)) { al_throw_nonwritable("index"); return ts_value_make_undefined(); }
+            al_set(O, idx, argv[i]);
+        }
         double newLen = len + argCount;
+        if (al_prop_nonwritable(O, "length")) { al_throw_nonwritable("length"); return ts_value_make_undefined(); }
         al_set_length(O, newLen);
         return ts_value_make_double(newLen);
     }
@@ -1525,6 +1568,7 @@ extern "C" {
     // 23.1.3.22 Array.prototype.pop
     static TsValue* arraylike_pop(TsValue* O) {
         double len = al_to_length(O);
+        if (al_prop_nonwritable(O, "length")) { al_throw_nonwritable("length"); return ts_value_make_undefined(); }
         if (len == 0) { al_set_length(O, 0); return ts_value_make_undefined(); }
         double newLen = len - 1;
         TsValue* elem = al_get(O, newLen);
@@ -1536,6 +1580,7 @@ extern "C" {
     // 23.1.3.27 Array.prototype.shift
     static TsValue* arraylike_shift(TsValue* O) {
         double len = al_to_length(O);
+        if (al_prop_nonwritable(O, "length")) { al_throw_nonwritable("length"); return ts_value_make_undefined(); }
         if (len == 0) { al_set_length(O, 0); return ts_value_make_undefined(); }
         TsValue* first = al_get(O, 0);
         for (double k = 1; k < len; k += 1) {
