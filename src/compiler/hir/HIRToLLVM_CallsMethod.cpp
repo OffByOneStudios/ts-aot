@@ -111,6 +111,22 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     if (!className.empty()) {
         std::string funcName = className + "_" + methodName;
         llvm::Function* fn = module_->getFunction(funcName);
+        // Milestone B (nested-class method capture): a capturing member's
+        // physical shape is (__closure__, this, args) — this devirtualized
+        // direct call would put the receiver in the closure slot ("bad
+        // magic"). Route it through the generic runtime dispatch below,
+        // which finds the cell-carrier closure on the prototype and threads
+        // it as physical arg 0 via the is_method trampoline.
+        if (fn && hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if ((hirFn->name == funcName || hirFn->mangledName == funcName)
+                    && !hirFn->params.empty()
+                    && hirFn->params[0].first == "__closure__") {
+                    fn = nullptr;
+                    break;
+                }
+            }
+        }
         if (fn) {
             // Found the method function - call it with 'this' and arguments
             llvm::FunctionType* fnType = fn->getFunctionType();

@@ -306,6 +306,64 @@ std::string ASTToHIR::completeMethodSymbol(HIRClass* hirClass, const std::string
     return fallback ? fallback->mangledName : std::string();
 }
 
+// Milestone B (nested-class METHOD capture): build the cell-carrier closure
+// for a capturing class member at the class-definition site. The member's
+// HIRFunction was lowered with a hidden `__closure__` physical param and its
+// captures[] snapshotted; here — emitted INLINE in the enclosing function,
+// where those bindings are live — we bind each captured variable's cell into
+// a MakeClosure over the member symbol. The runtime's is_method Convention-B
+// dispatch (closure, this, args) / static Convention-A (closure, args) then
+// feeds the closure straight into the member's `__closure__` param, so
+// LoadCapture resolves real cells. Mirrors the ctor cell-carrier block in
+// visitClassDeclaration; cell-sharing with sibling members and the ctor comes
+// from the MakeClosure (name, sourceKey) cell-slot machinery.
+std::shared_ptr<HIRValue> ASTToHIR::buildMemberCellCarrierClosure(
+        const std::string& symbol, HIRFunction* fn) {
+    auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+    for (const auto& pp : fn->params)
+        closureFuncType->paramTypes.push_back(pp.second);
+    closureFuncType->returnType = fn->returnType;
+    std::vector<std::shared_ptr<HIRValue>> captureValues;
+    std::vector<std::string> capFromParent;
+    for (const auto& cap : fn->captures) {
+        const std::string& capName = cap.first;
+        const auto& capType = cap.second;
+        size_t scopeIndex = 0;
+        if (isCapturedVariable(capName, &scopeIndex)) {
+            // Transitively captured: the enclosing function ALSO captures
+            // this var — propagate + alias the parent cell.
+            registerCapture(capName, capType, scopeIndex);
+            currentFunction_->hasClosure = true;
+            bool already = false;
+            for (const auto& ec : currentFunction_->captures)
+                if (ec.first == capName) { already = true; break; }
+            if (!already) currentFunction_->captures.push_back({capName, capType});
+            captureValues.push_back(builder_.createLoadCapture(capName, capType));
+            capFromParent.push_back(capName);
+        } else {
+            auto* info = lookupVariableInfo(capName);
+            if (info) {
+                std::shared_ptr<HIRValue> val;
+                if (info->isAlloca && info->elemType)
+                    val = builder_.createLoad(info->elemType, info->value);
+                else
+                    val = info->value;
+                captureValues.push_back(val);
+            } else {
+                captureValues.push_back(builder_.createConstNull());
+            }
+            capFromParent.push_back(std::string());
+        }
+    }
+    auto closureVal = builder_.createMakeClosure(
+        symbol, captureValues, closureFuncType, &capFromParent);
+    // Register write-propagation: later assignments in the enclosing function
+    // to a captured var broadcast into this member's cells (and vice versa via
+    // the shared-cell machinery), matching nested-function semantics.
+    finishClosure(symbol, closureVal, fn->captures);
+    return closureVal;
+}
+
 std::string ASTToHIR::computeClassMethodFuncName(const std::string& className,
                                                  ast::MethodDefinition* methodDef,
                                                  bool isComputedAccessor,
@@ -473,6 +531,44 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Drives the cell-carrier closure built at the class-definition site.
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> ctorCaptureSnapshot;
 
+    // Nested-class METHOD capture pre-scan (Milestone B). Mirrors the ctor
+    // scan above, per member: any non-ctor member (method / accessor / static
+    // method) of a function-scoped class that references an enclosing-function
+    // binding gets a hidden `__closure__` physical param prepended (before
+    // `this` for instance members), its captures snapshotted after lowering,
+    // and a cell-carrier closure installed on the prototype/constructor at the
+    // class-definition site (emitSingleClassSetup) instead of the plain cached
+    // closure. Runtime dispatch (closure->is_method Convention-B trampoline)
+    // already passes the closure as physical arg 0, so vtable/builtin call
+    // conventions are untouched. Same conservative over-approximation as the
+    // ctor scan: a false positive only yields an unused 0-cell closure.
+    auto memberMayCaptureOuter = [&](ast::MethodDefinition* md) -> bool {
+        if (!nestedCaptureCtx || !md->hasBody) return false;
+        std::set<std::string> refs;
+        std::set<std::string> localNames = {"this", "arguments", "super"};
+        for (auto& s : md->body) collectReferencedIdentifiers(s.get(), refs);
+        for (auto& p : md->parameters) {
+            if (!p) continue;
+            collectReferencedIdentifiers(p->initializer.get(), refs);
+            if (auto* id = dynamic_cast<ast::Identifier*>(p->name.get()))
+                localNames.insert(id->name);
+        }
+        std::vector<std::string> hv, hf;
+        for (auto& s : md->body) collectHoistedVarNames(s.get(), hv, &hf);
+        for (auto& n : hv) localNames.insert(n);
+        std::set<std::string> lex;
+        collectTopLevelLexicalNames(md->body, lex);
+        for (auto& n : lex) localNames.insert(n);
+        for (const auto& nm : refs) {
+            if (localNames.count(nm)) continue;
+            if (lookupVariableInfo(nm) != nullptr) return true;
+        }
+        return false;
+    };
+    // Static blocks of a function-scoped class execute INLINE at the class
+    // statement (collected below, lowered after the inline setup emit).
+    std::vector<ast::StaticBlock*> inlineStaticBlocks;
+
     // Create class shape (layout of instance properties)
     auto shape = std::make_shared<HIRShape>();
     shape->className = node->name;
@@ -623,9 +719,17 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
         }
-        // Collect static blocks for deferred execution
+        // Collect static blocks for deferred execution. Milestone B: a
+        // FUNCTION-SCOPED class runs its static blocks INLINE at the class
+        // statement (after the setup emit at the bottom of this visit) — the
+        // deferred flush runs in user_main's frame, where enclosing-function
+        // bindings the block references don't exist (and ES 15.7.14 evaluates
+        // static blocks at class-definition time anyway).
         if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
-            deferredStaticBlocks_.push_back({staticBlock, privateClassStack_});
+            if (nestedCaptureCtx)
+                inlineStaticBlocks.push_back(staticBlock);
+            else
+                deferredStaticBlocks_.push_back({staticBlock, privateClassStack_});
         }
     }
 
@@ -694,12 +798,19 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // instance constructor of a capturing function-scoped class.
             bool prependCtorClosure = ctorMayCapture && !methodDef->isStatic &&
                                       methodDef->name == "constructor";
+            // Milestone B: a capturing non-ctor member also threads a closure
+            // as its hidden physical arg 0. Computed-name members keep the
+            // legacy path (runtime-install machinery, not the methods map).
+            bool prependMemberClosure = !prependCtorClosure &&
+                !(methodDef->name == "constructor" && !methodDef->isStatic) &&
+                !isComputedName && memberMayCaptureOuter(methodDef);
 
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
-            // Prepend `__closure__` as params[0] for a capturing nested ctor,
-            // BEFORE the `this` param pushed below -> (__closure__, this, ...args).
-            if (prependCtorClosure)
+            // Prepend `__closure__` as params[0] for a capturing nested ctor
+            // or member, BEFORE the `this` param pushed below ->
+            // (__closure__, this, ...args); static members: (__closure__, ...args).
+            if (prependCtorClosure || prependMemberClosure)
                 func->params.push_back({"__closure__", HIRType::makePtr()});
             func->isAsync = methodDef->isAsync;
             func->isGenerator = methodDef->isGenerator;
@@ -869,7 +980,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // reads inside a default throw ReferenceError.
             preseedParamTDZ(func.get(), methodDef->parameters);
             size_t ccArgTypeOffset = (methodDef->isStatic ? 0 : 1) +
-                                     (prependCtorClosure ? 1 : 0);
+                                     ((prependCtorClosure || prependMemberClosure) ? 1 : 0);
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
@@ -1152,6 +1263,15 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     ctorCaptureSnapshot.push_back({cap.name, cap.type});
                 }
             }
+            // Milestone B: snapshot a capturing member's accumulated captures
+            // onto its HIRFunction — HIRToLLVM binds each LoadCapture index
+            // against captures[] (and the `__closure__` param feeds
+            // closureParam_); emitSingleClassSetup reads the same list to
+            // build the cell-carrier closure installed on the prototype.
+            if (prependMemberClosure) {
+                for (const auto& cap : pendingCaptures_)
+                    func->captures.push_back({cap.name, cap.type});
+            }
 
             popScope();
 
@@ -1186,8 +1306,15 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             } else {
                 // Use methodKey for registration (includes __getter_/__setter_ prefix for accessors)
                 hirClass->methods[methodKey] = funcPtr;
-                // Add to vtable for virtual dispatch
-                hirClass->vtable.push_back({methodKey, funcPtr});
+                // Add to vtable for virtual dispatch. Milestone B: capturing
+                // members are EXCLUDED — the runtime's flat-object vtable scan
+                // raw-calls entries as (this, args)/(this, value), which would
+                // put the receiver in the member's `__closure__` slot. With no
+                // vtable entry, dispatch falls through to the class-prototype
+                // walk, which finds the installed cell-carrier closure and
+                // threads the closure correctly (is_method convention).
+                if (!prependMemberClosure)
+                    hirClass->vtable.push_back({methodKey, funcPtr});
             }
 
             // Add function to module
@@ -1437,6 +1564,16 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             deferredClassPrototypes_.push_back(hirClass);
         } else {
             emitSingleClassSetup(hirClass, /*valueResolveHeritage=*/true);
+            // Milestone B: run the class's static blocks INLINE, in the
+            // enclosing function's scope — enclosing bindings resolve
+            // naturally (no capture threading needed) and ES 15.7.14
+            // evaluates static blocks at class-definition time.
+            for (auto* sb : inlineStaticBlocks) {
+                for (auto& stmt : sb->body) {
+                    lowerStatement(stmt.get());
+                    if (builder_.isBlockTerminated()) break;
+                }
+            }
         }
     }
 
