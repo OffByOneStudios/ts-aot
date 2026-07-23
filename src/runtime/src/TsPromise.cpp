@@ -3680,15 +3680,37 @@ static TsValue* promise_method_function(void* fp, void* obj) {
     return (TsValue*)func;
 }
 
+// Canonical Promise.prototype.<key> function (identity: p.then ===
+// Promise.prototype.then — asserted by test262 dynamic-import
+// nested-with-expression-*). Returns nullptr when the proto entry is missing
+// so callers can fall back to the legacy per-instance wrapper.
+static TsValue* promise_proto_canonical(const char* key) {
+    extern void* ts_get_global_Promise();
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    void* g = ts_get_global_Promise();
+    if (!g) return nullptr;
+    void* graw = ts_value_get_object((TsValue*)g);
+    if (!graw) graw = g;
+    TsValue* proto = ts_object_get_property(graw, "prototype");
+    void* praw = proto ? ts_value_get_object(proto) : nullptr;
+    if (!praw) return nullptr;
+    TsValue* m = ts_object_get_property(praw, key);
+    if (m && !ts_value_is_undefined(m)) return m;
+    return nullptr;
+}
+
 TsValue* ts_promise_get_property(void* obj, void* propName) {
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
 
     if (strcmp(name, "then") == 0) {
+        if (TsValue* c = promise_proto_canonical("then")) return c;
         return promise_method_function((void*)ts_promise_then_wrapper, obj);
     } else if (strcmp(name, "catch") == 0) {
+        if (TsValue* c = promise_proto_canonical("catch")) return c;
         return promise_method_function((void*)ts_promise_catch_wrapper, obj);
     } else if (strcmp(name, "finally") == 0) {
+        if (TsValue* c = promise_proto_canonical("finally")) return c;
         return promise_method_function((void*)ts_promise_finally_wrapper, obj);
     } else if (strcmp(name, "constructor") == 0) {
         // A subclass instance (`class C extends Promise`) records C.prototype
@@ -3709,29 +3731,27 @@ TsValue* ts_promise_get_property(void* obj, void* propName) {
 }
 
 TsValue TsPromise::GetPropertyVirtual(const char* key) {
-    if (strcmp(key, "then") == 0) {
+    if (strcmp(key, "then") == 0 || strcmp(key, "catch") == 0 ||
+        strcmp(key, "finally") == 0) {
+        // Return the CANONICAL Promise.prototype.<key> function so identity
+        // holds: `p.then === Promise.prototype.then` (ES: the instance has no
+        // own `then`; Get walks to the prototype). The canonical natives are
+        // this-aware (ctx falls back to ts_get_call_this), so method calls
+        // `p.then(f)` keep working through the normal with-this dispatch.
+        // Asserted by test262 dynamic-import nested-with-expression-* via
+        // `with (import(x)) { then === Promise.prototype.then }`.
+        if (TsValue* c = promise_proto_canonical(key)) return nanbox_to_tagged(c);
+        // Fallback (prototype entry missing): legacy per-instance wrapper.
+        void* wrapper = (strcmp(key, "then") == 0)
+                            ? (void*)ts_promise_then_wrapper
+                            : (strcmp(key, "catch") == 0)
+                                  ? (void*)ts_promise_catch_wrapper
+                                  : (void*)ts_promise_finally_wrapper;
+        int arity = (strcmp(key, "then") == 0) ? 2 : 1;
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
         TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)ts_promise_then_wrapper, this, FunctionType::COMPILED, 2);
-        f->is_constructor = false;  // built-in method, no [[Construct]]
-        v.ptr_val = f;
-        return v;
-    }
-    if (strcmp(key, "catch") == 0) {
-        TsValue v;
-        v.type = ValueType::FUNCTION_PTR;
-        TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)ts_promise_catch_wrapper, this, FunctionType::COMPILED, 1);
-        f->is_constructor = false;  // built-in method, no [[Construct]]
-        v.ptr_val = f;
-        return v;
-    }
-    if (strcmp(key, "finally") == 0) {
-        TsValue v;
-        v.type = ValueType::FUNCTION_PTR;
-        TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)ts_promise_finally_wrapper, this, FunctionType::COMPILED, 1);
+            wrapper, this, FunctionType::COMPILED, arity);
         f->is_constructor = false;  // built-in method, no [[Construct]]
         v.ptr_val = f;
         return v;

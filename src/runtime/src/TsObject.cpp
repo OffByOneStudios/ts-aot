@@ -8166,6 +8166,31 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             // else fall through (no inherited match for this key)
         }
 
+        // TsPromise: HasProperty must see the inherited Promise.prototype
+        // surface (`'then' in p`, and the with-statement object environment's
+        // HasBinding — test262 dynamic-import nested-with-expression-* reads
+        // `then`/`constructor` inside `with (import(x))`). Own props live in
+        // the g_native_object_props side-map; then the ctor prototype chain
+        // (then/catch/finally/constructor + user-added), then Object.prototype.
+        if (magic16 == 0x50524F4D) { // TsPromise "PROM"
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (!k) return false;
+            if (TsMap* nprops = getNativeProps(rawObj)) {
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(k);
+                if (nprops->Has(kk)) return true;
+            }
+            extern void* ts_get_global_Promise();
+            if (ts_builtin_ctor_proto_has(ts_get_global_Promise, key)) return true;
+            // Instance-dispatch names guaranteed by TsPromise's virtual
+            // property handler even if the proto map drifts.
+            if (strcmp(k, "then") == 0 || strcmp(k, "catch") == 0 ||
+                strcmp(k, "finally") == 0 || strcmp(k, "constructor") == 0)
+                return true;
+            return is_object_prototype_member(k);
+        }
+
         // TypedArray (integer-indexed exotic object): a canonical in-bounds
         // numeric index is always a present own property (dense by
         // construction); out-of-bounds / non-integral indices are absent.

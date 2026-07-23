@@ -4651,6 +4651,33 @@ void Parser::declareModuleExportName(const std::string& name, int line) {
     }
 }
 
+// ECMA-262 16.2.2.2 (Imports) / 16.2.3.1 (Exports) static semantics:
+// ModuleExportName : StringLiteral — "It is a Syntax Error if
+// IsStringWellFormedUnicode(the StringValue of StringLiteral) is false."
+// The lexer WTF-8-encodes a lone UTF-16 surrogate (\uD800..\uDFFF written as
+// a single \uXXXX escape) as ED A0..BF xx, which is exactly the ill-formed
+// shape to detect here.
+std::string Parser::moduleExportName(bool* wasString) {
+    if (check(TokenKind::StringLiteral)) {
+        int line = current_.line;
+        std::string value = Lexer::getStringValue(current_.text);
+        for (size_t i = 0; i + 1 < value.size(); i++) {
+            unsigned char b0 = (unsigned char)value[i];
+            unsigned char b1 = (unsigned char)value[i + 1];
+            if (b0 == 0xED && b1 >= 0xA0 && b1 <= 0xBF) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: module export name is not "
+                    "well-formed Unicode (lone surrogate)", fileName_, line));
+            }
+        }
+        if (wasString) *wasString = true;
+        advance();
+        return value;
+    }
+    if (wasString) *wasString = false;
+    return identifierName();
+}
+
 void Parser::checkModuleImportBinding(const std::string& name, int line) {
     if (scriptGoal_) return;
     // Import bindings are module-level declarations: the post-parse
@@ -4748,7 +4775,10 @@ ast::StmtPtr Parser::parseImportDeclaration() {
             }
             ast::ImportSpecifier spec;
             int specLine = current_.line;
-            spec.name = identifierName();
+            // ES 16.2.2 ImportSpecifier : ImportedBinding
+            //                           | ModuleExportName `as` ImportedBinding
+            bool nameWasString = false;
+            spec.name = moduleExportName(&nameWasString);
             spec.isTypeOnly = specIsTypeOnly;
 
             if (current_.kind == TokenKind::KW_as) {
@@ -4756,6 +4786,12 @@ ast::StmtPtr Parser::parseImportDeclaration() {
                 spec.propertyName = spec.name;
                 specLine = current_.line;
                 spec.name = identifierName();
+            } else if (nameWasString) {
+                // A string ModuleExportName is not an ImportedBinding — it can
+                // only be imported with an `as` alias.
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: a string import name must be followed "
+                    "by 'as' and a binding identifier", fileName_, specLine));
             }
             // ES 16.2.1: the LOCAL BoundNames of a module must be unique and
             // may not be eval/arguments (module code is strict).
@@ -4793,12 +4829,18 @@ ast::StmtPtr Parser::parseImportDeclaration() {
                 while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
                     ast::ImportSpecifier spec;
                     int specLine2 = current_.line;
-                    spec.name = identifierName();
+                    bool nameWasString2 = false;
+                    spec.name = moduleExportName(&nameWasString2);
                     if (current_.kind == TokenKind::KW_as) {
                         advance();
                         spec.propertyName = spec.name;
                         specLine2 = current_.line;
                         spec.name = identifierName();
+                    } else if (nameWasString2) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: a string import name must be "
+                            "followed by 'as' and a binding identifier",
+                            fileName_, specLine2));
                     }
                     checkModuleImportBinding(spec.name, specLine2);
                     node->namedImports.push_back(spec);
@@ -4889,11 +4931,12 @@ ast::StmtPtr Parser::parseExportDeclaration() {
         setLocation(node.get(), startTok);
         node->isStarExport = true;
 
-        // export * as ns from 'module'
+        // export * as ns from 'module' — ES 16.2.3 ExportFromClause :
+        // `*` `as` ModuleExportName (identifier OR string, ES2022).
         if (current_.kind == TokenKind::KW_as) {
             advance();
             int nsLine = current_.line;
-            node->namespaceExport = identifierName();
+            node->namespaceExport = moduleExportName();
             declareModuleExportName(node->namespaceExport, nsLine);
         }
 
@@ -4911,18 +4954,26 @@ ast::StmtPtr Parser::parseExportDeclaration() {
 
         advance(); // {
         std::vector<int> specLines;
+        // ES 16.2.3 ExportSpecifier : ModuleExportName
+        //                           | ModuleExportName `as` ModuleExportName
+        // Track which specs referenced a STRING as the LOCAL name: without a
+        // `from` clause ReferencedBindings may not contain a ModuleExportName
+        // string (sec-exports-static-semantics-early-errors).
+        std::vector<bool> specLocalIsString;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             ast::ExportSpecifier spec;
             int specLine = current_.line;
-            spec.name = identifierName();
+            bool localWasString = false;
+            spec.name = moduleExportName(&localWasString);
             if (current_.kind == TokenKind::KW_as) {
                 advance();
                 spec.propertyName = spec.name;
                 specLine = current_.line;
-                spec.name = identifierName();
+                spec.name = moduleExportName();
             }
             node->namedExports.push_back(spec);
             specLines.push_back(specLine);
+            specLocalIsString.push_back(localWasString);
             declareModuleExportName(spec.name, specLine);
             if (!check(TokenKind::CloseBrace)) {
                 expect(TokenKind::Comma, "','");
@@ -4937,6 +4988,18 @@ ast::StmtPtr Parser::parseExportDeclaration() {
             advance();
             node->moduleSpecifier = Lexer::getStringValue(current_.text);
             advance();
+        }
+        if (!hasFrom) {
+            // ES sec-exports early error: `export { "str" }` / `export
+            // { "str" as x }` without `from` references a string binding.
+            for (size_t i = 0; i < specLocalIsString.size(); i++) {
+                if (specLocalIsString[i]) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: a string export name may only be "
+                        "used in an export ... from clause", fileName_,
+                        specLines[i]));
+                }
+            }
         }
         if (!hasFrom && !scriptGoal_) {
             // Locals referenced by a from-less export clause must resolve to
