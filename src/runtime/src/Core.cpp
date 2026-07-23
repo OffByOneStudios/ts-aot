@@ -1057,8 +1057,10 @@ static std::string child_ipc_read_buffer;
 static std::vector<TsValue*> message_handlers;
 static std::vector<TsValue*> disconnect_handlers;
 
-// Forward declarations for JSON functions
-extern TsString* ts_json_stringify(TsValue* value);
+// Forward declarations for JSON functions. NOTE: ts_json_stringify takes
+// (value, replacer, space) — declaring/calling it with one argument left the
+// replacer/space registers holding garbage that the callee then probed.
+extern TsString* ts_json_stringify(TsValue* value, void* replacer, void* space);
 extern TsValue* ts_json_parse(TsValue* jsonStr);
 
 static void on_child_ipc_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
@@ -1173,7 +1175,7 @@ bool ts_process_send(void* message) {
     }
 
     TsValue* msgVal = (TsValue*)message;
-    TsString* jsonStr = ts_json_stringify(msgVal);
+    TsString* jsonStr = ts_json_stringify(msgVal, nullptr, nullptr);
     if (!jsonStr) {
         return false;
     }
