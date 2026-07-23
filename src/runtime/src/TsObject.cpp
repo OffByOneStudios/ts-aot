@@ -8852,7 +8852,12 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             }
         }
 
-        return (map->Delete(keyVal) || deletedAccessor) ? 1 : 0;
+        // ES 10.1.10 OrdinaryDelete step 3: an ABSENT key deletes
+        // successfully (true). Plain objects are usually FLAT (handled
+        // above); this TsMap tail previously returned 0 for missing keys,
+        // which made strict `delete obj.missing` throw (dynamic-import
+        // namespace delete-non-exported family on unmarked exports maps).
+        return (map->Delete(keyVal) || deletedAccessor || !hadPlain) ? 1 : 0;
     }
 
     extern "C" void ts_console_log_value_no_newline(TsValue* val);
