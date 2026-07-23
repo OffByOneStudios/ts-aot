@@ -738,15 +738,20 @@ def _classify_compile(job, returncode, stderr):
     if returncode is None:
         return TestResult(test_path, "timeout", "compilation timeout", time_ms=elapsed)
     if returncode != 0:
-        # Negative parse tests expect compilation to fail.
-        if meta.negative and meta.negative.get('phase') == 'parse':
+        # Negative parse tests expect compilation to fail. Negative
+        # RESOLUTION tests (module ResolveExport link errors, ECMA-262
+        # 16.2.1.6.3) also expect the implementation to reject before
+        # evaluation — ts-aot links the module graph at compile time, so an
+        # expected-SyntaxError compile failure is the spec-correct outcome.
+        if meta.negative and meta.negative.get('phase') in ('parse', 'resolution'):
             return TestResult(test_path, "pass",
-                              f"expected parse error: {meta.negative.get('type', '')}",
+                              f"expected {meta.negative.get('phase')} error: "
+                              f"{meta.negative.get('type', '')}",
                               time_ms=elapsed)
         return TestResult(test_path, "compile_error",
                           stderr[:200] if stderr else "compilation failed",
                           time_ms=elapsed, exit_code=returncode, stderr=stderr or "")
-    # Compiled OK but a parse error was expected -> fail.
+    # Compiled OK but a parse/resolution error was expected -> fail.
     if meta.negative and meta.negative.get('phase') == 'parse':
         return TestResult(test_path, "fail",
                           "expected parse error but compiled successfully", time_ms=elapsed)
