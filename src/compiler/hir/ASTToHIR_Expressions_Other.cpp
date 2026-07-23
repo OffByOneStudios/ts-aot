@@ -254,6 +254,8 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
                     auto& tbl = inStatic ? sc->staticMethods : sc->methods;
                     auto git = tbl.find("__getter_" + key);
                     if (git != tbl.end() && git->second) {
+                        // Milestone B: capturing — runtime fallback below.
+                        if (memberNeedsClosure(git->second)) break;
                         std::string real = completeMethodSymbol(sc, "__getter_" + key, git->second, inStatic);
                         lastValue_ = inStatic ? builder_.createCall(real, {}, HIRType::makeAny())
                                               : builder_.createCall(real, {thisVal}, HIRType::makeAny());
@@ -261,6 +263,7 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
                     }
                     auto mit = tbl.find(key);
                     if (mit != tbl.end() && mit->second) {
+                        if (memberNeedsClosure(mit->second)) break;  // Milestone B
                         lastValue_ = builder_.createLoadFunction(mit->second->name);
                         return;
                     }
@@ -390,29 +393,37 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 // Static `super.g` / `super.m`: base-class STATIC accessor/method
                 // (no `this`).
                 auto sg = sc->staticMethods.find("__getter_" + node->name);
-                if (sg != sc->staticMethods.end() && sg->second) {
+                if (sg != sc->staticMethods.end() && sg->second &&
+                    !memberNeedsClosure(sg->second)) {
                     std::string real = completeMethodSymbol(sc, "__getter_" + node->name, sg->second, true);
                     lastValue_ = builder_.createCall(real, {}, HIRType::makeAny());
                     return;
                 }
+                if (sg != sc->staticMethods.end() && sg->second) break;  // Milestone B
                 auto sm = sc->staticMethods.find(node->name);
-                if (sm != sc->staticMethods.end() && sm->second) {
+                if (sm != sc->staticMethods.end() && sm->second &&
+                    !memberNeedsClosure(sm->second)) {
                     lastValue_ = builder_.createLoadFunction(sm->second->name);
                     return;
                 }
+                if (sm != sc->staticMethods.end() && sm->second) break;  // Milestone B
                 continue;
             }
             auto git = sc->methods.find("__getter_" + node->name);
-            if (git != sc->methods.end() && git->second) {
+            if (git != sc->methods.end() && git->second &&
+                !memberNeedsClosure(git->second)) {
                 std::string real = completeMethodSymbol(sc, "__getter_" + node->name, git->second, false);
                 lastValue_ = builder_.createCall(real, {thisVal}, HIRType::makeAny());
                 return;
             }
+            if (git != sc->methods.end() && git->second) break;  // Milestone B: capturing — runtime fallback below
             auto mit = sc->methods.find(node->name);
-            if (mit != sc->methods.end() && mit->second) {
+            if (mit != sc->methods.end() && mit->second &&
+                !memberNeedsClosure(mit->second)) {
                 lastValue_ = builder_.createLoadFunction(mit->second->name);
                 return;
             }
+            if (mit != sc->methods.end() && mit->second) break;  // Milestone B: capturing — runtime fallback below
         }
         // Runtime fallback: base.[[Get]](name, this) walking the real chain.
         // Gated on a user base class. Non-derived classes and `extends null` /
@@ -623,6 +634,23 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         // class-body expression processing (e.g. private-getter access in
         // a derived constructor before super() — visitClassDeclaration
         // lowers inner expressions before method bodies finish registering).
+        if (getterIt != targetClass->methods.end() && getterIt->second &&
+            memberNeedsClosure(getterIt->second)) {
+            // Milestone B: a capturing getter ((__closure__, this)) dispatches
+            // through the prototype's cell-carrier closure — dynamic get.
+            // ES2022 PrivateGet (7.3.30) step 5: a PRIVATE accessor still
+            // brand-checks the runtime receiver FIRST (the direct path did
+            // this; dropping it silently returned undefined for foreign
+            // receivers instead of TypeError).
+            const std::string& gn = node->name;
+            if (!gn.empty() && gn[0] == '#')
+                emitPrivateBrandCheck(obj, gn);
+            auto keyV = builder_.createConstString(
+                (!gn.empty() && gn[0] == '#') ? resolvePrivateKey(gn) : gn);
+            lastValue_ = builder_.createCall("ts_object_get_dynamic",
+                {boxValueIfNeeded(obj), boxValueIfNeeded(keyV)}, HIRType::makeAny());
+            return;
+        }
         if (getterIt != targetClass->methods.end() && getterIt->second) {
             // Found a getter - call it instead of direct property access
             HIRFunction* getterFunc = getterIt->second;

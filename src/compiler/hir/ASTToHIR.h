@@ -794,6 +794,18 @@ private:
     // prefer that. Returns the module function symbol to install on the prototype.
     std::string completeMethodSymbol(HIRClass* hirClass, const std::string& methodKey,
                                      HIRFunction* fallback, bool isStatic = false);
+    // Milestone B (nested-class method capture): true when a class member was
+    // lowered with a hidden `__closure__` physical param carrying captured
+    // enclosing-function cells. Such members must NEVER be direct-called by
+    // symbol with the legacy [this, ...args] shape — route through dynamic
+    // dispatch (the installed cell-carrier closure) instead.
+    static bool memberNeedsClosure(const HIRFunction* f) {
+        return f && !f->params.empty() && f->params[0].first == "__closure__";
+    }
+    // Build the cell-carrier closure for a capturing member at the class-
+    // definition site (must be emitted in the enclosing function's scope).
+    std::shared_ptr<HIRValue> buildMemberCellCarrierClosure(
+        const std::string& symbol, HIRFunction* fn);
     // SuperProperty (ECMA-262 13.3.7): build the [[HomeObject]] of the current
     // class method for a runtime super get/set. Instance methods: the defining
     // class's prototype (<Class>.prototype); static methods: the constructor

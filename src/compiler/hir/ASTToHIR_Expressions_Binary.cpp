@@ -1200,6 +1200,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             }
             if (targetClass) {
                 auto setterIt = targetClass->methods.find("__setter_" + propAccess->name);
+                // Milestone B: a capturing setter ((__closure__, this, v)) must
+                // dispatch through the prototype's cell-carrier closure — fall
+                // through to the dynamic set path below.
+                if (setterIt != targetClass->methods.end() &&
+                    memberNeedsClosure(setterIt->second)) {
+                    setterIt = targetClass->methods.end();
+                }
                 if (setterIt != targetClass->methods.end() && setterIt->second) {
                     // ES2022 PrivateSet (7.3.31) step 6: brand-check a
                     // private setter's runtime receiver (compound writes).
@@ -1583,7 +1590,10 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // Skip nullptr placeholders (see getter path comment) — same UAF
             // family for private-setter-before-super class-body lowering.
             HIRFunction* setterFunc = nullptr;
-            if (setterIt != targetClass->methods.end() && setterIt->second) {
+            if (setterIt != targetClass->methods.end() && setterIt->second &&
+                !memberNeedsClosure(setterIt->second)) {
+                // Milestone B: capturing setters excluded — they dispatch
+                // dynamically via the prototype's cell-carrier closure.
                 setterFunc = setterIt->second;
             } else {
                 // Static accessors live in staticMethods (not methods), so a write
@@ -1591,7 +1601,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 // `C.#x = v` — wasn't dispatched and silently stored a data
                 // property, bypassing `static set #x`. Look there too.
                 auto sit = targetClass->staticMethods.find(setterKey);
-                if (sit != targetClass->staticMethods.end() && sit->second) {
+                if (sit != targetClass->staticMethods.end() && sit->second &&
+                    !memberNeedsClosure(sit->second)) {
                     setterFunc = sit->second;
                     // The staticMethods entry is the EMPTY module-level stub
                     // (`<Class>___setter_<name>`, body == `ret`); the real

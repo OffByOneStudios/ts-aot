@@ -1332,6 +1332,38 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             }
         }
     }
+    // Milestone B (nested-class method capture): a capturing class INSTANCE
+    // member's physical shape is (__closure__, this, args) — Convention B
+    // with the leading closure the runtime always passes to is_method
+    // closures. Flag it so with-receiver dispatch routes the receiver into
+    // the `this` slot instead of arg0. CONSTRUCTOR cell-carriers (also
+    // (__closure__, this, ...)) are excluded: they must keep is_constructor
+    // (the no_prototype call below would clear it and IsConstructor checks —
+    // `class X extends <nested class>` — would falsely TypeError); their
+    // dispatch is handled by the Milestone A `new` paths.
+    bool mbIsCtorSymbol = false;
+    if (!isMethodClosure && hirModule_) {
+        for (const auto& cls : hirModule_->classes) {
+            std::string cn = cls->constructor ? cls->constructor->name
+                                              : (cls->name + "_constructor");
+            if (cn == funcName ||
+                (cls->constructor && cls->constructor->mangledName == funcName)) {
+                mbIsCtorSymbol = true;
+                break;
+            }
+        }
+        if (!mbIsCtorSymbol) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if ((hirFn->name == funcName || hirFn->mangledName == funcName)
+                    && hirFn->params.size() >= 2
+                    && hirFn->params[0].first == "__closure__"
+                    && hirFn->params[1].first == "this") {
+                    isMethodClosure = true;
+                    break;
+                }
+            }
+        }
+    }
     if (isMethodClosure) {
         auto setMethodFt = llvm::FunctionType::get(
             builder_->getVoidTy(),
