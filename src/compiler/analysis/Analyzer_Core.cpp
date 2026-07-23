@@ -104,6 +104,17 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     visitProgram(program);
     // symbols.exitScope();
 
+    // ECMA-262 16.2.1.5 Link / 16.2.1.6.3 ResolveExport: an unresolvable,
+    // ambiguous, or circular export binding anywhere in the entry module's
+    // STATIC import graph is a link-time SyntaxError — compilation must
+    // fail. Dynamic-only import() subgraphs never propagate here; they keep
+    // the runtime-reject behavior (Monomorphizer init-throw stub).
+    if (!mainModule->linkError.empty()) {
+        std::string msg = mainModule->linkError;
+        if (msg.rfind("SyntaxError: ", 0) != 0) msg = "SyntaxError: " + msg;
+        reportError(msg);
+    }
+
     mainModule->analyzed = true;
     moduleOrder.push_back(currentFilePath);
 
@@ -295,7 +306,10 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     // normal expression visitor, not the export declaration handler.
     // Register Any as the default so that `import X from 'package'`
     // binds X to Any rather than leaving it undefined.
-    if (!module->isESM && !module->exports->lookup("default")) {
+    // Gated on cjsMarkers: a marker-free source is an ES module, and
+    // synthesizing a phantom "default" would defeat the link-time
+    // ResolveExport check (16.2.1.6.3: no default export -> SyntaxError).
+    if (!module->isESM && module->cjsMarkers && !module->exports->lookup("default")) {
         module->exports->define("default", std::make_shared<Type>(TypeKind::Any));
     }
 

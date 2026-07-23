@@ -234,6 +234,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     auto& tbl = inStatic ? sc->staticMethods : sc->methods;
                     auto it = tbl.find(key);
                     if (it != tbl.end() && it->second) {
+                        if (memberNeedsClosure(it->second)) break;  // Milestone B: runtime walk below
                         std::vector<std::shared_ptr<HIRValue>> methodArgs;
                         if (!inStatic) methodArgs.push_back(thisVal);
                         for (auto& a : callArgs) methodArgs.push_back(a);
@@ -414,6 +415,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 for (HIRClass* sc = currentClass_->baseClass; sc; sc = sc->baseClass) {
                     auto sit = sc->staticMethods.find(propAccess->name);
                     if (sit != sc->staticMethods.end() && sit->second) {
+                        // Milestone B: capturing static base member — dispatch
+                        // through the base constructor object (holds the
+                        // cell-carrier closure) instead of the by-name call.
+                        if (memberNeedsClosure(sit->second)) {
+                            auto baseCtorName = sc->constructor
+                                ? sc->constructor->name : sc->name + "_constructor";
+                            auto baseCtorVal = builder_.createLoadFunction(baseCtorName);
+                            lastValue_ = builder_.createCallMethod(
+                                baseCtorVal, resolvePrivateName(propAccess->name),
+                                args, HIRType::makeAny());
+                            return;
+                        }
                         builder_.createCall("ts_set_last_call_argc",
                             {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                         lastValue_ = builder_.createCall(sit->second->name, args, sit->second->returnType);
@@ -426,6 +439,27 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 auto it = searchClass->methods.find(propAccess->name);
                 if (it != searchClass->methods.end() && it->second) {
                     HIRFunction* method = it->second;
+                    // Milestone B: capturing base member — resolve through the
+                    // super base's prototype at runtime (ts_super_get walks
+                    // [[HomeObject]].[[Prototype]], finding the cell-carrier
+                    // closure) instead of the closure-less by-name call.
+                    if (memberNeedsClosure(method)) {
+                        auto thisV0 = lookupVariable("this");
+                        if (!thisV0) thisV0 = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                        if (auto home = lowerSuperHomeObject()) {
+                            auto keyStr = builder_.createConstString(propAccess->name);
+                            auto fnV = builder_.createCall("ts_super_get",
+                                {home, keyStr, boxValueIfNeeded(thisV0)}, HIRType::makeAny());
+                            builder_.createCall("ts_set_last_call_argc",
+                                {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
+                            lastValue_ = builder_.createCallWithThis(
+                                fnV, boxValueIfNeeded(thisV0), args, HIRType::makeAny());
+                            return;
+                        }
+                        lastValue_ = builder_.createCallMethod(
+                            thisV0, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
+                        return;
+                    }
                     std::vector<std::shared_ptr<HIRValue>> methodArgs;
                     auto thisVal = lookupVariable("this");
                     methodArgs.push_back(thisVal ? thisVal : builder_.createCall("ts_get_call_this", {}, HIRType::makeAny()));
@@ -500,10 +534,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             auto it = currentClass_->methods.find(propAccess->name);
             if (it != currentClass_->methods.end()) {
                 HIRFunction* method = it->second;
-                fprintf(stderr, "  Case1: this.%s -> method=%p name=%s\n",
-                    propAccess->name.c_str(), (void*)method,
-                    method ? method->name.c_str() : "null");
-                fflush(stderr);
+                // Milestone B: a capturing nested-class member has signature
+                // (__closure__, this, args) — the by-name direct call would
+                // omit the closure and shift args. Route through dynamic
+                // dispatch: the prototype holds the cell-carrier closure and
+                // the is_method trampoline threads it as physical arg 0.
+                if (method && memberNeedsClosure(method)) {
+                    auto obj = lookupVariable("this");
+                    if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                    lastValue_ = builder_.createCallMethod(
+                        obj, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
+                    return;
+                }
                 if (!method) {
                     // Placeholder method - construct name
                     std::string methodFuncName = currentClass_->name + "_" + propAccess->name;
@@ -564,6 +606,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     if (baseIt != searchClass->methods.end() && baseIt->second) {
                         // Found in user-defined base class - direct call
                         HIRFunction* method = baseIt->second;
+                        // Milestone B: capturing member — dynamic dispatch only.
+                        if (memberNeedsClosure(method)) {
+                            auto obj0 = lookupVariable("this");
+                            if (!obj0) obj0 = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                            lastValue_ = builder_.createCallMethod(
+                                obj0, resolvePrivateName(propAccess->name), args, HIRType::makeAny());
+                            return;
+                        }
                         std::vector<std::shared_ptr<HIRValue>> methodArgs;
                         auto thisVal = lookupVariable("this");
                         methodArgs.push_back(thisVal ? thisVal : builder_.createCall("ts_get_call_this", {}, HIRType::makeAny()));
@@ -651,9 +701,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         auto it = searchClass->methods.find(propAccess->name);
                         if (it != searchClass->methods.end()) {
                             HIRFunction* method = it->second;
-                            fprintf(stderr, "  Case2: %s.%s -> method=%p\n",
-                                className.c_str(), propAccess->name.c_str(), (void*)method);
-                            fflush(stderr);
+                            // Milestone B: capturing member — the receiver's
+                            // prototype holds the cell-carrier closure; the
+                            // by-name direct call would omit the closure.
+                            if (method && memberNeedsClosure(method)) {
+                                auto obj0 = lowerExpression(propAccess->expression.get());
+                                lastValue_ = builder_.createCallMethod(
+                                    obj0, resolvePrivateName(propAccess->name), args,
+                                    HIRType::makeAny());
+                                return;
+                            }
                             // Determine function name and return type.
                             // method may be nullptr (pre-registered placeholder from spec pre-pass)
                             std::string methodFuncName;
@@ -801,6 +858,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     }
                     if (it != cls->staticMethods.end()) {
                         HIRFunction* method = it->second;
+                        // Milestone B: a capturing static member ((__closure__,
+                        // args) physical shape) can't be direct-called by name.
+                        // The constructor object holds the cell-carrier
+                        // closure — dispatch dynamically (runtime sets
+                        // call-this to the receiver class).
+                        if (method && memberNeedsClosure(method)) {
+                            auto obj = lowerExpression(propAccess->expression.get());
+                            lastValue_ = builder_.createCallMethod(
+                                obj, resolvePrivateName(propAccess->name), args,
+                                HIRType::makeAny());
+                            return;
+                        }
                         // Static getter: invoke the getter with the class as `this`,
                         // then call the returned value with the user's args. Direct-
                         // calling the getter with `args` produces an arity mismatch
@@ -885,6 +954,15 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         if (bit == anc->staticMethods.end() || !bit->second) continue;
                         HIRFunction* bmethod = bit->second;
                         if (bmethod->name.find("___getter_") != std::string::npos) break;
+                        // Milestone B: capturing static member — dynamic dispatch
+                        // (inherited via the constructor proto chain).
+                        if (memberNeedsClosure(bmethod)) {
+                            auto obj = lowerExpression(propAccess->expression.get());
+                            lastValue_ = builder_.createCallMethod(
+                                obj, resolvePrivateName(propAccess->name), args,
+                                HIRType::makeAny());
+                            return;
+                        }
                         std::vector<std::shared_ptr<HIRValue>> calleeArgs;
                         size_t expected = bmethod->params.size();
                         if (bmethod->hasRestParam && expected > 0) {
@@ -2142,12 +2220,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     callName = ident->name;  // Keep original name for registered modules
                 }
             }
+            // ECMA-262: JSON (25.5), Math (21.3) and console are NAMESPACE
+            // objects with no [[Call]] — invoking them must throw a TypeError.
+            // These names previously sat in the keep-original-name list below,
+            // so `JSON()` emitted a direct call of the bare symbol `JSON`,
+            // which the linker bound to the runtime's DATA global
+            // (`extern "C" TsValue* JSON`) — jumping into BSS (0xC0000005).
+            else if (ident->name == "JSON" || ident->name == "Math" ||
+                     ident->name == "console") {
+                lastValue_ = builder_.createCall(
+                    "ts_call_non_callable_namespace",
+                    {builder_.createConstCString(ident->name)},
+                    HIRType::makeAny());
+                return;
+            }
             // Runtime functions start with "ts_" - use original name
             // User functions should use the mangled name
             else if (ident->name.substr(0, 3) == "ts_" ||
-                ident->name == "console" ||
-                ident->name == "Math" ||
-                ident->name == "JSON" ||
                 ident->name == "parseInt" ||
                 ident->name == "isNaN" ||
                 ident->name == "isFinite" ||
@@ -2403,6 +2492,18 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 }
             }
         }
+    }
+
+    // ECMA-262: JSON (25.5) and Math (21.3) are namespace objects with no
+    // [[Construct]] — `new JSON()` / `new Math()` must throw a TypeError
+    // (previously fell into the generic-Object fallback and silently
+    // produced a plain object).
+    if (ident && (ident->name == "JSON" || ident->name == "Math")) {
+        lastValue_ = builder_.createCall(
+            "ts_call_non_callable_namespace",
+            {builder_.createConstCString(ident->name)},
+            HIRType::makeAny());
+        return;
     }
 
     // DYNAMIC callee (`new (await X)()`, `new (f())()`, `new (c ? A : B)()`):

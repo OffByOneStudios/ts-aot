@@ -3,6 +3,7 @@
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <iostream>
+#include <functional>
 
 namespace ts {
 
@@ -79,6 +80,26 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
         if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
             currentModule->exports->define(id->name, type);
             currentModule->reDirectExports.insert(id->name);
+        } else {
+            // Destructuring exports (`export const { a, b } = ...`,
+            // `export const [x] = ...`): every bound name is a direct export.
+            // Without this, the link-time ResolveExport check (16.2.1.6.3)
+            // would falsely reject imports of these names.
+            std::function<void(ast::Node*)> collect = [&](ast::Node* n) {
+                if (!n) return;
+                if (auto pid = dynamic_cast<Identifier*>(n)) {
+                    currentModule->exports->define(
+                        pid->name, std::make_shared<Type>(TypeKind::Any));
+                    currentModule->reDirectExports.insert(pid->name);
+                } else if (auto obj = dynamic_cast<ObjectBindingPattern*>(n)) {
+                    for (auto& el : obj->elements) collect(el.get());
+                } else if (auto arr = dynamic_cast<ArrayBindingPattern*>(n)) {
+                    for (auto& el : arr->elements) collect(el.get());
+                } else if (auto be = dynamic_cast<BindingElement*>(n)) {
+                    collect(be->name.get());
+                }
+            };
+            collect(node->name.get());
         }
     }
 }

@@ -244,6 +244,10 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
 // enumerable:false, configurable:true} under the well-known-symbol storage key,
 // so Object.prototype.toString.call(x) === "[object <tag>]" and the property is
 // discoverable (ECMA-262 e.g. 24.1.3.13 Map.prototype[@@toStringTag]).
+// %Function.prototype% identity, defined in TsObject_Call.cpp (extern "C"
+// linkage there); stamped by the Function-global builder below.
+extern "C" void* g_function_prototype_obj;
+
 static void setProtoStringTag(TsMap* proto, const char* tag) {
     if (!proto) return;
     TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
@@ -2324,6 +2328,13 @@ void* ts_get_global_Function() {
     if (!cached) {
         TsMap* ctor = TsMap::Create();
         TsMap* proto = TsMap::Create();
+        // ES 20.2.3: %Function.prototype% is itself callable (accepts any
+        // args, returns undefined). Export its identity so the non-callable
+        // TypeError guard in TsObject_Call.cpp can exempt it.
+        g_function_prototype_obj = proto;
+        { static bool _fpRooted = false;
+          if (!_fpRooted) { _fpRooted = true;
+              ts_gc_register_root(&g_function_prototype_obj); } }
 
         // Function.prototype.call / apply / bind / toString
         // toString is required for lodash (and many other libraries) which
@@ -9091,6 +9102,18 @@ extern "C" void ts_weak_stub_prepare(const char* bare, const char* mangled,
     strcpy(g_weak_stub_mangled, mangled);
     g_weak_stub_args = argsArr;
     g_weak_stub_pending = true;
+}
+
+// ECMA-262: calling a namespace object (JSON, Math, console) — they have no
+// [[Call]] internal method, so the call site throws TypeError. Lowered by the
+// compiler for `JSON(...)` / `Math(...)` / `console(...)` (a direct call of
+// the bare symbol would bind to the runtime's DATA global and jump into BSS).
+extern "C" TsValue* ts_call_non_callable_namespace(const char* name) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s is not a function",
+             (name && *name) ? name : "value");
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", buf));
+    return ts_value_make_undefined();  // unreachable
 }
 
 extern "C" TsValue* ts_weak_stub_dispatch(const char* mangled) {

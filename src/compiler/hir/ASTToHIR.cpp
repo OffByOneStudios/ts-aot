@@ -2382,7 +2382,14 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
         for (auto& [methodKey, methodFunc] : hirClass->methods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodKey, methodFunc));
+            std::string sym = completeMethodSymbol(hirClass, methodKey, methodFunc);
+            // Milestone B: a capturing nested-class member installs a
+            // cell-carrier closure binding the enclosing function's cells
+            // (this setup emits INLINE at the class statement for
+            // function-scoped classes, so the bindings are live here).
+            auto methodClosure = memberNeedsClosure(methodFunc)
+                ? buildMemberCellCarrierClosure(sym, methodFunc)
+                : builder_.createLoadFunction(sym);
             installMethod(proto, qualifyPrivateMemberKey(methodKey, hirClass->name), methodClosure);
         }
 
@@ -2493,7 +2500,11 @@ void ASTToHIR::emitSingleClassSetup(HIRClass* hirClass, bool valueResolveHeritag
         // this, but class expressions and indirect access need it.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true));
+            std::string ssym = completeMethodSymbol(hirClass, methodName, methodFunc, /*isStatic=*/true);
+            // Milestone B: capturing static members also carry cells.
+            auto methodClosure = memberNeedsClosure(methodFunc)
+                ? buildMemberCellCarrierClosure(ssym, methodFunc)
+                : builder_.createLoadFunction(ssym);
             installMethod(ctorVal, qualifyPrivateMemberKey(methodName, hirClass->name), methodClosure);
         }
 

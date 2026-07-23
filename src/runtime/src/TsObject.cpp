@@ -8166,6 +8166,31 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             // else fall through (no inherited match for this key)
         }
 
+        // TsPromise: HasProperty must see the inherited Promise.prototype
+        // surface (`'then' in p`, and the with-statement object environment's
+        // HasBinding — test262 dynamic-import nested-with-expression-* reads
+        // `then`/`constructor` inside `with (import(x))`). Own props live in
+        // the g_native_object_props side-map; then the ctor prototype chain
+        // (then/catch/finally/constructor + user-added), then Object.prototype.
+        if (magic16 == 0x50524F4D) { // TsPromise "PROM"
+            TsString* keyStr = ts_property_key_string(key);
+            const char* k = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (!k) return false;
+            if (TsMap* nprops = getNativeProps(rawObj)) {
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(k);
+                if (nprops->Has(kk)) return true;
+            }
+            extern void* ts_get_global_Promise();
+            if (ts_builtin_ctor_proto_has(ts_get_global_Promise, key)) return true;
+            // Instance-dispatch names guaranteed by TsPromise's virtual
+            // property handler even if the proto map drifts.
+            if (strcmp(k, "then") == 0 || strcmp(k, "catch") == 0 ||
+                strcmp(k, "finally") == 0 || strcmp(k, "constructor") == 0)
+                return true;
+            return is_object_prototype_member(k);
+        }
+
         // TypedArray (integer-indexed exotic object): a canonical in-bounds
         // numeric index is always a present own property (dense by
         // construction); out-of-bounds / non-integral indices are absent.
@@ -8852,7 +8877,34 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
             }
         }
 
-        return (map->Delete(keyVal) || deletedAccessor) ? 1 : 0;
+        // Primitive String wrapper (TsMap with a hidden __StringData slot):
+        // `length` and in-range character indices are NON-CONFIGURABLE own
+        // properties served exotically (not stored as plain map entries). They
+        // are NOT hadPlain, so the `!hadPlain` success below would wrongly
+        // report delete=true for them (S15.5.5.1_A3). [[Delete]] must return
+        // false. Mirrors the `in`/get exotic-own detection above.
+        if (!hadPlain) {
+            TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+            sdKey.ptr_val = TsString::GetInterned("__StringData");
+            TsValue sd = map->Get(sdKey);
+            if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                TsString* str = (TsString*)sd.ptr_val;
+                if (const char* k = keyStr->ToUtf8()) {
+                    if (strcmp(k, "length") == 0) return 0;
+                    char* endp = nullptr;
+                    long idx = strtol(k, &endp, 10);
+                    if (endp && *endp == '\0' && idx >= 0 && idx < str->Length())
+                        return 0;
+                }
+            }
+        }
+
+        // ES 10.1.10 OrdinaryDelete step 3: an ABSENT key deletes
+        // successfully (true). Plain objects are usually FLAT (handled
+        // above); this TsMap tail previously returned 0 for missing keys,
+        // which made strict `delete obj.missing` throw (dynamic-import
+        // namespace delete-non-exported family on unmarked exports maps).
+        return (map->Delete(keyVal) || deletedAccessor || !hadPlain) ? 1 : 0;
     }
 
     extern "C" void ts_console_log_value_no_newline(TsValue* val);
@@ -9096,8 +9148,28 @@ void ts_arguments_unmap_index(TsArray* arr, size_t idx) {
         uint64_t vnb = val ? nanbox_from_tsvalue_ptr(val) : 0;
         if (val && nanbox_is_ptr(vnb)) {
             void* raw = nanbox_to_ptr(vnb);
+            // ES 25.5.1.1 step 2: "If Type(val) is Object" — a String /
+            // BigInt / Symbol primitive is a nanbox POINTER but NOT an
+            // Object; walking it sent every string element into the object
+            // branch, whose Reflect.ownKeys correctly rejected the string
+            // (TypeError) and broke EVERY reviver over string data.
             if (raw && (uintptr_t)raw > 0x1000) {
-                if (ts_array_is_array(raw)) {
+                uint32_t vm0 = *(uint32_t*)raw;
+                if (vm0 == 0x53545247 /*STRG*/ || vm0 == 0x434F4E53 /*CONS*/ ||
+                    vm0 == 0x42494749 /*BIGI*/ || vm0 == 0x53594D42 /*SYMB*/) {
+                    raw = nullptr;  // primitive: skip the object/array walk
+                }
+            }
+            if (raw && (uintptr_t)raw > 0x1000) {
+                // ES 25.5.1.1 step 2.a: isArray = ? IsArray(val) — the
+                // PROXY-AWARE IsArray (7.2.2): a proxy whose target is an
+                // array takes the ARRAY walk (its length/element traps fire,
+                // its defineProperty trap's abrupt completion propagates);
+                // a revoked proxy throws TypeError. ts_array_is_array is the
+                // non-proxy-aware variant and sent proxies down the object
+                // walk (reviver-array-*-err, revived-proxy).
+                extern bool ts_array_isArray(void* value);
+                if (ts_array_isArray((void*)val)) {
                     // len = ? ToLength(? Get(val, "length"))
                     TsValue* lenKey = ts_value_make_string(TsString::Create("length"));
                     TsValue* lenV = ts_reflect_get((void*)val, (void*)lenKey, (void*)val);

@@ -37,6 +37,12 @@ struct Module {
     // circular indirect exports and ambiguous star-exports are detectable
     // (the eager symbol-copy in visitExportDeclaration loses that shape).
     std::string linkError;
+    // Raw-source CommonJS detection (module.exports / exports.x / require()).
+    // Modules WITHOUT these markers are treated as ES modules for
+    // ResolveExport (16.2.1.6.3): a missing named/default export is a
+    // link-time SyntaxError. Marker-bearing modules keep the lenient CJS
+    // interop path (dynamic exports are not statically resolvable).
+    bool cjsMarkers = false;
     std::set<std::string> reDirectExports;                 // locally declared exports
     std::map<std::string, std::pair<std::string, std::string>> reNamedIndirect; // name -> (srcPath, srcName)
     std::vector<std::string> reStarSources;                // `export * from` source paths

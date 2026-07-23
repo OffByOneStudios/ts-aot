@@ -42,15 +42,21 @@ static inline bool array_search_equals(uint64_t elemNB, uint64_t searchNB) {
 // is exotic; packed plain arrays keep the raw-slot scans below.
 extern "C" bool ts_array_has_property_at_idx(void* arr, int64_t i);
 extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i);
+extern "C" TsValue* ts_array_hole_inherited(void* recv, int64_t i);
+extern "C" void* ts_to_string_spec(TsValue* val);  // ToString w/ ToPrimitive (TsString.cpp)
 extern "C" uint8_t g_array_proto_has_indexed;
 bool array_generic_absent_index(const TsArray* self, size_t i);  // TsArray.cpp
 TsValue* array_generic_live_value(const TsArray* self, size_t i, TsValue* snapshot);  // TsArray.cpp
 
+extern "C" bool g_object_proto_dirty;
 extern "C" bool ts_array_needs_spec_search(TsArray* arr) {
     if (!arr) return false;
     if (arr->properties) return true;               // may hold index accessors/attrs
     if (arr->originalReceiver && arr->originalReceiver != (void*)arr) return true;
-    if (arr->HasHoles() && g_array_proto_has_indexed) return true;
+    // A hole may inherit an indexed property from Array.prototype OR from a
+    // user-modified Object.prototype (#66) — both make the raw-slot fast
+    // paths unsound.
+    if (arr->HasHoles() && (g_array_proto_has_indexed || g_object_proto_dirty)) return true;
     return false;
 }
 
@@ -1156,6 +1162,14 @@ void* TsArray::Slice(int64_t start, int64_t end) {
 
     for (size_t i = 0; i < newLength; ++i) {
         int64_t rawBits = ((int64_t*)elements)[start + i];
+        // ES 23.1.3.28 step 8.c: HasProperty(O, k) is prototype-aware — a hole
+        // that inherits Array.prototype[i] / Object.prototype[i] is copied as
+        // an OWN property of the result; a still-missing index stays a hole.
+        // Flag-gated inside the helper; plain slices are untouched.
+        if (!isSpecialized && (uint64_t)rawBits == NANBOX_HOLE) {
+            if (TsValue* ih = ts_array_hole_inherited((void*)this, (int64_t)(start + i)))
+                rawBits = (int64_t)(uintptr_t)ih;
+        }
         result->Push(rawBits);
     }
     return result;
@@ -1186,12 +1200,20 @@ void* TsArray::Join(void* separator) {
     for (size_t i = 0; i < length; ++i) {
         if (i > 0) ss << sepStr;
 
-        // ECMA-262 23.1.3.18: a hole (and undefined/null) joins as the empty
-        // string. The separator was already emitted above; emit no element.
-        // Without this the NANBOX_HOLE sentinel fell through to
+        // ECMA-262 23.1.3.18: element k is read via Get(O, k) — a hole
+        // inherits through the prototype chain (user-planted
+        // Array.prototype[i] / Object.prototype[i]; flag-gated) — and only a
+        // still-missing element (and undefined/null) joins as the empty
+        // string. The separator was already emitted above.
+        // Without the hole-skip the NANBOX_HOLE sentinel fell through to
         // ts_string_from_value and rendered as "unknown" (`[1,,3].join('-')`
         // → "1-unknown-3", `new Array(3).join()` → "unknown-unknown-...").
-        if (IsHole(i)) continue;
+        uint64_t inheritedNb = 0;
+        if (IsHole(i)) {
+            TsValue* ih = ts_array_hole_inherited((void*)this, (int64_t)i);
+            if (!ih) continue;
+            inheritedNb = (uint64_t)(uintptr_t)ih;
+        }
 
         // Handle specialized arrays - output numeric values directly
         if (isSpecialized) {
@@ -1211,8 +1233,9 @@ void* TsArray::Join(void* separator) {
 
         // Generic array - elements are NaN-boxed values. Get(i) is accessor-aware
         // (invokes a per-index getter defined via Object.defineProperty); for a
-        // plain array it is just the slot read (gated on `properties`).
-        uint64_t nb = (uint64_t)Get(i);
+        // plain array it is just the slot read (gated on `properties`). A hole
+        // that inherited a prototype value uses that value instead.
+        uint64_t nb = inheritedNb ? inheritedNb : (uint64_t)Get(i);
         if (nanbox_is_undefined(nb)) {
             // undefined joins as empty string (JS spec)
         } else if (nanbox_is_null(nb) || nb == 0) {
@@ -1241,8 +1264,10 @@ void* TsArray::Join(void* separator) {
                     TsString* sub = (TsString*)((TsArray*)ptr)->Join(nullptr);
                     if (sub) ss << sub->ToUtf8();
                 } else {
-                    // Other object - use ts_string_from_value
-                    TsString* str = (TsString*)ts_string_from_value((TsValue*)(uintptr_t)nb);
+                    // Other object: ES 23.1.3.18 step 7.c ToString(element) —
+                    // ToPrimitive first, so a user toString/valueOf runs
+                    // (join/S15.4.4.5_A3.2: {toString(){return "*"}} → "*").
+                    TsString* str = (TsString*)ts_to_string_spec((TsValue*)(uintptr_t)nb);
                     if (str) ss << str->ToUtf8();
                     else ss << "[object Object]";
                 }

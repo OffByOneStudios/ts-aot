@@ -339,6 +339,27 @@ extern "C" {
         ~PlainCallThisScope() { if (active) ts_call_this_value = saved; }
     };
 
+    // ES 7.2.3 IsCallable / 13.3.6.2 EvaluateCall step 5: calling a value with
+    // no [[Call]] throws TypeError. Undefined/null callees keep the legacy
+    // lenient return-undefined behavior — internal C++ callers routinely
+    // invoke maybe-absent callbacks through this dispatcher. A DEFINED
+    // non-callable (a Promise from `import(x)()`, a number, a plain object)
+    // throws. POD frame at the throw point (ts_throw longjmps).
+    // Defined here, stamped by the Function-global builder (TsGlobals.cpp).
+    void* g_function_prototype_obj = nullptr;
+
+    static void throw_defined_not_callable(TsValue* boxedFunc) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(boxedFunc);
+        if (!boxedFunc || nanbox_is_undefined(nb) || nanbox_is_null(nb)) return;
+        // ES 20.2.3: %Function.prototype% is itself callable — accepts any
+        // arguments and returns undefined (Function.prototype() tests).
+        extern void* g_function_prototype_obj;
+        if (g_function_prototype_obj &&
+            ts_value_get_object(boxedFunc) == g_function_prototype_obj) return;
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "value is not a function"));
+    }
+
     static TsValue* call_dispatch_n(TsValue* boxedFunc, int argc, TsValue** argv) {
         ts_last_call_argc = argc;
         TsValue* u = ts_value_make_undefined();
@@ -376,7 +397,7 @@ extern "C" {
             return proxy->apply(nullptr, (TsValue*)argsArr, argc);
         }
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) return u;
+        if (!func) { throw_defined_not_callable(boxedFunc); return u; }
         if (func->type == FunctionType::NATIVE) {
             void* fp = func->funcPtr;
             if (fp && ts_gc_base(fp)) return u;
@@ -476,7 +497,11 @@ extern "C" {
             }
         }
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) { ts_call_this_value = savedThis; return u; }
+        if (!func) {
+            ts_call_this_value = savedThis;
+            throw_defined_not_callable(boxedFunc);
+            return u;
+        }
         void* savedCtx = maybe_override_context(func, thisArg);
         TsValue* result = call_dispatch_n(boxedFunc, argc, argv);
         func->context = savedCtx;
@@ -1357,10 +1382,30 @@ extern "C" {
         }
 
         // 4. Call the constructor with this = new object
-        // Guard: if constructor is not callable (e.g., TsMap stub), store args as .message
+        // Guard: constructor is not callable. ES 13.3.5.1 / 7.2.4: `new` on a
+        // value with no [[Construct]] throws TypeError. Legacy exception: bare
+        // TsMap constructor STUBS (makeSimpleConstructorGlobal shapes reached
+        // by value) keep the old lenient mint-a-plain-object behavior with the
+        // .message stash. Everything else — a Promise (`new (import(x))`,
+        // test262 new-covered-expression-is-valid), arrays, flat objects,
+        // primitives — throws.
         TsClosure* asClosure = ts_extract_closure(constructorFn);
         TsFunction* asFunc = ts_extract_function(constructorFn);
         if (!asClosure && !asFunc) {
+            bool isMapStub = false;
+            void* rawC = ts_value_get_object(constructorFn);
+            if (rawC && (uintptr_t)rawC > 0x10000) {
+                uint32_t m0 = *(uint32_t*)rawC;
+                if (m0 != 0x464C4154) { // not a flat object (no magic16 there)
+                    uint32_t m16 = *(uint32_t*)((char*)rawC + 16);
+                    isMapStub = (m16 == 0x4D415053); // TsMap "MAPS"
+                }
+            }
+            if (!isMapStub) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "value is not a constructor"));
+                return ts_value_make_undefined();  // unreachable
+            }
             if (argc >= 1 && argv && argv[0]) {
                 TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
                 msgKey.ptr_val = TsString::GetInterned("message");
@@ -1675,6 +1720,10 @@ extern "C" {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
             ts_call_this_value = savedThis;
+            // ES 7.2.3 IsCallable: a DEFINED non-callable callee throws
+            // TypeError (spread calls `import(x)(...[])` route here via
+            // ts_function_apply); undefined/null stay legacy-lenient.
+            throw_defined_not_callable(boxedFunc);
             return ts_value_make_undefined();
         }
 

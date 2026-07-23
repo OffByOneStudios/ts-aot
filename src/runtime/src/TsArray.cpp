@@ -164,6 +164,19 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     if (i >= 0 && (size_t)i < (size_t)arr->Length() && !arr->IsHole((size_t)i)) {
         return arr->GetElementBoxed((size_t)i);
     }
+    // ARGUMENTS object: a past-length write (`arguments[i]=v`) created an own
+    // string-keyed side-map property (ts_array_set's isArguments branch). Reads
+    // must mirror it before falling to the prototype (params-dflt-args-unmapped
+    // family). This is the shared indexed-Get helper reached by the compiled
+    // `arr[intKey]` path (TsObject.cpp ts_object_get_dynamic -> here).
+    if (i >= 0 && arr->isArguments && arr->properties) {
+        char kb[24];
+        snprintf(kb, sizeof(kb), "%lld", (long long)i);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned(kb);
+        if (arr->properties->Has(k))
+            return (TsValue*)nanbox_from_tagged(arr->properties->Get(k));
+    }
     // Inherited via Array.prototype.
     TsValue* v = array_proto_get_at((void*)arr, i);
     if (!v) {
@@ -180,6 +193,70 @@ TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
 // as object/any so it does not use the typed-array fast get).
 extern "C" TsValue* ts_array_get_property_at_idx(void* arr, int64_t i) {
     return ts_array_get_property_at((TsArray*)arr, i);
+}
+
+// Spec [[Get]] fallback for a HOLE at index i: the prototype chain
+// (Array.prototype, then a user-modified Object.prototype) may provide the
+// value (ES 10.1.8.1 OrdinaryGet step 2). Returns nullptr when nothing is
+// inherited. Cheap on the common path: both branches are gated on the
+// "user planted indexed props" dirty flags.
+extern "C" bool g_object_proto_dirty;
+extern "C" TsValue* ts_array_hole_inherited(void* recv, int64_t i) {
+    if (g_array_proto_has_indexed) {
+        if (TsValue* v = array_proto_get_at(recv, i)) return v;
+    }
+    if (g_object_proto_dirty) {
+        char idxKey[24];
+        snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
+        return ts_object_proto_dynamic_lookup_recv(idxKey, ts_value_make_object(recv));
+    }
+    return nullptr;
+}
+
+// ES 10.1.9.2 OrdinarySetWithOwnDescriptor: when the receiver has NO own
+// property at index i, an INHERITED accessor on Array.prototype intercepts the
+// write — the setter is invoked with the receiver as this (and no own property
+// is created), or a getter-only accessor makes the write fail silently.
+// Returns true when the write was consumed here. Inherited DATA properties do
+// not block creating an own property (caller proceeds normally).
+extern "C" bool ts_array_inherited_set_intercept(void* recv, int64_t i, void* value) {
+    if (!g_array_proto_has_indexed || !g_array_prototype_map) return false;
+    char setterKey[40], getterKey[40];
+    snprintf(setterKey, sizeof(setterKey), "__setter_%lld", (long long)i);
+    snprintf(getterKey, sizeof(getterKey), "__getter_%lld", (long long)i);
+    TsValue sk; sk.type = ValueType::STRING_PTR;
+    sk.ptr_val = TsString::GetInterned(setterKey);
+    TsValue sv = g_array_prototype_map->Get(sk);
+    if (sv.type != ValueType::UNDEFINED &&
+        (sv.type == ValueType::FUNCTION_PTR || sv.type == ValueType::OBJECT_PTR)) {
+        extern TsValue* ts_call_with_this_1(TsValue* fn, TsValue* thisArg, TsValue* a1);
+        ts_call_with_this_1(ts_value_make_object(sv.ptr_val),
+                            ts_value_make_object(recv), (TsValue*)value);
+        return true;
+    }
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::GetInterned(getterKey);
+    if (g_array_prototype_map->Has(gk)) return true;  // getter-only: write fails
+    return false;
+}
+
+// Mutating Array.prototype algorithms (shift/reverse/sort/splice/unshift)
+// move elements by raw slot; per spec each moved position is read via Get
+// (which inherits through the prototype chain for holes) and written via Set
+// (which creates an OWN property). Filling inherited holes up-front makes the
+// raw-slot implementations spec-equivalent for the data-property case.
+// Gated on the dirty flags + HasHoles so plain arrays pay two flag checks.
+extern "C" void ts_array_fill_inherited_holes(void* arrRaw) {
+    TsArray* a = (TsArray*)arrRaw;
+    if (!a || !a->HasHoles()) return;
+    if (!g_array_proto_has_indexed && !g_object_proto_dirty) return;
+    int64_t len = a->Length();
+    if (len > 1000000) return;  // huge sparse arrays: not worth the walk
+    for (int64_t i = 0; i < len; i++) {
+        if (!a->IsHole((size_t)i)) continue;
+        if (TsValue* v = ts_array_hole_inherited((void*)a, i))
+            a->Set((size_t)i, (int64_t)(uintptr_t)v);
+    }
 }
 
 TsArray* TsArray::Create(size_t initialCapacity) {
@@ -361,7 +438,13 @@ TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize, bool isDoub
 
 // Helper to get element at index as a boxed TsValue*, handling specialized arrays
 TsValue* TsArray::GetElementBoxed(size_t index) {
-    if (index >= length) return ts_value_make_undefined();
+    if (index >= length) {
+        // OrdinaryGet: an out-of-range index still consults the prototype
+        // chain (Array.prototype[i] / Object.prototype[i]). Flag-gated.
+        if (TsValue* ih = ts_array_hole_inherited((void*)this, (int64_t)index))
+            return ih;
+        return ts_value_make_undefined();
+    }
 
     // Per-index accessor (Lever A): __arr_getter_<i>/__arr_setter_<i> in the
     // properties side-map governs reads regardless of element kind. This is the
@@ -412,10 +495,12 @@ TsValue* TsArray::GetElementBoxed(size_t index) {
     }
 
     // PackedAny / HoleyAny: stored values are NaN-boxed uint64_t.
-    // Hole sentinel reads as undefined (spec: Get(arr, i) for a missing
-    // index returns undefined after the prototype chain is consulted —
-    // no accessors fire in the version-0 fast path).
+    // Hole sentinel: consult the prototype chain first (a user-planted
+    // Array.prototype[i] / Object.prototype[i] is inherited per OrdinaryGet),
+    // then read as undefined. Gated on the dirty flags inside the helper.
     if ((uint64_t)val == NANBOX_HOLE) {
+        if (TsValue* ih = ts_array_hole_inherited((void*)this, (int64_t)index))
+            return ih;
         return ts_value_make_undefined();
     }
     // Otherwise the stored value IS the NaN-boxed representation.
@@ -462,7 +547,14 @@ void TsArray::Push(int64_t value) {
 int64_t TsArray::Pop() {
     if (length == 0) return 0;
     if (elementSize == 8) {
-        return ((int64_t*)elements)[--length];
+        int64_t v = ((int64_t*)elements)[--length];
+        // ES 23.1.3.22 step 4.d: the popped element is read via Get, which
+        // inherits through the prototype chain for a hole (flag-gated).
+        if ((uint64_t)v == NANBOX_HOLE) {
+            if (TsValue* ih = ts_array_hole_inherited((void*)this, (int64_t)length))
+                return (int64_t)(uintptr_t)ih;
+        }
+        return v;
     } else if (elementSize == 4) {
         return (int64_t)((int32_t*)elements)[--length];
     } else if (elementSize == 2) {
@@ -716,6 +808,44 @@ bool TsArray::SetLength(size_t newLength) {
     // LATER mutations (assignment, push/splice growth).
     if (array_length_is_nonwritable(this)) return false;
     if (newLength < length) {
+        // ES 10.4.2.4 ArraySetLength step 15: shrinking deletes elements
+        // top-down; a NON-CONFIGURABLE own index property (recorded in the
+        // __arr_attrs_<i> side-map by defineProperty) cannot be deleted, so
+        // length stops just above the highest such index and the length set
+        // reports failure. Gated on `properties` — plain arrays skip this.
+        if (properties) {
+            size_t clamp = newLength;
+            bool blocked = false;
+            void* keysRaw = properties->GetKeys();
+            if (keysRaw) {
+                TsArray* keys = (TsArray*)keysRaw;
+                size_t nKeys = keys->Length();
+                for (size_t i = 0; i < nKeys; i++) {
+                    TsValue* kv = (TsValue*)keys->GetElementBoxed(i);
+                    void* ks = kv ? ts_value_get_string(kv) : nullptr;
+                    if (!ks) continue;
+                    const char* s = ((TsString*)ks)->ToUtf8();
+                    if (!s || strncmp(s, "__arr_attrs_", 12) != 0) continue;
+                    char* endp = nullptr;
+                    unsigned long long idx = strtoull(s + 12, &endp, 10);
+                    if (endp == s + 12 || (endp && *endp)) continue;
+                    if (idx < (unsigned long long)newLength ||
+                        idx >= (unsigned long long)length) continue;
+                    TsValue kk; kk.type = ValueType::STRING_PTR;
+                    kk.ptr_val = (TsString*)ks;
+                    TsValue av = properties->Get(kk);
+                    if (!(((uint64_t)av.i_val) & 0x04 /*ATTR_CONFIGURABLE*/)) {
+                        if (idx + 1 > (unsigned long long)clamp)
+                            clamp = (size_t)(idx + 1);
+                        blocked = true;
+                    }
+                }
+            }
+            if (blocked) {
+                length = clamp;
+                return false;
+            }
+        }
         // Truncate. Elements above newLength become unreachable; GC will
         // collect them. We just decrement length; the slots stay in the
         // backing buffer (capacity is unchanged) but iteration / Get /
@@ -777,6 +907,9 @@ bool TsArray::SetLength(size_t newLength) {
     return true;
 }
 
+// ToString with ToPrimitive (invokes user toString/valueOf) — TsString.cpp.
+extern "C" void* ts_to_string_spec(TsValue* val);
+
 // JavaScript default sort: convert NaN-boxed elements to strings and compare lexicographically.
 // undefined values sort to the end.
 static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) {
@@ -790,7 +923,12 @@ static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) 
         return buf;
     }
     if (nanbox_is_double(nb)) {
-        snprintf(buf, bufSize, "%.17g", nanbox_to_double(nb));
+        double d = nanbox_to_double(nb);
+        // JS ToString(number): "Infinity" / "-Infinity" / "NaN", not the C
+        // locale's "inf"/"nan" (sort's default comparator is string-based).
+        if (d != d) return "NaN";
+        if (std::isinf(d)) return d > 0 ? "Infinity" : "-Infinity";
+        snprintf(buf, bufSize, "%.17g", d);
         // Trim trailing zeros for cleaner output (match JS behavior)
         if (strchr(buf, '.')) {
             size_t len = strlen(buf);
@@ -805,6 +943,17 @@ static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) 
         uint32_t magic = *(uint32_t*)ptr;
         if (magic == TsString::MAGIC) {
             return ((TsString*)ptr)->ToUtf8();
+        }
+        // ES 23.1.3.30.2 SortCompare steps 5-7: non-string objects are
+        // ToString'd (invokes the user's toString/valueOf via ToPrimitive) —
+        // the result is compared lexicographically, and each comparison
+        // re-invokes ToString (observable: sort/bug_596_1).
+        {
+            TsString* s = (TsString*)ts_to_string_spec((TsValue*)(uintptr_t)nb);
+            if (s) {
+                snprintf(buf, bufSize, "%s", s->ToUtf8());
+                return buf;
+            }
         }
         return "[object Object]";
     }
@@ -1025,6 +1174,35 @@ extern "C" {
         }
 
         TsArray* array = (TsArray*)rawArr;
+
+        // ES 23.1.3.23 on an array already at max length (2^32-1): the element
+        // Set targets key ToString(2^32-1), which is NOT an array index — it
+        // becomes a plain string-keyed property — and the following
+        // Set(O, "length", 2^32) throws RangeError (ArraySetLength ToUint32
+        // round-trip mismatch). push/S15.4.4.7_A3.
+        if ((uint64_t)array->Length() >= 0xFFFFFFFFULL) {
+            void* keyStr = ts_int_to_string(array->Length(), 10);
+            TsValue* keyBoxed = ts_value_make_string(keyStr);
+            ts_object_set_property(rawArr, keyBoxed, value);
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Invalid array length"));
+            return;  // unreachable
+        }
+
+        // ES 23.1.3.23 push → Set(O, len, v): with no own property at the
+        // target index, an inherited Array.prototype accessor intercepts the
+        // write (setter runs, no own property is created); the subsequent
+        // Set(O, "length") must then throw if the setter froze the array.
+        // Flag-gated: plain programs never enter this branch.
+        if (g_array_proto_has_indexed) {
+            int64_t idx = array->Length();
+            if (ts_array_inherited_set_intercept(rawArr, idx, value)) {
+                arr_require_len_writable(rawArr, "push");  // may throw (frozen)
+                array->SetLength((size_t)(idx + 1));
+                return;
+            }
+        }
+
         int64_t bits = (int64_t)value;
         ElementKind kind = array->GetElementKind();
 
@@ -1170,8 +1348,31 @@ extern "C" {
     }
 
     void* ts_array_pop(void* arr) {
+        // Guard non-TsArray receivers (compiler Any-path lowering: a variable
+        // statically typed Array may hold a plain object at runtime). Delegate
+        // to the native wrapper (array-like spec algorithm).
+        {
+            void* raw = ts_nanbox_safe_unbox(arr);
+            uintptr_t p = (uintptr_t)raw;
+            if (!raw || p <= 0x1000 || p >= 0x0000800000000000ULL ||
+                *(uint32_t*)raw != TsArray::MAGIC) {
+                extern TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv);
+                TsValue* res = ts_array_pop_native(arr, 0, nullptr);
+                return res ? (void*)res : (void*)ts_value_make_undefined();
+            }
+            arr = raw;
+        }
         arr_require_len_writable(arr, "pop");
-        return (void*)((TsArray*)arr)->Pop();
+        // ES 23.1.3.22 order: Get(O, len-1) runs FIRST — an inherited
+        // Array.prototype getter may freeze O or make its length
+        // non-writable — and the following Set(O, "length") must then throw.
+        // Filling inherited holes performs those Gets; then re-check.
+        ts_array_fill_inherited_holes(arr);
+        arr_require_len_writable(arr, "pop");
+        int64_t r = ((TsArray*)arr)->Pop();
+        // Popping a HOLE: the sentinel must not leak as a value.
+        if ((uint64_t)r == NANBOX_HOLE) return (void*)ts_value_make_undefined();
+        return (void*)r;
     }
 
     extern TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
@@ -1198,13 +1399,46 @@ extern "C" {
             }
         }
         if (!arr) return 0;
+        // ES 23.1.3.32 unshift → Set(O, 0, v) on an EMPTY receiver: an
+        // inherited Array.prototype accessor intercepts (setter runs, no own
+        // property created); the following Set(O, "length") must throw if the
+        // setter froze the array. Flag-gated.
+        if (g_array_proto_has_indexed && ((TsArray*)arr)->Length() == 0) {
+            if (ts_array_inherited_set_intercept(arr, 0, value)) {
+                arr_require_len_writable(arr, "unshift");  // may throw (frozen)
+                ((TsArray*)arr)->SetLength(1);
+                return (int64_t)((TsArray*)arr)->Length();
+            }
+        }
         ((TsArray*)arr)->Unshift((int64_t)value);
         return (int64_t)((TsArray*)arr)->Length();
     }
 
     void* ts_array_shift(void* arr) {
+        // Guard non-TsArray receivers (see ts_array_pop).
+        {
+            void* raw = ts_nanbox_safe_unbox(arr);
+            uintptr_t p = (uintptr_t)raw;
+            if (!raw || p <= 0x1000 || p >= 0x0000800000000000ULL ||
+                *(uint32_t*)raw != TsArray::MAGIC) {
+                extern TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv);
+                TsValue* res = ts_array_shift_native(arr, 0, nullptr);
+                return res ? (void*)res : (void*)ts_value_make_undefined();
+            }
+            arr = raw;
+        }
         arr_require_len_writable(arr, "shift");
-        return (void*)((TsArray*)arr)->Shift();
+        // ES 23.1.3.27: every moved position is read via Get (holes inherit
+        // through the prototype chain) and written via Set. Flag-gated no-op.
+        // An inherited getter may freeze O mid-read — the final
+        // Set(O, "length") must then throw, with length unchanged.
+        ts_array_fill_inherited_holes(arr);
+        arr_require_len_writable(arr, "shift");
+        int64_t r = ((TsArray*)arr)->Shift();
+        // Shifting a HOLE off the front: the sentinel must not leak as a
+        // value — spec Get of a still-missing index is undefined.
+        if ((uint64_t)r == NANBOX_HOLE) return (void*)ts_value_make_undefined();
+        return (void*)r;
     }
 
     TsValue* ts_array_get_as_value(void* arr, int64_t index) {
@@ -1231,7 +1465,12 @@ extern "C" {
         }
         TsArray* array = (TsArray*)arr;
         if (index < 0 || index >= array->Length()) {
-             return ts_value_make_undefined();
+            // OrdinaryGet: an out-of-range index still consults the prototype
+            // chain (Array.prototype[i] / Object.prototype[i]). Flag-gated.
+            if (index >= 0) {
+                if (TsValue* ih = ts_array_hole_inherited(arr, index)) return ih;
+            }
+            return ts_value_make_undefined();
         }
         int64_t val = array->Get(index);
         ElementKind kind = array->GetElementKind();
@@ -1257,10 +1496,15 @@ extern "C" {
             }
         }
         // Generic (PackedAny/HoleyAny) path: `val` is NaN-boxed, so NANBOX_HOLE
-        // is unambiguous (unlike the SMI/Double fast paths). A hole reads as
-        // undefined; otherwise the 0x08 sentinel leaks via ts_object_get_dynamic
-        // (`array[i]` on an any-typed array) -> "unknown" / pointer crash.
-        if ((uint64_t)val == NANBOX_HOLE) return ts_value_make_undefined();
+        // is unambiguous (unlike the SMI/Double fast paths). A hole consults
+        // the prototype chain (user-planted Array.prototype[i] /
+        // Object.prototype[i] is inherited per OrdinaryGet — flag-gated inside
+        // the helper), then reads as undefined; otherwise the 0x08 sentinel
+        // leaks via ts_object_get_dynamic -> "unknown" / pointer crash.
+        if ((uint64_t)val == NANBOX_HOLE) {
+            if (TsValue* ih = ts_array_hole_inherited(arr, index)) return ih;
+            return ts_value_make_undefined();
+        }
         return (TsValue*)val;
     }
 
@@ -1551,19 +1795,33 @@ extern "C" {
             return (void*)ts_object_get_property(raw, keyC);
         }
         if ((size_t)index >= (size_t)array->Length()) {
+            // ARGUMENTS object: an out-of-length index may be an own
+            // string-keyed side-map property (see ts_array_set_unchecked).
+            if (array->isArguments && array->properties) {
+                char kb[24];
+                snprintf(kb, sizeof(kb), "%lld", (long long)index);
+                TsValue k; k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned(kb);
+                if (array->properties->Has(k))
+                    return (void*)nanbox_from_tagged(array->properties->Get(k));
+            }
+            // OrdinaryGet: an out-of-range index still consults the prototype
+            // chain (Array.prototype[i] / Object.prototype[i]); flag-gated.
+            if (TsValue* inh = ts_array_hole_inherited(raw, index))
+                return (void*)inh;
             return (void*)ts_value_make_undefined();
         }
         // Get() is accessor-aware (invokes a per-index getter defined via
         // Object.defineProperty); for a plain array it is the slot read.
         int64_t slot = array->Get((size_t)index);
         // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain: an
-        // inherited index (e.g. `Array.prototype[1]=x`) supplies the value the
-        // missing own slot would have. array_proto_get_at consults
-        // Array.prototype (data property or getter); a plain Array.prototype
-        // yields nullptr → undefined, preserving `a[1] === undefined` for sparse
-        // arrays. Iteration that must distinguish holes uses TsArray::IsHole().
+        // inherited index (e.g. `Array.prototype[1]=x`, or a user-modified
+        // Object.prototype index) supplies the value the missing own slot
+        // would have. A plain prototype chain yields nullptr → undefined,
+        // preserving `a[1] === undefined` for sparse arrays. Iteration that
+        // must distinguish holes uses TsArray::IsHole().
         if ((uint64_t)slot == NANBOX_HOLE) {
-            TsValue* inh = array_proto_get_at((void*)array, index);
+            TsValue* inh = ts_array_hole_inherited(raw, index);
             return inh ? (void*)inh : (void*)ts_value_make_undefined();
         }
         return (void*)slot;
@@ -1667,6 +1925,26 @@ extern "C" {
         size_t idx = (size_t)index;
         size_t len = (size_t)array->Length();
 
+        // ES 10.4.4: an ARGUMENTS object is an ordinary object wrt indices —
+        // writing past the current length creates an own property but does
+        // NOT auto-update "length" (only Array exotic objects do that).
+        // `arguments[2] = 9` with length 2 must leave length at 2
+        // (15.4.4.1x-2-17 family). Store in the string-keyed side map
+        // directly (ts_object_set_property would parse "2" back to an index
+        // and recurse).
+        if (array->isArguments && idx >= len) {
+            if (!array->properties) {
+                array->properties = TsMap::Create();
+                ts_gc_write_barrier(&array->properties, array->properties);
+            }
+            char kb[24];
+            snprintf(kb, sizeof(kb), "%lld", (long long)index);
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(kb);
+            array->properties->Set(k, nanbox_to_tagged((TsValue*)value));
+            return;
+        }
+
         // Both in-range and gap-extend go through Set, which fills the gap
         // [len, idx) with holes and bounds allocation (sparse store beyond
         // kMaxDenseElements). The previous Push-until-idx loop OOM'd for a
@@ -1749,13 +2027,24 @@ extern "C" {
         TsValue* bVal = (TsValue*)b;
 
         TsValue* result;
+        // ES 23.1.3.30.2 SortCompare step 3.a: Call(comparefn, UNDEFINED, x, y)
+        // — the comparator's this must be undefined, not globalThis (observable
+        // in a strict-mode comparator; sort/S15.4.4.11_A8). Compiled closure
+        // bodies read `this` via the call-this slot, so set it for both paths.
+        extern void ts_set_call_this(void* thisArg);
+        extern void* ts_get_call_this();
+        void* savedThis = ts_get_call_this();
+        ts_set_call_this((void*)ts_value_make_undefined());
         if (g_comparator_is_closure) {
             // HIR-generated closure path
             result = ts_closure_invoke_2v((TsClosure*)g_current_comparator, aVal, bVal);
         } else {
-            // Standard TsValue/TsFunction path
-            result = tsCall((TsValue*)g_current_comparator, aVal, bVal);
+            extern TsValue* ts_call_with_this_2(TsValue* fn, TsValue* thisArg,
+                                                TsValue* a1, TsValue* a2);
+            result = ts_call_with_this_2((TsValue*)g_current_comparator,
+                                         ts_value_make_undefined(), aVal, bVal);
         }
+        ts_set_call_this(savedThis);
         if (!result) return a < b;
 
         // ES 23.1.3.30.2 SortCompare: ToNumber(v); NaN -> +0. Integer
@@ -2008,6 +2297,11 @@ extern "C" {
                                         int64_t fromIndex, bool fromLast);
 
     int64_t ts_array_indexOf(void* arr, int64_t value) {
+        // ES 23.1.3.17: an omitted searchElement is undefined ([undefined]
+        // .indexOf() === 0). The compiled lowering pads the missing arg with
+        // the INT64_MIN sentinel (HIRToLLVM_Calls.cpp).
+        if (value == INT64_MIN || value == 0)
+            value = (int64_t)(uintptr_t)ts_value_make_undefined();
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             // `value` is the raw bit pattern of a boxed TsValue* or small int.
             // Decode to a double for element comparison.
@@ -2047,6 +2341,9 @@ extern "C" {
     }
 
     int64_t ts_array_lastIndexOf(void* arr, int64_t value) {
+        // ES 23.1.3.20: omitted searchElement is undefined (see ts_array_indexOf).
+        if (value == INT64_MIN || value == 0)
+            value = (int64_t)(uintptr_t)ts_value_make_undefined();
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             uint64_t nb = (uint64_t)value;
             double target;
@@ -2131,6 +2428,9 @@ extern "C" {
     }
 
     bool ts_array_includes(void* arr, int64_t value) {
+        // ES 23.1.3.16: omitted searchElement is undefined (see ts_array_indexOf).
+        if (value == INT64_MIN || value == 0)
+            value = (int64_t)(uintptr_t)ts_value_make_undefined();
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             uint64_t nb = (uint64_t)value;
             double target;
@@ -2418,17 +2718,30 @@ extern "C" {
         TsArray* a = (TsArray*)rawArr;
         int64_t len = a->Length();
         std::string out;
+        extern TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
         for (int64_t i = 0; i < len; i++) {
             if (i > 0) out += ",";
-            uint64_t ev = (uint64_t)a->Get(i);
-            if (nanbox_is_undefined(ev) || nanbox_is_null(ev)) continue;
-            TsValue* elem = (TsValue*)ev;
-            void* eraw = ts_value_get_object(elem); if (!eraw) eraw = elem;
+            // ES 23.1.3.32 step 6.b: nextElement is read via Get (accessor- and
+            // prototype-aware: a hole may inherit Array.prototype[i]).
+            TsValue* elem = ts_array_get_property_at(a, i);
+            uint64_t ev = elem ? (uint64_t)(uintptr_t)elem : (uint64_t)NANBOX_UNDEFINED;
+            if (!elem || nanbox_is_undefined(ev) || nanbox_is_null(ev)) continue;
             TsValue* s = elem;
-            if (eraw && (uintptr_t)eraw > 0x1000) {
-                TsValue* m = ts_object_get_property(eraw, "toLocaleString");
-                if (m && ts_is_callable((void*)m)) s = ts_function_call_with_this(m, elem, 0, nullptr);
+            // Step 6.c.i: Invoke(nextElement, "toLocaleString") — GetV walks the
+            // wrapper prototype chain for PRIMITIVE elements too (a user override
+            // of e.g. Boolean.prototype.toString must be observable).
+            TsValue* m = nullptr;
+            {
+                void* eraw = ts_value_get_object(elem);
+                if (eraw && (uintptr_t)eraw > 0x1000)
+                    m = ts_object_get_property(eraw, "toLocaleString");
+                if (!m || !ts_is_callable((void*)m)) {
+                    TsValue k; k.type = ValueType::STRING_PTR;
+                    k.ptr_val = TsString::GetInterned("toLocaleString");
+                    m = ts_object_get_dynamic(elem, nanbox_from_tagged(k));
+                }
             }
+            if (m && ts_is_callable((void*)m)) s = ts_function_call_with_this(m, elem, 0, nullptr);
             TsString* str = (TsString*)ts_string_from_value(s);
             const char* u = str ? str->ToUtf8() : nullptr;
             if (u) out += u;
@@ -2453,6 +2766,62 @@ extern "C" {
         return ts_value_make_string((TsString*)ts_array_toLocaleString(ctx));
     }
 
+    // ES 23.1.3.26 spec-order reverse for EXOTIC arrays (own index accessors,
+    // or holes that may inherit indexed prototype properties): each pair is
+    // processed with live HasProperty/Get/Set/Delete so a getter that mutates
+    // the array mid-walk (e.g. shrinks length) is observed
+    // (reverse/get_if_present_with_delete). Returns true when handled.
+    static bool array_reverse_spec_exotic(TsArray* arr) {
+        if (!arr) return false;
+        bool exotic = (arr->properties != nullptr) ||
+                      (arr->HasHoles() && (g_array_proto_has_indexed || g_object_proto_dirty));
+        // Array-like temps (originalReceiver) keep the legacy fill+swap path:
+        // their Has/Get must run against the ORIGINAL object, which the
+        // native-entry arraylike_reverse already handles.
+        if (!exotic || (arr->originalReceiver && arr->originalReceiver != (void*)arr))
+            return false;
+        int64_t len = arr->Length();
+        int64_t middle = len / 2;
+        auto deleteOwn = [&](int64_t idx) {
+            if (arr->properties) {
+                char gk[40], sk[40], ak[40];
+                snprintf(gk, sizeof(gk), "__arr_getter_%lld", (long long)idx);
+                snprintf(sk, sizeof(sk), "__arr_setter_%lld", (long long)idx);
+                snprintf(ak, sizeof(ak), "__arr_attrs_%lld", (long long)idx);
+                TsValue k1; k1.type = ValueType::STRING_PTR; k1.ptr_val = TsString::GetInterned(gk);
+                TsValue k2; k2.type = ValueType::STRING_PTR; k2.ptr_val = TsString::GetInterned(sk);
+                TsValue k3; k3.type = ValueType::STRING_PTR; k3.ptr_val = TsString::GetInterned(ak);
+                arr->properties->Delete(k1);
+                arr->properties->Delete(k2);
+                arr->properties->Delete(k3);
+            }
+            if (idx >= 0 && idx < arr->Length()) arr->SetHole((size_t)idx);
+        };
+        auto setAt = [&](int64_t idx, TsValue* v) {
+            if (!v) v = ts_value_make_undefined();
+            if (array_index_write_intercept(arr, (size_t)idx, (void*)v)) return;
+            ts_object_set_dynamic(ts_value_make_object(arr), ts_value_make_int(idx), v);
+        };
+        for (int64_t lower = 0; lower != middle; lower++) {
+            int64_t upper = len - lower - 1;
+            bool lowerExists = ts_array_has_property_at(arr, lower);
+            TsValue* lowerValue = lowerExists ? ts_array_get_property_at(arr, lower) : nullptr;
+            bool upperExists = ts_array_has_property_at(arr, upper);
+            TsValue* upperValue = upperExists ? ts_array_get_property_at(arr, upper) : nullptr;
+            if (lowerExists && upperExists) {
+                setAt(lower, upperValue);
+                setAt(upper, lowerValue);
+            } else if (!lowerExists && upperExists) {
+                setAt(lower, upperValue);
+                deleteOwn(upper);
+            } else if (lowerExists && !upperExists) {
+                deleteOwn(lower);
+                setAt(upper, lowerValue);
+            }
+        }
+        return true;
+    }
+
     void* ts_array_reverse(void* arr) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             size_t len = ta->GetLength();
@@ -2463,6 +2832,32 @@ extern "C" {
             }
             return arr;
         }
+        // Guard non-TsArray receivers (compiler Any-path lowering: a variable
+        // statically typed Array may hold a plain object at runtime — same
+        // workaround as ts_array_unshift/splice). Delegate to the native
+        // wrapper, which handles array-likes via require_array_or_throw.
+        {
+            void* raw = ts_nanbox_safe_unbox(arr);
+            uintptr_t p = (uintptr_t)raw;
+            uint32_t magic = 0;
+            if (raw && p > 0x1000 && p < 0x0000800000000000ULL)
+                magic = *(uint32_t*)raw;
+            if (magic != TsArray::MAGIC) {
+                extern TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv);
+                TsValue* res = ts_array_reverse_native(arr, 0, nullptr);
+                void* out = res ? ts_value_get_object(res) : nullptr;
+                return out ? out : arr;
+            }
+            arr = raw;
+        }
+        // Exotic receivers (own index accessors / inheritable holes): run the
+        // live spec algorithm so mid-walk mutations are observed.
+        if (array_reverse_spec_exotic((TsArray*)arr)) return arr;
+        // ES 23.1.3.26: each swapped position is read via Get (holes inherit
+        // through the prototype chain) and written via Set (own property).
+        // Filling inherited holes first makes the raw swap spec-equivalent
+        // for data properties. Flag-gated no-op for plain arrays.
+        ts_array_fill_inherited_holes(arr);
         ((TsArray*)arr)->Reverse();
         return arr;
     }
@@ -2506,6 +2901,9 @@ extern "C" {
             }
         }
         TsArray* a = (TsArray*)arr;
+        // ES 23.1.3.31: moved positions are read via Get (holes inherit
+        // through the prototype chain) and written via Set. Flag-gated no-op.
+        ts_array_fill_inherited_holes(arr);
         int64_t len = a->Length();
 
         // Normalize start

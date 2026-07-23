@@ -1067,6 +1067,13 @@ extern "C" {
             }
             return objProtoVal;
         }
+        if (magic == 0x50524F4D) { // TsPromise "PROM"
+            // ES 27.2.5: a promise's [[Prototype]] is %Promise.prototype% —
+            // import()/async results previously reported null here
+            // (dynamic-import returns-promise / always-create-new-promise).
+            extern void* ts_get_global_Promise();
+            return getCtorPrototype(ts_get_global_Promise());
+        }
         if (magic == 0x53455453) { // TsSet "SETS"
             extern void* ts_get_global_Set();
             return getCtorPrototype(ts_get_global_Set());
@@ -2311,6 +2318,91 @@ extern "C" {
     }
 
     extern "C" TsValue* ts_to_property_key_spec(TsValue* key);  // TsObject.cpp
+    // ES 10.4.6.6 module namespace [[DefineOwnProperty]](P, Desc): true only
+    // when Desc is COMPATIBLE with the existing own property; every requested
+    // CHANGE — new key, accessor fields, configurable:true, enumerable/
+    // writable flips, a value that is not SameValue(current) — answers false
+    // (Object.defineProperty then throws; Reflect.defineProperty surfaces the
+    // boolean). String exports are {value: live binding, w:true, e:true,
+    // c:false}; @@toStringTag is {value:"Module", w:false, e:false, c:false};
+    // symbol keys otherwise follow OrdinaryDefineOwnProperty on the
+    // non-extensible namespace (absent -> false).
+    static bool module_ns_define_own(TsValue* obj, TsMap* map, TsValue* prop,
+                                     TsValue* descriptor) {
+        // Canonicalize the key: a Symbol maps to its storage-key string.
+        TsString* ks = nullptr;
+        {
+            uint64_t pNb = nanbox_from_tsvalue_ptr(prop);
+            if (nanbox_is_ptr(pNb)) {
+                void* pp = nanbox_to_ptr(pNb);
+                if (pp) {
+                    uint32_t m0 = *(uint32_t*)pp;
+                    if (m0 == 0x53594D42 /* SYMB */)
+                        ks = ts_symbol_storage_key((TsSymbol*)pp);
+                    else if (m0 == 0x53545247 /* STRG */ || m0 == 0x434F4E53 /* CONS */)
+                        ks = (TsString*)pp;
+                }
+            }
+        }
+        if (!ks) return false;
+        const char* kc = ks->ToUtf8();
+        if (!kc) return false;
+        bool isSymKey = (kc[0] == '\x01') || strncmp(kc, "[Symbol.", 8) == 0;
+        if (!isSymKey &&
+            (strncmp(kc, "__getter_", 9) == 0 || strncmp(kc, "__setter_", 9) == 0))
+            return false;  // internal storage names are not own properties
+
+        TsValue dk; dk.type = ValueType::STRING_PTR; dk.ptr_val = ks;
+        bool exists = map->Has(dk);
+        TsValue* currentVal = nullptr;
+        bool curW = false, curE = false;
+        if (isSymKey) {
+            // Only @@toStringTag exists; attrs are all-false.
+            if (!exists) return false;
+            TsValue cv = map->Get(dk);
+            currentVal = nanbox_from_tagged(cv);
+        } else {
+            if (!exists && strlen(kc) < 240) {
+                char gbuf[256];
+                snprintf(gbuf, sizeof(gbuf), "__getter_%s", kc);
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(gbuf);
+                exists = map->Has(gk);
+            }
+            if (!exists) return false;
+            curW = true; curE = true;
+            currentVal = ts_object_get_dynamic(obj, ts_value_make_string(ks));
+        }
+
+        void* dRaw = descriptor ? ts_value_get_object(descriptor) : nullptr;
+        if (dRaw && is_flat_object(dRaw)) dRaw = ts_flat_object_to_map(dRaw);
+        if (!dRaw || *(uint32_t*)((char*)dRaw + 16) != 0x4D415053)
+            return true;  // empty descriptor: no change requested
+        TsMap* dm = (TsMap*)dRaw;
+        auto field = [&](const char* n, TsValue* out) -> bool {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(n);
+            if (!dm->Has(k)) return false;
+            *out = dm->Get(k);
+            return true;
+        };
+        TsValue f;
+        if (field("get", &f) || field("set", &f)) return false;
+        if (field("configurable", &f) && ts_value_to_bool(nanbox_from_tagged(f)))
+            return false;
+        if (field("enumerable", &f) &&
+            ts_value_to_bool(nanbox_from_tagged(f)) != curE)
+            return false;
+        if (field("writable", &f) &&
+            ts_value_to_bool(nanbox_from_tagged(f)) != curW)
+            return false;
+        if (field("value", &f))
+            return ts_object_is(nanbox_from_tagged(f),
+                                currentVal ? currentVal
+                                           : ts_value_make_undefined());
+        return true;
+    }
+
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // #66: defineProperty on %Object.prototype% flips the dirty bit.
         if (g_object_proto_map && obj) {
@@ -2383,6 +2475,20 @@ extern "C" {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
             // Unknown raw pointer (native object, exotic) — legacy no-op.
+            return obj;
+        }
+
+        // ES 10.4.6.6 module namespace [[DefineOwnProperty]]: refusal is a
+        // TypeError here (DefinePropertyOrThrow); Reflect.defineProperty
+        // routes through reflect_define_ordinary, which converts the throw
+        // into a boolean false.
+        if ((uintptr_t)rawPtr >= 4096 && !is_flat_object(rawPtr) &&
+            *(uint32_t*)((char*)rawPtr + 16) == 0x4D415053 /*MAPS*/ &&
+            ((TsMap*)rawPtr)->IsModuleNamespaceAny()) {
+            if (!module_ns_define_own(obj, (TsMap*)rawPtr, prop, descriptor)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot redefine property on a module namespace object"));
+            }
             return obj;
         }
 
@@ -2967,6 +3073,14 @@ extern "C" {
                                     uint8_t cur = 0;
                                     if (array_index_attrs_get(arr, (size_t)idx, &cur))
                                         accAttrs = cur & 0x05;  // enumerable|configurable
+                                    else
+                                        // Existing PLAIN data element (no side
+                                        // record): its current attrs are all
+                                        // true — absent descriptor fields
+                                        // RETAIN them (ES 10.1.6.3), so the
+                                        // converted accessor stays
+                                        // enumerable+configurable.
+                                        accAttrs = 0x05;
                                 }
                                 TsValue ekA; ekA.type = ValueType::STRING_PTR;
                                 ekA.ptr_val = TsString::GetInterned("enumerable");
@@ -4306,6 +4420,57 @@ extern "C" {
         // accessor descriptor.
         TsString* propStr = (propKey.type == ValueType::STRING_PTR)
             ? (TsString*)propKey.ptr_val : nullptr;
+
+        // ES 10.4.6.5 module namespace [[GetOwnProperty]]: a string key that
+        // is an exported name is ALWAYS a data property {value: [[Get]](name)
+        // — the live binding value — writable: true, enumerable: true,
+        // configurable: false}, never an accessor descriptor, even though
+        // mutable exports are backed by a "__getter_<name>" live-binding
+        // closure (which the generic accessor branch below would otherwise
+        // report as {get, set,...} with no value). Internal storage keys
+        // ('\x01'-marked, accessor halves) are not own properties. Symbol
+        // keys ("[Symbol.x]" storage form) take the ordinary data path below
+        // (@@toStringTag is stored with attrs 0 -> w/e/c all false).
+        if (map->IsModuleNamespaceAny() && propStr) {
+            const char* nsk = propStr->ToUtf8();
+            if (nsk && nsk[0] != '\x01' && strncmp(nsk, "[Symbol.", 8) != 0) {
+                if (strncmp(nsk, "__getter_", 9) == 0 ||
+                    strncmp(nsk, "__setter_", 9) == 0)
+                    return ts_value_make_undefined();
+                bool own = map->Has(propKey);
+                if (!own && strlen(nsk) < 240) {
+                    char gbuf[256];
+                    snprintf(gbuf, sizeof(gbuf), "__getter_%s", nsk);
+                    TsValue gk; gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned(gbuf);
+                    own = map->Has(gk);
+                }
+                if (!own) return ts_value_make_undefined();
+                TsValue* live = ts_object_get_dynamic(obj, prop);
+                TsMap* d = TsMap::Create();
+                TsValue vk; vk.type = ValueType::STRING_PTR;
+                vk.ptr_val = TsString::GetInterned("value");
+                if (live) {
+                    d->Set(vk, nanbox_to_tagged(live));
+                } else {
+                    TsValue uv; uv.type = ValueType::UNDEFINED; uv.i_val = 0;
+                    d->Set(vk, uv);
+                }
+                TsValue bt; bt.type = ValueType::BOOLEAN; bt.i_val = 1;
+                TsValue bf; bf.type = ValueType::BOOLEAN; bf.i_val = 0;
+                TsValue wk; wk.type = ValueType::STRING_PTR;
+                wk.ptr_val = TsString::GetInterned("writable");
+                d->Set(wk, bt);
+                TsValue ek; ek.type = ValueType::STRING_PTR;
+                ek.ptr_val = TsString::GetInterned("enumerable");
+                d->Set(ek, bt);
+                TsValue ck; ck.type = ValueType::STRING_PTR;
+                ck.ptr_val = TsString::GetInterned("configurable");
+                d->Set(ck, bf);
+                return ts_value_make_object(d);
+            }
+        }
+
         if (propStr) {
             const char* propC = propStr->ToUtf8();
             if (propC) {
