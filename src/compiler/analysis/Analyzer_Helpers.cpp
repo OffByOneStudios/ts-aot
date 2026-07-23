@@ -847,6 +847,20 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     module->isESM = resolved.isESM || resolved.path.ends_with(".mjs")
         || resolved.path.ends_with(".ts") || resolved.path.ends_with(".tsx");
     if (resolved.path.ends_with(".cjs")) module->isESM = false;  // .cjs is always CommonJS
+    // CJS-marker scan (raw text; false positives inside strings only make us
+    // LENIENT, which is the legacy behavior). Marker-free modules get strict
+    // ES ResolveExport semantics — see Module.h::cjsMarkers.
+    {
+        std::ifstream srcF(resolved.path, std::ios::binary);
+        if (srcF) {
+            std::string src((std::istreambuf_iterator<char>(srcF)),
+                            std::istreambuf_iterator<char>());
+            module->cjsMarkers = src.find("module.exports") != std::string::npos ||
+                                 src.find("exports.") != std::string::npos ||
+                                 src.find("exports[") != std::string::npos ||
+                                 src.find("require(") != std::string::npos;
+        }
+    }
     modules[resolved.path] = module;  // Cache early to handle circular deps
     
     try {

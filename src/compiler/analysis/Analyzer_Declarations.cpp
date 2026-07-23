@@ -148,7 +148,10 @@ int Analyzer::resolveModuleExport(Module* m, const std::string& name,
         return 0;
     }
     // Star exports: ambiguous when found in 2+ DISTINCT defining modules.
-    if (!m->reStarSources.empty()) {
+    // ES 16.2.1.6.3 step 6: "default" is NEVER provided by `export *` — a
+    // default request that wasn't satisfied locally fails without consulting
+    // star exports.
+    if (name != "default" && !m->reStarSources.empty()) {
         std::set<std::string> definers;
         for (const auto& srcPath : m->reStarSources) {
             auto srcIt = modules.find(srcPath);
@@ -170,6 +173,13 @@ int Analyzer::resolveModuleExport(Module* m, const std::string& name,
     // Fallback: locally-exported names registered through paths that don't
     // fill reDirectExports (defaults, enums, CJS interop) — be lenient.
     if (m->exports && (m->exports->lookup(name) || m->exports->lookupType(name))) {
+        if (definingPath) *definingPath = m->path;
+        return 0;
+    }
+    // In-progress module (circular load): its export entries are not fully
+    // recorded yet, so NOT_FOUND is unreliable — give the benefit of the
+    // doubt. True cycles are still caught above via the visited set.
+    if (!m->analyzed) {
         if (definingPath) *definingPath = m->path;
         return 0;
     }
@@ -197,6 +207,33 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
         return;
     }
     staticImportPaths.insert(module->path);
+
+    // ECMA-262 16.2.1.5 Link: a module whose own graph failed ResolveExport
+    // (or that failed to parse under the module goal) poisons every module
+    // that STATICALLY imports it — the error propagates up to the entry,
+    // where analyze() turns it into a compile-time SyntaxError. Dynamic-only
+    // import() chains never pass through here and keep the runtime-reject
+    // behavior.
+    if (!node->isTypeOnly && !module->linkError.empty() && currentModule &&
+        currentModule->linkError.empty()) {
+        currentModule->linkError = module->linkError;
+    }
+
+    // ES 16.2.1.6.3 ResolveExport for the default import binding: for strict
+    // ES modules (ESM by resolver/extension, or CJS-marker-free sources) a
+    // missing "default" is a link-time SyntaxError. Note "default" is never
+    // satisfiable through `export *` (step 6). CJS-marker modules keep the
+    // lenient interop (default = module.exports).
+    if (!node->defaultImport.empty() && module->ast && !module->isJsonModule &&
+        module->type != ModuleType::Declaration && !node->isTypeOnly &&
+        (module->isESM || !module->cjsMarkers)) {
+        std::set<std::pair<std::string, std::string>> visited;
+        int rres = resolveModuleExport(module.get(), "default", visited);
+        if (rres != 0 && currentModule && currentModule->linkError.empty()) {
+            currentModule->linkError =
+                linkErrorMessage(rres, "default", node->moduleSpecifier);
+        }
+    }
 
     // Import symbols
     if (!node->defaultImport.empty()) {
@@ -232,16 +269,20 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
 
     for (const auto& spec : node->namedImports) {
         std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
-        // ES link-time import binding resolution: an import whose
-        // ResolveExport is circular or ambiguous is a link error of THIS
-        // module (import() of it must reject with SyntaxError). Only the
-        // two definitive failure classes are flagged; NOT_FOUND keeps the
-        // legacy lenient handling below (CJS/type-only interop).
-        if (module->ast && !module->isJsonModule && !node->isTypeOnly && !spec.isTypeOnly) {
+        // ES link-time import binding resolution (16.2.1.6.3 ResolveExport):
+        // an import whose ResolveExport is circular or ambiguous is a link
+        // error of THIS module (import() of it must reject with SyntaxError).
+        // NOT_FOUND is also a link error for strict ES modules (ESM by
+        // resolver/extension, or CJS-marker-free sources); marker-bearing CJS
+        // modules keep the legacy lenient handling below (dynamic exports).
+        if (module->ast && !module->isJsonModule &&
+            module->type != ModuleType::Declaration &&
+            !node->isTypeOnly && !spec.isTypeOnly) {
             std::set<std::pair<std::string, std::string>> visited;
             int rres = resolveModuleExport(module.get(), name, visited);
-            if ((rres == 2 || rres == 3) && currentModule &&
-                currentModule->linkError.empty()) {
+            bool strictEsm = module->isESM || !module->cjsMarkers;
+            if ((rres == 2 || rres == 3 || (rres == 1 && strictEsm)) &&
+                currentModule && currentModule->linkError.empty()) {
                 currentModule->linkError =
                     linkErrorMessage(rres, name, node->moduleSpecifier);
             }
@@ -283,6 +324,14 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
         if (!module) return;
         staticImportPaths.insert(module->path);
 
+        // ECMA-262 16.2.1.5 Link: a statically re-exported module whose own
+        // graph failed ResolveExport (or failed to parse under the module
+        // goal) poisons this module too; the error bubbles to the entry.
+        if (!module->linkError.empty() && currentModule &&
+            currentModule->linkError.empty()) {
+            currentModule->linkError = module->linkError;
+        }
+
         // ES2020: export * as ns from "module"
         if (!node->namespaceExport.empty()) {
             auto nsType = std::make_shared<NamespaceType>(module);
@@ -294,11 +343,14 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
 
         if (node->isStarExport) {
             currentModule->reStarSources.push_back(module->path);
-            // Re-export all from module
+            // Re-export all from module. ES 16.2.1.6.2 ExportedNames:
+            // `export *` NEVER re-exports "default".
             for (auto& [name, sym] : module->exports->getGlobalSymbols()) {
+                if (name == "default") continue;
                 currentModule->exports->define(name, sym->type);
             }
             for (auto& [name, type] : module->exports->getGlobalTypes()) {
+                if (name == "default") continue;
                 currentModule->exports->defineType(name, type);
             }
             return;
@@ -314,8 +366,11 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
                 std::set<std::pair<std::string, std::string>> visited;
                 int rres = resolveModuleExport(module.get(), name, visited);
                 // CIRCULAR/AMBIGUOUS are definitive link errors; NOT_FOUND
-                // stays lenient for CJS interop (dynamic exports).
-                if (rres == 1 && !module->isESM &&
+                // stays lenient ONLY for CJS interop (marker-bearing modules
+                // with dynamic exports). Marker-free sources are ES modules:
+                // an unresolvable indirect export entry is a SyntaxError
+                // (ECMA-262 16.2.1.5.1 step 9 InitializeEnvironment).
+                if (rres == 1 && !module->isESM && module->cjsMarkers &&
                     module->type == ModuleType::UntypedJavaScript) {
                     rres = 0;
                 }
